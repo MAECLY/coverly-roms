@@ -1221,6 +1221,13 @@ impl<'a> Run<'a> {
             profile: None,
         };
         let tree = tree_summary(path, &opts);
+        // A link or a cloud placeholder that appeared since the plan does
+        // not change the bytes or the newest time, but the plan would
+        // have left the folder for it: a rename would carry the link into
+        // the library, a copy would download the placeholder.
+        if tree.symlink || tree.cloud_only {
+            return false;
+        }
         item.fps
             .first()
             .is_some_and(|fp| fp.size == tree.bytes && fp.mtime_ns == tree.newest_mtime_ns)

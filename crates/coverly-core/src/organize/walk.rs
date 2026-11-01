@@ -178,14 +178,20 @@ pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
             }
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
-            if is_appledouble(&name) || is_junk_file(&name) || is_zone_identifier(&name) {
-                continue;
-            }
             let Ok(meta) = fs::symlink_metadata(&path) else {
                 continue;
             };
+            // A link is a link whatever its name: a `._x` or `Thumbs.db`
+            // link must not hide from the gate.
             if meta.file_type().is_symlink() || is_reparse_point(&meta) {
                 out.symlink = true;
+                continue;
+            }
+            // Only junk *files* are OS litter: a folder named so is copied
+            // with the rest (`write::transfer::list_tree`), so it counts.
+            if meta.is_file()
+                && (is_appledouble(&name) || is_junk_file(&name) || is_zone_identifier(&name))
+            {
                 continue;
             }
             if let Ok(rel) = path.strip_prefix(dir) {

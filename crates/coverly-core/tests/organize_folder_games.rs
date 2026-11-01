@@ -1688,3 +1688,52 @@ mod xbox {
         assert!(folders(&p).is_empty(), "{:#?}", p.items);
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_with_a_junk_name_still_leaves_the_folder() {
+    let _g = ProbeGuard::new();
+    for name in ["._link", ".DS_Store", "Thumbs.db"] {
+        let item = gate(&[("G/GAME.PROBE", 16), ("G/real.bin", 4)], |pile| {
+            std::os::unix::fs::symlink("/", pile.join("G").join(name)).unwrap();
+        });
+        assert_eq!(left_reason(&item), Some(&LeftReason::Symlink), "{name}");
+    }
+}
+
+#[test]
+fn a_folder_with_a_junk_name_is_counted_like_the_copy_sees_it() {
+    let _g = ProbeGuard::new();
+    // Only junk *files* are OS litter: a folder named so is copied with
+    // its contents, so the plan measures it too.
+    let item = gate(
+        &[
+            ("G/GAME.PROBE", 16),
+            ("G/._data/a.bin", 8),
+            ("G/Thumbs.db/b.bin", 4),
+        ],
+        |_| {},
+    );
+    assert_eq!(item.size, 28);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_added_after_the_plan_is_skipped_at_apply() {
+    let _g = ProbeGuard::new();
+    let (world, pile, target) = setup();
+    put_tree(pile.path(), ZELDA);
+    let p = plan(&world, pile.path(), target.path(), "esde");
+    let item = only_folder(&p);
+    assert_eq!(item.action, OrganizeAction::Auto);
+    std::os::unix::fs::symlink("/", pile.path().join("Zelda").join("d").join("root")).unwrap();
+    let data = TempDir::new().unwrap();
+    let report = apply(&p, data.path());
+    assert_eq!(
+        status(&report, item.id),
+        &ItemStatus::Skipped {
+            reason: SkipReason::ChangedSincePlan
+        }
+    );
+    assert!(pile.path().join("Zelda").join("GAME.PROBE").is_file());
+}
