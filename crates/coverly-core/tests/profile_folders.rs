@@ -424,3 +424,26 @@ fn port_folders_are_scoped_but_prboom_is_global() {
         );
     }
 }
+
+#[test]
+fn gamecube_and_wii_folders_resolve() {
+    // Systems batch 2 §6: aliases match case-insensitively, so the
+    // upper-case first alias also covers `gamecube` and `wii`.
+    let db = SystemDb::builtin();
+    let id = |s: Option<&coverly_core::systems::System>| s.map(|s| s.id.clone());
+    for (name, want) in [
+        ("gamecube", "gamecube"),
+        ("GAMECUBE", "gamecube"),
+        ("gc", "gamecube"),
+        ("ngc", "gamecube"),
+        ("gcn", "gamecube"),
+        ("wii", "wii"),
+        ("WII", "wii"),
+    ] {
+        assert_eq!(id(db.resolve_folder(name)), Some(want.into()), "{name}");
+    }
+    assert_eq!(
+        id(db.resolve_folder_in(Some(&builtin("esde")), "gc")),
+        Some("gamecube".into())
+    );
+}

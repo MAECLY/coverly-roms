@@ -45,6 +45,10 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   lutro: 'LUTR',
   tic80: 'TIC',
   uzebox: 'UZE',
+  // Systems batch 2: abbreviations until their silhouettes are generated
+  // (plan Task 17).
+  gamecube: 'GC',
+  wii: 'WII',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

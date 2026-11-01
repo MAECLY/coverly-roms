@@ -1663,3 +1663,98 @@ fn wad_without_magic_is_not_auto() {
         id.combined
     );
 }
+
+// --- GameCube and Wii: weak `.wad`/`.tgc` owners (systems batch 2, Task 7) ---
+
+fn write_sparse(
+    dir: &Path,
+    name: &str,
+    src: &coverly_core::consoles::testing::SparseAt,
+) -> std::path::PathBuf {
+    let p = dir.join(name);
+    std::fs::write(&p, src.bytes()).unwrap();
+    p
+}
+
+#[test]
+fn wii_wad_contradicts_doom() {
+    // D7/D24: `.wad` is doom's; a Wii WAD header proves wii, which lists
+    // `wad` as weak, so doom's extension is contradicted.
+    use coverly_core::consoles::testing as t;
+    let tmp = tempfile::tempdir().unwrap();
+    let p = write_sparse(
+        tmp.path(),
+        "WiiWare Game.wad",
+        &t::wii_wad(0x0001_0001_5741_4145),
+    );
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.verdict, id.combined.system.as_deref()),
+        (Verdict::Auto, Some("wii"))
+    );
+    assert!(
+        id.notes.contains(&ItemNote::ExtensionContradicted {
+            ext: "wad".into(),
+            system: Some("doom".into()),
+        }),
+        "{:?}",
+        id.notes
+    );
+}
+
+#[test]
+fn iwad_stays_doom() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut wad = b"IWAD\x02\0\0\0\x0c\0\0\0".to_vec();
+    wad.resize(4096, 0);
+    let p = tmp.path().join("doom2.wad");
+    std::fs::write(&p, &wad).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("doom"));
+    assert!(!id
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::ExtensionContradicted { .. })));
+}
+
+#[test]
+fn tgc_magic_contradicts_gamecom() {
+    use coverly_core::consoles::testing as t;
+    let tmp = tempfile::tempdir().unwrap();
+    let p = write_sparse(
+        tmp.path(),
+        "Demo Disc.tgc",
+        &t::tgc(&t::gc_header("GM8E01", false)),
+    );
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.verdict, id.combined.system.as_deref()),
+        (Verdict::Auto, Some("gamecube"))
+    );
+    assert!(id.notes.contains(&ItemNote::ExtensionContradicted {
+        ext: "tgc".into(),
+        system: Some("gamecom".into()),
+    }));
+    // A Game.com cart has no TGC magic and stays gamecom's.
+    let p = tmp.path().join("Lights Out.tgc");
+    std::fs::write(&p, fx::zeros(64 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("gamecom"));
+}
+
+#[test]
+fn gcz_without_header_is_shared_review() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Unknown.gcz");
+    std::fs::write(&p, fx::zeros(64 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.verdict, Verdict::Review);
+    let alts: Vec<&str> = std::iter::once(id.combined.system.as_deref())
+        .flatten()
+        .chain(id.combined.alternatives.iter().map(|a| a.0.as_str()))
+        .collect();
+    assert!(
+        alts.contains(&"gamecube") && alts.contains(&"wii"),
+        "{alts:?}"
+    );
+}

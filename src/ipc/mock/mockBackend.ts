@@ -297,6 +297,9 @@ const ESDE_FOLDERS = {
   quake: 'quake',
   solarus: 'solarus',
   ...EXTRA_ARCADE,
+  // Systems batch 2 (spec §6).
+  gamecube: 'gc',
+  wii: 'wii',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -339,6 +342,9 @@ const BATOCERA_FOLDERS = {
   wolf3d: 'ecwolf',
   xrick: 'xrick',
   ...EXTRA_ARCADE,
+  // Systems batch 2 (spec §6).
+  gamecube: 'gamecube',
+  wii: 'wii',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends

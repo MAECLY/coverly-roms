@@ -231,6 +231,12 @@ fn starts(head: &[u8], offset: usize, magic: &[u8]) -> bool {
 
 /// Header magic of the file behind `src` (`len` bytes, extension `ext`).
 pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
+    sniff_named(src, len, ext, "")
+}
+
+/// [`sniff`] with the file (or archive entry) name, which the console
+/// readers may use (Switch title-id tokens, spec D10); `""` when unknown.
+pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sniff {
     let ext = ext.to_ascii_lowercase();
     let mut head = vec![0u8; PREFIX.min(usize::try_from(len).unwrap_or(PREFIX))];
     let n = read_exact_at(src, 0, &mut head);
@@ -258,8 +264,17 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
         s.container = Some(c);
         return s;
     }
-    // Disc images first (sector 16), then cartridges, most specific first.
+    // Disc images first (sector 16), then the console header readers of
+    // systems batch 2 (plan P-1), then cartridges, most specific first.
     discs(src, &head, len, &ext, &mut s);
+    if s.hits.is_empty() && s.unsupported.is_none() {
+        let mut b = crate::consoles::Budgeted::new(&mut *src, len);
+        if let Some(id) = crate::consoles::identify(&mut b, &ext, name) {
+            s.hit(&id.system, id.confidence, id.detail.clone());
+            s.serial = id.serial.clone();
+            s.console = Some(id);
+        }
+    }
     if s.hits.is_empty() && s.unsupported.is_none() {
         cartridges(src, &head, len, &ext, &mut s);
     }
@@ -367,6 +382,10 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sniff) 
         }
     }
     if starts(head, 0, b"CISO") {
+        // A Nintendo CISO shares the magic: the console readers take it.
+        if crate::consoles::nintendo_disc::is_nintendo_ciso(head) {
+            return;
+        }
         // PCSX2 reads CSO too: a PS2 volume inside says so (spec §12).
         if let Some((system, weight, detail, serial)) = cso_playstation(src, len) {
             s.hit(system, weight, detail);

@@ -36,7 +36,8 @@ use crate::disc::{
 };
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::sniff::{
-    sniff, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt, PREFIX, STREAM_CAP, UEF_MAGIC,
+    sniff_named, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt, PREFIX, STREAM_CAP,
+    UEF_MAGIC,
 };
 use crate::organize::plan::SheetCheck;
 use crate::scan::classify::{extension, is_appledouble, is_junk_file};
@@ -406,7 +407,12 @@ pub fn inspect_file_with(
     let n = read_prefix(&mut file, &mut head)?;
     head.truncate(n);
     let tail = read_tail(&mut file, len, head.len())?;
-    let first = sniff(&mut SliceAt(&head), head.len() as u64, &ext);
+    let first = sniff_named(
+        &mut SliceAt(&head),
+        head.len() as u64,
+        &ext,
+        &file_name(path),
+    );
     let magic = detect_container(&head, len, Some(tail.as_deref().unwrap_or(&head)));
     let mut out = Inspection::new(container_for(&ext, magic));
     match out.container {
@@ -438,7 +444,7 @@ pub fn inspect_file_with(
             let mut sniffed = if len <= head.len() as u64 {
                 first
             } else {
-                sniff(&mut FileAt(file), len, &ext)
+                sniff_named(&mut FileAt(file), len, &ext, &file_name(path))
             };
             if magic.is_some() && PACKAGE_EXTS.contains(&ext.as_str()) {
                 sniffed.hits.extend(package_hits(path, &ext, limits));
@@ -467,7 +473,12 @@ pub fn inspect_file_with(
 pub fn inspect_set_primary(track: &Path) -> io::Result<Sniff> {
     let file = crate::consoles::open_rom(track)?;
     let len = file.metadata()?.len();
-    Ok(sniff(&mut FileAt(file), len, &extension(track)))
+    Ok(sniff_named(
+        &mut FileAt(file),
+        len,
+        &extension(track),
+        &file_name(track),
+    ))
 }
 
 /// Reads the start of `file` into `buf` (fewer bytes at end of file).
@@ -801,7 +812,7 @@ fn inspect_archive(
                 rom.index,
                 rom.info.size,
                 want_crc,
-                &ext,
+                (&ext, entry_file_name(&rom.info.name)),
                 &mut budget,
             ) {
                 Ok(read) => {
@@ -1030,6 +1041,11 @@ fn not_read(e: ArchiveError, out: &mut Inspection) -> Result<(), ArchiveError> {
 /// `(directory, file name)` of a `/`-separated entry name.
 fn split_dir(name: &str) -> (&str, &str) {
     name.rsplit_once('/').unwrap_or(("", name))
+}
+
+/// The file name of a `/`-separated entry name.
+fn entry_file_name(name: &str) -> &str {
+    split_dir(name).1
 }
 
 /// The file stem of an entry name.
@@ -1613,7 +1629,12 @@ fn identify_track(
             return Ok(None);
         }
     };
-    payload.sniff = sniff(&mut SliceAt(&bytes), entry.size, &track.ext);
+    payload.sniff = sniff_named(
+        &mut SliceAt(&bytes),
+        entry.size,
+        &track.ext,
+        entry_file_name(&track.name),
+    );
     out.payloads.push(payload);
     let index = entry.index;
     let mut failed: Option<ArchiveError> = None;
@@ -1727,7 +1748,7 @@ fn read_payload(
     index: usize,
     size: u64,
     want_crc: bool,
-    ext: &str,
+    (ext, name): (&str, &str),
     budget: &mut Budget,
 ) -> Result<PayloadRead, ArchiveError> {
     let stream = reader.open_entry(index, budget)?;
@@ -1736,10 +1757,11 @@ fn read_payload(
         hasher: crc32fast::Hasher::new(),
         error: None,
     };
-    let sniffed = sniff(
+    let sniffed = sniff_named(
         &mut StreamAt::new((&mut tee).take(STREAM_CAP), STREAM_CAP),
         size,
         ext,
+        name,
     );
     if let Some(e) = tee.error.take() {
         return Err(e);

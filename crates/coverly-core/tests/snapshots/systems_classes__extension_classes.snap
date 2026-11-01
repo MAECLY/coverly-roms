@@ -442,6 +442,18 @@ expression: rows
   },
   {
     "accepting": [
+      "gamecube",
+      "wii"
+    ],
+    "class": "Shared",
+    "ext": "ciso",
+    "strong": [
+      "gamecube",
+      "wii"
+    ]
+  },
+  {
+    "accepting": [
       "pc88"
     ],
     "class": "Unique",
@@ -660,6 +672,15 @@ expression: rows
   },
   {
     "accepting": [
+      "gamecube",
+      "wii"
+    ],
+    "class": "Unknown",
+    "ext": "dol",
+    "strong": []
+  },
+  {
+    "accepting": [
       "dos"
     ],
     "class": "Unique",
@@ -832,6 +853,28 @@ expression: rows
   },
   {
     "accepting": [
+      "gamecube"
+    ],
+    "class": "Unique",
+    "ext": "gcm",
+    "strong": [
+      "gamecube"
+    ]
+  },
+  {
+    "accepting": [
+      "gamecube",
+      "wii"
+    ],
+    "class": "Shared",
+    "ext": "gcz",
+    "strong": [
+      "gamecube",
+      "wii"
+    ]
+  },
+  {
+    "accepting": [
       "dreamcast"
     ],
     "class": "Unique",
@@ -960,7 +1003,9 @@ expression: rows
       "amigacd32",
       "cdtv",
       "fmtowns",
-      "triforce"
+      "triforce",
+      "gamecube",
+      "wii"
     ],
     "class": "Generic",
     "ext": "iso",
@@ -977,7 +1022,9 @@ expression: rows
       "cdi",
       "amigacd32",
       "cdtv",
-      "fmtowns"
+      "fmtowns",
+      "gamecube",
+      "wii"
     ]
   },
   {
@@ -1082,7 +1129,9 @@ expression: rows
       "ps2",
       "amstradcpc",
       "x68000",
-      "pc98"
+      "pc98",
+      "gamecube",
+      "wii"
     ],
     "class": "Shared",
     "ext": "m3u",
@@ -1099,7 +1148,9 @@ expression: rows
       "ps2",
       "amstradcpc",
       "x68000",
-      "pc98"
+      "pc98",
+      "gamecube",
+      "wii"
     ]
   },
   {
@@ -1438,6 +1489,18 @@ expression: rows
   },
   {
     "accepting": [
+      "gamecube",
+      "wii"
+    ],
+    "class": "Shared",
+    "ext": "rvz",
+    "strong": [
+      "gamecube",
+      "wii"
+    ]
+  },
+  {
+    "accepting": [
       "zxspectrum"
     ],
     "class": "Unique",
@@ -1700,7 +1763,8 @@ expression: rows
   },
   {
     "accepting": [
-      "gamecom"
+      "gamecom",
+      "gamecube"
     ],
     "class": "Unique",
     "ext": "tgc",
@@ -1841,7 +1905,8 @@ expression: rows
   },
   {
     "accepting": [
-      "doom"
+      "doom",
+      "wii"
     ],
     "class": "Unique",
     "ext": "wad",
@@ -1856,6 +1921,28 @@ expression: rows
     "class": "Unknown",
     "ext": "wasm",
     "strong": []
+  },
+  {
+    "accepting": [
+      "wii"
+    ],
+    "class": "Unique",
+    "ext": "wbfs",
+    "strong": [
+      "wii"
+    ]
+  },
+  {
+    "accepting": [
+      "gamecube",
+      "wii"
+    ],
+    "class": "Shared",
+    "ext": "wia",
+    "strong": [
+      "gamecube",
+      "wii"
+    ]
   },
   {
     "accepting": [

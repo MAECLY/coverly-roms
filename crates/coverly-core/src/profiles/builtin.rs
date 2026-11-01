@@ -450,6 +450,9 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
         "triforce",
         [Some("triforce"), Some("triforce"), None, None, None],
     ),
+    // Systems batch 2 (spec §6).
+    ("gamecube", [Some("gc"), Some("gamecube"), None, None, None]),
+    ("wii", [Some("wii"), Some("wii"), None, None, None]),
 ];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks

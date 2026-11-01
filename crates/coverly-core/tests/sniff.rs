@@ -1080,3 +1080,32 @@ fn autodesk_3ds_is_a_model() {
     bytes[0x100..0x104].copy_from_slice(b"NCSD");
     assert_ne!(run(&bytes, "3ds").not_a_rom, Some(NotARom::Model3d));
 }
+
+#[test]
+fn gamecube_and_wii_heads_carry_the_console_id() {
+    use coverly_core::consoles::testing as t;
+    use coverly_core::identify::sniff::sniff_named;
+    // A head alone (an archive entry's first bytes) is enough for a
+    // plain disc header (spec §8.6).
+    let head = t::gc_header("RMGE01", true);
+    let mut bytes = head.clone();
+    bytes.resize(64 * 1024, 0);
+    let s = sniff_named(&mut SliceAt(&bytes), 4_699_979_776, "iso", "Game.iso");
+    assert_eq!(s.hits.len(), 1);
+    assert_eq!((s.hits[0].system.as_str(), s.hits[0].weight), ("wii", 0.95));
+    let console = s.console.unwrap();
+    assert_eq!(console.serial.as_deref(), Some("RMGE01"));
+    assert_eq!(s.serial.as_deref(), Some("RMGE01"));
+    // A Nintendo CISO never reaches the PSP CSO rule.
+    let mut ciso = t::ciso(&head);
+    let len = ciso.len;
+    let s = sniff(&mut ciso, len, "ciso");
+    assert_eq!(
+        s.hits.iter().map(|h| h.system.as_str()).collect::<Vec<_>>(),
+        ["wii"]
+    );
+    // Zeros under a GameCube extension: nothing.
+    let zeros = vec![0u8; 64 * 1024];
+    let s = sniff(&mut SliceAt(&zeros), zeros.len() as u64, "gcz");
+    assert!(s.hits.is_empty() && s.console.is_none());
+}

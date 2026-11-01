@@ -1223,3 +1223,35 @@ family = "arcade"
 aliases = ["TRIFORCE"]
 weak_extensions = ["iso"]
 arcade = true
+
+# ---------------------------------------------------------------------
+# Systems batch 2 (spec 2026-10-26 batch 2, §7): big discs and handhelds
+# with their own format. Each is read by a header reader in `consoles/`.
+# ---------------------------------------------------------------------
+
+[[system]]
+id = "gamecube"
+name = "Nintendo GameCube"
+family = "console"
+aliases = ["GAMECUBE", "gc", "ngc", "gcn"]
+# `gcz rvz wia ciso` are shared with wii: the disc header decides (D7).
+# `tgc` stays gamecom's; a TGC magic proves GameCube (D24).
+extensions = ["gcm", "iso", "ciso", "gcz", "rvz", "wia", "m3u"]
+weak_extensions = ["tgc", "dol"]
+libretro = "Nintendo - GameCube"
+dats = ["dat/Nintendo - GameCube.dat", "metadat/redump/Nintendo - GameCube.dat", "metadat/homebrew/Nintendo - GameCube.dat"]
+multi_file = true
+screenscraper = 13
+
+[[system]]
+id = "wii"
+name = "Nintendo Wii"
+family = "console"
+aliases = ["WII"]
+# `wad` stays doom's; a Wii WAD header proves Wii (D7, D24).
+extensions = ["wbfs", "iso", "ciso", "gcz", "rvz", "wia", "m3u"]
+weak_extensions = ["wad", "dol"]
+libretro = "Nintendo - Wii"
+dats = ["dat/Nintendo - Wii.dat", "metadat/redump/Nintendo - Wii.dat", "metadat/no-intro/Nintendo - Wii (Digital).dat"]
+multi_file = true
+screenscraper = 16

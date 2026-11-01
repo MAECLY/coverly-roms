@@ -21,9 +21,22 @@ use coverly_core::sources::{ArtQuery, ArtSource, MatchKind};
 use coverly_core::systems::{Family, System, SystemDb};
 
 /// (id, family, multi_file)
-const SYSTEMS: &[(&str, Family, bool)] = &[];
+const SYSTEMS: &[(&str, Family, bool)] = &[
+    // Task 7.
+    ("gamecube", Family::Console, true),
+    ("wii", Family::Console, true),
+];
 /// (profile, id, expected folder, on device): spot checks of spec §6.
-const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[];
+const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
+    // Task 7.
+    ("esde", "gamecube", "gc", None),
+    ("batocera", "gamecube", "gamecube", None),
+    ("esde", "wii", "wii", None),
+    ("batocera", "wii", "wii", None),
+    ("muos", "wii", "wii", Some(false)),
+    ("onion", "gamecube", "GAMECUBE", Some(false)),
+    ("anbernic-stock", "wii", "WII", Some(false)),
+];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
 /// (id, ext, head builder, expected system or None): header rules that a
@@ -42,7 +55,62 @@ type ConsoleHeader = (
 );
 /// The batch's raw-file header rules, through `sniff` like a real file
 /// (plan P-1).
-const CONSOLE_HEADERS: &[ConsoleHeader] = &[];
+const CONSOLE_HEADERS: &[ConsoleHeader] = &[
+    // Task 7: GameCube and Wii through every container, and WiiWare.
+    ("gamecube", "iso", gc_iso, Some("gamecube"), Some("GM8E01")),
+    ("wii", "iso", wii_iso, Some("wii"), Some("RMGE01")),
+    ("wii", "rvz", wii_rvz, Some("wii"), Some("RMGE01")),
+    ("gamecube", "wia", gc_wia, Some("gamecube"), Some("GM8E01")),
+    ("gamecube", "gcz", gc_gcz, Some("gamecube"), Some("GM8E01")),
+    ("wii", "ciso", wii_ciso, Some("wii"), Some("RMGE01")),
+    ("wii", "wbfs", wii_wbfs, Some("wii"), Some("RMGE01")),
+    ("gamecube", "tgc", gc_tgc, Some("gamecube"), Some("GM8E01")),
+    ("wii", "wad", wiiware, Some("wii"), Some("WAAE")),
+    // A PSP CSO shares the `CISO` magic and still answers as before.
+    ("psp", "cso", psp_cso, Some("psp"), None),
+];
+
+mod gcwii {
+    use coverly_core::consoles::testing::{self as t, SparseAt};
+
+    pub fn gc() -> Vec<u8> {
+        t::gc_header("GM8E01", false)
+    }
+    pub fn wii() -> Vec<u8> {
+        t::gc_header("RMGE01", true)
+    }
+    pub fn gc_iso() -> SparseAt {
+        t::gc_disc("GM8E01", false)
+    }
+    pub fn wii_iso() -> SparseAt {
+        t::gc_disc("RMGE01", true)
+    }
+    pub fn wii_rvz() -> SparseAt {
+        t::wia(&wii(), true, 2)
+    }
+    pub fn gc_wia() -> SparseAt {
+        t::wia(&gc(), false, 1)
+    }
+    pub fn gc_gcz() -> SparseAt {
+        t::gcz(&gc(), false)
+    }
+    pub fn wii_ciso() -> SparseAt {
+        t::ciso(&wii())
+    }
+    pub fn wii_wbfs() -> SparseAt {
+        t::wbfs(&wii())
+    }
+    pub fn gc_tgc() -> SparseAt {
+        t::tgc(&gc())
+    }
+    pub fn wiiware() -> SparseAt {
+        t::wii_wad(0x0001_0001_5741_4145)
+    }
+    pub fn psp_cso() -> SparseAt {
+        t::psp_cso()
+    }
+}
+use gcwii::*;
 
 fn research(name: &str) -> String {
     std::fs::read_to_string(
