@@ -23,7 +23,9 @@ use crate::dedupe::archive::ArchiveEntryListing;
 use crate::dedupe::disc::ReaderDiscProbe;
 use crate::dedupe::source::DiscId;
 use crate::dedupe::source::{CacheDats, DiscProbe, EntryListing, ListedEntry};
-use crate::dedupe::units::{units_from_facts, units_from_scan, units_from_sets, UnitOptions};
+use crate::dedupe::units::{
+    units_from_facts, units_from_folders, units_from_scan, units_from_sets, UnitOptions,
+};
 use crate::dedupe::{
     group_units, DedupeOptions, DupGroup, GroupAction, GroupEnv, KeepReason, QuarantineChoice,
     Relation, ReportWhy, DEFAULT_QUARANTINE_NAME,
@@ -2322,6 +2324,7 @@ fn duplicates_step(
     let mut facts: Vec<(PathBuf, Facts)> = Vec::new();
     let mut fact_systems: Vec<String> = Vec::new();
     let mut sets: Vec<(Vec<PathBuf>, String)> = Vec::new();
+    let mut folders: Vec<(PathBuf, String, u64, i64)> = Vec::new();
     let mut by_primary: HashMap<PathBuf, usize> = HashMap::new();
     let mut listed: HashMap<PathBuf, Vec<ListedEntry>> = HashMap::new();
     let mut discs: HashMap<PathBuf, Option<DiscId>> = HashMap::new();
@@ -2337,6 +2340,14 @@ fn duplicates_step(
         }
         match (entry.kind, &entry.facts) {
             (ItemKind::Set, _) => sets.push((entry.sources.clone(), system.clone())),
+            // A folder game is a unit too (D28): only its title id can
+            // match it, and its group is reported, never set aside.
+            (ItemKind::Folder, _) => folders.push((
+                primary.clone(),
+                system.clone(),
+                entry.size,
+                entry.fps.first().map_or(0, |fp| fp.mtime_ns),
+            )),
             (_, Some(f)) => {
                 if f.inspection.container.is_archive() {
                     listed.insert(primary.clone(), listed_entries(&f.inspection));
@@ -2354,6 +2365,7 @@ fn duplicates_step(
     }
     let mut units = units_from_facts(&facts, &|i| fact_systems.get(i).cloned()).units;
     units.extend(units_from_sets(&sets).units);
+    units.extend(units_from_folders(&folders).units);
 
     // Library units: only the system folders the pile goes to.
     let listing = ArchiveEntryListing::with_tools(opts.limits.clone(), &[src, target_root]);

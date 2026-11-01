@@ -316,6 +316,46 @@ pub fn units_from_facts(
     finish(drafts, excluded, &link_targets)
 }
 
+/// The units of an organise pile's folder games (systems batch 2 D28):
+/// `(folder, system, size, newest mtime)` as the survey measured them
+/// (metadata only). Like a library folder game, the folder is never read
+/// as a file, so only its title id can match it, and its group is
+/// reported, never set aside.
+pub fn units_from_folders(folders: &[(PathBuf, String, u64, i64)]) -> UnitSet {
+    let mut excluded = Vec::new();
+    let mut drafts = Vec::new();
+    for (path, system, size, mtime_ns) in folders {
+        match fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                excluded.push((path.clone(), Exclusion::Symlink));
+            }
+            Ok(meta) if meta.is_dir() => drafts.push(Draft {
+                unit: Unit {
+                    id: 0,
+                    system: system.clone(),
+                    primary: path.clone(),
+                    files: vec![path.clone()],
+                    kind: UnitKind::Folder,
+                    size: *size,
+                    payload_size: None,
+                    mtime_ns: *mtime_ns,
+                    file_id: None,
+                    patches: Vec::new(),
+                    rel_dir: PathBuf::new(),
+                    stem: file_name(path),
+                    ext: String::new(),
+                    in_library: false,
+                },
+                sizes: vec![*size],
+                // Folders cannot be hard links: no twin to drop.
+                dev_ino: None,
+            }),
+            _ => excluded.push((path.clone(), Exclusion::Unreadable)),
+        }
+    }
+    finish(drafts, excluded, &HashSet::new())
+}
+
 /// Units of an organise pile's loose disc sets: each entry is the set's
 /// files (the sheet or playlist first) and the system it belongs to. A
 /// set whose sheet is an `.m3u` is a [`UnitKind::MultiDisc`], any other a
