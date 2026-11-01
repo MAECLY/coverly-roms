@@ -15,6 +15,7 @@ use coverly_core::consoles::testing::{
     put_file, ufs2_image, vita_app,
 };
 use coverly_core::consoles::{start_open_log, take_open_log, IdSource};
+use coverly_core::identify::evidence::IdLevel;
 use coverly_core::organize::{
     plan_organize, ItemKind, ItemNote, MetaProbe, OrganizeAction, OrganizeEnv, OrganizeItem,
     OrganizeOptions, OrganizePlan, Transfer,
@@ -586,4 +587,111 @@ fn a_ps5_app_archive_is_taken_as_is() {
             "{name}"
         );
     }
+}
+
+/// Spec D12: a `.zar` is filed by its tree. A PS4 tree goes to `ps4/`, a
+/// PS5 tree to `ps5/`, a `default.xex` to `xbox360/`; a tree that says
+/// nothing (or cannot be read) goes to review among the three, and a
+/// `.zar` already inside `xbox360/` stays where it is.
+#[test]
+fn a_zar_is_classified_by_its_tree() {
+    use coverly_core::consoles::testing::{xex2, zarchive};
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let sfo = ps4_sfo("CUSA04447", "gd", "EP0002-CUSA04447_00-GRAVITYRUSH00000", 1);
+    let json = ps5_param_json("PPSA01284", "Returnal", false);
+    let files: [(&str, Vec<u8>); 4] = [
+        (
+            "Gravity Rush.zar",
+            zarchive(&[("eboot.bin", &[0u8; 64]), ("sce_sys/param.sfo", &sfo)]).bytes(),
+        ),
+        (
+            "Returnal.zar",
+            zarchive(&[("eboot.bin", &[0u8; 64]), ("sce_sys/param.json", &json)]).bytes(),
+        ),
+        (
+            "Halo.zar",
+            zarchive(&[("default.xex", &xex2(0x4D53_07E6))]).bytes(),
+        ),
+        (
+            "Mystery.zar",
+            zarchive(&[("media/a.bin", &[0u8; 8])]).bytes(),
+        ),
+    ];
+    for (name, bytes) in &files {
+        put_file(pile.path(), name, bytes);
+    }
+    // A footer whose tree points past the end: unreadable.
+    let mut broken = zarchive(&[("eboot.bin", &[0u8; 64])]).bytes();
+    let tail = broken.len() - 0x90;
+    broken[tail + 0x30..tail + 0x38].copy_from_slice(&u64::MAX.to_be_bytes());
+    put_file(pile.path(), "Broken.zar", &broken);
+    put_file(
+        &pile.path().join("xbox360"),
+        "Old.zar",
+        &zarchive(&[("media/a.bin", &[0u8; 8])]).bytes(),
+    );
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let by = |name: &str| {
+        p.items
+            .iter()
+            .find(|i| i.sources[0] == Path::new(name))
+            .unwrap_or_else(|| panic!("{name}: {:#?}", p.items))
+    };
+    for (name, system, tid) in [
+        ("Gravity Rush.zar", "ps4", "CUSA04447"),
+        ("Returnal.zar", "ps5", "PPSA01284"),
+        ("Halo.zar", "xbox360", "4D5307E6"),
+    ] {
+        let item = by(name);
+        assert_eq!(item.system_id.as_deref(), Some(system), "{name}");
+        assert_eq!(item.action, OrganizeAction::Auto, "{name}");
+        assert_eq!(
+            placed(item),
+            (system.to_string(), name.to_string()),
+            "{name}"
+        );
+        assert_eq!(
+            item.title_id.as_ref().map(|t| t.id.as_str()),
+            Some(tid),
+            "{name}"
+        );
+    }
+    assert!(by("Gravity Rush.zar")
+        .why
+        .iter()
+        .any(|e| e.detail == coverly_core::consoles::xbox::ZAR_PARAM_SFO_DETAIL));
+    for name in ["Mystery.zar", "Broken.zar"] {
+        let item = by(name);
+        assert_eq!(item.action, OrganizeAction::Review, "{name}: {item:#?}");
+        // The Shared extension only (0.50 each): the suggestion and its
+        // alternatives are the three systems, no header evidence.
+        assert!(
+            item.why.iter().all(|e| e.kind == IdLevel::Extension),
+            "{name}: {:?}",
+            item.why
+        );
+        let mut alts: Vec<&str> = item
+            .system_id
+            .iter()
+            .map(String::as_str)
+            .chain(item.alternatives.iter().map(|(s, _)| s.as_str()))
+            .collect();
+        alts.sort_unstable();
+        assert_eq!(alts, ["ps4", "ps5", "xbox360"], "{name}");
+    }
+    // Already sorted: no item, the folder is reported as sorted.
+    assert!(p
+        .items
+        .iter()
+        .all(|i| i.sources[0].file_name().is_none_or(|n| n != "Old.zar")));
+    assert!(
+        p.sorted_folders
+            .iter()
+            .any(|(f, s)| f == Path::new("xbox360") && s == "xbox360"),
+        "{:?}",
+        p.sorted_folders
+    );
 }

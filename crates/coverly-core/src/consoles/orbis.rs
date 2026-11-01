@@ -193,6 +193,10 @@ pub const PARAM_JSON_DETAIL: &str = "sce_sys/param.json";
 /// (the flag rides on the fixed `detail` vocabulary, so [`ConsoleId`]
 /// gains no field for it).
 pub const PARAM_JSON_PRO_DETAIL: &str = "sce_sys/param.json, PS5 Pro";
+/// The `detail` of a PS5 `.zar` verdict (D12): its `sce_sys/param.json`.
+pub const ZAR_PARAM_JSON_DETAIL: &str = "ZAR sce_sys/param.json";
+/// [`ZAR_PARAM_JSON_DETAIL`] for a title enhanced for the PS5 Pro.
+pub const ZAR_PARAM_JSON_PRO_DETAIL: &str = "ZAR sce_sys/param.json, PS5 Pro";
 /// `attribute3` bit 22 (KytyPS5 `title_supports_trinity`).
 const TRINITY: i64 = 1 << 22;
 

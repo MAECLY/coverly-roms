@@ -39,7 +39,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::wiiu::{find, list_child, plain_file};
-use super::zarchive::{self, Archive};
+use super::zarchive::{self, Archive, ZarKind};
 use super::{
     ArtFormat, ArtLocator, Budgeted, ConsoleId, DirListing, FolderMatch, IdSource, TitleKind,
     MAX_META_FILE,
@@ -390,34 +390,57 @@ fn xdvdfs(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
     }
 }
 
-/// A Xenia ZAR (ZArchive, §8.2): a `default.xex` at its root is read
-/// through its first block for the XEX header; otherwise an `.zar` is
-/// the magic-only `xbox360` verdict. `None` without a ZArchive footer,
-/// and for a ZArchive without `default.xex` under another extension (a
-/// Cemu WUA is read by `wiiu::wua`).
-pub fn zar(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
-    let footer = zarchive::footer(b)?;
-    let magic = (ext == "zar").then(|| ConsoleId::magic("xbox360", "ZArchive footer"));
-    let Some(archive) = footer.and_then(|f| zarchive::open(b, f)) else {
-        return magic;
+/// The `detail` of a PS4 `.zar` verdict (systems batch 3 D12).
+pub const ZAR_PARAM_SFO_DETAIL: &str = "ZAR sce_sys/param.sfo";
+
+/// A ZArchive by its tree (ZAR, §8.2; systems batch 3 D12, see
+/// [`zarchive::classify`]): an Xbox 360 tree's `default.xex` is read
+/// through its first block for the XEX header; a PS4 tree's
+/// `sce_sys/param.sfo` and a PS5 tree's `sce_sys/param.json` are read
+/// whole (at most [`zarchive::MAX_FILE_DECODED`]). `None` without a
+/// ZArchive footer, with a tree that is unreadable or over budget, with
+/// no decisive or two systems' names, or when the file read does not
+/// parse: there is no magic-only verdict, so a `.zar` (Shared by three
+/// systems) goes to review. A Cemu WUA is read by `wiiu::wua`.
+pub fn zar(b: &mut Budgeted, _ext: &str) -> Option<ConsoleId> {
+    let archive = zarchive::footer(b)?.and_then(|f| zarchive::open(b, f))?;
+    let read = |b: &mut Budgeted, name: &str| {
+        let i = archive.lookup(Archive::ROOT, &["sce_sys", name])?;
+        archive.read_file(b, i, zarchive::MAX_FILE_DECODED)
     };
-    let Some(head) = archive
-        .child(Archive::ROOT, "default.xex")
-        .and_then(|i| archive.read_head(b, i, ZAR_XEX_HEAD))
-    else {
-        return magic;
-    };
-    let mut at = |o: u64, n: usize| -> Option<Vec<u8>> {
-        let o = usize::try_from(o).ok()?;
-        head.get(o..o.checked_add(n)?).map(<[u8]>::to_vec)
-    };
-    match xex2(&mut at) {
-        Some(mut id) => {
+    match zarchive::classify(&archive) {
+        ZarKind::Xbox360 => {
+            let head = archive
+                .child(Archive::ROOT, "default.xex")
+                .and_then(|i| archive.read_head(b, i, ZAR_XEX_HEAD))?;
+            let mut at = |o: u64, n: usize| -> Option<Vec<u8>> {
+                let o = usize::try_from(o).ok()?;
+                head.get(o..o.checked_add(n)?).map(<[u8]>::to_vec)
+            };
+            let mut id = xex2(&mut at)?;
             id.id_source = id.title_id.is_some().then_some(IdSource::DefaultXex);
             id.detail = "ZAR default.xex".into();
             Some(id)
         }
-        None => magic,
+        kind @ (ZarKind::Ps4 | ZarKind::Ps4Dlc) => {
+            let psf = super::psf::parse(&read(b, "param.sfo")?)?;
+            let mut id = super::sony::from_psf(&psf, "ps4", ZAR_PARAM_SFO_DETAIL);
+            if kind == ZarKind::Ps4Dlc && psf.text("CATEGORY").is_none() {
+                id.kind = TitleKind::Dlc;
+            }
+            Some(id)
+        }
+        ZarKind::Ps5 => {
+            let mut id = super::orbis::param_json(&read(b, "param.json")?, true)?;
+            id.detail = if id.detail == super::orbis::PARAM_JSON_PRO_DETAIL {
+                super::orbis::ZAR_PARAM_JSON_PRO_DETAIL
+            } else {
+                super::orbis::ZAR_PARAM_JSON_DETAIL
+            }
+            .into();
+            Some(id)
+        }
+        ZarKind::Ambiguous | ZarKind::Nothing => None,
     }
 }
 
@@ -828,14 +851,85 @@ mod tests {
         assert_eq!(id.system, "xbox360");
         assert_eq!(id.serial.as_deref(), Some("4D5307E6"));
         assert_eq!(id.detail, "ZAR default.xex");
-        // Without one: the magic under `.zar`, nothing elsewhere.
-        let mut f = t::zarchive(&[("media/a.bin", &[0u8; 8])]);
-        let len = f.len;
-        let id = zar(&mut Budgeted::new(&mut f, len), "zar").unwrap();
-        assert_eq!((id.confidence, id.serial), (0.90, None));
         let mut f = t::zarchive(&[("media/a.bin", &[0u8; 8])]);
         let len = f.len;
         assert_eq!(zar(&mut Budgeted::new(&mut f, len), "zst"), None);
+    }
+
+    /// Spec D12: the magic alone no longer names the Xbox 360.
+    #[test]
+    fn zar_without_default_xex_has_no_verdict() {
+        let mut f = t::zarchive(&[("media/a.bin", &[0u8; 8])]);
+        let len = f.len;
+        assert_eq!(zar(&mut Budgeted::new(&mut f, len), "zar"), None);
+        // An unreadable `default.xex` is no verdict either.
+        let mut f = t::zarchive(&[("default.xex", b"not a xex".as_slice())]);
+        let len = f.len;
+        assert_eq!(zar(&mut Budgeted::new(&mut f, len), "zar"), None);
+        // Two systems in one tree.
+        let xex = t::xex2(0x4D53_07E6);
+        let mut f = t::zarchive(&[("default.xex", &xex), ("eboot.bin", &[0u8; 8])]);
+        let len = f.len;
+        assert_eq!(zar(&mut Budgeted::new(&mut f, len), "zar"), None);
+    }
+
+    #[test]
+    fn zar_with_a_ps4_tree_reads_its_param_sfo() {
+        let sfo = t::ps4_sfo("CUSA04447", "gd", "EP0002-CUSA04447_00-GRAVITYRUSH00000", 1);
+        let mut f = t::zarchive(&[("eboot.bin", &[0u8; 64]), ("sce_sys/param.sfo", &sfo)]);
+        let len = f.len;
+        let id = zar(&mut Budgeted::new(&mut f, len), "zar").unwrap();
+        assert_eq!(id.system, "ps4");
+        assert_eq!(id.title_id.as_deref(), Some("CUSA04447"));
+        assert_eq!(id.kind, TitleKind::Base);
+        assert_eq!(id.detail, ZAR_PARAM_SFO_DETAIL);
+        assert_eq!(id.id_source, Some(IdSource::ParamSfo));
+        assert_eq!(id.region, Some(crate::identify::names::Region::Europe));
+        // DLC: `param.sfo` without `eboot.bin`; no category still reads
+        // as DLC.
+        let sfo = t::ps4_sfo("CUSA04447", "", "EP0002-CUSA04447_00-GRAVITYRUSHDLC01", 1);
+        let mut f = t::zarchive(&[("sce_sys/param.sfo", &sfo)]);
+        let len = f.len;
+        let id = zar(&mut Budgeted::new(&mut f, len), "zar").unwrap();
+        assert_eq!((id.system.as_str(), id.kind), ("ps4", TitleKind::Dlc));
+        // A PS4 tree whose `param.sfo` does not parse: no verdict.
+        let mut f = t::zarchive(&[("eboot.bin", &[0u8; 64]), ("sce_sys/param.sfo", b"junk")]);
+        let len = f.len;
+        assert_eq!(zar(&mut Budgeted::new(&mut f, len), "zar"), None);
+    }
+
+    #[test]
+    fn zar_with_a_ps5_tree_reads_its_param_json() {
+        let json = t::ps5_param_json("PPSA01284", "Returnal", false);
+        let mut f = t::zarchive(&[("eboot.bin", &[0u8; 64]), ("sce_sys/param.json", &json)]);
+        let len = f.len;
+        let id = zar(&mut Budgeted::new(&mut f, len), "zar").unwrap();
+        assert_eq!(id.system, "ps5");
+        assert_eq!(id.title_id.as_deref(), Some("PPSA01284"));
+        assert_eq!(id.title.as_deref(), Some("Returnal"));
+        assert_eq!(id.kind, TitleKind::Base);
+        assert_eq!(id.detail, super::super::orbis::ZAR_PARAM_JSON_DETAIL);
+        let json = t::ps5_param_json("PPSA01284", "Returnal", true);
+        let mut f = t::zarchive(&[("eboot.bin", &[0u8; 64]), ("sce_sys/param.json", &json)]);
+        let len = f.len;
+        let id = zar(&mut Budgeted::new(&mut f, len), "zar").unwrap();
+        assert_eq!(id.detail, super::super::orbis::ZAR_PARAM_JSON_PRO_DETAIL);
+    }
+
+    #[test]
+    fn zar_over_the_tree_budget_has_no_verdict() {
+        // More than `MAX_SECTION` bytes of file tree (16-byte entries).
+        let names: Vec<String> = (0..17_000).map(|i| format!("f{i:05}")).collect();
+        let sfo = t::ps4_sfo("CUSA04447", "gd", "EP0002-CUSA04447_00-GRAVITYRUSH00000", 1);
+        let mut files: Vec<(&str, &[u8])> =
+            vec![("eboot.bin", &[0u8; 64]), ("sce_sys/param.sfo", &sfo)];
+        files.extend(names.iter().map(|n| (n.as_str(), b"x".as_slice())));
+        let mut f = t::zarchive(&files);
+        let len = f.len;
+        let mut b = Budgeted::new(&mut f, len);
+        let footer = zarchive::footer(&mut b).unwrap().unwrap();
+        assert!(footer.tree.size > zarchive::MAX_SECTION);
+        assert_eq!(zar(&mut b, "zar"), None);
     }
 
     #[test]

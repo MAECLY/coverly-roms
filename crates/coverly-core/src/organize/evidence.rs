@@ -1245,11 +1245,15 @@ pub fn identify_candidate(
         }) {
             id.notes.push(ItemNote::NoEmulator);
         }
-        if insp
-            .payloads
-            .iter()
-            .any(|p| ps5_detail(p, &[orbis::PARAM_JSON_PRO_DETAIL]))
-        {
+        if insp.payloads.iter().any(|p| {
+            ps5_detail(
+                p,
+                &[
+                    orbis::PARAM_JSON_PRO_DETAIL,
+                    orbis::ZAR_PARAM_JSON_PRO_DETAIL,
+                ],
+            )
+        }) {
             id.notes.push(ItemNote::ProEnhanced);
         }
     }

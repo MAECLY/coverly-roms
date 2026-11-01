@@ -74,7 +74,31 @@ const CONSOLE_HEADERS: &[ConsoleHeader] = &[
     // header (D10), and an `.ffpkg` its UFS2 superblock.
     ("ps5", "pkg", ps5_fih_pkg, Some("ps5"), None),
     ("ps5", "ffpkg", ps5_ufs2, Some("ps5"), None),
+    // Task 7: a `.zar` is decided by its tree (D12), never by the
+    // ZArchive magic alone.
+    ("ps4", "zar", ps4_zar, Some("ps4"), None),
+    ("ps5", "zar", ps5_zar, Some("ps5"), None),
+    ("ps4", "zar", bare_zar, None, None),
 ];
+
+/// A PS4 ZArchive: `eboot.bin` and `sce_sys/param.sfo`.
+fn ps4_zar() -> coverly_core::consoles::testing::SparseAt {
+    use coverly_core::consoles::testing as t;
+    let sfo = t::ps4_sfo("CUSA04447", "gd", "EP0002-CUSA04447_00-GRAVITYRUSH00000", 1);
+    t::zarchive(&[("eboot.bin", &[0u8; 64]), ("sce_sys/param.sfo", &sfo)])
+}
+
+/// A PS5 ZArchive: `eboot.bin` and `sce_sys/param.json`.
+fn ps5_zar() -> coverly_core::consoles::testing::SparseAt {
+    use coverly_core::consoles::testing as t;
+    let json = t::ps5_param_json("PPSA01284", "Returnal", false);
+    t::zarchive(&[("eboot.bin", &[0u8; 64]), ("sce_sys/param.json", &json)])
+}
+
+/// A ZArchive whose tree names no system: no header verdict.
+fn bare_zar() -> coverly_core::consoles::testing::SparseAt {
+    coverly_core::consoles::testing::zarchive(&[("media/a.bin", &[0u8; 8])])
+}
 
 /// A PS5 store package head (FIH, then CNT with a `PPSA` content id).
 fn ps5_fih_pkg() -> coverly_core::consoles::testing::SparseAt {
