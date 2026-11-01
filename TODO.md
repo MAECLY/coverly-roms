@@ -185,27 +185,27 @@ Revisado el 2026-10-31, comprobando cada fuente (repos oficiales, código, lista
 
 Tareas:
 
-- [ ] **Sony PS4 (`ps4`).** Dos formatos:
+- [x] **Sony PS4 (`ps4`).** Dos formatos:
   - Carpeta `CUSAxxxxx` descifrada: leer `sce_sys/param.sfo` (PSF, texto plano, sin claves: cabecera `\0PSF`, campo `fmt` en big-endian y el resto en little-endian; claves `TITLE_ID`, `TITLE`, `CONTENT_ID`, `CATEGORY`, `APP_VER`). Portada incrustada: `sce_sys/icon0.png`; fondo: `pic1.png`. El nombre de la carpeta suele ser el title ID (respaldo).
   - `.pkg`/fPKG: magia `0x7F434E54`; content ID en `0x40` (title ID en `0x47`); en la tabla de entradas (offset en `0x18`, número en `0x10`) la entrada `0x1000` es el `param.sfo` en claro y la `0x1200` el `icon0.png`. Se puede catalogar sin descifrar, pero shadPS4 no lo arranca: avisar «hay que extraerlo» en Organizar.
   - Región por el prefijo del content ID (`UP` América, `EP` Europa, `JP` Japón, `HP` Asia); el código `CUSA` no basta porque se comparte entre regiones. Confirmar la tabla de prefijos con una fuente primaria antes de usarla.
   - Actualizaciones `CUSAxxxxx-patch`/`-UPDATE` y DLC: agruparlas con su juego, no como juegos aparte (y no contarlas como duplicados).
-- [ ] **Sony PS5 (`ps5`).** Primer nivel, igual que PS4:
+- [x] **Sony PS5 (`ps5`).** Primer nivel, igual que PS4:
   - Carpeta `PPSAxxxxx` con `eboot.bin` y `sce_sys/param.json` (JSON, no `param.sfo`): leer `titleId`, `contentId`, `contentVersion` (o `appVersion`) y `localizedParameters.<idioma>.titleName`. Portada incrustada `sce_sys/icon0.png`, fondo `pic0.png`.
   - Contenedores aceptados: `.zar` (SharpEmu), `.ffpkg` y ZIP/RAR de la app (Prosperity), leídos con el lector de comprimidos actual cuando se pueda.
   - `.pkg` de tienda e imágenes exFAT: reconocerlos y dejarlos con la nota «ningún emulador lo carga así», nunca como jugables.
   - Detectar PS5 Pro por `ATTRIBUTE3` como etiqueta informativa.
-- [ ] **Microsoft Xbox One (`xboxone`).** Temprano pero real:
+- [x] **Microsoft Xbox One (`xboxone`).** Temprano pero real:
   - Carpeta ERA con `AppxManifest.xml` (formato de WinDurango): `Identity Name/Publisher/Version` y `Properties/DisplayName` (puede ser `ms-resource:` resuelto con `resources.pri`). No confiar en que lleve el TitleId.
   - Carpeta GDK con `MicrosoftGame.config` y `Executable/@TargetDeviceFamily="XboxOne"`: `TitleId` (8 hex; `FFFFFFFF` es un marcador), `MSAAppId`, `StoreId`, `ShellVisuals/DefaultDisplayName`.
   - Contenedor XVC/MSIXVC: magia `msft-xvd` en `0x200`, ContentId en `0x220`, ContentType en `0x284`, ProductId en `0x39C`, PackageVersion en `0x3BC` (referencia: [xvdtool](https://github.com/emoose/xvdtool)). Solo da GUIDs, sin nombre ni TitleId, y el contenido va cifrado: catalogar por GUID y pedir el nombre a una fuente externa.
-- [ ] **Microsoft Xbox Series X/S (`xboxseries`).** Detectar y catalogar, marcado como «sin emulador»:
+- [x] **Microsoft Xbox Series X/S (`xboxseries`).** Detectar y catalogar, marcado como «sin emulador»:
   - Solo cuando `Executable/@TargetDeviceFamily="Scarlett"` (o `TargetDeviceFamilyForDLC="Scarlett"` para DLC). **No** usar `XboxCompatibility="Scarlett"`: eso es un juego de Xbox One con mejoras en Series, y sigue siendo Xbox One.
   - `TargetDeviceFamily="PC"` es una build de PC (GDK/MSIXVC), no de consola: no meterla en ningún sistema de consola.
-- [ ] **Perfiles:** investigar qué frontends tienen carpeta para estos sistemas (ES-DE, Batocera, RetroBat, LaunchBox, Pegasus, los lanzadores de shadPS4/KytyPS5/SharpEmu) y dónde esperan las carpetas `CUSA*`/`PPSA*`. Los juegos aquí son **carpetas**, no archivos: usar las reglas de «juego = carpeta» como ScummVM.
-- [ ] **Portadas:** libretro-thumbnails no tiene estos sistemas. Usar la portada incrustada (`icon0.png`/`pic0.png`/`pic1.png`) como primera opción y como respaldo SteamGridDB, ScreenScraper (si los cubre) o una base pública de title IDs.
-- [ ] **Duplicados:** clave de contenido por title ID + versión (`APP_VER`/`contentVersion`), y las actualizaciones nunca como copias del juego base.
-- [ ] **Tamaño:** estas carpetas pesan decenas o cientos de GB. Escanear sin leer el contenido entero (solo `sce_sys/` y cabeceras), avisar del espacio en Organizar y no proponer extraer ni copiar sin confirmar el tamaño.
+- [x] **Perfiles:** investigar qué frontends tienen carpeta para estos sistemas (ES-DE, Batocera, RetroBat, LaunchBox, Pegasus, los lanzadores de shadPS4/KytyPS5/SharpEmu) y dónde esperan las carpetas `CUSA*`/`PPSA*`. Los juegos aquí son **carpetas**, no archivos: usar las reglas de «juego = carpeta» como ScummVM.
+- [x] **Portadas:** libretro-thumbnails no tiene estos sistemas. Usar la portada incrustada (`icon0.png`/`pic0.png`/`pic1.png`) como primera opción y como respaldo SteamGridDB, ScreenScraper (si los cubre) o una base pública de title IDs.
+- [x] **Duplicados:** clave de contenido por title ID + versión (`APP_VER`/`contentVersion`), y las actualizaciones nunca como copias del juego base.
+- [x] **Tamaño:** estas carpetas pesan decenas o cientos de GB. Escanear sin leer el contenido entero (solo `sce_sys/` y cabeceras), avisar del espacio en Organizar y no proponer extraer ni copiar sin confirmar el tamaño.
 
 ### Decisiones abiertas
 
