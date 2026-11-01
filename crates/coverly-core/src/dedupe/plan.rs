@@ -894,17 +894,24 @@ impl Base {
             Some(saves) => GroupAction::Conflict { saves },
             None => raw.action.clone(),
         };
+        // A folder game is never set aside in this batch (systems batch 2
+        // D28): checked here, whatever proved the group, and named as the
+        // reason over a title id (it holds even once title ids may act).
+        let title_or_act = matches!(
+            action,
+            GroupAction::Act
+                | GroupAction::ReportOnly {
+                    why: ReportWhy::TitleId
+                }
+        );
+        if title_or_act && raw.members.iter().any(|(u, _)| is_folder(&self.units[*u])) {
+            action = GroupAction::ReportOnly {
+                why: ReportWhy::FolderGame,
+            };
+        }
         if action == GroupAction::Act && lock(&self.skipped).contains(&id) {
             action = GroupAction::ReportOnly {
                 why: ReportWhy::UserSkipped,
-            };
-        }
-        // A folder game is never set aside in this batch (systems batch 2
-        // D28): checked here, whatever proved the group.
-        if action == GroupAction::Act && raw.members.iter().any(|(u, _)| is_folder(&self.units[*u]))
-        {
-            action = GroupAction::ReportOnly {
-                why: ReportWhy::Unconfirmed,
             };
         }
         let quarantine = match &opts.quarantine {

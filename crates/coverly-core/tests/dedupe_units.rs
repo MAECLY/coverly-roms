@@ -1178,8 +1178,9 @@ fn folder_games_are_units_and_never_set_aside() {
     assert_eq!(
         g.action,
         GroupAction::ReportOnly {
-            why: ReportWhy::Unconfirmed
-        }
+            why: ReportWhy::FolderGame
+        },
+        "a folder group says it is a folder, not that only a CRC matched"
     );
     let mut members: Vec<&Path> = g.members.iter().map(|m| m.unit.primary.as_path()).collect();
     members.sort();

@@ -111,6 +111,13 @@ pub enum ReportWhy {
     UserSkipped,
     /// CHDs with the same raw data but other metadata.
     ChdMetadataDiffers,
+    /// The same console title id, kind and version (or other versions of
+    /// one title id): the contents were never compared (systems batch 2
+    /// plan P-6).
+    TitleId,
+    /// A folder game is in the group: reported, never set aside (systems
+    /// batch 2 D28).
+    FolderGame,
 }
 
 /// What happens to a group's extras.

@@ -1154,9 +1154,9 @@ fn assert_reported(g: &coverly_core::dedupe::DupGroup) {
     assert_eq!(
         g.action,
         GroupAction::ReportOnly {
-            why: ReportWhy::Unconfirmed
+            why: ReportWhy::TitleId
         },
-        "a title id alone never sets a copy aside"
+        "a title id alone never sets a copy aside, and says so (not a CRC)"
     );
     assert!(g.members.iter().all(|m| m.dest.is_none()));
 }
