@@ -268,6 +268,24 @@ Muchas actualizaciones, DLC y demos traen su propia portada o arte, distinto del
 - [ ] Slots de arte por archivo hijo (actualización, DLC) además del del juego, con el origen anotado.
 - [ ] Mostrarlo en la ficha y en Organizar, y copiarlo al dispositivo solo cuando su frontend lo use.
 
+### Cómo se ve en las seis vistas (pendiente de diseñar)
+
+> **Nota:** todavía no está decidido cómo mostrar en cada vista que un juego tiene varias actualizaciones, DLC, una demo o varias revisiones. Antes de implementarlo:
+>
+> 1. **Investigar cómo lo resuelve la industria hoy**, con capturas y notas de cada una: Steam (DLC y «Gestionar» en la biblioteca), PlayStation 5 (centro del juego, complementos y versión), Xbox (Gestionar juego y complementos), Nintendo Switch (Gestionar software, versión y contenido adicional), GOG Galaxy, Epic, Playnite, LaunchBox / Big Box, ES-DE, RomM, Ryujinx/Citra/RPCS3 (cómo listan actualizaciones y DLC instalados) y gestores de música o fotos que agrupan versiones (Apple Music, Lightroom).
+> 2. **Diseñarlo con el skill `frontend-design:frontend-design` con mucho peso en UX y UI**: plan de jerarquía, densidad y movimiento revisado contra los diseños genéricos, y validado con capturas en las seis vistas, en claro y oscuro, a 1440 y 390 px.
+>
+> Debe resolver, como mínimo:
+>
+> - **Portadas y Galería:** un indicador discreto en la portada (p. ej. un recuento «+3 DLC · v1.05») que no tape el arte, y el detalle al abrir el juego.
+> - **Detalles (tabla):** columnas de versión y de complementos; la fila del juego que se despliega para listar actualizaciones y DLC (como un árbol), sin que cuenten como juegos en los totales.
+> - **Columnas:** sistema → juego → (base / Updates / DLC / Demo) → vista previa, aprovechando la carpeta maestra de 2.1.
+> - **Huecos de arte:** mostrar también los huecos de arte de cada DLC y actualización cuando tienen arte propio.
+> - **Estantes:** una caja por juego, con los DLC como «complementos» al lado o detrás, sin llenar la estantería de cajas sueltas.
+> - **Ficha del juego (panel lateral):** la versión instalada frente a la más nueva que hay en la biblioteca, la lista de DLC con su miniatura, la demo relacionada, las revisiones y las partidas (5).
+> - **Filtros:** «tiene actualizaciones», «le falta la última actualización», «tiene DLC», «solo demos».
+> - **Accesibilidad:** el recuento y el estado también en texto para lectores de pantalla, nunca solo con color o icono; navegación con teclado dentro del árbol.
+
 ### Investigación por sistema
 
 La investigación detallada (cómo distinguir cada tipo, cómo encontrar el base, dónde está la versión, qué espera cada emulador, convenciones de nombre como `[v65536]`, `(Update)`, `(DLC)`, y qué se puede leer sin claves) está en curso y se añade aquí al terminar.
