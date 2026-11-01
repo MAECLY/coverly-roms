@@ -67,15 +67,20 @@ export function SectionHeaderRow({
         {section.systemId !== undefined && (
           <SystemIcon systemId={section.systemId} size={20} />
         )}
-        <span className="section-row__name">{group}</span>
-        {note && (
-          <>
-            <span aria-hidden className="section-row__note">
-              ·
-            </span>
-            <span className="section-row__note">{note}</span>
-          </>
-        )}
+        {/* The note rides in the name's ellipsis run: a narrow shelf cuts
+            «· Sin emulador» first, never the name down to nothing. */}
+        <span className="section-row__name">
+          {group}
+          {note && (
+            <>
+              {' '}
+              <span aria-hidden className="section-row__note">
+                ·
+              </span>{' '}
+              <span className="section-row__note">{note}</span>
+            </>
+          )}
+        </span>
         <span className="section-row__count">{count}</span>
         {children}
       </div>

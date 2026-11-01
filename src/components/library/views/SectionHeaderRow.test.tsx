@@ -51,8 +51,23 @@ describe('SectionHeaderRow (systems batch 3 §9.1)', () => {
     const dot = label.previousElementSibling!;
     expect(dot).toHaveTextContent('·');
     expect(dot).toHaveAttribute('aria-hidden', 'true');
-    expect(dot.previousElementSibling).toHaveTextContent(
-      'Microsoft Xbox Series X|S',
+    expect(dot.parentElement).toHaveTextContent(
+      'Microsoft Xbox Series X|S · Sin emulador',
+    );
+  });
+
+  it('keeps the name in sight when a narrow shelf has no room for both', () => {
+    setNoEmulatorIds(['xboxseries']);
+    const { container } = renderRow(
+      'es',
+      shelf('xboxseries', 'Microsoft Xbox Series X|S'),
+    );
+    // The note rides in the name's own ellipsis run: a narrow shelf cuts
+    // «· Sin emulador» first, never the system name down to nothing.
+    const name = container.querySelector('.section-row__name')!;
+    expect(name).toContainElement(screen.getByText('Sin emulador'));
+    expect(name).toHaveTextContent(
+      /^Microsoft Xbox Series X\|S · Sin emulador$/,
     );
   });
 
