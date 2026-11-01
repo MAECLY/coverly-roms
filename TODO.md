@@ -637,6 +637,12 @@ Tareas:
   - `xemu-project/xdb` para la Xbox original, solo para identificar;
   - `x360db` para Xbox 360, sabiendo que sus carátulas solo responden por HTTP y pueden desaparecer;
   - el catálogo de la Microsoft Store para One/Series, consultado en vivo por XboxTitleId y guardado solo en la caché local.
+- [ ] **Arte de fondo (background/hero) de PS4, PS5, Xbox One y Xbox Series.** Petición de Miguel (2026-11-01): estas consolas muestran detrás de cada juego un fondo a pantalla completa, y queremos el mayor número posible de fuentes abiertas para ese arte.
+  - Primero, el arte que trae el propio juego: `pic1.png` en PS4, `pic0.png` en PS5 y los recursos visuales de los GDK/ERA de Xbox.
+  - Después, fuentes de la comunidad, como los «heroes» de SteamGridDB y los fanart de ScreenScraper.
+  - Por último, los catálogos oficiales, consultados bajo demanda y guardados solo en la caché local.
+  - Hace falta un hueco de «fondo» en el modelo de arte y mostrarlo en las vistas.
+  - La investigación está en curso y se añadirá en `docs/02-research/background-art-sources.md`.
 - [ ] **Redump y No-Intro** para identificar por hash o serial. No tocar la sección de claves de disco de Redump.
 - [ ] **IGDB** como proveedor opcional con la clave del propio usuario, igual que SteamGridDB.
 - [ ] Pendiente de revisar antes de usarlas: SerialStation (operador y términos), DBox y los términos de No-Intro para los sistemas de Nintendo.
