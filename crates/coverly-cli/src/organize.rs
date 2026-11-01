@@ -737,6 +737,7 @@ fn left_reason_text(reason: &LeftReason) -> String {
             NotARom::Installer => "not a ROM (installer)".into(),
             NotARom::Model3d => "not a ROM (3D model)".into(),
             NotARom::PcGameData => "not a ROM (PC game data)".into(),
+            NotARom::ConsoleSystem => "not a ROM (console system file)".into(),
         },
         LeftReason::Bios => "BIOS or firmware".into(),
         LeftReason::DamagedArchive => "damaged archive".into(),
@@ -798,6 +799,9 @@ fn left_reason_text(reason: &LeftReason) -> String {
         LeftReason::KeyMaterial => "key or licence file: never read or moved".into(),
         LeftReason::EmulatorData { folder } => {
             format!("inside an emulator's data folder ({folder}): left as it is")
+        }
+        LeftReason::GameOverlay { of } => {
+            format!("mods or patch folder of {of}: left where it is")
         }
     }
 }
@@ -864,6 +868,14 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::FolderSuffix { name, layout } => {
             format!("renamed to {name} so {layout} shows it")
         }
+        ItemNote::ExtractFirst => {
+            "this package does not open as is: it has to be extracted first".into()
+        }
+        ItemNote::NoEmulator => "no emulator opens it in this form".into(),
+        ItemNote::ProEnhanced => "enhanced for PS5 Pro".into(),
+        ItemNote::DlcFolder { layout } => {
+            format!("goes to the DLC folder, where {layout} looks for downloadable content")
+        }
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })
@@ -885,6 +897,10 @@ fn warning_text(w: &PlanWarning) -> String {
         }
         PlanWarning::NoSpace { needed, free } => format!(
             "not enough space on the target: {needed} bytes needed, {free} bytes free"
+        ),
+        PlanWarning::LargeTransfer { bytes, .. } => format!(
+            "{} will be written to the target; you will be asked to confirm",
+            table::human_bytes(*bytes)
         ),
     }
 }
@@ -1714,5 +1730,43 @@ mod tests {
         for (note, text) in cases {
             assert_eq!(note_text(&note).as_deref(), Some(text));
         }
+    }
+
+    #[test]
+    fn current_generation_texts() {
+        assert_eq!(
+            left_text(&LeftReason::GameOverlay {
+                of: "Bloodborne".into()
+            }),
+            "mods or patch folder of Bloodborne: left where it is"
+        );
+        assert!(left_text(&LeftReason::NotARom {
+            what: NotARom::ConsoleSystem
+        })
+        .contains("console system file"));
+        let notes = [
+            (
+                ItemNote::ExtractFirst,
+                "this package does not open as is: it has to be extracted first",
+            ),
+            (ItemNote::NoEmulator, "no emulator opens it in this form"),
+            (ItemNote::ProEnhanced, "enhanced for PS5 Pro"),
+            (
+                ItemNote::DlcFolder {
+                    layout: "Batocera".into(),
+                },
+                "goes to the DLC folder, where Batocera looks for downloadable content",
+            ),
+        ];
+        for (note, text) in notes {
+            assert_eq!(note_text(&note).as_deref(), Some(text));
+        }
+        assert_eq!(
+            warning_text(&PlanWarning::LargeTransfer {
+                bytes: 12_000_000_000,
+                items: 2
+            }),
+            "12.0 GB will be written to the target; you will be asked to confirm"
+        );
     }
 }

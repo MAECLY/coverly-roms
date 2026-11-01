@@ -121,7 +121,11 @@ pub fn probe_ps3_jb(l: &DirListing) -> Option<FolderMatch> {
     let psf = folder_psf(l, &probe)?;
     let mut id = from_psf(&psf, "ps3", "PARAM.SFO");
     id.art.extend(icon(l, Some(game), &names, "ICON0.PNG"));
-    Some(FolderMatch { id, probe })
+    Some(FolderMatch {
+        id,
+        probe,
+        leave: None,
+    })
 }
 
 /// A PS3 HDD/PSN title folder (spec D12): `PARAM.SFO` and a `USRDIR`
@@ -139,7 +143,11 @@ pub fn probe_ps3_hdd(l: &DirListing) -> Option<FolderMatch> {
     let mut id = from_psf(&psf, "ps3", "HDD PARAM.SFO");
     id.title_id.as_ref()?;
     id.art.extend(icon(l, None, l.names, "ICON0.PNG"));
-    Some(FolderMatch { id, probe })
+    Some(FolderMatch {
+        id,
+        probe,
+        leave: None,
+    })
 }
 
 /// A decrypted PS Vita app folder (spec D12): `sce_sys` among its names,
@@ -157,7 +165,11 @@ pub fn probe_vita_app(l: &DirListing) -> Option<FolderMatch> {
     }
     let mut id = id;
     id.art.extend(icon(l, Some(sys), &names, "icon0.png"));
-    Some(FolderMatch { id, probe })
+    Some(FolderMatch {
+        id,
+        probe,
+        leave: None,
+    })
 }
 
 /// The `param.sfo` of a VPK (a zip read by `organize::inspect`, never

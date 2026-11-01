@@ -393,6 +393,8 @@ export function leftReasonKey(
       return k('keyMaterial');
     case 'emulator-data':
       return k('emulatorData', { folder: r.folder });
+    case 'game-overlay':
+      return k('gameOverlay', { title: r.of });
   }
 }
 
@@ -402,6 +404,7 @@ const NOT_A_ROM: Record<NotARom, string> = {
   text: 'text',
   patch: 'patch',
   'pc-game-data': 'pcGameData',
+  'console-system': 'consoleSystem',
   installer: 'installer',
   model3d: 'model3d',
 };
@@ -679,6 +682,14 @@ export function noteKey(n: ItemNote): KeyedText | null {
       return k('installFirst', { emulator: n.emulator });
     case 'folder-suffix':
       return k('folderSuffix', { name: n.name, layout: n.layout });
+    case 'extract-first':
+      return k('extractFirst');
+    case 'no-emulator':
+      return k('noEmulator');
+    case 'pro-enhanced':
+      return k('proEnhanced');
+    case 'dlc-folder':
+      return k('dlcFolder', { layout: n.layout });
     case 'multi-rom-zip':
     case 'no-folder-on-device':
     case 'extension-contradicted':

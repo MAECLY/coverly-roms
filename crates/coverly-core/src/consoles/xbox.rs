@@ -490,6 +490,7 @@ fn probe_exe(
     Some(FolderMatch {
         id,
         probe: PathBuf::from(name),
+        leave: None,
     })
 }
 
@@ -539,6 +540,7 @@ pub fn probe_god(l: &DirListing) -> Option<FolderMatch> {
     Some(FolderMatch {
         id,
         probe: PathBuf::from(sub.as_str()).join(hash.as_str()),
+        leave: None,
     })
 }
 

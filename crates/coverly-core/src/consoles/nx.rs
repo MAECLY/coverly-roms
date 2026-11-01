@@ -347,6 +347,7 @@ pub fn probe_split(l: &DirListing) -> Option<FolderMatch> {
     Some(FolderMatch {
         id,
         probe: PathBuf::from(first),
+        leave: None,
     })
 }
 

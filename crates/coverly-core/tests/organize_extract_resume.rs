@@ -151,6 +151,7 @@ fn extract_item(
         disc: None,
         action: OrganizeAction::Auto,
         title_id: None,
+        content_id: None,
     }
 }
 

@@ -226,6 +226,12 @@ pub enum LeftReason {
     EmulatorData {
         folder: String,
     },
+    /// A shadPS4 `-mods`/`-UPDATE`/`-patch` folder beside its base that
+    /// cannot move alone (systems batch 3 D11 d, e): `of` is the base's
+    /// title, or its folder name when the base is not an item (plan P-3).
+    GameOverlay {
+        of: String,
+    },
 }
 
 /// The reason an inspection issue leaves an item in place (archives spec
@@ -312,6 +318,18 @@ pub enum ItemNote {
     /// The folder is renamed to `name` so `layout` shows it (systems
     /// batch 2 D13).
     FolderSuffix { name: String, layout: String },
+    /// A PS4 PKG: catalogued, has to be extracted to play (systems
+    /// batch 3 D9).
+    ExtractFirst,
+    /// A PS5 store PKG, `.exfat`, `.ffpfs`, `.ffpfsc`, or an XVC (systems
+    /// batch 3 D10, D19): no emulator opens it in this form.
+    NoEmulator,
+    /// PS5 `attribute3` bit 22 (KytyPS5 `title_supports_trinity`).
+    ProEnhanced,
+    /// The item goes to the DLC folder of `layout` (the profile's display
+    /// name), where it looks for downloadable content (systems batch 3
+    /// D16).
+    DlcFolder { layout: String },
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -481,6 +499,11 @@ pub struct OrganizeItem {
     /// for the row's «why» line; left out of the JSON when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_id: Option<crate::consoles::TitleIdRef>,
+    /// The console content id (PKG header, `param.sfo`, `param.json`,
+    /// XVC), for the row's «why» line (systems batch 3 §10); left out of
+    /// the JSON when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_id: Option<String>,
     #[serde(flatten)]
     pub action: OrganizeAction,
 }
@@ -789,6 +812,10 @@ pub enum PlanWarning {
     /// (cluster-rounded bytes, 1 % and the reserve) against the bytes
     /// `free` for this user (archives spec §8.4).
     NoSpace { needed: u64, free: u64 },
+    /// The items that move by default write at least the large-transfer
+    /// threshold (`bytes` in `items` items) to the target (systems
+    /// batch 3 D23).
+    LargeTransfer { bytes: u64, items: usize },
 }
 
 /// A dry run: what would move where, and why.
@@ -1797,7 +1824,9 @@ fn identify_one(
 /// CD-i, CD32 or CDTV image is told by its disc signature (systems batch 1).
 /// 7: Tanda 2 console ids on `Sniff.console`, and macOS installers and 3D
 /// Studio models are no ROMs (systems batch 2 D23, D7).
-const FACTS_VERSION: u32 = 7;
+/// 8: content ids, regions and Xbox product ids on `Sniff.console`
+/// (systems batch 3 D28).
+const FACTS_VERSION: u32 = 8;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -1971,6 +2000,7 @@ pub fn plan_from_survey(
                 reason: LeftReason::Unknown,
             },
             title_id: None,
+            content_id: None,
         };
         let mut key = None;
         match (&entry.left, &entry.identification) {
@@ -2197,6 +2227,7 @@ pub fn plan_from_survey(
             disc: None,
             action: OrganizeAction::Left { reason },
             title_id: None,
+            content_id: None,
         });
     }
 
@@ -3246,5 +3277,88 @@ mod tests {
         let mut insp = Inspection::new(Container::Zip);
         insp.issue = Some(ArchiveIssue::Damaged);
         assert!(memoisable(&facts(insp)));
+    }
+
+    #[test]
+    fn new_variants_serde() {
+        use serde_json::{json, to_value};
+        assert_eq!(
+            to_value(LeftReason::GameOverlay {
+                of: "Bloodborne".into()
+            })
+            .unwrap(),
+            json!({"kind": "game-overlay", "of": "Bloodborne"})
+        );
+        assert_eq!(
+            to_value(NotARom::ConsoleSystem).unwrap(),
+            json!("console-system")
+        );
+        assert_eq!(
+            to_value(LeftReason::NotARom {
+                what: NotARom::ConsoleSystem
+            })
+            .unwrap(),
+            json!({"kind": "not-a-rom", "what": "console-system"})
+        );
+        for (note, wire) in [
+            (ItemNote::ExtractFirst, json!({"kind": "extract-first"})),
+            (ItemNote::NoEmulator, json!({"kind": "no-emulator"})),
+            (ItemNote::ProEnhanced, json!({"kind": "pro-enhanced"})),
+            (
+                ItemNote::DlcFolder {
+                    layout: "Batocera".into(),
+                },
+                json!({"kind": "dlc-folder", "layout": "Batocera"}),
+            ),
+        ] {
+            assert_eq!(to_value(&note).unwrap(), wire);
+            assert_eq!(serde_json::from_value::<ItemNote>(wire).unwrap(), note);
+        }
+        let warning = PlanWarning::LargeTransfer {
+            bytes: 12_000_000_000,
+            items: 3,
+        };
+        let wire = json!({"kind": "large-transfer", "bytes": 12_000_000_000u64, "items": 3});
+        assert_eq!(to_value(&warning).unwrap(), wire);
+        assert_eq!(
+            serde_json::from_value::<PlanWarning>(wire).unwrap(),
+            warning
+        );
+    }
+
+    #[test]
+    fn organize_item_content_id_is_optional() {
+        let mut item = OrganizeItem {
+            id: 0,
+            sources: vec!["Bloodborne (CUSA00900)".into()],
+            kind: ItemKind::Folder,
+            size: 1,
+            fps: Vec::new(),
+            target: None,
+            set_targets: Vec::new(),
+            system_id: Some("ps4".into()),
+            folder: None,
+            confidence: 0.95,
+            method: None,
+            why: Vec::new(),
+            alternatives: Vec::new(),
+            rename: None,
+            notes: Vec::new(),
+            companions: Vec::new(),
+            catalogue_name: None,
+            transfer: Transfer::AsIs,
+            disc: None,
+            title_id: None,
+            content_id: None,
+            action: OrganizeAction::Auto,
+        };
+        let bare = serde_json::to_value(&item).unwrap();
+        assert!(bare.get("content_id").is_none(), "{bare}");
+        let back: OrganizeItem = serde_json::from_value(bare).unwrap();
+        assert_eq!(back.content_id, None);
+        item.content_id = Some("UP9000-CUSA00900_00-BLOODBORNE000000".into());
+        let full = serde_json::to_value(&item).unwrap();
+        assert_eq!(full["content_id"], "UP9000-CUSA00900_00-BLOODBORNE000000");
+        assert_eq!(serde_json::from_value::<OrganizeItem>(full).unwrap(), item);
     }
 }

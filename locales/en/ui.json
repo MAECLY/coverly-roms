@@ -1265,7 +1265,11 @@
       "dlc": "Downloadable content for {title}",
       "encryptedContent": "Encrypted copy: {emulator} only opens decrypted copies",
       "installFirst": "{emulator} installs it; it does not open from the folder",
-      "folderSuffix": "Renamed to {name} so {layout} shows it"
+      "folderSuffix": "Renamed to {name} so {layout} shows it",
+      "extractFirst": "This package does not open as is: it has to be extracted first",
+      "noEmulator": "No emulator opens it in this form",
+      "proEnhanced": "Enhanced for PS5 Pro",
+      "dlcFolder": "Goes to the DLC folder, where {layout} looks for downloadable content"
     },
     "pause": {
       "diskFull": "Disk full: {needed} more needed; the half-extracted game was undone"
@@ -1296,7 +1300,8 @@
       "user": "Chosen by you",
       "titleIdFile": "Title ID {id} in {file}",
       "titleIdName": "Title ID {id} taken from the file name",
-      "titleIdTicket": "Title ID {id} in the ticket name"
+      "titleIdTicket": "Title ID {id} in the ticket name",
+      "contentId": "Content ID {id}"
     },
     "left": {
       "archiveNeedsMemory": "Needs {mib} MB of memory to decompress",
@@ -1322,6 +1327,7 @@
       "text": "text",
       "patch": "a patch; apply it to the original ROM",
       "pcGameData": "PC game data",
+      "consoleSystem": "console system file",
       "installer": "software installer",
       "model3d": "3D model",
       "bios": "BIOS: belongs in the device's BIOS folder",
@@ -1343,6 +1349,7 @@
       "collisionSet": "Another game already uses those names in the target",
       "keyMaterial": "Key or licence file: Coverly never reads or moves it",
       "emulatorData": "Inside an emulator's data ({folder}); left as it is",
+      "gameOverlay": "Mods or patch folder of {title}: left where it is",
       "title": "Staying where they are",
       "inLibrary": "Already in your library as {path}"
     },

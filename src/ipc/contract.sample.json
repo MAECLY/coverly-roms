@@ -1757,7 +1757,10 @@
     "cnmt-xml",
     "ticket-name",
     "file-name",
-    "header"
+    "header",
+    "param-json",
+    "microsoft-game-config",
+    "appx-manifest"
   ],
   "organize_batch2_reasons": [
     {
@@ -1780,5 +1783,77 @@
       "what": "pc-game-data"
     }
   ],
-  "organize_plan_updates": 2
+  "organize_plan_updates": 2,
+  "organize_batch3_item": {
+    "id": 3,
+    "sources": ["Bloodborne (CUSA00900)"],
+    "kind": "folder",
+    "size": 48000000000,
+    "fps": [
+      {
+        "size": 48000000000,
+        "mtime_ns": 1700000000000000000
+      }
+    ],
+    "target": "ps4/DLC/CUSA00900/Bloodborne (CUSA00900)",
+    "set_targets": [],
+    "system_id": "ps4",
+    "folder": "ps4",
+    "confidence": 0.95,
+    "method": "header",
+    "why": [
+      {
+        "kind": "header",
+        "system": "ps4",
+        "weight": 0.95,
+        "detail": "param.sfo"
+      }
+    ],
+    "alternatives": [],
+    "rename": null,
+    "notes": [
+      {
+        "kind": "extract-first"
+      },
+      {
+        "kind": "no-emulator"
+      },
+      {
+        "kind": "pro-enhanced"
+      },
+      {
+        "kind": "dlc-folder",
+        "layout": "Batocera"
+      }
+    ],
+    "companions": [],
+    "catalogue_name": null,
+    "transfer": {
+      "kind": "as-is"
+    },
+    "disc": null,
+    "title_id": {
+      "id": "CUSA00900",
+      "source": "param-sfo"
+    },
+    "content_id": "UP9000-CUSA00900_00-BLOODBORNE000000",
+    "action": "auto"
+  },
+  "organize_batch3_reasons": [
+    {
+      "kind": "game-overlay",
+      "of": "Bloodborne"
+    },
+    {
+      "kind": "not-a-rom",
+      "what": "console-system"
+    }
+  ],
+  "organize_batch3_warnings": [
+    {
+      "kind": "large-transfer",
+      "bytes": 12000000000,
+      "items": 2
+    }
+  ]
 }

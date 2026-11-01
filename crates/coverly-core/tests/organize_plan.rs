@@ -2901,8 +2901,9 @@ fn stored_facts(world: &World, path: &Path) -> Option<serde_json::Value> {
 }
 
 #[test]
-fn facts_of_version_6_are_read_again() {
-    // Batch 2 D23: version 6 facts carry no console id (`Sniff.console`).
+fn facts_of_version_7_are_read_again() {
+    // Batch 3 D28: version 7 facts carry no content id, region or Xbox
+    // product id on `Sniff.console`.
     let dir = TempDir::new().unwrap();
     let rom = dir.path().join("Game.gba");
     put(&rom, &fx::gba());
@@ -2914,10 +2915,10 @@ fn facts_of_version_6_are_read_again() {
     };
     plan(&world, dir.path(), opts.clone());
     let mut stored = stored_facts(&world, &rom).expect("facts memoised");
-    assert_eq!(stored["v"], 7);
+    assert_eq!(stored["v"], 8);
 
-    // A version 6 row with a stale verdict is not trusted.
-    stored["v"] = 6.into();
+    // A version 7 row with a stale verdict is not trusted.
+    stored["v"] = 7.into();
     stored["inspection"]["payloads"][0]["sniff"]["hits"] = serde_json::json!([]);
     let meta = fs::metadata(&rom).unwrap();
     let mtime = FileTime::from_last_modification_time(&meta);
@@ -2933,7 +2934,7 @@ fn facts_of_version_6_are_read_again() {
         .find(|i| i.system_id.as_deref() == Some("gba"));
     assert!(item.is_some(), "the header is read again");
     let stored = stored_facts(&world, &rom).unwrap();
-    assert_eq!(stored["v"], 7);
+    assert_eq!(stored["v"], 8);
     assert_eq!(
         stored["inspection"]["payloads"][0]["sniff"]["hits"][0]["system"],
         "gba"

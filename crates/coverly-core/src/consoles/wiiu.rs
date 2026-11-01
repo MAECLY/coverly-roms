@@ -283,7 +283,11 @@ pub fn probe_loadiine(l: &DirListing) -> Option<FolderMatch> {
             });
         }
     }
-    Some(FolderMatch { id, probe })
+    Some(FolderMatch {
+        id,
+        probe,
+        leave: None,
+    })
 }
 
 /// A NUS download folder (spec D12): `title.tmd` among its names whose
@@ -299,6 +303,7 @@ pub fn probe_nus(l: &DirListing) -> Option<FolderMatch> {
     Some(FolderMatch {
         id,
         probe: PathBuf::from(name),
+        leave: None,
     })
 }
 

@@ -73,6 +73,7 @@ fn test_probe(listing: &DirListing) -> Option<FolderMatch> {
     has(listing, "GAME.PROBE").then(|| FolderMatch {
         id: id("gb"),
         probe: PathBuf::from("GAME.PROBE"),
+        leave: None,
     })
 }
 
@@ -80,6 +81,7 @@ fn gba_probe(listing: &DirListing) -> Option<FolderMatch> {
     has(listing, "GAME.PROBE").then(|| FolderMatch {
         id: id("gba"),
         probe: PathBuf::from("GAME.PROBE"),
+        leave: None,
     })
 }
 

@@ -43,6 +43,7 @@ fn item(id: usize, sources: &[&str], system: &str, kind: ItemKind, size: u64) ->
         disc: None,
         action: OrganizeAction::Auto,
         title_id: None,
+        content_id: None,
     }
 }
 

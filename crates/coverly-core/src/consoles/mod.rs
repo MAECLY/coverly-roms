@@ -19,7 +19,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::identify::sniff::ReadAt;
+use crate::identify::names::Region;
+use crate::identify::sniff::{NotARom, ReadAt};
 
 pub mod ctr;
 pub mod nintendo_disc;
@@ -93,6 +94,12 @@ pub enum IdSource {
     TicketName,
     FileName,
     Header,
+    /// PS5 `sce_sys/param.json` (systems batch 3 §8.2).
+    ParamJson,
+    /// Xbox GDK `MicrosoftGame.config` (systems batch 3 §8.3).
+    MicrosoftGameConfig,
+    /// Xbox ERA `AppxManifest.xml` (systems batch 3 §8.3).
+    AppxManifest,
 }
 
 /// A title id and where it came from, as a plan row shows it (spec §10:
@@ -144,6 +151,20 @@ pub struct ConsoleId {
     /// Where the title id came from, for the «why» line (spec §10).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id_source: Option<IdSource>,
+    /// PS4/PS5 36-character content id; XVC ContentId GUID (systems
+    /// batch 3 §8.0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_id: Option<String>,
+    /// From the first letter of the content id (systems batch 3 D8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<Region>,
+    /// GDK StoreId, ERA Identity Name, XVC ProductId GUID (systems
+    /// batch 3 D14, D15).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product_id: Option<String>,
+    /// GDK DLC: its single AllowedProduct (systems batch 3 D15).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
     /// Fixed vocabulary («RVZ disc header», «PFS0 ticket name»…).
     pub detail: String,
 }
@@ -162,6 +183,10 @@ impl ConsoleId {
             encrypted: None,
             art: Vec::new(),
             id_source: None,
+            content_id: None,
+            region: None,
+            product_id: None,
+            parent_id: None,
             detail: detail.to_owned(),
         }
     }
@@ -312,7 +337,7 @@ const KEY_NAMES: &[&str] = &[
 ];
 
 /// Extensions (lower-case) of licence and ticket files.
-const KEY_EXTS: &[&str] = &["rap", "rif", "dkey", "zrif", "tik", "cetk"];
+const KEY_EXTS: &[&str] = &["rap", "rif", "dkey", "zrif", "tik", "cetk", "cik"];
 
 /// Key or licence files: never opened, hashed, uploaded or moved (D4).
 ///
@@ -425,12 +450,25 @@ pub struct DirListing<'a> {
 /// [`MAX_META_FILE`]) through [`Budgeted`].
 pub type DirProbe = fn(&DirListing) -> Option<FolderMatch>;
 
+/// Why a probe that recognised a folder leaves it in place (systems
+/// batch 3 plan P-2): the walk turns it into one left item, not descended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FolderLeave {
+    /// The folder is not a console game (a GDK `PC` build, a console
+    /// system folder).
+    NotARom(NotARom),
+    /// The probe file exists but cannot be read (Windows ACLs).
+    Unreadable,
+}
+
 /// What a folder probe proved: the game and its probe file.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FolderMatch {
     pub id: ConsoleId,
     /// The probe file, relative to the folder.
     pub probe: PathBuf,
+    /// Set when the folder is recognised but stays where it is.
+    pub leave: Option<FolderLeave>,
 }
 
 /// Two probes matched one folder and named different systems: it is not
@@ -586,6 +624,20 @@ pub fn base_title_id(id: &ConsoleId) -> Option<String> {
     }
 }
 
+/// The region of a PS4/PS5 content id, from its first letter, as the
+/// shadPS4 launcher's `GameListUtils::GetRegion(content_id[0])` reads it
+/// (systems batch 3 D8).
+pub fn region_from_content_id(content_id: &str) -> Option<Region> {
+    match content_id.as_bytes().first()? {
+        b'U' => Some(Region::Usa),
+        b'E' => Some(Region::Europe),
+        b'J' => Some(Region::Japan),
+        b'H' => Some(Region::Asia),
+        b'I' => Some(Region::World),
+        _ => None,
+    }
+}
+
 /// A plaintext title from a header field: NULs and padding trimmed,
 /// controls and bidi overrides removed, at most 128 characters; `None`
 /// when nothing printable is left. Used by the readers as they land.
@@ -597,6 +649,8 @@ pub(crate) fn clean_title(raw: &str) -> Option<String> {
 mod tests {
     use super::testing::{self, RangeLog, SparseAt};
     use super::*;
+    use crate::identify::names::Region;
+    use crate::identify::sniff::NotARom;
 
     #[test]
     fn is_key_material_list() {
@@ -773,6 +827,7 @@ mod tests {
         l.names.iter().any(|n| n == "A").then(|| FolderMatch {
             id: ConsoleId::proven("gb", "a"),
             probe: PathBuf::from("A"),
+            leave: None,
         })
     }
 
@@ -780,6 +835,7 @@ mod tests {
         l.names.iter().any(|n| n == "B").then(|| FolderMatch {
             id: ConsoleId::proven("gb", "b"),
             probe: PathBuf::from("B"),
+            leave: None,
         })
     }
 
@@ -787,6 +843,7 @@ mod tests {
         l.names.iter().any(|n| n == "B").then(|| FolderMatch {
             id: ConsoleId::proven("gba", "b"),
             probe: PathBuf::from("B"),
+            leave: None,
         })
     }
 
@@ -841,6 +898,95 @@ mod tests {
         assert!(json.contains(r#""kind":"range""#), "{json}");
         let back: ConsoleId = serde_json::from_str(&json).unwrap();
         assert_eq!(back, p);
+    }
+
+    #[test]
+    fn cik_is_key_material() {
+        assert!(is_key_material("x.cik"));
+        assert!(is_key_material("X.CIK"));
+        // Spec D4: `sce_sys/license.dat` moves with its folder and is
+        // never opened, but it is not listed as key material.
+        assert!(!is_key_material("license.dat"));
+    }
+
+    #[test]
+    fn console_id_new_fields_serde() {
+        let bare = ConsoleId::proven("ps4", "PKG header");
+        assert_eq!(
+            (
+                &bare.content_id,
+                bare.region,
+                &bare.product_id,
+                &bare.parent_id
+            ),
+            (&None, None, &None, &None)
+        );
+        assert_eq!(
+            serde_json::to_string(&bare).unwrap(),
+            r#"{"system":"ps4","confidence":0.95,"kind":"unknown","detail":"PKG header"}"#
+        );
+        let old: ConsoleId = serde_json::from_str(
+            r#"{"system":"ps3","confidence":0.9,"kind":"base","detail":"PARAM.SFO"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            (&old.content_id, old.region, &old.product_id, &old.parent_id),
+            (&None, None, &None, &None)
+        );
+        let mut full = bare.clone();
+        full.content_id = Some("UP9000-CUSA00900_00-BLOODBORNE000000".into());
+        full.region = Some(Region::Usa);
+        full.product_id = Some("9NBLGGH4R315".into());
+        full.parent_id = Some("9N5SZL6TKX1Z".into());
+        full.id_source = Some(IdSource::MicrosoftGameConfig);
+        let json = serde_json::to_string(&full).unwrap();
+        assert!(
+            json.contains(r#""content_id":"UP9000-CUSA00900_00-BLOODBORNE000000""#),
+            "{json}"
+        );
+        assert!(json.contains(r#""region":"usa""#), "{json}");
+        assert!(json.contains(r#""product_id":"9NBLGGH4R315""#), "{json}");
+        assert!(json.contains(r#""parent_id":"9N5SZL6TKX1Z""#), "{json}");
+        assert!(
+            json.contains(r#""id_source":"microsoft-game-config""#),
+            "{json}"
+        );
+        let back: ConsoleId = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, full);
+        for (src, text) in [
+            (IdSource::ParamJson, "\"param-json\""),
+            (IdSource::MicrosoftGameConfig, "\"microsoft-game-config\""),
+            (IdSource::AppxManifest, "\"appx-manifest\""),
+        ] {
+            assert_eq!(serde_json::to_string(&src).unwrap(), text);
+        }
+    }
+
+    #[test]
+    fn region_letters() {
+        for (id, region) in [
+            ("UP9000-CUSA00900_00-BLOODBORNE000000", Region::Usa),
+            ("EP9000-CUSA00207_00-BLOODBORNE000000", Region::Europe),
+            ("JP9000-CUSA00208_00-BLOODBORNE000000", Region::Japan),
+            ("HP9000-CUSA01363_00-BLOODBORNE000000", Region::Asia),
+            ("IP9000-CUSA00001_00-TESTTEST00000000", Region::World),
+        ] {
+            assert_eq!(region_from_content_id(id), Some(region), "{id}");
+        }
+        for id in ["KP9000-CUSA00001_00-X", "X", ""] {
+            assert_eq!(region_from_content_id(id), None, "{id}");
+        }
+    }
+
+    #[test]
+    fn folder_leave_is_carried_by_a_match() {
+        let m = FolderMatch {
+            id: ConsoleId::proven("xboxone", "MicrosoftGame.config"),
+            probe: PathBuf::from("MicrosoftGame.config"),
+            leave: Some(FolderLeave::NotARom(NotARom::PcGameData)),
+        };
+        assert_eq!(m.leave, Some(FolderLeave::NotARom(NotARom::PcGameData)));
+        assert_ne!(Some(FolderLeave::Unreadable), m.leave);
     }
 
     #[test]

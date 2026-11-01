@@ -130,6 +130,9 @@ pub enum NotARom {
     /// A PC game's data pack: a Valve VPK (`34 12 AA 55`) named `.vpk`,
     /// as Steam workshop folders hold by the hundred (systems batch 2).
     PcGameData,
+    /// A console's own system file or folder (firmware modules, a
+    /// console system package), never a game (systems batch 3).
+    ConsoleSystem,
 }
 
 /// Container formats recognised by their magic (contents not read here).

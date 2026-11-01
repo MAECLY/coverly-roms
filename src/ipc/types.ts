@@ -749,7 +749,9 @@ export type NotARom =
   /** A macOS installer package named `.pkg`. */
   | 'installer'
   /** An Autodesk 3D Studio model named `.3ds`. */
-  | 'model3d';
+  | 'model3d'
+  /** A console's own system file or folder, never a game. */
+  | 'console-system';
 
 /** Why a file stays where it is. */
 export type LeftReason =
@@ -806,7 +808,10 @@ export type LeftReason =
   /** A console key or licence file: never read, never moved. */
   | { kind: 'key-material' }
   /** Inside an emulator's own data tree; `folder` is its root (`ux0`). */
-  | { kind: 'emulator-data'; folder: string };
+  | { kind: 'emulator-data'; folder: string }
+  /** A mods or patch folder beside its base that cannot move alone; `of`
+   * is the base's title (its folder name when the base is not an item). */
+  | { kind: 'game-overlay'; of: string };
 
 /** Something worth telling about an item that still moves. */
 export type ItemNote =
@@ -841,7 +846,15 @@ export type ItemNote =
   /** A package the emulator installs (PS3/Vita PKG). */
   | { kind: 'install-first'; emulator: string }
   /** The folder is renamed to `name` so `layout` shows it. */
-  | { kind: 'folder-suffix'; name: string; layout: string };
+  | { kind: 'folder-suffix'; name: string; layout: string }
+  /** A PS4 PKG: catalogued, has to be extracted to play. */
+  | { kind: 'extract-first' }
+  /** A PS5 store PKG, `.exfat`, `.ffpfs`, `.ffpfsc` or an XVC. */
+  | { kind: 'no-emulator' }
+  /** Enhanced for PS5 Pro (`attribute3` bit 22). */
+  | { kind: 'pro-enhanced' }
+  /** Goes to the DLC folder where `layout` looks for downloadable content. */
+  | { kind: 'dlc-folder'; layout: string };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =
@@ -857,7 +870,9 @@ export type PlanWarning =
   | { kind: 'move-unavailable' }
   | { kind: 'sorted-only' }
   /** The target lacks room: cluster-rounded bytes needed vs free for this user. */
-  | { kind: 'no-space'; needed: number; free: number };
+  | { kind: 'no-space'; needed: number; free: number }
+  /** The items that move by default write at least 10 GB to the target. */
+  | { kind: 'large-transfer'; bytes: number; items: number };
 
 /** A save, patch or note that follows its ROM. */
 export interface Companion {
@@ -886,7 +901,10 @@ export type IdSource =
   | 'cnmt-xml'
   | 'ticket-name'
   | 'file-name'
-  | 'header';
+  | 'header'
+  | 'param-json'
+  | 'microsoft-game-config'
+  | 'appx-manifest';
 
 /** A console title id and where it came from. */
 export interface TitleIdRef {
@@ -992,6 +1010,9 @@ export type OrganizeItem = OrganizeAction & {
   disc: DiscId | null;
   /** The console title id and its source (Rust leaves it out when absent). */
   title_id?: TitleIdRef;
+  /** The console content id (PKG header, `param.sfo`, `param.json`, XVC);
+   * Rust leaves it out when absent. */
+  content_id?: string;
 };
 
 export interface OrganizeCounts {
