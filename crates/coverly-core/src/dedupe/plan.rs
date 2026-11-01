@@ -222,6 +222,8 @@ struct UnitFacts {
     tags: NameTags,
     dat_name: Option<String>,
     headered_functional: Option<bool>,
+    /// Systems batch 2 D11: the higher version stays.
+    console_version: Option<String>,
 }
 
 impl UnitFacts {
@@ -750,7 +752,11 @@ impl Base {
                 .as_ref()
                 .map(|k| k.tags.clone())
                 .unwrap_or_else(|| parse_tags(&u.stem)),
-            dat_name: self.l2[i].as_ref().map(|k| k.game.clone()),
+            dat_name: self.l2[i]
+                .as_ref()
+                .filter(|k| !k.by_title_id)
+                .map(|k| k.game.clone()),
+            console_version: self.l2[i].as_ref().and_then(|k| k.console_version.clone()),
             headered_functional: headered(u, &self.l1[i]),
         }
     }
@@ -819,6 +825,7 @@ impl Base {
                 has_cover: f.has_cover(),
                 relation: *relation,
                 headered_functional: f.headered_functional,
+                console_version: f.console_version.as_deref(),
             })
             .collect()
     }
@@ -890,6 +897,14 @@ impl Base {
         if action == GroupAction::Act && lock(&self.skipped).contains(&id) {
             action = GroupAction::ReportOnly {
                 why: ReportWhy::UserSkipped,
+            };
+        }
+        // A folder game is never set aside in this batch (systems batch 2
+        // D28): checked here, whatever proved the group.
+        if action == GroupAction::Act && raw.members.iter().any(|(u, _)| is_folder(&self.units[*u]))
+        {
+            action = GroupAction::ReportOnly {
+                why: ReportWhy::Unconfirmed,
             };
         }
         let quarantine = match &opts.quarantine {
@@ -1053,6 +1068,10 @@ fn headered(u: &Unit, k: &KeyedUnit) -> Option<bool> {
         }
         _ => None,
     }
+}
+
+fn is_folder(u: &Unit) -> bool {
+    u.kind == UnitKind::Folder
 }
 
 /// The best confidence of the links that reach `unit`.
@@ -1248,7 +1267,12 @@ fn catalogue_crcs_for(
     env: &DedupeEnv,
 ) {
     for (u, k) in units.iter().zip(l1.iter_mut()) {
-        if !k.dat_crcs.is_empty() || !catalogued.contains(&u.system) {
+        // A console dump keyed by its title id is never read whole for
+        // a catalogue CRC (systems batch 2: headers only).
+        if !k.dat_crcs.is_empty()
+            || !catalogued.contains(&u.system)
+            || matches!(k.exact, Some(ExactKey::Title { .. }))
+        {
             continue;
         }
         if env.cancel.load(Ordering::Relaxed) {

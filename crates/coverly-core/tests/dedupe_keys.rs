@@ -1315,3 +1315,107 @@ fn serials_are_normalised_and_a_bad_one_gives_no_key() {
     assert_eq!(fkey(&keys[0]).key_string(), fkey(&keys[1]).key_string());
     assert_eq!(keys[2], None, "a list with an unreadable serial is no list");
 }
+
+// --- Console title ids (systems batch 2 D11, plan P-6) ---
+
+use coverly_core::consoles::TitleKind;
+use coverly_core::dedupe::source::NoDats;
+
+/// A Switch dump named with its title id and version tokens; `seed` and
+/// `len` keep the bytes apart (no reader proves anything from them).
+fn switch_unit(root: &Path, name: &str, seed: u8, len: usize) -> Unit {
+    let p = put(root, &format!("switch/{name}"), &rom_bytes(seed, len));
+    raw("switch", &p)
+}
+
+#[test]
+fn title_key_is_unconfirmed() {
+    let key = ExactKey::Title {
+        title_id: "0100000000010000".into(),
+        kind: TitleKind::Base,
+        version: Some("0".into()),
+        disc: None,
+    };
+    assert!(!key.is_confirmed(), "a title id is not a byte proof");
+    assert_eq!(
+        key.key_string("switch"),
+        "l1:switch:title:0100000000010000:Base:0"
+    );
+
+    let dir = TempDir::new().unwrap();
+    let units = numbered(vec![
+        switch_unit(dir.path(), "A [0100000000010000][v0].nsp", 1, 1000),
+        switch_unit(dir.path(), "A copy [0100000000010000][v0].nsp", 2, 1100),
+    ]);
+    let keys = keys_of(&units);
+    assert_eq!(exact(&keys[0]), &key);
+    assert!(!keys[0].confirmed);
+    assert_eq!(keys[0].group_key("switch"), keys[1].group_key("switch"));
+}
+
+#[test]
+fn base_and_update_never_share_a_key() {
+    let dir = TempDir::new().unwrap();
+    let units = numbered(vec![
+        switch_unit(dir.path(), "A [0100000000010000][v0].nsp", 1, 1000),
+        switch_unit(dir.path(), "A [0100000000010800][v65536].nsp", 2, 1100),
+    ]);
+    let keys = keys_of(&units);
+    assert!(matches!(
+        exact(&keys[1]),
+        ExactKey::Title {
+            kind: TitleKind::Update,
+            ..
+        }
+    ));
+    assert_ne!(keys[0].group_key("switch"), keys[1].group_key("switch"));
+    let v = level_two(&units, &keys, &NoDats);
+    let (a, b) = (v[0].as_ref().unwrap(), v[1].as_ref().unwrap());
+    assert_ne!(a.key_string(), b.key_string(), "an update is not a version");
+}
+
+#[test]
+fn same_base_same_version_share_a_key() {
+    let dir = TempDir::new().unwrap();
+    let units = numbered(vec![
+        switch_unit(dir.path(), "A [0100000000010000][v0].nsp", 1, 1000),
+        switch_unit(dir.path(), "A (2) [0100000000010000][v0].xci", 2, 1100),
+        switch_unit(dir.path(), "A [0100000000010000][v131072].nsp", 3, 1200),
+    ]);
+    let keys = keys_of(&units);
+    assert_eq!(keys[0].group_key("switch"), keys[1].group_key("switch"));
+    assert_ne!(
+        keys[0].group_key("switch"),
+        keys[2].group_key("switch"),
+        "another version is no exact copy"
+    );
+    let v = level_two(&units, &keys, &NoDats);
+    let (a, c) = (v[0].as_ref().unwrap(), v[2].as_ref().unwrap());
+    assert_eq!(a.key_string(), c.key_string(), "one base, two versions");
+    assert!(a.by_title_id);
+    assert_eq!(c.console_version.as_deref(), Some("131072"));
+}
+
+#[test]
+fn byte_equal_console_dumps_keep_their_payload_key() {
+    let dir = TempDir::new().unwrap();
+    let bytes = rom_bytes(9, 4096);
+    let a = put(dir.path(), "3ds/A.3dsx", &bytes);
+    let b = put(dir.path(), "3ds/B.3dsx", &bytes);
+    let units = numbered(vec![raw("3ds", &a), raw("3ds", &b)]);
+    let keys = keys_of(&units);
+    assert!(matches!(exact(&keys[0]), ExactKey::Payload { .. }));
+    assert!(keys[0].confirmed);
+}
+
+#[test]
+fn other_systems_never_get_a_title_key() {
+    let dir = TempDir::new().unwrap();
+    let a = put(
+        dir.path(),
+        "gba/A [0100000000010000][v0].gba",
+        &rom_bytes(1, 512),
+    );
+    let units = numbered(vec![raw("gba", &a)]);
+    assert_eq!(keys_of(&units)[0].exact, None);
+}

@@ -43,7 +43,7 @@ pub const MAX_SEEKS: u32 = 16;
 pub const MAX_META_FILE: u64 = 64 << 10;
 
 /// What a title is, from its title id or content type (spec §8.0, D11).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TitleKind {
     Base,

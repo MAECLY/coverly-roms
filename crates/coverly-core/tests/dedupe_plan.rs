@@ -1120,3 +1120,108 @@ fn facts_carry_game_list_plays() {
     let never = member_at(g, &root.join("ROMS/GB/Tetris (Copy).gb"));
     assert_eq!(never.facts.played, None);
 }
+
+// --- Console title ids (systems batch 2 D11, plan P-6) ---
+
+/// Three Switch dumps of one base and one update, by file name tokens;
+/// every file has its own size and bytes, so nothing proves equal bytes.
+fn switch_pile(root: &Path) -> [PathBuf; 4] {
+    [
+        put(
+            root,
+            "ROMS/switch/A [0100000000010000][v0].nsp",
+            &rom_bytes(1, 1000),
+        ),
+        put(
+            root,
+            "ROMS/switch/A copy [0100000000010000][v0].nsp",
+            &rom_bytes(2, 1100),
+        ),
+        put(
+            root,
+            "ROMS/switch/A [0100000000010800][v65536].nsp",
+            &rom_bytes(3, 1200),
+        ),
+        put(
+            root,
+            "ROMS/switch/A [0100000000010000][v131072].nsp",
+            &rom_bytes(4, 1300),
+        ),
+    ]
+}
+
+fn assert_reported(g: &coverly_core::dedupe::DupGroup) {
+    assert_eq!(
+        g.action,
+        GroupAction::ReportOnly {
+            why: ReportWhy::Unconfirmed
+        },
+        "a title id alone never sets a copy aside"
+    );
+    assert!(g.members.iter().all(|m| m.dest.is_none()));
+}
+
+#[test]
+fn switch_title_ids_report_copies_and_never_join_an_update() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let [a, copy, update, newer] = switch_pile(root);
+    let fx = Fx::new();
+    let mut opts = fx.opts();
+    opts.levels = vec![DedupeLevel::Exact, DedupeLevel::Format];
+    let plan = fx.plan(&scan(root), &opts);
+
+    assert_eq!(plan.groups.len(), 1, "{:#?}", plan.groups);
+    let g = group_of(&plan, "switch");
+    assert_reported(g);
+    let mut members: Vec<&Path> = g.members.iter().map(|m| m.unit.primary.as_path()).collect();
+    members.sort();
+    let mut want = vec![a.as_path(), copy.as_path()];
+    want.sort();
+    assert_eq!(members, want);
+    assert!(plan
+        .groups
+        .iter()
+        .flat_map(|g| &g.members)
+        .all(|m| m.unit.primary != update && m.unit.primary != newer));
+    assert_eq!(plan.totals.extras, 0);
+}
+
+#[test]
+fn switch_versions_report_the_higher_version_as_keeper() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let [a, copy, update, newer] = switch_pile(root);
+    let fx = Fx::new();
+    for one_game_one_rom in [false, true] {
+        let mut opts = fx.opts();
+        opts.levels = vec![
+            DedupeLevel::Exact,
+            DedupeLevel::Format,
+            DedupeLevel::Version,
+        ];
+        opts.one_game_one_rom = one_game_one_rom;
+        let plan = fx.plan(&scan(root), &opts);
+
+        assert_eq!(plan.groups.len(), 1, "{:#?}", plan.groups);
+        let g = group_of(&plan, "switch");
+        assert_reported(g);
+        assert_eq!(g.members.len(), 3);
+        assert_eq!(
+            g.members[g.keeper].unit.primary, newer,
+            "the higher version"
+        );
+        assert_eq!(
+            g.reason,
+            KeepReason::Revision {
+                kept: "131072".into(),
+                other: "0".into()
+            }
+        );
+        assert_eq!(member_at(g, &a).relation, Relation::Version);
+        assert_eq!(member_at(g, &copy).relation, Relation::Version);
+        assert!(g.members.iter().all(|m| m.unit.primary != update));
+        assert!(g.members.iter().all(|m| m.catalogue_name.is_none()));
+        assert_eq!(plan.totals.extras, 0);
+    }
+}

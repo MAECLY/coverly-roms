@@ -293,6 +293,7 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
             }
             let why = strictest(reasons);
             let confidence = match (&first.exact, &why) {
+                (Some(ExactKey::Title { .. }), _) => VERSION_CONFIDENCE,
                 (_, Some(ReportWhy::Unconfirmed)) => UNCONFIRMED_CONFIDENCE,
                 (Some(ExactKey::Arcade { .. }), _) => ARCADE_CONFIDENCE,
                 _ => EXACT_CONFIDENCE,
@@ -459,11 +460,22 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
         for &(u, k) in versions {
             buckets.entry(k.key_string()).or_default().push(u);
         }
-        let why = (!self.opts.one_game_one_rom).then_some(ReportWhy::LevelTwoOff);
+        let title_ids: BTreeSet<String> = versions
+            .iter()
+            .filter(|(_, k)| k.by_title_id)
+            .map(|(_, k)| k.key_string())
+            .collect();
         for (key, list) in buckets {
             if list.len() < 2 {
                 continue;
             }
+            // A console title id is no catalogue identity (plan P-6): its
+            // other versions are only reported, "one game, one ROM" or not.
+            let why = if title_ids.contains(&key) {
+                Some(ReportWhy::Unconfirmed)
+            } else {
+                (!self.opts.one_game_one_rom).then_some(ReportWhy::LevelTwoOff)
+            };
             // One representative per copy cluster: exact copies of one
             // catalogue game share its key, but they are not other
             // versions of each other, and a version link between them

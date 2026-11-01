@@ -63,6 +63,9 @@ pub enum UnitKind {
     Image,
     /// An m3u playlist over several discs.
     MultiDisc,
+    /// A folder game (systems batch 2 D26): `primary` is the folder, never
+    /// read as a file. Reported, never set aside (D28).
+    Folder,
 }
 
 /// One playable thing and every file that belongs to it.
@@ -458,11 +461,6 @@ fn draft_from_rom(
     dirs: &mut DirCache,
 ) -> Result<Draft, Option<Exclusion>> {
     let primary = &rom.path;
-    // A folder game (systems batch 2 D26) is never read as a file nor set
-    // aside: it is left out like a folder-game system's folder.
-    if rom.is_dir {
-        return Err(Some(Exclusion::Folder));
-    }
     common_checks(primary, Some(opts))?;
     if rom
         .rel_dir
@@ -470,6 +468,11 @@ fn draft_from_rom(
         .any(|c| matches!(c, Component::Normal(n) if opts.out_of_scope(&n.to_string_lossy())))
     {
         return Err(Some(Exclusion::Folder));
+    }
+    // A folder game (systems batch 2 D26) is one unit, never read as a
+    // file: only its title id can group it, and only to report (D28).
+    if rom.is_dir {
+        return draft_from_folder(rom, system);
     }
     let files: Vec<PathBuf> = std::iter::once(primary.clone())
         .chain(rom.companions.iter().cloned())
@@ -506,6 +509,43 @@ fn draft_from_rom(
         },
         sizes,
         dev_ino: dev_ino(&meta),
+    })
+}
+
+/// The unit of a folder game entry: the folder alone, its size and
+/// newest modification time as the scan measured them (metadata only).
+fn draft_from_folder(rom: &RomEntry, system: &System) -> Result<Draft, Option<Exclusion>> {
+    let meta = fs::symlink_metadata(&rom.path).map_err(|_| Some(Exclusion::Unreadable))?;
+    if meta.file_type().is_symlink() {
+        return Err(Some(Exclusion::Symlink));
+    }
+    if !meta.is_dir() {
+        return Err(Some(Exclusion::Unreadable));
+    }
+    let mtime_ns = rom
+        .modified
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX));
+    Ok(Draft {
+        unit: Unit {
+            id: 0,
+            system: system.id.clone(),
+            primary: rom.path.clone(),
+            files: vec![rom.path.clone()],
+            kind: UnitKind::Folder,
+            size: rom.size,
+            payload_size: None,
+            mtime_ns,
+            file_id: None,
+            patches: Vec::new(),
+            rel_dir: rom.rel_dir.clone(),
+            stem: rom.title_stem().to_string(),
+            ext: rom.ext.clone(),
+            in_library: true,
+        },
+        sizes: vec![rom.size],
+        // Folders cannot be hard links: no twin to drop.
+        dev_ino: None,
     })
 }
 

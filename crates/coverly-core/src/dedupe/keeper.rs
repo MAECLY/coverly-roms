@@ -181,6 +181,9 @@ pub struct Candidate<'a> {
     /// of the game (SNES, SMS/GG). `Some(true)`: a header emulators read
     /// (NES, Lynx, A7800).
     pub headered_functional: Option<bool>,
+    /// The console version as the header or file name writes it
+    /// (systems batch 2 D11): weighed first by the revision rule.
+    pub console_version: Option<&'a str>,
 }
 
 impl Candidate<'_> {
@@ -285,6 +288,9 @@ fn rule(r: KeepRule, a: &Candidate, b: &Candidate, ctx: &Ctx) -> Option<Verdict>
             })
         }
         KeepRule::Revision if versions => {
+            if let Some(v) = console_versions(a, b) {
+                return Some(v);
+            }
             let (ta, tb) = (a.tags?, b.tags?);
             let rev = |t: &NameTags| {
                 t.revision.unwrap_or(Revision {
@@ -336,6 +342,33 @@ fn rule(r: KeepRule, a: &Candidate, b: &Candidate, ctx: &Ctx) -> Option<Verdict>
         }
         _ => None,
     }
+}
+
+/// The higher console version, when both sides have one that reads as
+/// numbers (`131072`, `01.02`; Xbox 360 versions are hex).
+fn console_versions(a: &Candidate, b: &Candidate) -> Option<Verdict> {
+    let (va, vb) = (a.console_version?, b.console_version?);
+    let (na, nb) = (
+        version_order(&a.unit.system, va)?,
+        version_order(&b.unit.system, vb)?,
+    );
+    prefer(na, nb, |a_wins| {
+        let (k, o) = if a_wins { (va, vb) } else { (vb, va) };
+        KeepReason::Revision {
+            kept: k.to_string(),
+            other: o.to_string(),
+        }
+    })
+}
+
+/// A console version as numbers to compare, part by part (`01.02` is
+/// `[1, 2]`); `None` when a part is not a number.
+pub fn version_order(system: &str, v: &str) -> Option<Vec<u64>> {
+    let radix = if system == "xbox360" { 16 } else { 10 };
+    v.trim()
+        .split('.')
+        .map(|p| u64::from_str_radix(p, radix).ok())
+        .collect()
 }
 
 /// Catalogue hit, then dump flags, then the header (spec §6.1 `verified`).

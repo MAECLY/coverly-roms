@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
 use crate::cache::{Cache, ContentRow};
+use crate::consoles::{self, Budgeted, ConsoleId, DirListing, TitleKind};
 use crate::identify::dat::normalise_serial;
 use crate::identify::hash::{
     hash_stream, hex_upper, n64_to_z64, HashOutcome, HeaderRule, N64Order, RomHashes,
@@ -78,6 +79,19 @@ pub enum ExactKey {
     Chd { sha1: String },
     /// A CHD whose header gives only the raw data SHA1. Unconfirmed.
     ChdRaw { rawsha1: String },
+    /// Same console title id, kind and version (systems batch 2 D11, plan
+    /// P-6), and the same disc of a multi-disc game. Not a byte proof:
+    /// unconfirmed, so report-only. Only units of [`TITLE_ID_SYSTEMS`]
+    /// whose bytes nothing proved equal get one.
+    Title {
+        title_id: String,
+        /// Serialised as `title-kind`: `kind` is the enum's tag.
+        #[serde(rename = "title-kind")]
+        kind: TitleKind,
+        version: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        disc: Option<u8>,
+    },
 }
 
 impl ExactKey {
@@ -101,13 +115,28 @@ impl ExactKey {
             ),
             ExactKey::Chd { sha1 } => format!("l1:{system}:chd:{sha1}"),
             ExactKey::ChdRaw { rawsha1 } => format!("l1:{system}:chdraw:{rawsha1}"),
+            ExactKey::Title {
+                title_id,
+                kind,
+                version,
+                disc,
+            } => {
+                let disc = disc.map_or(String::new(), |d| format!(":d{d}"));
+                format!(
+                    "l1:{system}:title:{title_id}:{kind:?}:{}{disc}",
+                    version.as_deref().unwrap_or_default()
+                )
+            }
         }
     }
 
     /// Whether the key proves the bytes are equal (not a CRC-only or a
     /// raw-data-only match).
     pub fn is_confirmed(&self) -> bool {
-        !matches!(self, ExactKey::ZipCrc { .. } | ExactKey::ChdRaw { .. })
+        !matches!(
+            self,
+            ExactKey::ZipCrc { .. } | ExactKey::ChdRaw { .. } | ExactKey::Title { .. }
+        )
     }
 }
 
@@ -276,6 +305,8 @@ enum Class {
     Arcade,
     Disc,
     Chd,
+    /// Never read as bytes: a folder game (only its title id keys it).
+    Unread,
 }
 
 /// Level 1 keys of `units` (index-aligned: `out[i].unit == i`).
@@ -295,6 +326,10 @@ pub fn level_one(
     let mut facts: Vec<Facts> = Vec::with_capacity(n);
     let mut fresh = vec![false; n];
     for (i, u) in units.iter().enumerate() {
+        if classes[i] == Class::Unread {
+            facts.push(Facts::default());
+            continue;
+        }
         match cached_facts(u, ctx) {
             Some(f) => facts.push(f),
             None => {
@@ -328,14 +363,22 @@ pub fn level_one(
         if fresh[i] {
             store_facts(u, f, ctx);
         }
-        let patch_set = match &f.exact {
+        // Nothing proved equal bytes: a console dump falls back on its
+        // title id (plan P-6). Never stored as the unit's facts, so a byte
+        // proof found later still wins.
+        let exact = match &f.exact {
+            Some(e) if e.is_confirmed() => Some(e.clone()),
+            other if !cancel.load(Ordering::Relaxed) => title_key(u, ctx).or_else(|| other.clone()),
+            other => other.clone(),
+        };
+        let patch_set = match &exact {
             Some(_) if !u.patches.is_empty() => patch_set(&u.patches),
             _ => Vec::new(),
         };
         out.push(KeyedUnit {
             unit: i,
-            confirmed: f.exact.as_ref().is_some_and(ExactKey::is_confirmed),
-            exact: f.exact.clone(),
+            confirmed: exact.as_ref().is_some_and(ExactKey::is_confirmed),
+            exact,
             patch_set,
             header: f.header.clone(),
             dat_game: None,
@@ -397,6 +440,7 @@ fn class_of(u: &Unit, ctx: &KeyCtx) -> Class {
         UnitKind::Arcade => Class::Arcade,
         UnitKind::DiscSet | UnitKind::MultiDisc => Class::Disc,
         UnitKind::Chd => Class::Chd,
+        UnitKind::Folder => Class::Unread,
     }
 }
 
@@ -1169,6 +1213,105 @@ pub fn parse_chd_header(head: &[u8]) -> Option<(u32, Option<String>, Option<Stri
     Some((version, hash(sha1_at), raw_at.and_then(hash)))
 }
 
+// --- Console title ids (systems batch 2 D11, plan P-6) ---
+
+/// The systems whose dumps carry a console title id (systems batch 2).
+/// Units of any other system keep the keys they had.
+pub const TITLE_ID_SYSTEMS: [&str; 9] = [
+    "gamecube", "wii", "wiiu", "3ds", "switch", "ps3", "psvita", "xbox", "xbox360",
+];
+
+/// `cache.json` namespace of the title keys read, by path, size and
+/// modification time: a warm run reads no header again.
+const TITLE_NS: &str = "dedupe-title-v1";
+
+/// Whether `system` is one of [`TITLE_ID_SYSTEMS`].
+pub fn has_title_ids(system: &str) -> bool {
+    TITLE_ID_SYSTEMS.contains(&system)
+}
+
+/// The title key of `u` from its console header (files) or folder probe
+/// (folder games), within the readers' budget (D24): `None` for other
+/// systems, for a unit no reader identifies, or for one identified as
+/// another system. A Switch file name's `[0100…][vN]` tokens are enough
+/// (spec D10) and read nothing.
+fn title_key(u: &Unit, ctx: &KeyCtx) -> Option<ExactKey> {
+    if !has_title_ids(&u.system) {
+        return None;
+    }
+    let name = u
+        .primary
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if u.system == "switch" {
+        if let Some((tid, version)) = consoles::nx::title_id_from_name(&name) {
+            return Some(ExactKey::Title {
+                title_id: format!("{tid:016X}"),
+                kind: consoles::kind_switch(tid),
+                version: version.map(|v| v.to_string()),
+                disc: None,
+            });
+        }
+    }
+    let cached = |cache: &Cache, key: &str| {
+        cache
+            .get_json::<Option<ExactKey>>(TITLE_NS, key)
+            .ok()
+            .flatten()
+            .map(|s| s.value)
+    };
+    let key = format!("{}|{}|{}", u.primary.display(), u.size, u.mtime_ns);
+    if let Some(hit) = ctx.cache.and_then(|c| cached(c, &key)) {
+        return hit;
+    }
+    let id = match u.kind {
+        UnitKind::Folder => {
+            let names: Vec<String> = crate::organize::walk::list_dir(&u.primary)?
+                .into_iter()
+                .map(|(n, _, _)| n)
+                .collect();
+            consoles::identify_dir(&DirListing {
+                dir: &u.primary,
+                names: &names,
+            })
+            .ok()
+            .flatten()
+            .map(|m| m.id)
+        }
+        UnitKind::Single | UnitKind::Image if u.files.len() == 1 => {
+            let file = consoles::open_rom(&u.primary).ok()?;
+            let mut at = crate::identify::sniff::FileAt(file);
+            let mut src = Budgeted::new(&mut at, u.size);
+            consoles::identify(&mut src, &u.ext, &name)
+        }
+        _ => None,
+    };
+    let found = id.as_ref().and_then(|id| title_of(id, &u.system));
+    if let Some(cache) = ctx.cache {
+        // The cache is an optimisation: a failed write costs a re-read.
+        let _ = cache.put_json(TITLE_NS, &key, &found, None);
+    }
+    found
+}
+
+/// The title key a reader's answer gives in `system`.
+fn title_of(id: &ConsoleId, system: &str) -> Option<ExactKey> {
+    if id.system != system {
+        return None;
+    }
+    let title_id = id.title_id.as_deref()?.trim();
+    if title_id.is_empty() {
+        return None;
+    }
+    Some(ExactKey::Title {
+        title_id: title_id.to_ascii_uppercase(),
+        kind: id.kind,
+        version: id.version.clone(),
+        disc: id.disc_no,
+    })
+}
+
 // --- Level 2: same game, other version (spec §5.3) ---
 
 /// Confidence of a level 2 match: both units hit the catalogue by hash and
@@ -1185,16 +1328,25 @@ pub struct VersionKey {
     /// the disc number, unknown groups and modification tags stay in it.
     pub title_key: String,
     pub disc: Option<u8>,
-    /// The catalogue game name the key comes from.
+    /// The catalogue game name the key comes from; the file stem for a
+    /// key [`by_title_id`](Self::by_title_id).
     pub game: String,
     pub tags: NameTags,
+    /// The console version (`[v131072]`, `APP_VER`, the TMD version), the
+    /// first thing the revision rule weighs when both sides have one
+    /// (systems batch 2 D11).
+    pub console_version: Option<String>,
+    /// The key comes from a console title id and kind, not from a
+    /// catalogue hit (plan P-6): its links are only ever reported.
+    pub by_title_id: bool,
 }
 
 impl VersionKey {
     /// The key as one string, `system` first.
     pub fn key_string(&self) -> String {
         let disc = self.disc.map_or(String::new(), |d| format!(":d{d}"));
-        format!("l2:{}:{}{disc}", self.system, self.title_key)
+        let from = if self.by_title_id { "title-id:" } else { "" };
+        format!("l2:{}:{from}{}{disc}", self.system, self.title_key)
     }
 }
 
@@ -1216,6 +1368,39 @@ pub fn level_two(
 }
 
 fn version_key(unit: &Unit, k: &KeyedUnit, dats: &dyn DatLookup) -> Option<VersionKey> {
+    let Some(mut key) = catalogue_version_key(unit, k, dats) else {
+        return title_version_key(unit, k);
+    };
+    if let Some(ExactKey::Title { version, .. }) = &k.exact {
+        key.console_version = version.clone();
+    }
+    Some(key)
+}
+
+/// Another version of a console title: the same title id and kind, any
+/// version (systems batch 2 D11). An update never shares its base's key.
+fn title_version_key(unit: &Unit, k: &KeyedUnit) -> Option<VersionKey> {
+    let Some(ExactKey::Title {
+        title_id,
+        kind,
+        version,
+        disc,
+    }) = &k.exact
+    else {
+        return None;
+    };
+    Some(VersionKey {
+        system: unit.system.clone(),
+        title_key: format!("{title_id}:{kind:?}"),
+        disc: *disc,
+        game: unit.stem.clone(),
+        tags: parse_tags(&unit.stem),
+        console_version: version.clone(),
+        by_title_id: true,
+    })
+}
+
+fn catalogue_version_key(unit: &Unit, k: &KeyedUnit, dats: &dyn DatLookup) -> Option<VersionKey> {
     let mut games: Vec<String> = Vec::new();
     if let Some((system, game)) = &k.dat_game {
         if *system == unit.system {
@@ -1247,6 +1432,8 @@ fn version_key(unit: &Unit, k: &KeyedUnit, dats: &dyn DatLookup) -> Option<Versi
         disc: tags.disc,
         game,
         tags,
+        console_version: None,
+        by_title_id: false,
     })
 }
 
@@ -1378,7 +1565,7 @@ fn is_disc_unit(u: &Unit) -> bool {
     match u.kind {
         UnitKind::DiscSet | UnitKind::Chd | UnitKind::Image | UnitKind::MultiDisc => true,
         UnitKind::Single => DISC_IMAGE_EXTS.contains(&u.ext.as_str()),
-        UnitKind::Zip | UnitKind::Arcade => false,
+        UnitKind::Zip | UnitKind::Arcade | UnitKind::Folder => false,
     }
 }
 
