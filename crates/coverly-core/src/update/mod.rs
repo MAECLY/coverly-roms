@@ -16,12 +16,10 @@ use serde::{Deserialize, Serialize};
 use crate::net::{Http, HttpRequest, HttpResponse, NetConfig, NetError};
 use crate::settings::UpdateChannel;
 
-pub const STABLE_ENDPOINT: &str =
-    "https://github.com/MAECLY/coverly-roms/releases/latest/download/latest.json";
+pub const STABLE_ENDPOINT: &str = crate::net::hosts::UPDATE_STABLE;
 /// The fixed prerelease whose `latest.json` release-channels.yml moves forward.
 pub const BETA_TAG: &str = "channel-beta";
-pub const BETA_ENDPOINT: &str =
-    "https://github.com/MAECLY/coverly-roms/releases/download/channel-beta/latest.json";
+pub const BETA_ENDPOINT: &str = crate::net::hosts::UPDATE_BETA;
 /// Replaces the channel's manifest URL (local end-to-end tests).
 pub const ENDPOINT_ENV: &str = "COVERLY_UPDATE_ENDPOINT";
 /// What `updater.pub` holds until the owner commits the real key.

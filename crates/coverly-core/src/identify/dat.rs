@@ -17,8 +17,7 @@ use crate::identify::hash::HashOutcome;
 use crate::net::{Http, HttpRequest, NetError};
 use crate::systems::{is_safe_repo_path, System};
 
-pub const DATABASE_BASE: &str =
-    "https://raw.githubusercontent.com/libretro/libretro-database/master";
+pub const DATABASE_BASE: &str = crate::net::hosts::DATABASE_BASE;
 pub const DAT_TTL_SECS: i64 = 30 * 24 * 3600;
 pub const MAX_DAT_BYTES: u64 = 64 * 1024 * 1024;
 const NS: &str = "dat-meta";

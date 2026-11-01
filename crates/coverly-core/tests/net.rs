@@ -176,7 +176,7 @@ fn an_invalid_manual_proxy_fails_closed() {
         ..cfg()
     };
     let err = UreqHttp::new(&c)
-        .get(&HttpRequest::get("https://example.invalid/x"))
+        .get(&HttpRequest::get("https://thumbnails.libretro.com/x"))
         .unwrap_err();
     assert!(
         matches!(&err, NetError::Offline(m) if m.contains("proxy")),
@@ -344,4 +344,250 @@ fn a_request_that_cannot_be_built_fails_without_pausing() {
     assert!(matches!(err, NetError::Invalid(_)), "{err:?}");
     assert!(!err.pauses());
     assert_eq!(err.pause_kind(), None);
+}
+
+// ── Conditional GET with Last-Modified, streaming bodies (spec D4, D5) ──
+
+#[test]
+fn if_modified_since_is_sent_and_last_modified_read_back() {
+    let server = MockServer::start();
+    let stamp = "Mon, 14 Sep 2026 10:00:00 GMT";
+    server.mock_seq(
+        "/c",
+        vec![
+            MockResponse::ok("v1")
+                .header("ETag", "\"e1\"")
+                .header("Last-Modified", stamp),
+            MockResponse::status(304)
+                .header("ETag", "\"e1\"")
+                .header("Last-Modified", stamp),
+        ],
+    );
+    let first = client().get(&HttpRequest::get(server.url("/c"))).unwrap();
+    assert_eq!(first.last_modified.as_deref(), Some(stamp));
+    assert_eq!(server.requests()[0].header("if-modified-since"), None);
+    let again = client()
+        .get(
+            &HttpRequest::get(server.url("/c"))
+                .if_none_match(first.etag.clone())
+                .if_modified_since(first.last_modified.clone()),
+        )
+        .unwrap();
+    assert_eq!(again.status, 304);
+    assert!(again.body.is_empty());
+    assert_eq!(again.last_modified.as_deref(), Some(stamp));
+    let sent = &server.requests()[1];
+    assert_eq!(sent.header("if-none-match"), Some("\"e1\""));
+    assert_eq!(sent.header("if-modified-since"), Some(stamp));
+}
+
+fn stream_all(
+    http: &dyn Http,
+    req: &HttpRequest,
+) -> (
+    Result<coverly_core::net::HttpResponse, NetError>,
+    Vec<u8>,
+    usize,
+    usize,
+) {
+    let (mut got, mut reads, mut calls) = (Vec::new(), 0usize, 0usize);
+    let result = http.get_stream(req, &mut |resp, body| {
+        calls += 1;
+        assert!(resp.body.is_empty(), "the sink never sees a buffered body");
+        let mut buf = [0u8; 64 * 1024];
+        loop {
+            let n = body
+                .read(&mut buf)
+                .map_err(|e| NetError::Offline(e.to_string()))?;
+            if n == 0 {
+                return Ok(());
+            }
+            reads += 1;
+            got.extend_from_slice(&buf[..n]);
+        }
+    });
+    (result, got, reads, calls)
+}
+
+#[test]
+fn get_stream_delivers_a_live_body_in_chunks() {
+    let body: Vec<u8> = (0..3 * 1024 * 1024u32).map(|i| (i % 251) as u8).collect();
+    let server = MockServer::start();
+    server.mock(
+        "/s",
+        MockResponse::ok(body.clone())
+            .header("ETag", "\"s1\"")
+            .header("Last-Modified", "Mon, 14 Sep 2026 10:00:00 GMT"),
+    );
+    let req = HttpRequest::get(server.url("/s")).max_bytes(4 * 1024 * 1024);
+    let (result, got, reads, calls) = stream_all(&client(), &req);
+    let resp = result.unwrap();
+    assert_eq!((resp.status, calls), (200, 1));
+    assert!(resp.body.is_empty());
+    assert_eq!(resp.etag.as_deref(), Some("\"s1\""));
+    assert!(reads > 1, "read in chunks, not all at once ({reads})");
+    assert_eq!(got, body);
+}
+
+#[test]
+fn get_stream_stops_at_the_decoded_byte_cap() {
+    let server = MockServer::start();
+    server.mock("/big", MockResponse::ok(vec![7u8; 3 * 1024 * 1024]));
+    let req = HttpRequest::get(server.url("/big")).max_bytes(1024 * 1024);
+    let (result, got, _, _) = stream_all(&client(), &req);
+    assert_eq!(
+        result.unwrap_err(),
+        NetError::TooLarge { limit: 1024 * 1024 }
+    );
+    assert!(got.len() as u64 <= 1024 * 1024);
+}
+
+#[test]
+fn get_stream_caps_gzip_after_decompression() {
+    use std::io::Write;
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    gz.write_all(&vec![0u8; 4 * 1024 * 1024]).unwrap();
+    let server = MockServer::start();
+    server.mock(
+        "/bomb",
+        MockResponse::ok(gz.finish().unwrap()).header("Content-Encoding", "gzip"),
+    );
+    let req = HttpRequest::get(server.url("/bomb")).max_bytes(64 * 1024);
+    let (result, _, _, _) = stream_all(&client(), &req);
+    assert_eq!(result.unwrap_err(), NetError::TooLarge { limit: 64 * 1024 });
+}
+
+#[test]
+fn get_stream_skips_the_sink_for_non_success_statuses() {
+    let server = MockServer::start();
+    server.mock("/nm", MockResponse::status(304));
+    for path in ["/nm", "/missing"] {
+        let (result, _, _, calls) = stream_all(&client(), &HttpRequest::get(server.url(path)));
+        let status = result.unwrap().status;
+        assert!(status == 304 || status == 404, "{status}");
+        assert_eq!(calls, 0, "{path}: no sink call without a 2xx body");
+    }
+}
+
+#[test]
+fn polite_get_stream_retries_before_the_body_starts() {
+    let server = MockServer::start();
+    server.mock_seq(
+        "/rs",
+        vec![MockResponse::status(503), MockResponse::ok("streamed")],
+    );
+    let (result, got, _, calls) = stream_all(&client(), &HttpRequest::get(server.url("/rs")));
+    assert_eq!(result.unwrap().status, 200);
+    assert_eq!((got.as_slice(), calls), (b"streamed".as_slice(), 1));
+    assert_eq!(server.hits("/rs"), 2);
+}
+
+struct Canned(Vec<u8>);
+impl Http for Canned {
+    fn get(&self, _: &HttpRequest) -> Result<coverly_core::net::HttpResponse, NetError> {
+        Ok(coverly_core::net::HttpResponse {
+            status: 200,
+            etag: Some("\"f\"".into()),
+            last_modified: None,
+            content_type: None,
+            retry_after: None,
+            body: self.0.clone(),
+        })
+    }
+}
+
+#[test]
+fn the_default_get_stream_wraps_get_for_fakes_and_polite() {
+    let fake = Canned(b"fake body".to_vec());
+    let (result, got, _, calls) = stream_all(&fake, &HttpRequest::get("https://x/"));
+    let resp = result.unwrap();
+    assert_eq!(
+        (resp.status, calls, got.as_slice()),
+        (200, 1, b"fake body".as_slice())
+    );
+    assert!(resp.body.is_empty());
+    assert_eq!(resp.etag.as_deref(), Some("\"f\""));
+    let polite = PoliteHttp::new(Canned(b"polite".to_vec()), &cfg());
+    let (_, got, _, _) = stream_all(&polite, &HttpRequest::get("https://x/"));
+    assert_eq!(got, b"polite");
+}
+
+// ── The endpoint registry (spec D30) ──
+
+/// A client whose HTTPS requests go through `proxy`: a request that passes
+/// the registry shows up there as a `CONNECT`, a refused one never does.
+fn proxied(proxy: &MockServer, user: Vec<String>) -> UreqHttp {
+    let c = NetConfig {
+        proxy: ProxyMode::Manual(proxy.base()),
+        ..cfg()
+    };
+    UreqHttp::new(&c).with_user_urls(user)
+}
+
+#[test]
+fn an_unregistered_prefix_is_refused_before_any_connection() {
+    let proxy = MockServer::start();
+    let http = proxied(&proxy, Vec::new());
+    for url in [
+        "https://example.com/x",
+        "https://raw.githubusercontent.com/other/repo/master/x.json",
+        "https://raw.githubusercontent.com/blawar/titledb/../../other/x",
+        "https://thumbnails.libretro.com.evil.com/x",
+    ] {
+        let err = http.get(&HttpRequest::get(url)).unwrap_err();
+        assert!(matches!(err, NetError::Unregistered(_)), "{url} → {err:?}");
+        assert!(!err.pauses());
+        let (result, _, _, calls) = stream_all(&http, &HttpRequest::get(url));
+        assert!(matches!(result, Err(NetError::Unregistered(_))), "{url}");
+        assert_eq!(calls, 0);
+    }
+    assert!(proxy.requests().is_empty(), "{:?}", proxy.requests());
+}
+
+#[test]
+fn a_registered_prefix_reaches_the_network() {
+    let proxy = MockServer::start();
+    let http = proxied(&proxy, Vec::new());
+    let err = http
+        .get(&HttpRequest::get(
+            "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json",
+        ))
+        .unwrap_err();
+    assert!(!matches!(err, NetError::Unregistered(_)), "{err:?}");
+    assert_eq!(
+        proxy.requests()[0].path,
+        "raw.githubusercontent.com:443",
+        "the request went out through the proxy"
+    );
+}
+
+#[test]
+fn the_users_own_url_passes_by_prefix() {
+    let proxy = MockServer::start();
+    let http = proxied(&proxy, vec!["https://mirror.example/nlib/".into()]);
+    for url in [
+        "https://mirror.example/other/x",
+        "https://mirror.example.evil/nlib/x",
+    ] {
+        let err = http.get(&HttpRequest::get(url)).unwrap_err();
+        assert!(matches!(err, NetError::Unregistered(_)), "{url} → {err:?}");
+    }
+    assert!(proxy.requests().is_empty());
+    let err = http
+        .get(&HttpRequest::get(
+            "https://mirror.example/nlib/0100000000010000",
+        ))
+        .unwrap_err();
+    assert!(!matches!(err, NetError::Unregistered(_)), "{err:?}");
+    assert_eq!(proxy.requests()[0].path, "mirror.example:443");
+}
+
+#[test]
+fn loopback_stays_open_for_local_tests_and_mocks() {
+    let server = MockServer::start();
+    server.mock("/l", MockResponse::ok("local"));
+    let resp = UreqHttp::new(&cfg())
+        .get(&HttpRequest::get(server.url("/l")))
+        .unwrap();
+    assert_eq!(resp.body, b"local");
 }

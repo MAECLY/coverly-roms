@@ -3,8 +3,11 @@
 //! for tests), proxy from the environment, `CoverlyROMs/<ver>` User-Agent,
 //! a global limiter, retries with exponential backoff and Retry-After, and
 //! body size caps. Error statuses come back as responses; only transport
-//! failures, exhausted retries and rate limits are errors.
+//! failures, exhausted retries and rate limits are errors. Every HTTPS URL
+//! must start with a prefix of the endpoint registry ([`hosts`], spec D30)
+//! or one of the user's own URLs.
 
+pub mod hosts;
 mod limiter;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
@@ -22,12 +25,16 @@ const PROXY_ENV: [&str; 4] = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
-/// A GET request: URL, optional conditional ETag, a body size cap, an
-/// optional Bearer key (redacted in `Debug`) and whether a 403 pauses.
+/// A GET request: URL, optional conditional ETag and Last-Modified, a body
+/// size cap, an optional Bearer key (redacted in `Debug`) and whether a 403
+/// pauses.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpRequest {
     pub url: String,
     pub if_none_match: Option<String>,
+    /// Sent as `If-Modified-Since`: the `Last-Modified` stored from the
+    /// previous answer (spec D4).
+    pub if_modified_since: Option<String>,
     pub max_bytes: u64,
     /// Sent as `Authorization: Bearer …` (SteamGridDB).
     pub bearer: Option<Secret>,
@@ -62,6 +69,10 @@ pub enum NetError {
     TooLarge { limit: u64 },
     #[error("refused non-HTTPS URL {0}")]
     Insecure(String),
+    /// An HTTPS URL outside the endpoint registry ([`hosts::ENDPOINTS`]) and
+    /// the user's own URLs: refused before any connection (spec D30).
+    #[error("refused unregistered URL {0}")]
+    Unregistered(String),
     /// The request could not be built (a malformed URL or header value):
     /// a fault of this request, never a pause.
     #[error("invalid request: {0}")]
@@ -91,9 +102,30 @@ impl NetError {
     }
 }
 
+/// The receiver of a streamed body: the response head (with an empty
+/// `body`) and a reader over the decoded body.
+pub type BodySink<'a> =
+    dyn FnMut(&HttpResponse, &mut dyn std::io::Read) -> Result<(), NetError> + 'a;
+
 /// Blocking HTTP GET, injectable so tests and sources can wrap or fake it.
 pub trait Http: Send + Sync {
     fn get(&self, req: &HttpRequest) -> Result<HttpResponse, NetError>;
+
+    /// Like [`get`](Self::get), but a 2xx body goes to `sink` as a reader
+    /// instead of into memory (spec D5); the returned response has an empty
+    /// `body`. Other statuses (304, 404…) return without calling `sink`.
+    /// This default buffers through `get()`, so `PoliteHttp` wrappers and
+    /// test fakes keep working; `UreqHttp` passes the live body, capped at
+    /// `max_bytes` decoded bytes.
+    fn get_stream(&self, req: &HttpRequest, sink: &mut BodySink) -> Result<HttpResponse, NetError> {
+        let mut resp = self.get(req)?;
+        if !(200..300).contains(&resp.status) {
+            return Ok(resp);
+        }
+        let body = std::mem::take(&mut resp.body);
+        sink(&resp, &mut std::io::Cursor::new(body))?;
+        Ok(resp)
+    }
 }
 
 /// Where the proxy comes from: the environment, none, or a fixed URL.
@@ -120,6 +152,7 @@ impl HttpRequest {
         HttpRequest {
             url: url.into(),
             if_none_match: None,
+            if_modified_since: None,
             max_bytes: DEFAULT_MAX_BYTES,
             bearer: None,
             forbidden_pauses: true,
@@ -131,6 +164,10 @@ impl HttpRequest {
     }
     pub fn if_none_match(mut self, etag: Option<String>) -> HttpRequest {
         self.if_none_match = etag;
+        self
+    }
+    pub fn if_modified_since(mut self, last_modified: Option<String>) -> HttpRequest {
+        self.if_modified_since = last_modified;
         self
     }
     pub fn bearer(mut self, key: Secret) -> HttpRequest {
@@ -268,6 +305,8 @@ pub struct UreqHttp {
     /// Set when a manual proxy was given but cannot be used: HTTPS requests
     /// then fail instead of silently going direct.
     proxy_error: Option<String>,
+    /// The user's own HTTPS URLs admitted beside the registry (spec D30).
+    user_urls: Vec<String>,
 }
 
 impl UreqHttp {
@@ -300,55 +339,154 @@ impl UreqHttp {
             secure: build(true, 5, proxy),
             loopback: build(false, 0, None),
             proxy_error,
+            user_urls: Vec::new(),
         }
     }
-}
 
-impl Http for UreqHttp {
-    fn get(&self, req: &HttpRequest) -> Result<HttpResponse, NetError> {
-        let agent = match url_kind(&req.url) {
-            UrlKind::Https => match &self.proxy_error {
-                Some(e) => return Err(NetError::Offline(e.clone())),
-                None => &self.secure,
-            },
-            UrlKind::Loopback => &self.loopback,
-            UrlKind::Refused => return Err(NetError::Insecure(req.url.clone())),
-        };
+    /// Admits the user's own HTTPS URLs (the nlib fallback, an update
+    /// endpoint override) by prefix, beside the registry. Settings validate
+    /// them; anything that is not a plain HTTPS URL is ignored.
+    pub fn with_user_urls(mut self, urls: Vec<String>) -> UreqHttp {
+        self.user_urls = urls;
+        self
+    }
+
+    /// Picks the agent for `url`, refusing it before any connection when it
+    /// is not HTTPS (or loopback HTTP) or not in the registry. Loopback HTTP
+    /// stays open: it never leaves the machine and never follows redirects
+    /// (tests and the CLI's hidden base-URL flags point at local mocks).
+    fn agent_for(&self, url: &str) -> Result<&ureq::Agent, NetError> {
+        match url_kind(url) {
+            UrlKind::Https => {
+                let user: Vec<&str> = self.user_urls.iter().map(String::as_str).collect();
+                if !hosts::allowed(url, &user) {
+                    return Err(NetError::Unregistered(url.to_string()));
+                }
+                match &self.proxy_error {
+                    Some(e) => Err(NetError::Offline(e.clone())),
+                    None => Ok(&self.secure),
+                }
+            }
+            UrlKind::Loopback => Ok(&self.loopback),
+            UrlKind::Refused => Err(NetError::Insecure(url.to_string())),
+        }
+    }
+
+    /// Sends `req` and returns the live response with its head parsed
+    /// (`body` still empty).
+    fn send(
+        &self,
+        req: &HttpRequest,
+    ) -> Result<(ureq::http::Response<ureq::Body>, HttpResponse), NetError> {
+        let agent = self.agent_for(&req.url)?;
         let mut builder = agent.get(&req.url);
         if let Some(tag) = &req.if_none_match {
             builder = builder.header("If-None-Match", tag);
         }
+        if let Some(stamp) = &req.if_modified_since {
+            builder = builder.header("If-Modified-Since", stamp);
+        }
         if let Some(key) = &req.bearer {
             builder = builder.header("Authorization", format!("Bearer {}", key.expose()));
         }
-        let mut resp = builder.call().map_err(transport)?;
-        let status = resp.status().as_u16();
+        let resp = builder.call().map_err(transport)?;
         let header = |name: &str| {
             resp.headers()
                 .get(name)
                 .and_then(|v| v.to_str().ok())
                 .map(str::to_string)
         };
-        let (etag, last_modified, content_type) = (
-            header("etag"),
-            header("last-modified"),
-            header("content-type"),
-        );
-        let retry_after =
-            header("retry-after").and_then(|v| retry_after(&v, crate::time::now_unix()));
-        let body = if status == 304 {
-            Vec::new()
-        } else {
-            read_capped(resp.body_mut(), req.max_bytes)?
+        let head = HttpResponse {
+            status: resp.status().as_u16(),
+            etag: header("etag"),
+            last_modified: header("last-modified"),
+            content_type: header("content-type"),
+            retry_after: header("retry-after")
+                .and_then(|v| retry_after(&v, crate::time::now_unix())),
+            body: Vec::new(),
         };
-        Ok(HttpResponse {
-            status,
-            etag,
-            last_modified,
-            content_type,
-            retry_after,
-            body,
-        })
+        Ok((resp, head))
+    }
+}
+
+impl Http for UreqHttp {
+    fn get(&self, req: &HttpRequest) -> Result<HttpResponse, NetError> {
+        let (mut resp, mut head) = self.send(req)?;
+        if head.status != 304 {
+            head.body = read_capped(resp.body_mut(), req.max_bytes)?;
+        }
+        Ok(head)
+    }
+
+    fn get_stream(&self, req: &HttpRequest, sink: &mut BodySink) -> Result<HttpResponse, NetError> {
+        let (mut resp, head) = self.send(req)?;
+        if !(200..300).contains(&head.status) {
+            return Ok(head);
+        }
+        let mut reader = CappedReader::new(resp.body_mut(), req.max_bytes);
+        let outcome = sink(&head, &mut reader);
+        // A cap or transport failure inside the body wins over whatever the
+        // sink made of the I/O error it saw.
+        if let Some(e) = reader.failure.take() {
+            return Err(e);
+        }
+        outcome.map(|()| head)
+    }
+}
+
+/// The live body capped at `max` decoded bytes (see [`read_capped`]). A
+/// failure is kept so `get_stream` reports `TooLarge` or the transport
+/// error itself, not the sink's wrapping of it.
+struct CappedReader<R> {
+    inner: std::io::Take<R>,
+    max: u64,
+    read: u64,
+    failure: Option<NetError>,
+}
+
+impl<'a> CappedReader<ureq::BodyReader<'a>> {
+    fn new(body: &'a mut ureq::Body, max: u64) -> Self {
+        use std::io::Read;
+        let inner = body
+            .with_config()
+            .limit(max.saturating_add(WIRE_SLACK))
+            .reader()
+            .take(max.saturating_add(1));
+        CappedReader {
+            inner,
+            max,
+            read: 0,
+            failure: None,
+        }
+    }
+}
+
+impl<R: std::io::Read> std::io::Read for CappedReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if let Some(e) = &self.failure {
+            return Err(std::io::Error::other(e.to_string()));
+        }
+        match self.inner.read(buf) {
+            Ok(n) => {
+                self.read = self.read.saturating_add(n as u64);
+                if self.read > self.max {
+                    let e = NetError::TooLarge { limit: self.max };
+                    let io = std::io::Error::other(e.to_string());
+                    self.failure = Some(e);
+                    return Err(io);
+                }
+                Ok(n)
+            }
+            Err(e) => {
+                let net = match ureq::Error::from(e) {
+                    ureq::Error::BodyExceedsLimit(_) => NetError::TooLarge { limit: self.max },
+                    other => transport(other),
+                };
+                let io = std::io::Error::other(net.to_string());
+                self.failure = Some(net);
+                Err(io)
+            }
+        }
     }
 }
 
@@ -429,14 +567,24 @@ impl<H: Http> PoliteHttp<H> {
     }
 }
 
-impl<H: Http> Http for PoliteHttp<H> {
-    fn get(&self, req: &HttpRequest) -> Result<HttpResponse, NetError> {
+impl<H: Http> PoliteHttp<H> {
+    /// The retry loop around one `attempt`, which returns its result and
+    /// whether a body already reached the caller: then it is final, since a
+    /// retry would feed a sink a second body (spec D5, same retries).
+    fn retrying(
+        &self,
+        req: &HttpRequest,
+        attempt_once: &mut dyn FnMut() -> (Result<HttpResponse, NetError>, bool),
+    ) -> Result<HttpResponse, NetError> {
         let mut attempt = 0;
         loop {
-            let result = {
+            let (result, delivered) = {
                 let _permit = self.limiter.acquire();
-                self.inner.get(req)
+                attempt_once()
             };
+            if delivered {
+                return result;
+            }
             let wait = match &result {
                 Ok(r) if r.status == 403 && req.forbidden_pauses => {
                     return Err(NetError::RateLimited {
@@ -464,6 +612,23 @@ impl<H: Http> Http for PoliteHttp<H> {
             std::thread::sleep(self.backoff(attempt, wait));
             attempt += 1;
         }
+    }
+}
+
+impl<H: Http> Http for PoliteHttp<H> {
+    fn get(&self, req: &HttpRequest) -> Result<HttpResponse, NetError> {
+        self.retrying(req, &mut || (self.inner.get(req), false))
+    }
+
+    fn get_stream(&self, req: &HttpRequest, sink: &mut BodySink) -> Result<HttpResponse, NetError> {
+        self.retrying(req, &mut || {
+            let mut delivered = false;
+            let result = self.inner.get_stream(req, &mut |head, body| {
+                delivered = true;
+                sink(head, body)
+            });
+            (result, delivered)
+        })
     }
 }
 
