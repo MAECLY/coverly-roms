@@ -41,8 +41,37 @@ pub fn disc_header(h: &[u8], detail: &str) -> Option<ConsoleId> {
     // 0-based on the disc: 0 is disc 1.
     id.disc_no = Some(h[0x06].saturating_add(1));
     id.version = Some(h[0x07].to_string());
-    id.title = super::clean_title(&String::from_utf8_lossy(&h[0x20..0x60]));
+    id.title = disc_title(h[3], &h[0x20..0x60]);
     Some(id)
+}
+
+/// Windows-1252 at 0x80..=0x9F (the rest of the high half is Latin-1);
+/// `\0` for the five unassigned bytes, which `clean_title` drops.
+const CP1252_HIGH: [char; 32] = [
+    '€', '\0', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\0', 'Ž', '\0', '\0', '‘',
+    '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\0', 'ž', 'Ÿ',
+];
+
+/// The disc name up to its first NUL. Discs of Japan, Taiwan and Korea
+/// (region letter `J`, `W`, `K`, `Q`, `T` of the ID6) write it in
+/// Shift-JIS, which is not decoded here: a non-ASCII name there is `None`
+/// (the DAT names the game). Every other region is Windows-1252 (Dolphin
+/// `VolumeGC`/`VolumeWii` `GetInternalName`).
+fn disc_title(region: u8, raw: &[u8]) -> Option<String> {
+    let raw = raw.split(|&b| b == 0).next().unwrap_or_default();
+    let text: String = if raw.is_ascii() {
+        raw.iter().map(|&b| char::from(b)).collect()
+    } else if matches!(region, b'J' | b'W' | b'K' | b'Q' | b'T') {
+        return None;
+    } else {
+        raw.iter()
+            .map(|&b| match b {
+                0x80..=0x9F => CP1252_HIGH[usize::from(b - 0x80)],
+                _ => char::from(b),
+            })
+            .collect()
+    };
+    super::clean_title(&text)
 }
 
 /// A GameCube or Wii disc in any of its containers, by the container's
@@ -236,6 +265,30 @@ mod tests {
         let id = disc_header(&h, "disc header").unwrap();
         assert_eq!((id.disc_no, id.version.as_deref()), (Some(2), Some("2")));
         assert_eq!(disc_header(&h[..0x7F], "x"), None);
+    }
+
+    #[test]
+    fn titles_are_never_mojibake() {
+        let with_title = |id6: &str, title: &[u8]| {
+            let mut h = t::gc_header(id6, false);
+            h[0x20..0x60].fill(0);
+            h[0x20..0x20 + title.len()].copy_from_slice(title);
+            disc_header(&h, "disc header").unwrap().title
+        };
+        // Western discs are Windows-1252 (Dolphin `Volume.cpp`).
+        assert_eq!(
+            with_title("GPXP01", b"Pok\xE9mon XD").as_deref(),
+            Some("Pokémon XD")
+        );
+        // Japanese discs are Shift-JIS, which is not decoded: no title
+        // (the DAT names the game) rather than replacement characters.
+        assert_eq!(with_title("GPXJ01", b"\x83|\x83P\x83\x82\x83\x93"), None);
+        assert_eq!(with_title("GPXJ01", b"Pokemon").as_deref(), Some("Pokemon"));
+        // The name ends at its first NUL.
+        assert_eq!(
+            with_title("GM8E01", b"Metroid\0junk").as_deref(),
+            Some("Metroid")
+        );
     }
 
     #[test]
