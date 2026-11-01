@@ -343,7 +343,9 @@ mod tests {
         // The table is longer than the file would need: still in bounds.
         f.len = f.len.max(CNT_ENTRY_TABLE + 64 * 32 + 0x1000);
         let (id, used) = run(&mut f);
-        assert!(id.is_some());
+        // The clamped table is read, so the `param.sfo` entry still is;
+        // an unclamped count would overrun the file and drop the table.
+        assert_eq!(id.unwrap().id_source, Some(IdSource::ParamSfo));
         assert!(
             used.read <= (CNT_HEADER + 64 * ENTRY_LEN) as u64 + MAX_META_FILE,
             "{used:?}"
