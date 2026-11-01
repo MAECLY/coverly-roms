@@ -531,11 +531,30 @@ export function itemNotes(
   const lines: string[] = [];
   if (item.rename) lines.push(renameText(t, item.rename));
   const system = item.system_id ? systemName(item.system_id) : '';
-  for (const n of item.notes) {
+  for (const n of ownerFirst(item.notes)) {
     const line = noteText(t, n, system, layoutName, item, systemName);
     if (line !== null) lines.push(line);
   }
-  return lines;
+  return ownerLineFirst(lines, item.rename ? 1 : 0, item.notes);
+}
+
+/** Update and DLC notes first: the row sits under its base, so the first
+ * line under it says whose it is (spec §9.1); the rest keep their order. */
+function ownerFirst(notes: ItemNote[]): ItemNote[] {
+  const owner = (n: ItemNote) => n.kind === 'update' || n.kind === 'dlc';
+  return [...notes.filter(owner), ...notes.filter((n) => !owner(n))];
+}
+
+/** Moves the owner line (just after the rename line, when there is one)
+ * to the top. */
+function ownerLineFirst(
+  lines: string[],
+  at: number,
+  notes: ItemNote[],
+): string[] {
+  if (at === 0 || !notes.some((n) => n.kind === 'update' || n.kind === 'dlc'))
+    return lines;
+  return [lines[at]!, ...lines.slice(0, at), ...lines.slice(at + 1)];
 }
 
 /** Archive facts the extract row folds into its detail (spec §11.1). */
@@ -563,11 +582,14 @@ export function rowNotes(
   const detail: string[] = [];
   if (item.rename) inline.push(renameText(t, item.rename));
   const system = item.system_id ? systemName(item.system_id) : '';
-  for (const n of item.notes) {
+  for (const n of ownerFirst(item.notes)) {
     const line = noteText(t, n, system, layoutName, item, systemName);
     if (line !== null) (DETAIL_NOTES.has(n.kind) ? detail : inline).push(line);
   }
-  return { inline, detail };
+  return {
+    inline: ownerLineFirst(inline, item.rename ? 1 : 0, item.notes),
+    detail,
+  };
 }
 
 function renameText(t: Translate, r: RenameReason): string {

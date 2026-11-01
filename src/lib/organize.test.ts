@@ -34,6 +34,7 @@ import {
   organizeDupGroups,
   reviewBuckets,
   ROWS_PER_GROUP,
+  rowNotes,
   targetDir,
   titleIdKey,
   updatesSummaryKey,
@@ -980,6 +981,23 @@ describe('systems batch 2 copy (spec §10)', () => {
       key: 'organize.note.update',
       vars: { title: 'Halo' },
     });
+  });
+
+  it('an update or DLC says whose it is before any other note', () => {
+    // The row sits under its base; the first line under it must say why.
+    const row = autoItem(0, 'x.nsp', 'switch', 'switch', {
+      rename: { kind: 'path-length' },
+      notes: [
+        { kind: 'no-folder-on-device', system: 'switch' },
+        { kind: 'dlc', of: 'Super Mario Odyssey' },
+      ],
+    });
+    const lines = itemNotes(t, row, 'Anbernic stock', (id) => id);
+    expect(lines[0]).toBe('Contenido descargable de Super Mario Odyssey');
+    expect(lines).toHaveLength(3);
+    expect(rowNotes(t, row, 'Anbernic stock', (id) => id).inline[0]).toBe(
+      'Contenido descargable de Super Mario Odyssey',
+    );
   });
 
   it('a title id line names its file, the ticket or the file name', () => {
