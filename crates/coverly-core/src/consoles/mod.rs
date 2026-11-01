@@ -24,6 +24,8 @@ use crate::identify::sniff::ReadAt;
 pub mod ctr;
 pub mod nintendo_disc;
 pub mod nx;
+pub mod psf;
+pub mod sony;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
 pub mod wad;
@@ -386,6 +388,7 @@ pub fn identify(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> 
         .or_else(|| wad::identify(src))
         .or_else(|| ctr::identify(src, ext))
         .or_else(|| wiiu::identify(src, ext))
+        .or_else(|| sony::identify(src, ext))
 }
 
 /// The names the walk already listed for one directory (spec D12): every
@@ -417,11 +420,17 @@ pub struct DirConflict {
     pub systems: Vec<String>,
 }
 
-/// The built-in folder probes, in the fixed order of spec D12: PS3 and
-/// PS Vita (Task 11 puts theirs first), Wii U loadiine then NUS, then
-/// Xbox and Xbox 360 (Task 12, before the Switch one), then split Switch
-/// files.
-const DIR_PROBES: &[DirProbe] = &[wiiu::probe_loadiine, wiiu::probe_nus, nx::probe_split];
+/// The built-in folder probes, in the fixed order of spec D12: PS3 JB,
+/// PS3 HDD and PS Vita, Wii U loadiine then NUS, then Xbox and Xbox 360
+/// (Task 12, before the Switch one), then split Switch files.
+const DIR_PROBES: &[DirProbe] = &[
+    sony::probe_ps3_jb,
+    sony::probe_ps3_hdd,
+    sony::probe_vita_app,
+    wiiu::probe_loadiine,
+    wiiu::probe_nus,
+    nx::probe_split,
+];
 
 #[cfg(any(test, feature = "test-util"))]
 thread_local! {

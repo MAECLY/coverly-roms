@@ -470,6 +470,11 @@ const LIST_EXTS: [&str; 3] = ["cue", "gdi", "m3u"];
 /// `.conf`). Loose, they are screenshots, installers and scripts: no
 /// evidence and no organise candidate (plan O-D7).
 const EVERYDAY_EXTS: [&str; 4] = ["png", "exe", "bat", "conf"];
+/// Weak-only extensions whose own header decides (systems batch 2 D7):
+/// a loose `.pkg` is an organise candidate so the PKG header (PS3, Vita)
+/// or the `xar!` magic of a macOS installer can name it. Its class stays
+/// [`ExtClass::Unknown`]: the extension alone is no evidence.
+const HEADER_DECIDED_EXTS: [&str; 1] = ["pkg"];
 
 /// How much an extension says about the system (spec §6.4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -558,6 +563,7 @@ impl SystemDb {
         let lower = normalize_extension(ext);
         !lower.is_empty()
             && (LIST_EXTS.contains(&lower.as_str())
+                || HEADER_DECIDED_EXTS.contains(&lower.as_str())
                 || self.extension_class(&lower) != ExtClass::Unknown)
     }
 }
@@ -1167,9 +1173,13 @@ mod tests {
     #[test]
     fn rom_like_extensions() {
         let db = SystemDb::builtin();
-        for ext in ["gba", "zip", "7z", "bin", "cue", "m3u", "gdi", "chd", "NDS"] {
+        for ext in [
+            "gba", "zip", "7z", "bin", "cue", "m3u", "gdi", "chd", "NDS", "pkg",
+        ] {
             assert!(db.is_rom_like_extension(ext), "{ext}");
         }
+        // A weak-only `.pkg` is a candidate, but no evidence by itself.
+        assert_eq!(db.extension_class("pkg"), ExtClass::Unknown);
         for ext in ["txt", "jpg", "docx", "dmg", ""] {
             assert!(!db.is_rom_like_extension(ext), "{ext}");
         }

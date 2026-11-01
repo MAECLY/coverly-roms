@@ -1055,7 +1055,8 @@ expression: rows
       "fmtowns",
       "triforce",
       "gamecube",
-      "wii"
+      "wii",
+      "ps3"
     ],
     "class": "Generic",
     "ext": "iso",
@@ -1074,7 +1075,8 @@ expression: rows
       "cdtv",
       "fmtowns",
       "gamecube",
-      "wii"
+      "wii",
+      "ps3"
     ]
   },
   {
@@ -1181,7 +1183,8 @@ expression: rows
       "x68000",
       "pc98",
       "gamecube",
-      "wii"
+      "wii",
+      "ps3"
     ],
     "class": "Shared",
     "ext": "m3u",
@@ -1200,7 +1203,8 @@ expression: rows
       "x68000",
       "pc98",
       "gamecube",
-      "wii"
+      "wii",
+      "ps3"
     ]
   },
   {
@@ -1515,6 +1519,15 @@ expression: rows
   },
   {
     "accepting": [
+      "psvita",
+      "ps3"
+    ],
+    "class": "Unknown",
+    "ext": "pkg",
+    "strong": []
+  },
+  {
+    "accepting": [
       "pico8"
     ],
     "class": "Unknown",
@@ -1544,6 +1557,44 @@ expression: rows
     "strong": [
       "c64",
       "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "ps3"
+    ],
+    "class": "Unique",
+    "ext": "ps3",
+    "strong": [
+      "ps3"
+    ]
+  },
+  {
+    "accepting": [
+      "ps3"
+    ],
+    "class": "Unique",
+    "ext": "psn",
+    "strong": [
+      "ps3"
+    ]
+  },
+  {
+    "accepting": [
+      "psvita"
+    ],
+    "class": "Unknown",
+    "ext": "psvimg",
+    "strong": []
+  },
+  {
+    "accepting": [
+      "psvita"
+    ],
+    "class": "Unique",
+    "ext": "psvita",
+    "strong": [
+      "psvita"
     ]
   },
   {
@@ -2013,6 +2064,16 @@ expression: rows
     "ext": "vec",
     "strong": [
       "vectrex"
+    ]
+  },
+  {
+    "accepting": [
+      "psvita"
+    ],
+    "class": "Unique",
+    "ext": "vpk",
+    "strong": [
+      "psvita"
     ]
   },
   {

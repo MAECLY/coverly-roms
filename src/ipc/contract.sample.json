@@ -721,6 +721,7 @@
     {
       "profile": {
         "id": "esde",
+        "folder_game_suffix": { "ps3": ".ps3" },
         "folder_stem_keeps_suffix": true,
         "disc_layout": { "kind": "game-folder", "m3u_for_multi": true },
         "folder_names": {
@@ -761,6 +762,8 @@
           "pcfx": "pcfx",
           "plus4": "plus4",
           "ps2": "ps2",
+          "ps3": "ps3",
+          "psvita": "psvita",
           "quake": "quake",
           "satellaview": "satellaview",
           "scv": "scv",
@@ -817,6 +820,7 @@
     {
       "profile": {
         "id": "batocera",
+        "folder_game_suffix": { "ps3": ".ps3" },
         "disc_layout": { "kind": "flat", "m3u_for_multi": true },
         "folder_names": {
           "3do": "3do",
@@ -862,6 +866,8 @@
           "pico": "pico",
           "plus4": "cplus4",
           "ps2": "ps2",
+          "ps3": "ps3",
+          "psvita": "psvita",
           "quake": "quake",
           "satellaview": "satellaview",
           "scv": "scv",

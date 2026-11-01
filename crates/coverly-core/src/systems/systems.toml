@@ -1299,3 +1299,37 @@ scoped_aliases = ["switch"]
 extensions = ["xci", "nsp", "nsz", "xcz"]
 weak_extensions = ["nro", "nso", "nca"]
 screenscraper = 225
+
+[[system]]
+id = "psvita"
+name = "Sony PlayStation Vita"
+family = "handheld"
+# `vita` is an everyday word: scoped (D8). Decrypted app folders
+# (`sce_sys/param.sfo`) are folder games (D12); a `.vpk` is a zip package
+# moved as it is (D16); `.psvita` is the ES-DE/Batocera launcher (D14).
+aliases = ["PSVITA", "vita"]
+scoped_aliases = ["vita"]
+extensions = ["vpk", "psvita"]
+# `pkg` is shared with PS3 and every macOS installer: magic decides (D7);
+# `psvimg` is an encrypted backup with no reader.
+weak_extensions = ["psvimg", "pkg"]
+libretro = "Sony - PlayStation Vita"
+dats = ["metadat/no-intro/Sony - PlayStation Vita.dat", "metadat/no-intro/Sony - PlayStation Vita (PSN).dat"]
+screenscraper = 62
+
+[[system]]
+id = "ps3"
+name = "Sony PlayStation 3"
+family = "console"
+aliases = ["PS3", "playstation3"]
+# JB (`PS3_GAME/PARAM.SFO`) and HDD (`PARAM.SFO` + `USRDIR/`) folders are
+# folder games (D12), suffixed `.ps3` on ES-DE and Batocera (D13); `.psn`
+# is the RPCS3 launcher (D14). `pkg` is shared with Vita and every macOS
+# installer: magic decides (D7).
+extensions = ["iso", "ps3", "psn", "m3u"]
+weak_extensions = ["pkg"]
+libretro = "Sony - PlayStation 3"
+libretro_also = ["Sony - PlayStation 3 (Downloadable)"]
+dats = ["dat/Sony - PlayStation 3.dat", "metadat/redump/Sony - PlayStation 3.dat", "metadat/no-intro/Sony - PlayStation 3 (PSN).dat"]
+multi_file = true
+screenscraper = 59

@@ -1467,3 +1467,135 @@ mod switch {
         assert_eq!(t.parent().map(last).as_deref(), Some("switch"));
     }
 }
+
+/// PS3 JB/HDD and PS Vita app folders (systems batch 2, Task 11, D12,
+/// D13).
+mod sony {
+    use coverly_core::consoles::testing::{ps3_hdd, ps3_jb, vita_app};
+    use coverly_core::scan::{scan_library, ScanOptions};
+
+    use super::*;
+
+    const DEMONS: &str = "Demon's Souls (BLUS-30443)";
+
+    #[test]
+    fn a_jb_folder_moves_whole_with_the_ps3_suffix_where_the_layout_needs_it() {
+        for layout in ["esde", "batocera"] {
+            let (world, pile, target) = setup();
+            ps3_jb(&pile.path().join(DEMONS), "BLUS30443", "DG");
+            let p = plan(&world, pile.path(), target.path(), layout);
+            assert_eq!(p.items.len(), 1, "{layout}: {:#?}", p.items);
+            let item = only_folder(&p);
+            assert_eq!(item.system_id.as_deref(), Some("ps3"), "{layout}");
+            assert_eq!(item.action, OrganizeAction::Auto, "{layout}");
+            assert!(item.why.iter().any(|e| e.detail == "PARAM.SFO"), "{layout}");
+            let t = item.target.as_ref().unwrap();
+            let suffixed = format!("{DEMONS}.ps3");
+            assert_eq!(last(t), suffixed, "{layout}");
+            assert_eq!(t.parent().map(last).as_deref(), Some("ps3"), "{layout}");
+            let name = world
+                .profiles
+                .iter()
+                .find(|p| p.id == layout)
+                .unwrap()
+                .name
+                .clone();
+            assert!(
+                item.notes.contains(&ItemNote::FolderSuffix {
+                    name: suffixed.clone(),
+                    layout: name,
+                }),
+                "{layout}: {:?}",
+                item.notes
+            );
+        }
+        // Onion has no PS3 folder: the first alias, and no suffix.
+        let (world, pile, target) = setup();
+        ps3_jb(&pile.path().join(DEMONS), "BLUS30443", "DG");
+        let p = plan(&world, pile.path(), target.path(), "onion");
+        let item = only_folder(&p);
+        let t = item.target.as_ref().unwrap();
+        assert_eq!(last(t), DEMONS);
+        assert_eq!(t.parent().map(last).as_deref(), Some("PS3"));
+        assert!(!item
+            .notes
+            .iter()
+            .any(|n| matches!(n, ItemNote::FolderSuffix { .. })));
+    }
+
+    #[test]
+    fn hdd_and_vita_folders_are_one_item_each() {
+        let (world, pile, target) = setup();
+        ps3_hdd(&pile.path().join("NPUB30024"), "NPUB30024", "HG");
+        vita_app(&pile.path().join("PCSE00844"), "PCSE00844");
+        let p = plan(&world, pile.path(), target.path(), "batocera");
+        assert_eq!(p.items.len(), 2, "{:#?}", p.items);
+        let all = folders(&p);
+        let vita = all
+            .iter()
+            .find(|i| i.sources[0] == Path::new("PCSE00844"))
+            .unwrap();
+        assert_eq!(vita.system_id.as_deref(), Some("psvita"));
+        let t = vita.target.as_ref().unwrap();
+        assert_eq!(
+            (last(t), t.parent().map(last)),
+            ("PCSE00844".to_string(), Some("psvita".to_string()))
+        );
+        // The licence inside moves with the folder: no item of its own.
+        assert!(p
+            .items
+            .iter()
+            .all(|i| i.sources[0].file_name().is_none_or(|n| n != "work.bin")));
+        let hdd = all
+            .iter()
+            .find(|i| i.sources[0] == Path::new("NPUB30024"))
+            .unwrap();
+        assert_eq!(hdd.system_id.as_deref(), Some("ps3"));
+        assert_eq!(last(hdd.target.as_ref().unwrap()), "NPUB30024.ps3");
+    }
+
+    #[test]
+    fn a_jb_folder_another_probe_also_claims_goes_to_review() {
+        // Two probes naming different systems (a PS3 JB folder that also
+        // holds the test probe's file): not a real game, so review.
+        let _g = ProbeGuard::new();
+        let (world, pile, target) = setup();
+        let dir = pile.path().join(DEMONS);
+        ps3_jb(&dir, "BLUS30443", "DG");
+        put_tree(&dir, &[("GAME.PROBE", 16)]);
+        let p = plan(&world, pile.path(), target.path(), "esde");
+        let item = only_folder(&p);
+        assert_eq!(item.action, OrganizeAction::Review);
+        assert_eq!(item.system_id, None);
+        let alts: Vec<&str> = item.alternatives.iter().map(|(s, _)| s.as_str()).collect();
+        // Probe order (D12): the PS3 probes come first.
+        assert_eq!(alts, ["ps3", "gb"]);
+    }
+
+    #[test]
+    fn a_suffixed_ps3_folder_is_one_library_entry() {
+        let lib = TempDir::new().unwrap();
+        let dir = lib.path().join("roms").join("ps3").join("Game.ps3");
+        ps3_jb(&dir, "BLUS30443", "DG");
+        let profile = builtin_profiles()
+            .into_iter()
+            .find(|p| p.id == "batocera")
+            .unwrap();
+        let scan = scan_library(
+            lib.path(),
+            &profile,
+            &SystemDb::builtin(),
+            &ScanOptions::default(),
+        );
+        let roms = &scan
+            .systems
+            .iter()
+            .find(|s| s.system_id.as_deref() == Some("ps3"))
+            .unwrap()
+            .roms;
+        assert_eq!(roms.len(), 1, "{roms:?}");
+        assert!(roms[0].is_dir);
+        assert_eq!(roms[0].stem, "Game");
+        assert_eq!(roms[0].ext, "ps3");
+    }
+}

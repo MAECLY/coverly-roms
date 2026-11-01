@@ -214,6 +214,12 @@ pub fn read_extent(
     Ok(Some(out))
 }
 
+/// The directory record `name` among `records` (`.` and `..` never
+/// match: they are stored as `\0` and `\x01`).
+pub(crate) fn dir_named<'a>(records: &'a [DirRecord], name: &str) -> Option<&'a DirRecord> {
+    records.iter().find(|r| r.is_dir() && r.names(name))
+}
+
 /// The file (not directory) record `name` among `records`.
 pub(crate) fn file_named<'a>(records: &'a [DirRecord], name: &str) -> Option<&'a DirRecord> {
     records.iter().find(|r| !r.is_dir() && r.names(name))

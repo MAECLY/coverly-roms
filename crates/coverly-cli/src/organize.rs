@@ -736,6 +736,7 @@ fn left_reason_text(reason: &LeftReason) -> String {
             NotARom::Patch => "not a ROM (a patch: apply it to the original ROM)".into(),
             NotARom::Installer => "not a ROM (installer)".into(),
             NotARom::Model3d => "not a ROM (3D model)".into(),
+            NotARom::PcGameData => "not a ROM (PC game data)".into(),
         },
         LeftReason::Bios => "BIOS or firmware".into(),
         LeftReason::DamagedArchive => "damaged archive".into(),
@@ -1662,6 +1663,12 @@ mod tests {
                     what: NotARom::Model3d,
                 },
                 "not a ROM (3D model)",
+            ),
+            (
+                LeftReason::NotARom {
+                    what: NotARom::PcGameData,
+                },
+                "not a ROM (PC game data)",
             ),
         ];
         for (reason, text) in cases {

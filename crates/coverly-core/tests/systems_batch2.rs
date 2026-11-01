@@ -31,6 +31,9 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     ("wiiu", Family::Console, false),
     // Task 10.
     ("switch", Family::Console, false),
+    // Task 11.
+    ("psvita", Family::Handheld, false),
+    ("ps3", Family::Console, true),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -58,6 +61,13 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("batocera", "switch", "switch", None),
     ("muos", "switch", "switch", Some(false)),
     ("onion", "switch", "SWITCH", Some(false)),
+    // Task 11.
+    ("esde", "ps3", "ps3", None),
+    ("batocera", "ps3", "ps3", None),
+    ("esde", "psvita", "psvita", None),
+    ("batocera", "psvita", "psvita", None),
+    ("muos", "ps3", "ps3", Some(false)),
+    ("onion", "psvita", "PSVITA", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -108,7 +118,32 @@ const CONSOLE_HEADERS: &[ConsoleHeader] = &[
     ("switch", "xcz", nx_xci, Some("switch"), None),
     ("switch", "nsp", nx_nsp, Some("switch"), None),
     ("switch", "nsz", nx_nsz, Some("switch"), None),
+    // Task 11: PKG heads (PS3, Vita) and a PS3 disc's PARAM.SFO.
+    ("ps3", "pkg", ps3_pkg, Some("ps3"), Some("NPUB-30024")),
+    (
+        "psvita",
+        "pkg",
+        vita_pkg,
+        Some("psvita"),
+        Some("PCSB-00245"),
+    ),
+    ("ps3", "iso", ps3_disc, Some("ps3"), Some("BLUS-30443")),
 ];
+
+mod sony {
+    use coverly_core::consoles::testing::{self as t, SparseAt};
+
+    pub fn ps3_pkg() -> SparseAt {
+        t::pkg(1, "UP0001-NPUB30024_00-0000000000000001")
+    }
+    pub fn vita_pkg() -> SparseAt {
+        t::pkg(2, "EP0001-PCSB00245_00-0000000000000000")
+    }
+    pub fn ps3_disc() -> SparseAt {
+        t::ps3_iso("BLUS30443")
+    }
+}
+use sony::*;
 
 mod nx {
     use coverly_core::consoles::testing::{self as t, SparseAt};
@@ -501,4 +536,48 @@ fn switch_covers_skip_libretro_and_ask_screenscraper_by_name() {
         "{:?}",
         asked.iter().map(|r| &r.path).collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn vita_folder_is_scoped_but_psvita_is_global() {
+    // D8: `vita` is an everyday word (a CV folder, a «vita» project), so
+    // only `psvita`/`PSVITA` name the system outside a profile.
+    let db = SystemDb::builtin();
+    assert!(db.resolve_folder("vita").is_none());
+    let id = |s: Option<&System>| s.map(|s| s.id.clone());
+    for name in ["psvita", "PSVITA"] {
+        assert_eq!(id(db.resolve_folder(name)), Some("psvita".into()), "{name}");
+    }
+    for name in ["ps3", "PS3", "playstation3"] {
+        assert_eq!(id(db.resolve_folder(name)), Some("ps3".into()), "{name}");
+    }
+    let esde = builtin_profiles()
+        .into_iter()
+        .find(|p| p.id == "esde")
+        .unwrap();
+    assert_eq!(
+        id(db.resolve_folder_in(Some(&esde), "vita")),
+        Some("psvita".into())
+    );
+}
+
+/// D13: ES-DE and Batocera show a PS3 folder game only when it ends in
+/// `.ps3`; no other built-in profile has a suffix.
+#[test]
+fn ps3_folder_suffix_is_on_es_de_and_batocera_only() {
+    for p in builtin_profiles() {
+        let want = matches!(p.id.as_str(), "esde" | "batocera").then_some(".ps3");
+        assert_eq!(
+            p.folder_game_suffix.get("ps3").map(String::as_str),
+            want,
+            "{}",
+            p.id
+        );
+        assert!(
+            p.folder_game_suffix.keys().all(|k| k == "ps3"),
+            "{}: {:?}",
+            p.id,
+            p.folder_game_suffix
+        );
+    }
 }

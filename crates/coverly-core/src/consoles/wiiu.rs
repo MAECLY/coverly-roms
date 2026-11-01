@@ -223,7 +223,7 @@ pub(super) fn plain_file(path: &Path, max: u64) -> Option<u64> {
 
 /// The first `n` bytes of `path` (or all of it when shorter), through
 /// [`Budgeted`]; `path` was checked by [`plain_file`].
-fn read_head(path: &Path, len: u64, n: usize) -> Option<Vec<u8>> {
+pub(super) fn read_head(path: &Path, len: u64, n: usize) -> Option<Vec<u8>> {
     let file = super::open_rom(path).ok()?;
     let mut src = FileAt(file);
     let mut b = Budgeted::new(&mut src, len);
@@ -233,7 +233,7 @@ fn read_head(path: &Path, len: u64, n: usize) -> Option<Vec<u8>> {
 
 /// Up to [`MAX_CHILD_ENTRIES`] names of the directory `dir` (never a
 /// symlinked one).
-fn list_child(dir: &Path) -> Option<Vec<String>> {
+pub(super) fn list_child(dir: &Path) -> Option<Vec<String>> {
     if !fs::symlink_metadata(dir).ok()?.file_type().is_dir() {
         return None;
     }

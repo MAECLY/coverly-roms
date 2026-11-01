@@ -1195,6 +1195,26 @@ pub fn identify_candidate(
             emulator: "Azahar".into(),
         });
     }
+    // A PS3 or Vita PKG is installed by the emulator, not played from the
+    // folder (systems batch 2 §8.4); the name is a fixed string.
+    let installer = match combined.system.as_deref() {
+        Some("ps3") => Some("RPCS3"),
+        Some("psvita") => Some("Vita3K"),
+        _ => None,
+    };
+    if let Some(emulator) = installer {
+        let is_pkg = insp.payloads.iter().any(|p| {
+            p.sniff.console.as_ref().is_some_and(|c| {
+                c.detail == crate::consoles::sony::PKG_DETAIL
+                    && combined.system.as_deref() == Some(c.system.as_str())
+            })
+        });
+        if is_pkg {
+            id.notes.push(ItemNote::InstallFirst {
+                emulator: emulator.into(),
+            });
+        }
+    }
     id.combined = combined;
     id
 }

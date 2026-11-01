@@ -607,6 +607,9 @@ export interface ProfileFile {
   accepts_containers?: ContainerKind[];
   /** Per-system replacements of `accepts_containers`; absent = `psp: []`. */
   container_overrides?: Record<string, ContainerKind[]>;
+  /** Suffix a folder game of a system must end in (system id → suffix,
+   * `ps3 → .ps3` on ES-DE and Batocera); absent = none. */
+  folder_game_suffix?: Record<string, string>;
   /** Media of a folder game are named after its whole folder name, suffix
    * included (ES-DE); absent = the suffix is dropped. */
   folder_stem_keeps_suffix?: boolean;

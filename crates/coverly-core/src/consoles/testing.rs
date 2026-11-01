@@ -803,3 +803,226 @@ pub fn xci(names: &[&str]) -> SparseAt {
     s.len = end.max(0x1_0000);
     s
 }
+
+// ---------------------------------------------------------------------
+// PS3 and PS Vita (spec §8.4). Synthetic metadata only.
+// ---------------------------------------------------------------------
+
+/// A `PARAM.SFO` (psdevwiki layout) with `texts` as UTF-8 values
+/// (`fmt` 0x0204, NUL-terminated, padded to 4) in this order, then
+/// `PARENTAL_LEVEL` = 5 as a u32 (`fmt` 0x0404).
+pub fn param_sfo(texts: &[(&str, &str)]) -> Vec<u8> {
+    let mut keys = Vec::new();
+    let mut data = Vec::new();
+    // (key offset, fmt, len, max len, data offset)
+    let mut table: Vec<(u16, u16, u32, u32, u32)> = Vec::new();
+    for (key, value) in texts {
+        let key_off = keys.len() as u16;
+        keys.extend_from_slice(key.as_bytes());
+        keys.push(0);
+        let len = value.len() as u32 + 1;
+        let max = len.next_multiple_of(4);
+        let off = data.len() as u32;
+        data.extend_from_slice(value.as_bytes());
+        data.resize(data.len() + (max - len + 1) as usize, 0);
+        table.push((key_off, 0x0204, len, max, off));
+    }
+    let key_off = keys.len() as u16;
+    keys.extend_from_slice(b"PARENTAL_LEVEL\0");
+    table.push((key_off, 0x0404, 4, 4, data.len() as u32));
+    data.extend_from_slice(&5u32.to_le_bytes());
+    keys.resize(keys.len().next_multiple_of(4), 0);
+    let key_start = 0x14 + 16 * table.len();
+    let data_start = key_start + keys.len();
+    let mut out = Vec::new();
+    out.extend_from_slice(b"\0PSF");
+    out.extend_from_slice(&0x0101u32.to_le_bytes());
+    out.extend_from_slice(&(key_start as u32).to_le_bytes());
+    out.extend_from_slice(&(data_start as u32).to_le_bytes());
+    out.extend_from_slice(&(table.len() as u32).to_le_bytes());
+    for (k, fmt, len, max, off) in table {
+        out.extend_from_slice(&k.to_le_bytes());
+        out.extend_from_slice(&fmt.to_le_bytes());
+        out.extend_from_slice(&len.to_le_bytes());
+        out.extend_from_slice(&max.to_le_bytes());
+        out.extend_from_slice(&off.to_le_bytes());
+    }
+    out.extend(keys);
+    out.extend(data);
+    out
+}
+
+/// The `PARAM.SFO` of a PS3 title.
+pub fn ps3_sfo(title_id: &str, category: &str) -> Vec<u8> {
+    param_sfo(&[
+        ("APP_VER", "01.00"),
+        ("CATEGORY", category),
+        ("TITLE", "Test Game"),
+        ("TITLE_ID", title_id),
+        ("VERSION", "01.00"),
+    ])
+}
+
+/// The `param.sfo` of a PS Vita title (category `gd`, two-line title).
+pub fn vita_sfo(title_id: &str) -> Vec<u8> {
+    param_sfo(&[
+        ("APP_VER", "01.02"),
+        ("CATEGORY", "gd"),
+        (
+            "CONTENT_ID",
+            &format!("EP0001-{title_id}_00-0000000000000000"),
+        ),
+        ("TITLE", "Test\nGame"),
+        ("TITLE_ID", title_id),
+    ])
+}
+
+/// Writes `files` under `dir`, mtimes pinned in order.
+fn write_tree(dir: &std::path::Path, files: &[(&str, Vec<u8>)]) {
+    for (i, (rel, bytes)) in files.iter().enumerate() {
+        let path = rel.split('/').fold(dir.to_path_buf(), |p, c| p.join(c));
+        std::fs::create_dir_all(path.parent().expect("has a parent")).expect("fixture dir");
+        std::fs::write(&path, bytes).expect("fixture file");
+        crate::dedupe::testing::pin_mtime(&path, i as u64);
+    }
+}
+
+/// A PS3 JB folder: `PS3_DISC.SFB`, `PS3_GAME/PARAM.SFO`, an icon and
+/// `PS3_GAME/USRDIR/EBOOT.BIN`.
+pub fn ps3_jb(dir: &std::path::Path, title_id: &str, category: &str) {
+    write_tree(
+        dir,
+        &[
+            ("PS3_DISC.SFB", b".SFB".to_vec()),
+            ("PS3_GAME/PARAM.SFO", ps3_sfo(title_id, category)),
+            ("PS3_GAME/ICON0.PNG", vec![0x89, b'P', b'N', b'G']),
+            ("PS3_GAME/USRDIR/EBOOT.BIN", vec![0u8; 64]),
+        ],
+    );
+}
+
+/// A PS3 HDD/PSN folder: `PARAM.SFO`, `ICON0.PNG`, `USRDIR/EBOOT.BIN`.
+pub fn ps3_hdd(dir: &std::path::Path, title_id: &str, category: &str) {
+    write_tree(
+        dir,
+        &[
+            ("PARAM.SFO", ps3_sfo(title_id, category)),
+            ("ICON0.PNG", vec![0x89, b'P', b'N', b'G']),
+            ("USRDIR/EBOOT.BIN", vec![0u8; 64]),
+        ],
+    );
+}
+
+/// A decrypted PS Vita app folder: `eboot.bin`, `sce_sys/param.sfo`,
+/// `sce_sys/icon0.png` and the licence `sce_sys/package/work.bin`.
+pub fn vita_app(dir: &std::path::Path, title_id: &str) {
+    write_tree(
+        dir,
+        &[
+            ("eboot.bin", vec![0u8; 64]),
+            ("sce_sys/param.sfo", vita_sfo(title_id)),
+            ("sce_sys/icon0.png", vec![0x89, b'P', b'N', b'G']),
+            ("sce_sys/package/work.bin", vec![0x77; 512]),
+        ],
+    );
+}
+
+/// LBAs of [`ps3_iso`]: root, `PS3_GAME`, `PARAM.SFO`, `PS3_DISC.SFB`,
+/// `ICON0.PNG`.
+pub const PS3_ISO_LBAS: [u32; 5] = [20, 21, 22, 23, 24];
+
+/// A 25 GB PS3 disc image (sparse): an ISO 9660 PVD with system and
+/// volume id `PS3VOLUME`, a root holding `PS3_DISC.SFB` and `PS3_GAME/`,
+/// which holds `ICON0.PNG` and `PARAM.SFO` = `sfo`.
+pub fn ps3_iso_with(sfo: &[u8]) -> SparseAt {
+    use crate::identify::sniff::fixtures::dir_record;
+    const S: u64 = 2048;
+    let [root, game, param, sfb, icon] = PS3_ISO_LBAS;
+    let mut s = SparseAt::new(25_025_314_816);
+    let mut pvd = vec![0u8; 2048];
+    pvd[0] = 1;
+    pvd[1..6].copy_from_slice(b"CD001");
+    pvd[6] = 1;
+    pvd[8..72].fill(b' ');
+    pvd[8..17].copy_from_slice(b"PS3VOLUME");
+    pvd[40..49].copy_from_slice(b"PS3VOLUME");
+    dir_record(&mut pvd[156..190], root, 2048, b"\0");
+    pvd[156 + 25] = 0x02;
+    s.put(16 * S, &pvd);
+    let mut end = vec![0u8; 2048];
+    end[0] = 255;
+    end[1..6].copy_from_slice(b"CD001");
+    s.put(17 * S, &end);
+    let dir = |records: &[(u32, u32, &[u8], bool)]| {
+        let mut d = vec![0u8; 2048];
+        let mut at = 0;
+        for &(lba, size, name, is_dir) in records {
+            let n = dir_record(&mut d[at..], lba, size, name);
+            if is_dir {
+                d[at + 25] = 0x02;
+            }
+            at += n;
+        }
+        d
+    };
+    s.put(
+        u64::from(root) * S,
+        &dir(&[
+            (root, 2048, b"\0", true),
+            (root, 2048, b"\x01", true),
+            (sfb, 4, b"PS3_DISC.SFB;1", false),
+            (game, 2048, b"PS3_GAME", true),
+        ]),
+    );
+    s.put(
+        u64::from(game) * S,
+        &dir(&[
+            (game, 2048, b"\0", true),
+            (root, 2048, b"\x01", true),
+            (icon, 4, b"ICON0.PNG;1", false),
+            (param, sfo.len() as u32, b"PARAM.SFO;1", false),
+        ]),
+    );
+    s.put(u64::from(param) * S, sfo);
+    s.put(u64::from(sfb) * S, b".SFB");
+    s.put(u64::from(icon) * S, &[0x89, b'P', b'N', b'G']);
+    s
+}
+
+/// [`ps3_iso_with`] a disc-game `PARAM.SFO` for `title_id`.
+pub fn ps3_iso(title_id: &str) -> SparseAt {
+    ps3_iso_with(&ps3_sfo(title_id, "DG"))
+}
+
+/// A PKG head (psdevwiki «PKG files»): magic `7F 50 4B 47`, revision
+/// 0x8000 (retail), `kind` (1 PS3, 2 PSP/Vita) at 6, `content_id` at
+/// 0x30; the encrypted body is filler.
+pub fn pkg(kind: u16, content_id: &str) -> SparseAt {
+    let mut h = vec![0u8; 0xC0];
+    h[..4].copy_from_slice(&[0x7F, b'P', b'K', b'G']);
+    h[4..6].copy_from_slice(&0x8000u16.to_be_bytes());
+    h[6..8].copy_from_slice(&kind.to_be_bytes());
+    h[0x30..0x30 + content_id.len()].copy_from_slice(content_id.as_bytes());
+    let mut s = SparseAt::new(0x10_0000);
+    s.put(0, &h).put(0xC0, &[0xE7; 0x400]);
+    s
+}
+
+/// A VPK at `path`: a zip with `eboot.bin`, `sce_sys/param.sfo` and
+/// `sce_sys/icon0.png`.
+pub fn vpk(path: &std::path::Path, title_id: &str) {
+    use std::io::Write;
+    let file = std::fs::File::create(path).expect("fixture vpk");
+    let mut zip = zip::ZipWriter::new(file);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for (name, bytes) in [
+        ("eboot.bin", vec![0u8; 256]),
+        ("sce_sys/param.sfo", vita_sfo(title_id)),
+        ("sce_sys/icon0.png", vec![0x89, b'P', b'N', b'G']),
+    ] {
+        zip.start_file(name, opts).expect("zip entry");
+        zip.write_all(&bytes).expect("zip bytes");
+    }
+    zip.finish().expect("zip end");
+}

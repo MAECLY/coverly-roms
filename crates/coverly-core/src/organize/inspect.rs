@@ -470,6 +470,13 @@ pub fn inspect_file_with(
             if magic.is_some() && PACKAGE_EXTS.contains(&ext.as_str()) {
                 sniffed.hits.extend(package_hits(path, &ext, limits));
             }
+            if ext == "vpk" && magic == Some(ContainerMagic::Zip) {
+                if let Some(id) = vpk_console(path, limits) {
+                    sniffed.hit(&id.system, id.confidence, id.detail.clone());
+                    sniffed.serial = id.serial.clone();
+                    sniffed.console = Some(id);
+                }
+            }
             out.head_crc = Some(format!("{:08X}", crc32fast::hash(&head)));
             if let Some(what) = sniffed.not_a_rom {
                 out.issue = Some(ArchiveIssue::NotARom { what });
@@ -538,11 +545,38 @@ fn file_name(path: &Path) -> String {
 }
 
 /// Zip-based game packages (Arduboy, MAME/TI-99 cartridge packages,
-/// Solarus quests, Lutro games) and gzip BBC Micro tapes (spec D25): the
+/// Solarus quests, Lutro games, PS Vita VPKs) and gzip BBC Micro tapes
+/// (spec D25, systems batch 2 D16): the
 /// item is one raw file whatever its magic, moved as-is and never
 /// extracted. A header check that needs the inner files reads them
 /// through the archive reader on the same bytes.
-pub const PACKAGE_EXTS: [&str; 5] = ["arduboy", "rpk", "solarus", "lutro", "uef"];
+pub const PACKAGE_EXTS: [&str; 6] = ["arduboy", "rpk", "solarus", "lutro", "uef", "vpk"];
+
+/// The console id of a PS Vita VPK (systems batch 2 D16): its
+/// `sce_sys/param.sfo` entry (at most 64 KiB decoded, the plan head
+/// budget) read through the archive layer, and the `sce_sys/icon0.png`
+/// entry as the art locator. Nothing is extracted; any archive problem
+/// names no system.
+fn vpk_console(path: &Path, limits: &Limits) -> Option<crate::consoles::ConsoleId> {
+    let mut reader = archive::open_archive_with(path, limits, Some(&[])).ok()??;
+    let entries: Vec<Entry> = file_entries(reader.as_ref()).cloned().collect();
+    let named = |want: &str| {
+        entries
+            .iter()
+            .find(|e| e.unsafe_name.is_none() && e.name.as_str().eq_ignore_ascii_case(want))
+    };
+    let sfo = named("sce_sys/param.sfo").filter(|e| e.size <= crate::consoles::MAX_META_FILE)?;
+    let icon = named("sce_sys/icon0.png").map(|e| e.name.as_str().to_string());
+    let mut budget = Budget::plan_head(limits);
+    let bytes = read_entry(
+        reader.as_mut(),
+        sfo.index,
+        crate::consoles::MAX_META_FILE,
+        &mut budget,
+    )
+    .ok()?;
+    crate::consoles::sony::from_vpk(&bytes, icon.as_deref())
+}
 
 /// Header evidence of a game package read through the archive layer
 /// (spec §8.1, D25): an `.rpk` whose zip holds `layout.xml` (a MAME

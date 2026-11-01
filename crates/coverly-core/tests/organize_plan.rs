@@ -3422,3 +3422,75 @@ fn switch_update_is_listed_under_its_base() {
     let json = serde_json::to_value(&p).unwrap();
     assert_eq!(json["updates"], 2);
 }
+
+#[test]
+fn ps3_and_vita_pkgs_move_with_the_install_first_note() {
+    use coverly_core::organize::{ItemNote, Transfer};
+    // Systems batch 2 §8.4: a PKG is installed by the emulator, so it moves
+    // to the system folder as it is with a note naming the emulator; a VPK
+    // is a Vita package moved as it is, with no such note.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let ps3 = coverly_core::consoles::testing::pkg(1, "UP0001-NPUB30024_00-0000000000000001");
+    put(&s.path().join("NPUB30024.pkg"), &ps3.bytes());
+    let vita = coverly_core::consoles::testing::pkg(2, "EP0001-PCSB00245_00-0000000000000000");
+    put(&s.path().join("Vita Game.pkg"), &vita.bytes());
+    let vpk = s.path().join("Persona 4 Golden.vpk");
+    coverly_core::consoles::testing::vpk(&vpk, "PCSE00120");
+    filetime::set_file_mtime(&vpk, hour_ago()).unwrap();
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    let item = by_name(&p, "NPUB30024.pkg");
+    assert_eq!(item.system_id.as_deref(), Some("ps3"));
+    assert!(item.moves_in(), "{:?}", item.action);
+    assert!(item.notes.contains(&ItemNote::InstallFirst {
+        emulator: "RPCS3".into()
+    }));
+    assert_eq!(item.folder.as_deref(), Some("ps3"));
+    let item = by_name(&p, "Vita Game.pkg");
+    assert_eq!(item.system_id.as_deref(), Some("psvita"));
+    assert!(item.notes.contains(&ItemNote::InstallFirst {
+        emulator: "Vita3K".into()
+    }));
+    let item = by_name(&p, "Persona 4 Golden.vpk");
+    assert_eq!(item.system_id.as_deref(), Some("psvita"));
+    assert!(item.moves_in(), "{:?}", item.action);
+    assert_eq!(item.transfer, Transfer::AsIs);
+    assert!(!item
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::InstallFirst { .. })));
+}
+
+#[test]
+fn a_macos_installer_pkg_is_left_as_not_a_rom() {
+    // Systems batch 2 D7: a loose `.pkg` is a candidate so its header can
+    // name it; a `xar!` installer is left in place, never «unknown».
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let mut bytes = b"xar!\0\x1c\0\x01".to_vec();
+    bytes.resize(4096, 0);
+    put(&s.path().join("Install Thing.pkg"), &bytes);
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    assert_eq!(
+        left_reason(&p, "Install Thing.pkg"),
+        Some(LeftReason::NotARom {
+            what: coverly_core::identify::sniff::NotARom::Installer
+        })
+    );
+}

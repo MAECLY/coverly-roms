@@ -1068,6 +1068,18 @@ fn xar_pkg_is_an_installer() {
 }
 
 #[test]
+fn valve_vpk_is_pc_game_data() {
+    // A Source engine pack (`34 12 AA 55`) named `.vpk`, as a Steam
+    // library holds by the hundred, is not a Vita package (a zip).
+    let mut bytes = vec![0x34, 0x12, 0xAA, 0x55, 2, 0, 0, 0];
+    bytes.resize(4096, 0);
+    let s = run(&bytes, "vpk");
+    assert_eq!(s.not_a_rom, Some(NotARom::PcGameData));
+    assert!(s.hits.is_empty());
+    assert_eq!(run(&bytes, "bin").not_a_rom, None);
+}
+
+#[test]
 fn autodesk_3ds_is_a_model() {
     // Batch 2 D7: a 3D Studio file opens with the main chunk `4D 4D`.
     let mut bytes = vec![0x4D, 0x4D, 0x10, 0, 0, 0, 0x02, 0x00];
@@ -1129,4 +1141,53 @@ fn ncsd_head_carries_the_3ds_console_id() {
     let s = sniff(&mut SliceAt(&bytes), img.len, "3ds");
     assert_eq!(s.not_a_rom, None);
     assert_eq!(s.serial.as_deref(), Some("CTR-P-AMKP"));
+}
+
+#[test]
+fn psvita_and_psn_launchers_name_their_title() {
+    // Batch 2 D14: a `.psvita`/`.psn` launcher is text by nature; when its
+    // text is a title id it names the system and the serial.
+    let s = run(b"PCSB00245\n", "psvita");
+    assert_eq!(s.not_a_rom, None);
+    assert_eq!(best(&s).map(|(id, _)| id).as_deref(), Some("psvita"));
+    assert_eq!(s.serial.as_deref(), Some("PCSB-00245"));
+    let c = s.console.unwrap();
+    assert_eq!(
+        (c.title_id.as_deref(), c.detail.as_str()),
+        (Some("PCSB00245"), "launcher file")
+    );
+    let s = run(b"NPUB30024", "psn");
+    assert_eq!(best(&s).map(|(id, _)| id).as_deref(), Some("ps3"));
+    // Any other text is still a launcher, with no header verdict; a web
+    // page is not one.
+    let s = run(b"Persona 4 Golden\n", "psvita");
+    assert!(s.hits.is_empty() && s.not_a_rom.is_none(), "{s:?}");
+    assert_eq!(
+        run(b"<html><body>404</body></html>", "psn").not_a_rom,
+        Some(NotARom::WebPage)
+    );
+}
+
+#[test]
+fn ps3_and_vita_pkg_heads_name_their_system() {
+    use coverly_core::consoles::testing as t;
+    let ps3 = t::pkg(1, "UP0001-NPUB30024_00-0000000000000001").bytes();
+    let s = run(&ps3, "pkg");
+    assert_eq!(best(&s).map(|(id, _)| id).as_deref(), Some("ps3"));
+    assert_eq!(s.serial.as_deref(), Some("NPUB-30024"));
+    let vita = t::pkg(2, "EP0001-PCSB00245_00-0000000000000000").bytes();
+    assert_eq!(
+        best(&run(&vita, "pkg")).map(|(id, _)| id).as_deref(),
+        Some("psvita")
+    );
+}
+
+#[test]
+fn ps3_iso_is_read_through_its_directories() {
+    use coverly_core::consoles::testing as t;
+    let mut f = t::ps3_iso("BLUS30443");
+    let len = f.len;
+    let s = sniff(&mut f, len, "iso");
+    assert_eq!(best(&s).map(|(id, _)| id).as_deref(), Some("ps3"));
+    assert_eq!(s.serial.as_deref(), Some("BLUS-30443"));
 }

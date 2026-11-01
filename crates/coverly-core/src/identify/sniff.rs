@@ -22,11 +22,12 @@ pub const DECISIVE: [&str; 15] = [
 /// Extensions of games (and disc-set companions) that are text by nature:
 /// PICO-8 carts, ScummVM launchers, DOSBox configs and batch files, BASIC
 /// listings, cue sheets and playlists, Intel HEX (Arduboy), LowRes NX
-/// sources, Lua games and `.game` files (spec D26). Only a web page is
-/// "not a ROM" there.
-pub const TEXT_NATIVE_EXTS: [&str; 14] = [
+/// sources, Lua games and `.game` files (spec D26), and the Vita3K and
+/// RPCS3 launchers `.psvita` and `.psn` (systems batch 2 D14). Only a web
+/// page is "not a ROM" there.
+pub const TEXT_NATIVE_EXTS: [&str; 16] = [
     "p8", "scummvm", "svm", "conf", "bat", "bas", "cue", "m3u", "gdi", "ccd", "hex", "nx", "lua",
-    "game",
+    "game", "psvita", "psn",
 ];
 
 /// Bounded reads at given offsets.
@@ -126,6 +127,9 @@ pub enum NotARom {
     Installer,
     /// An Autodesk 3D Studio model (main chunk `4D 4D` named `.3ds`).
     Model3d,
+    /// A PC game's data pack: a Valve VPK (`34 12 AA 55`) named `.vpk`,
+    /// as Steam workshop folders hold by the hundred (systems batch 2).
+    PcGameData,
 }
 
 /// Container formats recognised by their magic (contents not read here).
@@ -209,7 +213,7 @@ pub struct Sniff {
 }
 
 impl Sniff {
-    fn hit(&mut self, system: &str, weight: f32, detail: impl Into<String>) {
+    pub(crate) fn hit(&mut self, system: &str, weight: f32, detail: impl Into<String>) {
         self.hits
             .push(Evidence::new(IdLevel::Header, system, weight, detail));
     }
@@ -260,6 +264,10 @@ pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sni
         // extension only markup (an HTML error page) is not a game.
         if !TEXT_NATIVE_EXTS.contains(&ext.as_str()) || starts_with_markup(&head) {
             s.not_a_rom = Some(kind);
+        } else if let Some(id) = crate::consoles::sony::launcher(&head, &ext) {
+            s.hit(&id.system, id.confidence, id.detail.clone());
+            s.serial = id.serial.clone();
+            s.console = Some(id);
         }
         return s;
     }
@@ -315,10 +323,13 @@ pub fn sniff_switch_first(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str)
 /// apart by two cheap magics (systems batch 2 D7): every macOS installer
 /// is a `xar!` archive named `.pkg`, and a 3D Studio model opens with the
 /// main chunk `4D 4D`. A `.3ds` carrying `NCSD` or `NCCH` at 0x100 is a
-/// 3DS image whatever its first bytes.
+/// 3DS image whatever its first bytes. A Valve pack named `.vpk` (the
+/// Source engine's archives, seen by the hundred in a real Steam library)
+/// is no Vita package: a Vita VPK is a zip.
 fn not_a_console_file(head: &[u8], ext: &str) -> Option<NotARom> {
     match ext {
         "pkg" if head.starts_with(b"xar!") => Some(NotARom::Installer),
+        "vpk" if head.starts_with(&[0x34, 0x12, 0xAA, 0x55]) => Some(NotARom::PcGameData),
         "3ds"
             if head.starts_with(&[0x4D, 0x4D])
                 && !matches!(head.get(0x100..0x104), Some(b"NCSD" | b"NCCH")) =>
