@@ -84,6 +84,10 @@ describe('LargeTransferDialog', () => {
     expect(
       within(dialog).getByRole('button', { name: 'Cancel' }),
     ).toBeInTheDocument();
+    // The feature keeps its English name, «Organise», as everywhere else.
+    expect(dialog).toHaveAccessibleDescription(
+      'Organise will write 3 items to TinyExt. 412.1 GB is free on that drive now.',
+    );
   });
 
   it('names a move to another drive as a move', () => {
