@@ -1255,6 +1255,13 @@ fn systems_batch_2_items_match_the_shared_sample() {
         IdSource::ParamJson,
         IdSource::MicrosoftGameConfig,
         IdSource::AppxManifest,
+        IdSource::NcaCatalog,
+        IdSource::Tmd,
+        IdSource::Npdm,
+        IdSource::Xbe,
+        IdSource::Xex,
+        IdSource::SelfHeader,
+        IdSource::Pbp,
     ];
     let mut plan = organize_plan_sample();
     plan.updates = 2;
@@ -1344,6 +1351,72 @@ fn systems_batch_3_items_match_the_shared_sample() {
         ],
         "organize_batch3_warnings": [
             PlanWarning::LargeTransfer { bytes: 12_000_000_000, items: 2 },
+        ],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+/// Adjustments (spec §10): game parts, declined items, the new notes and
+/// the console kinds, parts and title sources.
+#[test]
+fn adjustment_values_match_the_shared_sample() {
+    use coverly_core::consoles::{PartKind, TitleKind, TitleSource};
+    use coverly_core::organize::{Choice, Decision, ItemNote, LeftReason};
+
+    let actual = json!({
+        "adjustments_reasons": [
+            LeftReason::GamePart {
+                part: PartKind::ExeFs,
+                system: "switch".into(),
+                title_id: None,
+            },
+            LeftReason::GamePart {
+                part: PartKind::Backup,
+                system: "psvita".into(),
+                title_id: Some("PCSE00120".into()),
+            },
+            LeftReason::NotConfirmed,
+        ],
+        "adjustments_notes": [
+            ItemNote::Homebrew,
+            ItemNote::Vita7z,
+            ItemNote::MissingDisc { n: 2 },
+            ItemNote::EncryptedName,
+        ],
+        "adjustments_decisions": [Decision {
+            item: 4,
+            choice: Choice::Decline,
+        }],
+        "adjustments_part_kinds": [
+            PartKind::ExeFs,
+            PartKind::Nca,
+            PartKind::Library,
+            PartKind::TitleMeta,
+            PartKind::Module,
+            PartKind::Backup,
+        ],
+        "adjustments_title_kinds": [
+            TitleKind::Base,
+            TitleKind::Update,
+            TitleKind::Dlc,
+            TitleKind::Demo,
+            TitleKind::Homebrew,
+            TitleKind::Unknown,
+        ],
+        "adjustments_title_sources": [
+            TitleSource::Header,
+            TitleSource::Titledb,
+            TitleSource::Nlib,
+            TitleSource::FileName,
         ],
     });
     let expected: Value =

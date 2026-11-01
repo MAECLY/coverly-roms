@@ -819,7 +819,29 @@ export type LeftReason =
   | { kind: 'emulator-data'; folder: string }
   /** A mods or patch folder beside its base that cannot move alone; `of`
    * is the base's title (its folder name when the base is not an item). */
-  | { kind: 'game-overlay'; of: string };
+  | { kind: 'game-overlay'; of: string }
+  /** A piece of a game that cannot play alone (an ExeFS file, a loose NCA,
+   * a library, title metadata, a module or a backup); `title_id` is the
+   * game's when the piece or its path says. */
+  | {
+      kind: 'game-part';
+      part: PartKind;
+      system: string;
+      title_id: string | null;
+    }
+  /** A huge item the user said «No» to: it stays where it is. */
+  | { kind: 'not-confirmed' };
+
+/** A piece of a game that cannot play alone (Rust `PartKind`). */
+export type PartKind =
+  'exe-fs' | 'nca' | 'library' | 'title-meta' | 'module' | 'backup';
+
+/** What a console title is (Rust `TitleKind`). */
+export type TitleKind =
+  'base' | 'update' | 'dlc' | 'demo' | 'homebrew' | 'unknown';
+
+/** Where a console title's name came from (Rust `TitleSource`). */
+export type TitleSource = 'header' | 'titledb' | 'nlib' | 'file-name';
 
 /** Something worth telling about an item that still moves. */
 export type ItemNote =
@@ -862,7 +884,15 @@ export type ItemNote =
   /** Enhanced for PS5 Pro (`attribute3` bit 22). */
   | { kind: 'pro-enhanced' }
   /** Goes to the DLC folder where `layout` looks for downloadable content. */
-  | { kind: 'dlc-folder'; layout: string };
+  | { kind: 'dlc-folder'; layout: string }
+  /** Homebrew: goes to the system folder like any ROM. */
+  | { kind: 'homebrew' }
+  /** A Vita game kept in a 7z: Vita3K only installs .zip, .vpk or .vci. */
+  | { kind: 'vita7z' }
+  /** Disc `n` of a multi-disc set is not in the pile. */
+  | { kind: 'missing-disc'; n: number }
+  /** The title cannot be read without decrypting it («Cifrado»). */
+  | { kind: 'encrypted-name' };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =
@@ -912,7 +942,14 @@ export type IdSource =
   | 'header'
   | 'param-json'
   | 'microsoft-game-config'
-  | 'appx-manifest';
+  | 'appx-manifest'
+  | 'nca-catalog'
+  | 'tmd'
+  | 'npdm'
+  | 'xbe'
+  | 'xex'
+  | 'self-header'
+  | 'pbp';
 
 /** A console title id and where it came from. */
 export interface TitleIdRef {
@@ -1098,6 +1135,8 @@ export type OrganizeDecision = { item: number } & (
   | { choice: 'accept' }
   | { choice: 'assign'; system: string }
   | { choice: 'leave' }
+  /** «No» to a huge item: left as not confirmed, never remembered. */
+  | { choice: 'decline' }
 );
 
 /** A quick, name-only look at a folder no layout was detected in. */

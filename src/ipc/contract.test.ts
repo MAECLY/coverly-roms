@@ -40,6 +40,9 @@ import {
   type IdSource,
   type NotARom,
   type OrganizeItemKind,
+  type PartKind,
+  type TitleKind,
+  type TitleSource,
   type TitleIdRef,
   type Transfer,
   type EntriesUpdated,
@@ -1260,6 +1263,75 @@ describe('duplicates contract', () => {
   });
 });
 
+describe('adjustments contract', () => {
+  it('game parts, declined items, the new notes and kinds use the Rust spellings', () => {
+    const reasons = sample.adjustments_reasons as LeftReason[];
+    expect(reasons).toEqual([
+      { kind: 'game-part', part: 'exe-fs', system: 'switch', title_id: null },
+      {
+        kind: 'game-part',
+        part: 'backup',
+        system: 'psvita',
+        title_id: 'PCSE00120',
+      },
+      { kind: 'not-confirmed' },
+    ]);
+    const notes = sample.adjustments_notes as ItemNote[];
+    expect(notes.map((n) => n.kind)).toEqual([
+      'homebrew',
+      'vita7z',
+      'missing-disc',
+      'encrypted-name',
+    ]);
+    expect(notes[2]).toEqual({ kind: 'missing-disc', n: 2 });
+    const decisions = sample.adjustments_decisions as OrganizeDecision[];
+    expect(decisions).toEqual([{ item: 4, choice: 'decline' }]);
+    expect(sample.adjustments_part_kinds).toEqual(PART_KINDS);
+    expect(sample.adjustments_title_kinds).toEqual(TITLE_KINDS);
+    expect(sample.adjustments_title_sources).toEqual(TITLE_SOURCES);
+  });
+});
+
+/** Every `PartKind`, `TitleKind` and `TitleSource`, in Rust's order. */
+const PART_KINDS = [
+  'exe-fs',
+  'nca',
+  'library',
+  'title-meta',
+  'module',
+  'backup',
+] as const satisfies readonly PartKind[];
+const TITLE_KINDS = [
+  'base',
+  'update',
+  'dlc',
+  'demo',
+  'homebrew',
+  'unknown',
+] as const satisfies readonly TitleKind[];
+const TITLE_SOURCES = [
+  'header',
+  'titledb',
+  'nlib',
+  'file-name',
+] as const satisfies readonly TitleSource[];
+// Compile-time: each list names every member.
+const _allParts: Exclude<PartKind, (typeof PART_KINDS)[number]> extends never
+  ? true
+  : never = true;
+const _allKinds: Exclude<TitleKind, (typeof TITLE_KINDS)[number]> extends never
+  ? true
+  : never = true;
+const _allTitleSources: Exclude<
+  TitleSource,
+  (typeof TITLE_SOURCES)[number]
+> extends never
+  ? true
+  : never = true;
+void _allParts;
+void _allKinds;
+void _allTitleSources;
+
 /** Every `IdSource`, in Rust's declaration order. */
 const ID_SOURCES = [
   'param-sfo',
@@ -1274,6 +1346,13 @@ const ID_SOURCES = [
   'param-json',
   'microsoft-game-config',
   'appx-manifest',
+  'nca-catalog',
+  'tmd',
+  'npdm',
+  'xbe',
+  'xex',
+  'self-header',
+  'pbp',
 ] as const satisfies readonly IdSource[];
 // Compile-time: the list names every member.
 const _allSources: Exclude<IdSource, (typeof ID_SOURCES)[number]> extends never

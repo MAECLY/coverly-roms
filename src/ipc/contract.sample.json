@@ -1797,7 +1797,14 @@
     "header",
     "param-json",
     "microsoft-game-config",
-    "appx-manifest"
+    "appx-manifest",
+    "nca-catalog",
+    "tmd",
+    "npdm",
+    "xbe",
+    "xex",
+    "self-header",
+    "pbp"
   ],
   "organize_batch2_reasons": [
     {
@@ -1892,5 +1899,60 @@
       "bytes": 12000000000,
       "items": 2
     }
-  ]
+  ],
+  "adjustments_reasons": [
+    {
+      "kind": "game-part",
+      "part": "exe-fs",
+      "system": "switch",
+      "title_id": null
+    },
+    {
+      "kind": "game-part",
+      "part": "backup",
+      "system": "psvita",
+      "title_id": "PCSE00120"
+    },
+    {
+      "kind": "not-confirmed"
+    }
+  ],
+  "adjustments_notes": [
+    {
+      "kind": "homebrew"
+    },
+    {
+      "kind": "vita7z"
+    },
+    {
+      "kind": "missing-disc",
+      "n": 2
+    },
+    {
+      "kind": "encrypted-name"
+    }
+  ],
+  "adjustments_decisions": [
+    {
+      "item": 4,
+      "choice": "decline"
+    }
+  ],
+  "adjustments_part_kinds": [
+    "exe-fs",
+    "nca",
+    "library",
+    "title-meta",
+    "module",
+    "backup"
+  ],
+  "adjustments_title_kinds": [
+    "base",
+    "update",
+    "dlc",
+    "demo",
+    "homebrew",
+    "unknown"
+  ],
+  "adjustments_title_sources": ["header", "titledb", "nlib", "file-name"]
 }

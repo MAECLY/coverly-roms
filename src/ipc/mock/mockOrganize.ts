@@ -1840,6 +1840,10 @@ export function createMockOrganize(
         items[d.item] = leave(item, { kind: 'unknown' });
         continue;
       }
+      if (d.choice === 'decline') {
+        items[d.item] = leave(item, { kind: 'not-confirmed' });
+        continue;
+      }
       if (!decidable) continue;
       if (d.choice === 'assign') {
         items[d.item] = {

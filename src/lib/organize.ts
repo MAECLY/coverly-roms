@@ -395,6 +395,10 @@ export function leftReasonKey(
       return k('emulatorData', { folder: r.folder });
     case 'game-overlay':
       return k('gameOverlay', { title: r.of });
+    // Worded in their own keys by the adjustments UI; generic until then.
+    case 'game-part':
+    case 'not-confirmed':
+      return k('unknown');
   }
 }
 
@@ -705,6 +709,12 @@ export function noteKey(n: ItemNote): KeyedText | null {
       return k('proEnhanced');
     case 'dlc-folder':
       return k('dlcFolder', { layout: n.layout });
+    // Shown by the adjustments UI; not listed until then.
+    case 'homebrew':
+    case 'vita7z':
+    case 'missing-disc':
+    case 'encrypted-name':
+      return null;
     case 'multi-rom-zip':
     case 'no-folder-on-device':
     case 'extension-contradicted':
