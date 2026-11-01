@@ -324,6 +324,10 @@ export function reportWhyText(t: Translate, why: ReportWhyView): string {
       return t('dedupe.report.userSkipped');
     case 'chd-metadata-differs':
       return t('dedupe.report.chdMetadataDiffers');
+    case 'title-id':
+      return t('dedupe.report.titleId');
+    case 'folder-game':
+      return t('dedupe.report.folderGame');
   }
 }
 
@@ -415,6 +419,9 @@ function extOf(path: string): string {
   return dot > 0 ? name.slice(dot + 1).toUpperCase() : '';
 }
 
+/** The folder-game suffixes a layout writes (`Game.ps3/`, ES-DE). */
+const FOLDER_SUFFIXES = new Set(['PS3']);
+
 /** A disc's own file: a sheet or a whole image (a sheet's tracks are not). */
 const DISC_EXTS = new Set([
   'CUE',
@@ -468,9 +475,10 @@ export function formatItems(unit: UnitRefView, t: Translate): string[] {
     case 'multi-disc':
       return ['M3U', t('dedupe.format.discs', { count: discCount(unit) })];
     case 'folder':
-      // `Game.ps3` reads `PS3 (folder)`; a bare `BLUS30001/` only `folder`.
+      // `Game.ps3` reads `PS3 (folder)`; `BLUS30001/` or `Mr. Driller/`
+      // only `folder`: a dot in a folder's name is no format.
       return [
-        ext
+        FOLDER_SUFFIXES.has(ext)
           ? `${ext} (${t('dedupe.format.folder')})`
           : t('dedupe.format.folder'),
       ];

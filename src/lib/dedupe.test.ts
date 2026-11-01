@@ -373,6 +373,18 @@ describe('report-only and per-level counts', () => {
       }
   });
 
+  it('title_id_and_folder_groups_never_claim_a_crc_match', () => {
+    const es = tr('es');
+    expect(reportWhyText(es, { kind: 'title-id' })).toBe(
+      'Mismo id de juego; el contenido no se ha comparado',
+    );
+    expect(reportWhyText(es, { kind: 'folder-game' })).toBe(
+      'Carpeta de juego: solo se informa, no se aparta',
+    );
+    expect(REPORT_WHY_KINDS).toContain('title-id');
+    expect(REPORT_WHY_KINDS).toContain('folder-game');
+  });
+
   it('level_counts_count_the_copies_each_level_finds', () => {
     expect(levelCounts(dedupeFixture())).toEqual({
       exact: 85,
@@ -495,6 +507,9 @@ describe('formatOf', () => {
     ['/SD/ROMS/GB/Tetris.gb', 'single', 'GB'],
     ['/SD/ROMS/ps3/Game.ps3', 'folder', 'PS3 (carpeta)'],
     ['/SD/ROMS/ps3/BLUS30001', 'folder', 'carpeta'],
+    // A dot in a folder's name is no format: only a layout suffix is.
+    ['/SD/ROMS/ps3/Mr. Driller', 'folder', 'carpeta'],
+    ['/SD/ROMS/wiiu/Game v1.0', 'folder', 'carpeta'],
     ['C:\\Roms\\PS\\Crash.pbp', 'image', 'PBP'],
   ] as const)('%s (%s) → %s', (primary, kind, want) => {
     expect(formatOf(unit(primary, kind), t)).toBe(want);

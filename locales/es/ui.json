@@ -603,7 +603,9 @@
       "arcadeNoDat": "Arcade sin catálogo: no se sabe si es el mismo juego",
       "bigGroupMembers": "Demasiadas copias para decidir solo: {count} archivos",
       "userSkipped": "Has pedido no tocarlo",
-      "chdMetadataDiffers": "Mismo contenido, metadatos del CHD distintos"
+      "chdMetadataDiffers": "Mismo contenido, metadatos del CHD distintos",
+      "titleId": "Mismo id de juego; el contenido no se ha comparado",
+      "folderGame": "Carpeta de juego: solo se informa, no se aparta"
     },
     "notRom": "No es una ROM",
     "skip": {
