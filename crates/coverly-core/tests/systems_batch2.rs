@@ -665,6 +665,7 @@ fn dsi_folder_resolves_to_nds() {
 #[test]
 fn dsi_extension_is_nds() {
     let db = SystemDb::builtin();
+    let id = |s: Option<&System>| s.map(|s| s.id.clone());
     let ids: Vec<&str> = db
         .systems_for_extension("dsi")
         .iter()
@@ -685,7 +686,13 @@ fn dsi_extension_is_nds() {
         .collect();
     for dat in coverly_core::identify::dat::dat_sources(nds) {
         assert!(paths.contains(&dat), "{dat}");
+        // A DSiWare hash found only in the DSi DAT still organises into nds.
+        assert_eq!(id(db.system_for_dat(&dat)).as_deref(), Some("nds"), "{dat}");
     }
+    assert!(
+        db.is_rom_like_extension("DSI"),
+        "a .dsi dump is a candidate"
+    );
 }
 
 /// D9: a DSiWare cover only the DSi thumbnails folder has is found.
