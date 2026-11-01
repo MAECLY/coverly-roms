@@ -1798,7 +1798,10 @@ mod tests {
         fn gdk_encodings() {
             let tmp = tempfile::TempDir::new().unwrap();
             let text = t::gdk_config(&t::GdkSpec::default());
-            let units: Vec<u16> = text.encode_utf16().collect();
+            // UTF-16 files declare it, as Visual Studio saves them.
+            let text16 = text.replacen("encoding=\"utf-8\"", "encoding=\"utf-16\"", 1);
+            assert_ne!(text16, text);
+            let units: Vec<u16> = text16.encode_utf16().collect();
             let le: Vec<u8> = [0xFF, 0xFE]
                 .into_iter()
                 .chain(units.iter().flat_map(|u| u.to_le_bytes()))
@@ -2063,6 +2066,37 @@ mod tests {
             );
             // One listing per probe: a second subfolder is not listed.
             assert_eq!(logo_locator(&l, "Assets\\Logo.png", &mut listed), None);
+        }
+
+        /// D21 budget: a GDK probe lists at most one subfolder for its
+        /// logos, however many of them need an MRT lookup.
+        #[test]
+        fn gdk_logos_cost_at_most_one_listing() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("g");
+            t::gdk_folder(
+                &dir,
+                &t::GdkSpec {
+                    logos: ["A\\Big.png", "B\\Store.png", "C\\Small.png"],
+                    ..Default::default()
+                },
+            );
+            for (from, to) in [
+                ("A/Big.png", "A/Big.scale-50.txt"),
+                ("B/Store.png", "B/Store.txt"),
+                ("C/Small.png", "C/Small.scale-200.png"),
+            ] {
+                std::fs::rename(dir.join(from), dir.join(to)).unwrap();
+            }
+            let names = listing_of(&dir);
+            crate::consoles::wiiu::list_count::take();
+            let found = probe_gdk(&DirListing {
+                dir: &dir,
+                names: &names,
+            });
+            assert_eq!(crate::consoles::wiiu::list_count::take(), 1);
+            // The one listing went to `A`; `C`'s MRT name is not looked up.
+            assert_eq!(found[0].id.art, []);
         }
 
         /// A GDK folder whose first logo is missing takes the next one.
