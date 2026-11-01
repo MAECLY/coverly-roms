@@ -253,6 +253,21 @@ La estructura maestra es la de la biblioteca. Cada perfil la traduce a lo que es
 - **Emuladores de Switch:** cargan el base y aceptan actualizaciones/DLC desde una carpeta aparte; la estructura maestra sirve casi tal cual.
 - **ES-DE y otros frontends:** una carpeta con subcarpetas puede verse como carpeta y no como juego; usar su modo «directorio como juego» (o la carpeta con el nombre del archivo, p. ej. `Juego.pkg/`) según el perfil.
 
+### Portadas y arte de actualizaciones, DLC y demos
+
+Muchas actualizaciones, DLC y demos traen su propia portada o arte, distinto del juego base (el icono de un pack de canciones, la portada de una demo, el banner de una expansión).
+
+- **Demos:** son juegos aparte, con su propia portada y arte. Se buscan como cualquier juego (libretro-thumbnails y ScreenScraper tienen entradas `(Demo)`), y si no hay, se usa el icono incluido o, como último recurso, la del juego completo marcada como «del juego completo».
+- **DLC:** usar el arte incluido en el propio paquete cuando está en claro (por ejemplo `icon0.png` de un `addcont` de PS4/PS5/Vita, `ICON0.PNG` de un PKG de PS3, el SMDH de un CIA de 3DS si lo trae; en Switch el icono va dentro de un NCA cifrado y no se lee). Si no trae, buscar por nombre en ScreenScraper o SteamGridDB, y si tampoco, mostrar la del base con la marca DLC.
+- **Actualizaciones:** casi siempre comparten la portada del base; si traen un icono propio (algunas cambian el icono o el banner), guardarlo como arte de esa versión sin pisar el del juego base.
+- **Dónde se guarda:** en la carpeta del juego, junto a cada archivo (`DLC/…`, `Updates/…`), con el mismo esquema de slots que el resto (portada, título, captura, banner) y su origen anotado («incluido en el paquete», «ScreenScraper»…).
+- **Frontends:** al organizar para un dispositivo, solo se copia el arte que su frontend sabe mostrar (la mayoría solo muestra el del juego base); el resto queda en la biblioteca.
+- **Interfaz:** en la ficha del juego, cada actualización y DLC con su miniatura; la demo con su propia portada y un enlace al juego completo.
+
+- [ ] Leer el arte incluido en actualizaciones, DLC y demos (sin claves, solo lo que va en claro) y buscar el que falte en las fuentes existentes.
+- [ ] Slots de arte por archivo hijo (actualización, DLC) además del del juego, con el origen anotado.
+- [ ] Mostrarlo en la ficha y en Organizar, y copiarlo al dispositivo solo cuando su frontend lo use.
+
 ### Investigación por sistema
 
 La investigación detallada (cómo distinguir cada tipo, cómo encontrar el base, dónde está la versión, qué espera cada emulador, convenciones de nombre como `[v65536]`, `(Update)`, `(DLC)`, y qué se puede leer sin claves) está en curso y se añade aquí al terminar.
