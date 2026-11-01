@@ -1816,3 +1816,29 @@ fn ncsd_3ds_is_auto_and_encrypted_noted() {
         .iter()
         .any(|n| matches!(n, ItemNote::EncryptedContent { .. })));
 }
+
+#[test]
+fn xex2_header_contradicts_atari_xex() {
+    // `.xex` is the Atari 8-bit executable; `xbox360` lists it weak, so
+    // an `XEX2` header proves Xbox 360 and contradicts a800 (D7/D24), and
+    // an Atari file (`FF FF` load header) stays a800's.
+    use coverly_core::consoles::testing as t;
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("default.xex");
+    std::fs::write(&p, t::xex2(0x4D53_07E6)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.verdict, id.combined.system.as_deref()),
+        (Verdict::Auto, Some("xbox360"))
+    );
+    assert!(id.notes.contains(&ItemNote::ExtensionContradicted {
+        ext: "xex".into(),
+        system: Some("a800".into()),
+    }));
+    let p = tmp.path().join("Boulder Dash.xex");
+    let mut atari = vec![0xFF, 0xFF, 0x00, 0x20, 0xFF, 0x20];
+    atari.resize(4096, 0xEA);
+    std::fs::write(&p, &atari).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("a800"));
+}

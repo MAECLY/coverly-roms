@@ -785,6 +785,8 @@
           "wiiu": "wiiu",
           "x1": "x1",
           "x68000": "x68000",
+          "xbox": "xbox",
+          "xbox360": "xbox360",
           "zx81": "zx81",
           "zxspectrum": "zxspectrum"
         },
@@ -890,6 +892,8 @@
           "wolf3d": "ecwolf",
           "x1": "x1",
           "x68000": "x68000",
+          "xbox": "xbox",
+          "xbox360": "xbox360",
           "xrick": "xrick",
           "zx81": "zx81",
           "zxspectrum": "zxspectrum"

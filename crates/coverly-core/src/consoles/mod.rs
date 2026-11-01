@@ -30,6 +30,7 @@ pub mod sony;
 pub mod testing;
 pub mod wad;
 pub mod wiiu;
+pub mod xbox;
 pub mod zarchive;
 
 /// Most bytes read from one item (D24).
@@ -389,6 +390,7 @@ pub fn identify(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> 
         .or_else(|| ctr::identify(src, ext))
         .or_else(|| wiiu::identify(src, ext))
         .or_else(|| sony::identify(src, ext))
+        .or_else(|| xbox::identify(src, ext))
 }
 
 /// The names the walk already listed for one directory (spec D12): every
@@ -421,14 +423,18 @@ pub struct DirConflict {
 }
 
 /// The built-in folder probes, in the fixed order of spec D12: PS3 JB,
-/// PS3 HDD and PS Vita, Wii U loadiine then NUS, then Xbox and Xbox 360
-/// (Task 12, before the Switch one), then split Switch files.
+/// PS3 HDD and PS Vita, Wii U loadiine then NUS, then Xbox
+/// (`default.xbe`), Xbox 360 (`default.xex`, GOD/XBLA), then split
+/// Switch files.
 const DIR_PROBES: &[DirProbe] = &[
     sony::probe_ps3_jb,
     sony::probe_ps3_hdd,
     sony::probe_vita_app,
     wiiu::probe_loadiine,
     wiiu::probe_nus,
+    xbox::probe_xbe,
+    xbox::probe_xex,
+    xbox::probe_god,
     nx::probe_split,
 ];
 

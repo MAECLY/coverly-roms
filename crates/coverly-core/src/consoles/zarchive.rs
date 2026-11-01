@@ -258,6 +258,26 @@ impl Archive {
         if size == 0 || size > max {
             return None;
         }
+        self.read_range(b, offset, size)
+    }
+
+    /// The first `n` bytes of file `i` (all of it when shorter), decoding
+    /// only the blocks they cover, with the same caps as [`read_file`]
+    /// (an Xbox 360 `default.xex` header, spec §8.5).
+    ///
+    /// [`read_file`]: Archive::read_file
+    pub fn read_head(&self, b: &mut Budgeted, i: usize, n: u64) -> Option<Vec<u8>> {
+        let Node::File { offset, size } = self.node(i)? else {
+            return None;
+        };
+        if size == 0 || n == 0 {
+            return None;
+        }
+        self.read_range(b, offset, size.min(n))
+    }
+
+    /// `size` bytes of the data stream at `offset`.
+    fn read_range(&self, b: &mut Budgeted, offset: u64, size: u64) -> Option<Vec<u8>> {
         let end = offset.checked_add(size)?;
         let first = offset / BLOCK;
         let last = (end - 1) / BLOCK;

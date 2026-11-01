@@ -1026,3 +1026,154 @@ pub fn vpk(path: &std::path::Path, title_id: &str) {
     }
     zip.finish().expect("zip end");
 }
+
+// ---------------------------------------------------------------------
+// Xbox and Xbox 360 (spec §8.5). Synthetic headers only.
+// ---------------------------------------------------------------------
+
+/// The Redump XGD1 game partition offset (an Xbox image of about 7 GB).
+pub const XGD1: u64 = 0x1830_0000;
+/// The XBE base address the builder uses.
+const XBE_BASE: u32 = 0x0001_0000;
+/// Where the builder puts the XBE certificate (just after the header).
+pub const XBE_CERT: usize = 0x178;
+
+fn utf16be(s: &str) -> Vec<u8> {
+    s.encode_utf16().flat_map(u16::to_be_bytes).collect()
+}
+
+/// An XBE (xboxdevwiki «XBE»): `XBEH`, base address 0x10000, the
+/// certificate right after the 0x178-byte header with title id `tid`,
+/// title `name` (UTF-16LE, at most 40 characters) and version 1.
+pub fn xbe(tid: u32, name: &str) -> Vec<u8> {
+    let mut h = vec![0u8; XBE_CERT + 0x1D0 + 0x100];
+    h[..4].copy_from_slice(b"XBEH");
+    h[0x104..0x108].copy_from_slice(&le32(XBE_BASE));
+    h[0x108..0x10C].copy_from_slice(&le32(0x1000));
+    h[0x118..0x11C].copy_from_slice(&le32(XBE_BASE + XBE_CERT as u32));
+    let c = XBE_CERT;
+    h[c..c + 4].copy_from_slice(&le32(0x1D0));
+    h[c + 8..c + 12].copy_from_slice(&le32(tid));
+    let title = utf16le(name);
+    let n = title.len().min(0x50);
+    h[c + 0xC..c + 0xC + n].copy_from_slice(&title[..n]);
+    h[c + 0xAC..c + 0xB0].copy_from_slice(&le32(1));
+    h
+}
+
+/// Where [`xex2`] puts its execution info.
+pub const XEX_EXEC_INFO: usize = 0x100;
+
+/// An XEX2 head (xenia `xex2_info.h`): two optional headers, the second
+/// the execution info (key `0x00040006`) with title id `tid`, version
+/// `0x20000100`, disc 1 of 1. No PE image.
+pub fn xex2(tid: u32) -> Vec<u8> {
+    let mut h = vec![0u8; 0x200];
+    h[..4].copy_from_slice(b"XEX2");
+    h[8..12].copy_from_slice(&be32(0x200));
+    h[0x14..0x18].copy_from_slice(&be32(2));
+    h[0x18..0x1C].copy_from_slice(&be32(0x0001_00FF));
+    h[0x1C..0x20].copy_from_slice(&be32(0));
+    h[0x20..0x24].copy_from_slice(&be32(0x0004_0006));
+    h[0x24..0x28].copy_from_slice(&be32(XEX_EXEC_INFO as u32));
+    let e = XEX_EXEC_INFO;
+    h[e..e + 4].copy_from_slice(&be32(0x1234_5678));
+    h[e + 4..e + 8].copy_from_slice(&be32(0x2000_0100));
+    h[e + 0xC..e + 0x10].copy_from_slice(&be32(tid));
+    h[e + 0x12] = 1;
+    h[e + 0x13] = 1;
+    h
+}
+
+/// Length of an [`stfs`] header (one 0xB000 header block).
+pub const STFS_LEN: usize = 0xB000;
+
+/// An STFS package header (free60 «STFS», metadata v1): `magic`
+/// (`CON `, `LIVE`, `PIRS`), content type, title id, display name
+/// «Test Arcade Game», title name «Test Title» and a thumbnail.
+pub fn stfs(magic: &[u8; 4], tid: u32, ctype: u32, thumb: &[u8]) -> Vec<u8> {
+    let mut h = vec![0u8; STFS_LEN];
+    h[..4].copy_from_slice(magic);
+    h[0x344..0x348].copy_from_slice(&be32(ctype));
+    h[0x360..0x364].copy_from_slice(&be32(tid));
+    let name = utf16be("Test Arcade Game");
+    h[0x411..0x411 + name.len()].copy_from_slice(&name);
+    let title = utf16be("Test Title");
+    h[0x1691..0x1691 + title.len()].copy_from_slice(&title);
+    h[0x1712..0x1716].copy_from_slice(&be32(thumb.len() as u32));
+    h[0x171A..0x171A + thumb.len()].copy_from_slice(thumb);
+    h
+}
+
+/// A 40-hex STFS file name of the fixtures.
+pub const STFS_HASH: &str = "0123456789ABCDEF0123456789ABCDEF01234567";
+
+/// A GOD/XBLA folder `dir/<tid>/<ctype>/<40hex>` (plus the GOD data
+/// folder for `00007000`); returns the `<tid>` folder.
+pub fn god_folder(
+    dir: &std::path::Path,
+    tid: u32,
+    ctype: u32,
+    magic: &[u8; 4],
+) -> std::path::PathBuf {
+    let top = dir.join(format!("{tid:08X}"));
+    let sub = format!("{ctype:08X}");
+    let mut files = vec![(
+        format!("{sub}/{STFS_HASH}"),
+        stfs(magic, tid, ctype, &[0x89, b'P', b'N', b'G']),
+    )];
+    if ctype == 0x0000_7000 {
+        files.push((format!("{sub}/{STFS_HASH}.data/Data0000"), vec![0u8; 256]));
+    }
+    let owned: Vec<(&str, Vec<u8>)> = files.iter().map(|(p, b)| (p.as_str(), b.clone())).collect();
+    write_tree(&top, &owned);
+    top
+}
+
+/// An XDVDFS volume (xboxdevwiki «XDVDFS») at `partition`: the volume
+/// descriptor at partition + 0x10000, a root table at sector 33 whose
+/// entries chain through their right pointers, and each file from sector
+/// 40 on. The image is sparse: an XGD1 one costs a few KiB.
+pub fn xiso_at(partition: u64, files: &[(&str, Vec<u8>)]) -> SparseAt {
+    const SECTOR: u64 = 2048;
+    let root_sector = 33u32;
+    let mut table: Vec<u8> = Vec::new();
+    let mut sector = 40u32;
+    let mut placed: Vec<(u32, &Vec<u8>)> = Vec::new();
+    for (i, (name, bytes)) in files.iter().enumerate() {
+        let len = (14 + name.len()).next_multiple_of(4);
+        let next = if i + 1 < files.len() {
+            ((table.len() + len) / 4) as u16
+        } else {
+            0
+        };
+        let mut e = vec![0xFFu8; len];
+        e[0..2].copy_from_slice(&0u16.to_le_bytes());
+        e[2..4].copy_from_slice(&next.to_le_bytes());
+        e[4..8].copy_from_slice(&le32(sector));
+        e[8..12].copy_from_slice(&le32(bytes.len() as u32));
+        e[12] = 0x20;
+        e[13] = name.len() as u8;
+        e[14..14 + name.len()].copy_from_slice(name.as_bytes());
+        table.extend(e);
+        placed.push((sector, bytes));
+        sector += (bytes.len() as u64).div_ceil(SECTOR).max(1) as u32;
+    }
+    let size = table
+        .len()
+        .next_multiple_of(SECTOR as usize)
+        .max(SECTOR as usize);
+    table.resize(size, 0xFF);
+    let mut vd = vec![0u8; SECTOR as usize];
+    vd[..20].copy_from_slice(b"MICROSOFT*XBOX*MEDIA");
+    vd[0x14..0x18].copy_from_slice(&le32(root_sector));
+    vd[0x18..0x1C].copy_from_slice(&le32(size as u32));
+    vd[0x7EC..0x800].copy_from_slice(b"MICROSOFT*XBOX*MEDIA");
+    let mut s = SparseAt::new(partition + u64::from(sector) * SECTOR + SECTOR);
+    s.put(partition + 0x10000, &vd);
+    s.put(partition + u64::from(root_sector) * SECTOR, &table);
+    for (at, bytes) in placed {
+        s.put(partition + u64::from(at) * SECTOR, bytes);
+    }
+    s
+}

@@ -34,6 +34,9 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     // Task 11.
     ("psvita", Family::Handheld, false),
     ("ps3", Family::Console, true),
+    // Task 12.
+    ("xbox", Family::Console, true),
+    ("xbox360", Family::Console, true),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -68,6 +71,13 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("batocera", "psvita", "psvita", None),
     ("muos", "ps3", "ps3", Some(false)),
     ("onion", "psvita", "PSVITA", Some(false)),
+    // Task 12.
+    ("esde", "xbox", "xbox", None),
+    ("batocera", "xbox", "xbox", None),
+    ("esde", "xbox360", "xbox360", None),
+    ("batocera", "xbox360", "xbox360", None),
+    ("onion", "xbox", "XBOX", Some(false)),
+    ("muos", "xbox360", "xbox360", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -128,7 +138,66 @@ const CONSOLE_HEADERS: &[ConsoleHeader] = &[
         Some("PCSB-00245"),
     ),
     ("ps3", "iso", ps3_disc, Some("ps3"), Some("BLUS-30443")),
+    // Task 12: XDVDFS images (Redump XGD1, XISO, an Xbox 360 root),
+    // executables, an XBLA package and a Xenia ZAR.
+    ("xbox", "iso", xbox_xgd1, Some("xbox"), Some("MS-004")),
+    ("xbox", "xiso", xbox_xiso, Some("xbox"), Some("MS-004")),
+    (
+        "xbox360",
+        "iso",
+        x360_iso,
+        Some("xbox360"),
+        Some("4D5307E6"),
+    ),
+    (
+        "xbox360",
+        "xex",
+        x360_xex,
+        Some("xbox360"),
+        Some("4D5307E6"),
+    ),
+    ("xbox", "xbe", xbox_xbe, Some("xbox"), Some("EA-013")),
+    ("xbox360", "", x360_live, Some("xbox360"), Some("58410889")),
+    (
+        "xbox360",
+        "zar",
+        x360_zar,
+        Some("xbox360"),
+        Some("4D5307E6"),
+    ),
 ];
+
+mod xbox {
+    use coverly_core::consoles::testing::{self as t, SparseAt};
+
+    fn file(bytes: &[u8]) -> SparseAt {
+        let mut s = SparseAt::new(bytes.len() as u64);
+        s.put(0, bytes);
+        s
+    }
+    pub fn xbox_xgd1() -> SparseAt {
+        t::xiso_at(t::XGD1, &[("default.xbe", t::xbe(0x4D53_0004, "Halo"))])
+    }
+    pub fn xbox_xiso() -> SparseAt {
+        t::xiso_at(0, &[("default.xbe", t::xbe(0x4D53_0004, "Halo"))])
+    }
+    pub fn x360_iso() -> SparseAt {
+        t::xiso_at(0x0208_0000, &[("default.xex", t::xex2(0x4D53_07E6))])
+    }
+    pub fn x360_xex() -> SparseAt {
+        file(&t::xex2(0x4D53_07E6))
+    }
+    pub fn xbox_xbe() -> SparseAt {
+        file(&t::xbe(0x4541_000D, "Burnout 3"))
+    }
+    pub fn x360_live() -> SparseAt {
+        file(&t::stfs(b"LIVE", 0x5841_0889, 0x000D_0000, &[0x89, b'P']))
+    }
+    pub fn x360_zar() -> SparseAt {
+        t::zarchive(&[("default.xex", &t::xex2(0x4D53_07E6))])
+    }
+}
+use xbox::*;
 
 mod sony {
     use coverly_core::consoles::testing::{self as t, SparseAt};

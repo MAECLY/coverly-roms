@@ -23,11 +23,11 @@ pub const DECISIVE: [&str; 15] = [
 /// PICO-8 carts, ScummVM launchers, DOSBox configs and batch files, BASIC
 /// listings, cue sheets and playlists, Intel HEX (Arduboy), LowRes NX
 /// sources, Lua games and `.game` files (spec D26), and the Vita3K and
-/// RPCS3 launchers `.psvita` and `.psn` (systems batch 2 D14). Only a web
-/// page is "not a ROM" there.
-pub const TEXT_NATIVE_EXTS: [&str; 16] = [
+/// RPCS3 launchers `.psvita` and `.psn` and the Xenia launcher `.xbox360`
+/// (systems batch 2 D14). Only a web page is "not a ROM" there.
+pub const TEXT_NATIVE_EXTS: [&str; 17] = [
     "p8", "scummvm", "svm", "conf", "bat", "bas", "cue", "m3u", "gdi", "ccd", "hex", "nx", "lua",
-    "game", "psvita", "psn",
+    "game", "psvita", "psn", "xbox360",
 ];
 
 /// Bounded reads at given offsets.
@@ -264,18 +264,28 @@ pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sni
         // extension only markup (an HTML error page) is not a game.
         if !TEXT_NATIVE_EXTS.contains(&ext.as_str()) || starts_with_markup(&head) {
             s.not_a_rom = Some(kind);
-        } else if let Some(id) = crate::consoles::sony::launcher(&head, &ext) {
+        } else if let Some(id) = crate::consoles::sony::launcher(&head, &ext)
+            .or_else(|| crate::consoles::xbox::launcher(&head, &ext))
+        {
             s.hit(&id.system, id.confidence, id.detail.clone());
             s.serial = id.serial.clone();
             s.console = Some(id);
         }
         return s;
     }
-    // A Cemu WUA (ZArchive) starts with its first zstd block, so its
-    // footer is checked before the head is taken for a `.zst` file.
-    if ext == "wua" || head.starts_with(&[0x28, 0xB5, 0x2F, 0xFD]) {
-        let mut b = crate::consoles::Budgeted::new(&mut *src, len);
-        if let Some(id) = crate::consoles::wiiu::wua(&mut b, &ext) {
+    // A Cemu WUA or a Xenia ZAR (ZArchive) starts with its first zstd
+    // block, so its footer is checked before the head is taken for a
+    // `.zst` file.
+    if ext == "wua" || ext == "zar" || head.starts_with(&[0x28, 0xB5, 0x2F, 0xFD]) {
+        let wua = {
+            let mut b = crate::consoles::Budgeted::new(&mut *src, len);
+            crate::consoles::wiiu::wua(&mut b, &ext)
+        };
+        let id = wua.or_else(|| {
+            let mut b = crate::consoles::Budgeted::new(&mut *src, len);
+            crate::consoles::xbox::zar(&mut b, &ext)
+        });
+        if let Some(id) = id {
             s.hit(&id.system, id.confidence, id.detail.clone());
             s.serial = id.serial.clone();
             s.console = Some(id);

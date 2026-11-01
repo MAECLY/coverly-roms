@@ -1599,3 +1599,83 @@ mod sony {
         assert_eq!(roms[0].ext, "ps3");
     }
 }
+
+/// Xbox `default.xbe` folders and Xbox 360 GOD/XBLA trees (systems batch
+/// 2, Task 12, D12).
+mod xbox {
+    use coverly_core::consoles::testing::{god_folder, xbe, xex2};
+
+    use super::*;
+
+    #[test]
+    fn an_xbe_folder_moves_whole_to_the_xbox_folder() {
+        let (world, pile, target) = setup();
+        let dir = pile.path().join("Halo");
+        fs::create_dir(&dir).unwrap();
+        fs::write(dir.join("default.xbe"), xbe(0x4D53_0004, "Halo")).unwrap();
+        fs::write(dir.join("media.xmv"), [0u8; 64]).unwrap();
+        pin_mtime(&dir.join("default.xbe"), 1);
+        pin_mtime(&dir.join("media.xmv"), 2);
+        let p = plan(&world, pile.path(), target.path(), "esde");
+        assert_eq!(p.items.len(), 1, "{:#?}", p.items);
+        let item = only_folder(&p);
+        assert_eq!(item.system_id.as_deref(), Some("xbox"));
+        assert_eq!(item.action, OrganizeAction::Auto);
+        assert!(item.why.iter().any(|e| e.detail == "default.xbe"));
+        let t = item.target.as_ref().unwrap();
+        assert_eq!(
+            (last(t), t.parent().map(last)),
+            ("Halo".to_string(), Some("xbox".to_string()))
+        );
+    }
+
+    #[test]
+    fn an_xbla_tree_is_one_folder_item_for_xbox360() {
+        let (world, pile, target) = setup();
+        god_folder(pile.path(), 0x5841_0889, 0x000D_0000, b"LIVE");
+        let p = plan(&world, pile.path(), target.path(), "batocera");
+        assert_eq!(p.items.len(), 1, "{:#?}", p.items);
+        let item = only_folder(&p);
+        assert_eq!(item.sources[0], Path::new("58410889"));
+        assert_eq!(item.system_id.as_deref(), Some("xbox360"));
+        let t = item.target.as_ref().unwrap();
+        assert_eq!(
+            (last(t), t.parent().map(last)),
+            ("58410889".to_string(), Some("xbox360".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_god_tree_and_a_xex_folder_are_one_item_each() {
+        let (world, pile, target) = setup();
+        let god = pile.path().join("Halo 3 (GOD)");
+        fs::create_dir(&god).unwrap();
+        god_folder(&god, 0x4D53_07E6, 0x0000_7000, b"CON ");
+        let xex = pile.path().join("Gears");
+        fs::create_dir(&xex).unwrap();
+        fs::write(xex.join("default.xex"), xex2(0x4D53_082D)).unwrap();
+        pin_mtime(&xex.join("default.xex"), 3);
+        let p = plan(&world, pile.path(), target.path(), "esde");
+        let all = folders(&p);
+        assert_eq!(all.len(), 2, "{:#?}", p.items);
+        assert!(all
+            .iter()
+            .all(|i| i.system_id.as_deref() == Some("xbox360")));
+        // The GOD data parts move with their folder: no item of their own.
+        assert_eq!(p.items.len(), 2, "{:#?}", p.items);
+    }
+
+    #[test]
+    fn an_eight_hex_cache_folder_is_not_a_game() {
+        let (world, pile, target) = setup();
+        put_tree(
+            pile.path(),
+            &[(
+                "1A2B3C4D/00000001/0123456789ABCDEF0123456789ABCDEF01234567",
+                64,
+            )],
+        );
+        let p = plan(&world, pile.path(), target.path(), "esde");
+        assert!(folders(&p).is_empty(), "{:#?}", p.items);
+    }
+}

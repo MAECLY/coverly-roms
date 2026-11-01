@@ -1056,7 +1056,9 @@ expression: rows
       "triforce",
       "gamecube",
       "wii",
-      "ps3"
+      "ps3",
+      "xbox",
+      "xbox360"
     ],
     "class": "Generic",
     "ext": "iso",
@@ -1076,7 +1078,9 @@ expression: rows
       "fmtowns",
       "gamecube",
       "wii",
-      "ps3"
+      "ps3",
+      "xbox",
+      "xbox360"
     ]
   },
   {
@@ -1184,7 +1188,9 @@ expression: rows
       "pc98",
       "gamecube",
       "wii",
-      "ps3"
+      "ps3",
+      "xbox",
+      "xbox360"
     ],
     "class": "Shared",
     "ext": "m3u",
@@ -1204,7 +1210,9 @@ expression: rows
       "pc98",
       "gamecube",
       "wii",
-      "ps3"
+      "ps3",
+      "xbox",
+      "xbox360"
     ]
   },
   {
@@ -2191,6 +2199,24 @@ expression: rows
   },
   {
     "accepting": [
+      "xbox"
+    ],
+    "class": "Unknown",
+    "ext": "xbe",
+    "strong": []
+  },
+  {
+    "accepting": [
+      "xbox360"
+    ],
+    "class": "Unique",
+    "ext": "xbox360",
+    "strong": [
+      "xbox360"
+    ]
+  },
+  {
+    "accepting": [
       "switch"
     ],
     "class": "Unique",
@@ -2222,7 +2248,8 @@ expression: rows
   {
     "accepting": [
       "a800",
-      "atarixe"
+      "atarixe",
+      "xbox360"
     ],
     "class": "Unique",
     "ext": "xex",
@@ -2239,6 +2266,16 @@ expression: rows
     "ext": "xfd",
     "strong": [
       "a800"
+    ]
+  },
+  {
+    "accepting": [
+      "xbox"
+    ],
+    "class": "Unique",
+    "ext": "xiso",
+    "strong": [
+      "xbox"
     ]
   },
   {
@@ -2269,6 +2306,16 @@ expression: rows
     "ext": "z80",
     "strong": [
       "zxspectrum"
+    ]
+  },
+  {
+    "accepting": [
+      "xbox360"
+    ],
+    "class": "Unique",
+    "ext": "zar",
+    "strong": [
+      "xbox360"
     ]
   },
   {

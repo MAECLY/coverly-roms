@@ -453,6 +453,28 @@ impl<'a> DatStore<'a> {
         Ok(None)
     }
 
+    /// The DAT game whose ROM name starts with `prefix` (an Xbox 360
+    /// STFS item's `<titleid8><contenttype8>`, spec §8.5), first by game
+    /// name. See [`dat_by_name_prefix`].
+    pub fn by_name_prefix(
+        &self,
+        dats: &[String],
+        prefix: &str,
+    ) -> Result<Option<String>, DatError> {
+        for dat in dats {
+            if self.ensure(dat)? == DatStatus::Missing {
+                continue;
+            }
+            if let Some(game) = dat_by_name_prefix(self.cache, dat, prefix)
+                .into_iter()
+                .next()
+            {
+                return Ok(Some(game));
+            }
+        }
+        Ok(None)
+    }
+
     /// The DAT game (description) whose ROM set is `short_name`, ignoring case.
     pub fn arcade_description(
         &self,
@@ -474,6 +496,27 @@ impl<'a> DatStore<'a> {
         }
         Ok(None)
     }
+}
+
+/// Length of the rom-name prefix of an Xbox 360 digital row: the title id
+/// and the content type, 8 hex each (spec §8.5).
+pub const NAME_PREFIX_LEN: usize = 16;
+
+/// The games of `dat` whose ROM name starts with `prefix` (exactly
+/// [`NAME_PREFIX_LEN`] hex characters, case ignored), each once, by game
+/// name. Anything else matches nothing; a cache error reads as no hit.
+pub fn dat_by_name_prefix(cache: &Cache, dat: &str, prefix: &str) -> Vec<String> {
+    if prefix.len() != NAME_PREFIX_LEN || !prefix.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Vec::new();
+    }
+    let mut games: Vec<String> = cache
+        .dat_by_rom_prefix(dat, prefix)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| r.game)
+        .collect();
+    games.dedup();
+    games
 }
 
 /// The first serial of a DAT `serial` field, which may list several

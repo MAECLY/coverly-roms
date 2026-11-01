@@ -205,6 +205,15 @@ impl DatLookup for CacheDats<'_> {
     /// answers.
     fn by_serial(&self, system: &str, serial: &str) -> Vec<DatHit> {
         let dats = self.dats(system);
+        // An Xbox 360 digital key (`<titleid8><contenttype8>`) is a
+        // rom-name prefix, not a serial (spec §8.5).
+        if system == "xbox360" && serial.len() == crate::identify::dat::NAME_PREFIX_LEN {
+            return dats
+                .iter()
+                .flat_map(|dat| crate::identify::dat::dat_by_name_prefix(self.cache, dat, serial))
+                .map(hit)
+                .collect();
+        }
         crate::identify::dat::serial_keys(system, serial)
             .iter()
             .map(|key| {

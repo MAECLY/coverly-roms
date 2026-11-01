@@ -683,3 +683,53 @@ fn wiiu_id6_finds_retail_rows_and_its_id4_eshop_rows() {
     assert_eq!(games("SNKP01"), ["Test Wii U eShop Game (Europe)"]);
     assert_eq!(games("SNKP"), ["Test Wii U eShop Game (Europe)"]);
 }
+
+// --- Xbox 360 digital rows (systems batch 2, Task 12) ---
+
+#[test]
+fn xbox360_name_prefix_lookup() {
+    use coverly_core::consoles::{testing as t, xbox};
+    use coverly_core::dedupe::source::{CacheDats, DatLookup};
+    use coverly_core::identify::dat::dat_by_name_prefix;
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    let server = MockServer::start();
+    let digital = "metadat/no-intro/Microsoft - Xbox 360 (Digital).dat";
+    server.serve_dat(digital, &fixture("nointro-x360-digital.dat"));
+    let http = http();
+    let store = DatStore::new(&http, &cache, server.base());
+    assert_eq!(store.ensure(digital).unwrap(), DatStatus::Ready);
+    // An XBLA package's title id and content type name its row.
+    let head = t::stfs(b"LIVE", 0x5841_0889, 0x000D_0000, &[]);
+    let mut f = t::SparseAt::new(head.len() as u64);
+    f.put(0, &head);
+    let len = f.len;
+    let id = xbox::stfs(&mut coverly_core::consoles::Budgeted::new(&mut f, len)).unwrap();
+    let prefix = xbox::dat_name_prefix(&id).unwrap();
+    assert_eq!(prefix, "58410889000D0000");
+    assert_eq!(
+        dat_by_name_prefix(&cache, digital, &prefix),
+        ["Test Arcade Game (World)"]
+    );
+    assert_eq!(
+        dat_by_name_prefix(&cache, digital, "58410889000b0000"),
+        ["Test Arcade Game (World) (Title Update)"]
+    );
+    // A shorter or non-hex key matches nothing.
+    assert!(dat_by_name_prefix(&cache, digital, "58410889").is_empty());
+    assert!(dat_by_name_prefix(&cache, digital, "58410889000D000Z").is_empty());
+    assert_eq!(
+        store
+            .by_name_prefix(&[digital.to_string()], &prefix)
+            .unwrap()
+            .as_deref(),
+        Some("Test Arcade Game (World)")
+    );
+    let dats = CacheDats::new(&cache, &db);
+    let games: Vec<String> = dats
+        .by_serial("xbox360", &prefix)
+        .into_iter()
+        .map(|h| h.game)
+        .collect();
+    assert_eq!(games, ["Test Arcade Game (World)"]);
+}

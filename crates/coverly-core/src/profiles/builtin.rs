@@ -460,6 +460,11 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
     ("switch", [Some("switch"), Some("switch"), None, None, None]),
     ("psvita", [Some("psvita"), Some("psvita"), None, None, None]),
     ("ps3", [Some("ps3"), Some("ps3"), None, None, None]),
+    ("xbox", [Some("xbox"), Some("xbox"), None, None, None]),
+    (
+        "xbox360",
+        [Some("xbox360"), Some("xbox360"), None, None, None],
+    ),
 ];
 
 /// Folder-game suffixes of ES-DE and Batocera (spec D13): both show a

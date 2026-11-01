@@ -54,6 +54,8 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   switch: 'NSW',
   psvita: 'VITA',
   ps3: 'PS3',
+  xbox: 'XBOX',
+  xbox360: 'X360',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

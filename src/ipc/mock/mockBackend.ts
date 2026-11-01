@@ -307,6 +307,8 @@ const ESDE_FOLDERS = {
   switch: 'switch',
   psvita: 'psvita',
   ps3: 'ps3',
+  xbox: 'xbox',
+  xbox360: 'xbox360',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -357,6 +359,8 @@ const BATOCERA_FOLDERS = {
   switch: 'switch',
   psvita: 'psvita',
   ps3: 'ps3',
+  xbox: 'xbox',
+  xbox360: 'xbox360',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends
