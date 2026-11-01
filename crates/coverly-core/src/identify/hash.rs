@@ -202,7 +202,14 @@ pub fn hash_rom_mode(
     mode: HashMode,
 ) -> io::Result<HashOutcome> {
     let ext = ext.to_ascii_lowercase();
-    if NAME_ONLY_EXTS.contains(&ext.as_str()) {
+    // A GUID-named Xbox package (systems batch 3 D19) is read for its
+    // header only, never hashed.
+    let guid_named = ext.is_empty()
+        && path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(crate::consoles::xbox::is_guid_name);
+    if NAME_ONLY_EXTS.contains(&ext.as_str()) || guid_named {
         return Ok(HashOutcome::NameOnly);
     }
     let mut file = crate::consoles::open_rom(path)?;

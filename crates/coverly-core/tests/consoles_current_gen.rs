@@ -1128,3 +1128,87 @@ fn xbox_folder_probes_open_only_the_manifest() {
         assert_eq!(ours, [&dir.join(file)], "{}", dir.display());
     }
 }
+
+/// Spec D19: an XVC (GUID-named or `.xvc`) goes to review between Xbox
+/// One and Xbox Series with the «no emulator» note and its ContentId;
+/// one inside `xboxone/` is already sorted; a console's own XVD
+/// (ContentType 0x0B, a system updater) is left as no ROM. A GUID-named
+/// file is opened only for its header.
+#[test]
+fn xvc_files_go_to_review_between_xbox_one_and_series() {
+    use coverly_core::consoles::testing::{xvd_head, XVD_CONTENT_ID};
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let guid = "4f0b3e0a-1c2d-4e5f-8a9b-c1d2e3f4a5b6";
+    put_file(pile.path(), guid, &xvd_head(0x01).bytes());
+    put_file(pile.path(), "game.xvc", &xvd_head(0x19).bytes());
+    put_file(pile.path(), "xboxone/sorted.xvc", &xvd_head(0x01).bytes());
+    put_file(
+        pile.path(),
+        "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9",
+        &xvd_head(0x0B).bytes(),
+    );
+    for rel in [
+        guid,
+        "game.xvc",
+        "xboxone/sorted.xvc",
+        "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9",
+    ] {
+        coverly_core::dedupe::testing::pin_mtime(&pile.path().join(rel), 1);
+    }
+
+    start_open_log();
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let opened = take_open_log();
+
+    for name in [guid, "game.xvc"] {
+        let item = item_of(&p, name);
+        assert_eq!(item.action, OrganizeAction::Review, "{name}");
+        let mut systems: Vec<&str> = item
+            .system_id
+            .iter()
+            .map(String::as_str)
+            .chain(item.alternatives.iter().map(|(s, _)| s.as_str()))
+            .collect();
+        systems.sort_unstable();
+        assert_eq!(systems, ["xboxone", "xboxseries"], "{name}");
+        assert!(
+            item.notes.contains(&ItemNote::NoEmulator),
+            "{name}: {:?}",
+            item.notes
+        );
+        assert_eq!(item.content_id.as_deref(), Some(XVD_CONTENT_ID), "{name}");
+        assert!(item
+            .why
+            .iter()
+            .any(|e| e.detail == coverly_core::consoles::xbox::XVD_DETAIL));
+    }
+    assert_eq!(
+        item_of(&p, "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9").action,
+        OrganizeAction::Left {
+            reason: LeftReason::NotARom {
+                what: NotARom::ConsoleSystem
+            }
+        }
+    );
+    assert!(p
+        .items
+        .iter()
+        .all(|i| i.sources[0].file_name().is_none_or(|n| n != "sorted.xvc")));
+    assert!(
+        p.sorted_folders
+            .iter()
+            .any(|(f, s)| f == Path::new("xboxone") && s == "xboxone"),
+        "{:?}",
+        p.sorted_folders
+    );
+    // The GUID file: the walk's peek, the inspection and the duplicate
+    // key read its header; nothing hashes it.
+    let guid_opens = opened
+        .iter()
+        .filter(|o| o.file_name().is_some_and(|n| n == guid))
+        .count();
+    assert!(guid_opens <= 3, "{opened:?}");
+}

@@ -1215,3 +1215,26 @@ fn ps3_iso_is_read_through_its_directories() {
     assert_eq!(best(&s).map(|(id, _)| id).as_deref(), Some("ps3"));
     assert_eq!(s.serial.as_deref(), Some("BLUS-30443"));
 }
+
+/// Systems batch 3 D19: an XVC header gives two header hits of equal
+/// weight, one per Xbox system, and a console's own XVD is not a ROM.
+#[test]
+fn xvc_header_hits_both_xbox_systems() {
+    use coverly_core::consoles::testing as t;
+    let bytes = t::xvd_head(0x01).bytes();
+    let s = run(&bytes, "xvc");
+    let mut hits: Vec<(&str, f32)> = s
+        .hits
+        .iter()
+        .map(|e| (e.system.as_str(), e.weight))
+        .collect();
+    hits.sort_by(|a, b| a.0.cmp(b.0));
+    assert_eq!(hits, [("xboxone", 0.95), ("xboxseries", 0.95)]);
+    assert_eq!(s.not_a_rom, None);
+    let id = s.console.unwrap();
+    assert_eq!(id.content_id.as_deref(), Some(t::XVD_CONTENT_ID));
+
+    let s = run(&t::xvd_head(0x0B).bytes(), "msixvc");
+    assert!(s.hits.is_empty(), "{:?}", s.hits);
+    assert_eq!(s.not_a_rom, Some(NotARom::ConsoleSystem));
+}

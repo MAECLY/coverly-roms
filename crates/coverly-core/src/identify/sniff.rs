@@ -221,6 +221,26 @@ impl Sniff {
         self.hits
             .push(Evidence::new(IdLevel::Header, system, weight, detail));
     }
+
+    /// Records the verdicts of `consoles::identify_all`: one header hit
+    /// per verdict (an XVC header gives two of equal weight, systems batch
+    /// 3 D19), the first verdict as [`Sniff::console`]. A console's own
+    /// XVD (`xbox::XVD_SYSTEM_DETAIL`) is no ROM and no hit.
+    pub fn add_console(&mut self, ids: Vec<crate::consoles::ConsoleId>) {
+        if let [only] = ids.as_slice() {
+            if only.detail == crate::consoles::xbox::XVD_SYSTEM_DETAIL {
+                self.not_a_rom = Some(NotARom::ConsoleSystem);
+                return;
+            }
+        }
+        for id in &ids {
+            self.hit(&id.system, id.confidence, id.detail.clone());
+        }
+        if let Some(first) = ids.into_iter().next() {
+            self.serial = first.serial.clone();
+            self.console = Some(first);
+        }
+    }
 }
 
 /// Reads at `offset` until `buf` is full or the source ends.
@@ -305,11 +325,8 @@ pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sni
     discs(src, &head, len, &ext, &mut s);
     if s.hits.is_empty() && s.unsupported.is_none() {
         let mut b = crate::consoles::Budgeted::new(&mut *src, len);
-        if let Some(id) = crate::consoles::identify(&mut b, &ext, name) {
-            s.hit(&id.system, id.confidence, id.detail.clone());
-            s.serial = id.serial.clone();
-            s.console = Some(id);
-        }
+        let ids = crate::consoles::identify_all(&mut b, &ext, name);
+        s.add_console(ids);
     }
     if s.hits.is_empty() && s.unsupported.is_none() {
         cartridges(src, &head, len, &ext, &mut s);

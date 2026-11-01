@@ -403,6 +403,29 @@ pub fn inspect_file_with(
 ) -> io::Result<Inspection> {
     let ext = extension(path);
     let mut at = FileAt(crate::consoles::open_rom(path)?);
+    // A GUID-named Xbox package (systems batch 3 D19): its XVD header
+    // only, magic window first; no prefix, tail or head CRC.
+    if ext.is_empty() && crate::consoles::xbox::is_guid_name(&file_name(path)) {
+        let mut b = crate::consoles::Budgeted::new(&mut at, len);
+        let ids = crate::consoles::identify_all(&mut b, &ext, &file_name(path));
+        let mut sniff = Sniff {
+            read: usize::try_from(b.used().read).unwrap_or(usize::MAX),
+            ..Sniff::default()
+        };
+        sniff.add_console(ids);
+        let mut out = Inspection::new(Container::Raw);
+        if let Some(what) = sniff.not_a_rom {
+            out.issue = Some(ArchiveIssue::NotARom { what });
+        }
+        out.payloads.push(Payload {
+            name: file_name(path),
+            ext,
+            size: len,
+            crc32: None,
+            sniff,
+        });
+        return Ok(out);
+    }
     // A Switch dump is read by its own reader only: the prefix, the tail
     // and the head CRC would reach its tickets, NCAs and the encrypted
     // gamecard info (systems batch 2 D4).

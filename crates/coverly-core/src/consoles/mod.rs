@@ -424,6 +424,29 @@ pub fn take_open_log() -> Vec<PathBuf> {
 /// first entry of a small NSP (a ticket, an NCA) and into an XCI's
 /// encrypted gamecard info at 0x190, which are never read (D4).
 pub fn identify(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
+    identify_all(src, ext, name).into_iter().next()
+}
+
+/// Every verdict [`identify`] weighs: one, except for an XVC/XVD header,
+/// which cannot tell Xbox One from Xbox Series and gives one verdict per
+/// system (systems batch 3 D19; the sniff turns each into a header hit
+/// of equal weight, so the file goes to review). Empty when nothing
+/// applies.
+///
+/// A GUID-named extensionless file (an Xbox package as the console stores
+/// it) is read by the XVD reader only, from its magic window on: nothing
+/// below 0x200 (the signature) is read (D19, D24).
+pub fn identify_all(src: &mut Budgeted, ext: &str, name: &str) -> Vec<ConsoleId> {
+    if ext.is_empty() && xbox::is_guid_name(name) {
+        return xbox::xvd(src).unwrap_or_default();
+    }
+    match identify_one(src, ext, name) {
+        Some(id) => vec![id],
+        None => xbox::xvd(src).unwrap_or_default(),
+    }
+}
+
+fn identify_one(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
     if let Some(id) = nx::identify(src, ext, name) {
         return Some(id);
     }

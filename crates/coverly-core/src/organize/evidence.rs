@@ -1257,6 +1257,16 @@ pub fn identify_candidate(
             id.notes.push(ItemNote::ProEnhanced);
         }
     }
+    // An XVC/XVD (systems batch 3 D19): its contents are encrypted and no
+    // emulator opens it, whichever Xbox the user picks in review.
+    if insp.payloads.iter().any(|p| {
+        p.sniff
+            .console
+            .as_ref()
+            .is_some_and(|c| c.detail == crate::consoles::xbox::XVD_DETAIL)
+    }) {
+        id.notes.push(ItemNote::NoEmulator);
+    }
     id.combined = combined;
     id
 }

@@ -452,6 +452,30 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             continue;
         }
         let ext = extension(path);
+        // An extensionless file named like a GUID, as the Xbox One and
+        // Series store their packages (systems batch 3 D19): a candidate
+        // when it has the room for an XVD header and the `msft-xvd` magic
+        // at 0x200 (8 bytes peeked, after the key-material check above);
+        // a cache blob with such a name, or a placeholder that cannot be
+        // peeked without a download, is another file.
+        if ext.is_empty() && crate::consoles::xbox::is_guid_name(&name) {
+            let cloud_only = opts.probe.cloud_only(path, &meta);
+            if !cloud_only
+                && meta.len() >= crate::consoles::xbox::XVD_MIN_LEN
+                && crate::consoles::xbox::is_xvd_file(path)
+            {
+                out.candidates.push(WalkCandidate {
+                    path: path.to_path_buf(),
+                    cloud_only,
+                    ext,
+                    size: meta.len(),
+                    mtime_ns: mtime_ns(mtime),
+                });
+            } else {
+                out.other_files.push(path.to_path_buf());
+            }
+            continue;
+        }
         // Every archive the reader opens is a candidate (a `.rar`, a
         // `.tar.gz`, a `game.gba.gz`), not only zip and 7z, and so is every
         // part of a split 7z: the planner gathers a set's parts into one

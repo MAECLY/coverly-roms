@@ -1890,3 +1890,26 @@ fn gdk_folder_confidences_against_the_thresholds() {
         Verdict::Review
     );
 }
+
+/// Systems batch 3 D19: an XVC header's two equal hits plus the Shared
+/// `.xvc` extension cannot pass the margin: review between the Xboxes.
+#[test]
+fn an_xvc_header_ties_xbox_one_and_series() {
+    let db = SystemDb::builtin();
+    let bytes = coverly_core::consoles::testing::xvd_head(0x01).bytes();
+    let s = sniff(&mut SliceAt(&bytes), bytes.len() as u64, "xvc");
+    let mut evidence = extension_evidence(&db, "xvc", &s);
+    evidence.extend(s.hits.iter().cloned());
+    let c = combine(&CombineInput {
+        evidence: &evidence,
+        excluded: &[],
+        content_read: true,
+        broad_root: false,
+        thresholds: Thresholds::default(),
+    });
+    assert_eq!(c.verdict, Verdict::Review);
+    assert_eq!(c.system.as_deref(), Some("xboxone"));
+    let alts: Vec<&str> = c.alternatives.iter().map(|(s, _)| s.as_str()).collect();
+    assert_eq!(alts, ["xboxseries"]);
+    assert_eq!(c.alternatives[0].1, c.confidence);
+}

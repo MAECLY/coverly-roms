@@ -1137,6 +1137,123 @@ pub fn probe_era(l: &DirListing) -> Option<FolderMatch> {
     })
 }
 
+/// Where the XVD header's magic sits: after the 0x200-byte RSA signature
+/// (xvdtool `XVDStructs.cs`, offsets there restart after the signature).
+pub const XVD_MAGIC_AT: u64 = 0x200;
+const XVD_MAGIC: &[u8; 8] = b"msft-xvd";
+/// The end of the header fields read: PackageVersion4 ends at 0x3C4.
+pub const XVD_HEADER_END: u64 = 0x3C4;
+/// A GUID-named extensionless file shorter than this is no package
+/// (systems batch 3 D19).
+pub const XVD_MIN_LEN: u64 = 4096;
+/// The `detail` of an XVC/XVD verdict.
+pub const XVD_DETAIL: &str = "XVD header";
+/// The `detail` of an XVD whose ContentType is a console's own volume,
+/// updater, app or kiosk content: never a game (`NotARom::ConsoleSystem`).
+pub const XVD_SYSTEM_DETAIL: &str = "XVD console system";
+/// Both systems an XVC header can belong to: the plaintext header cannot
+/// tell them apart (D19).
+const XVD_SYSTEMS: [&str; 2] = ["xboxone", "xboxseries"];
+const XVD_FLAG_ENCRYPTION_DISABLED: u32 = 1 << 2;
+
+/// A file named exactly like a GUID, `8-4-4-4-12` hex digits (any case),
+/// as the console stores its packages (D19).
+pub fn is_guid_name(name: &str) -> bool {
+    let groups: Vec<&str> = name.split('-').collect();
+    groups.len() == 5
+        && groups
+            .iter()
+            .zip([8, 4, 4, 4, 12])
+            .all(|(g, n)| is_hex(g, n))
+}
+
+/// A GUID as xvdtool prints it (`new Guid(bytes).ToString()`): the
+/// Windows `GUID` layout, first three groups little-endian, lower case.
+fn guid(b: &[u8; 16]) -> String {
+    let hex = |s: &[u8]| s.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    let le = |s: &[u8]| hex(&s.iter().rev().copied().collect::<Vec<u8>>());
+    format!(
+        "{}-{}-{}-{}-{}",
+        le(&b[0..4]),
+        le(&b[4..6]),
+        le(&b[6..8]),
+        hex(&b[8..10]),
+        hex(&b[10..16])
+    )
+}
+
+/// A GUID field of the header; an all-zero one is no id.
+fn guid_at(h: &[u8], o: usize) -> Option<String> {
+    let b: &[u8; 16] = h.get(o..o + 16)?.try_into().ok()?;
+    (b != &[0u8; 16]).then(|| guid(b))
+}
+
+/// Whether the `msft-xvd` magic sits at [`XVD_MAGIC_AT`]: reads those
+/// 8 bytes and nothing else.
+pub fn has_xvd_magic(b: &mut Budgeted) -> bool {
+    b.len() >= XVD_HEADER_END
+        && b.read(XVD_MAGIC_AT, XVD_MAGIC.len()).ok().as_deref() == Some(XVD_MAGIC)
+}
+
+/// Whether the regular local file at `path` is an XVD by its magic (the
+/// walk's peek of a GUID-named file, D19): 8 bytes at 0x200 only.
+pub fn is_xvd_file(path: &Path) -> bool {
+    with_file(path, |b| has_xvd_magic(b).then_some(())).is_some()
+}
+
+/// An XVC/XVD/MSIXVC by its plaintext header (D19): `msft-xvd` at 0x200
+/// (xvdtool struct + 0x200, research): VolumeFlags u32 LE at 0x208 (bit
+/// 2 = encryption disabled), ContentId (VDUID) GUID at 0x220, ContentType
+/// u32 LE at 0x284, ProductId GUID at 0x39C, PackageVersion1..4 u16 LE at
+/// 0x3BC (printed 4.3.2.1, as xvdtool does). The magic window is read
+/// first, then the rest of the header up to 0x3C4; nothing past it (no
+/// XvcInfo, no signature, no data). Returns one verdict per system: the
+/// header cannot tell One from Series. ContentType 0x01 is a game, 0x18
+/// to 0x1A DLC, 0x08 to 0x0A Xbox 360 content of an unknown kind; any
+/// other type is a console's own content: one [`XVD_SYSTEM_DETAIL`]
+/// verdict.
+pub fn xvd(b: &mut Budgeted) -> Option<Vec<ConsoleId>> {
+    if !has_xvd_magic(b) {
+        return None;
+    }
+    let start = XVD_MAGIC_AT + XVD_MAGIC.len() as u64;
+    let rest = b
+        .read(start, usize::try_from(XVD_HEADER_END - start).ok()?)
+        .ok()?;
+    // Offsets into `rest` from file offsets.
+    let at = |o: u64| usize::try_from(o - start).ok();
+    let flags = le32(&rest, at(0x208)?)?;
+    let ctype = le32(&rest, at(0x284)?)?;
+    let kind = match ctype {
+        0x01 => TitleKind::Base,
+        0x18..=0x1A => TitleKind::Dlc,
+        0x08..=0x0A => TitleKind::Unknown,
+        _ => return Some(vec![ConsoleId::proven(XVD_SYSTEMS[0], XVD_SYSTEM_DETAIL)]),
+    };
+    let v: Vec<u16> = (0..4)
+        .map(|i| le16(&rest, at(0x3BC + 2 * i)?))
+        .collect::<Option<_>>()?;
+    let version =
+        (v.iter().any(|&x| x != 0)).then(|| format!("{}.{}.{}.{}", v[3], v[2], v[1], v[0]));
+    let content_id = guid_at(&rest, at(0x220)?);
+    let product_id = guid_at(&rest, at(0x39C)?);
+    Some(
+        XVD_SYSTEMS
+            .iter()
+            .map(|system| {
+                let mut id = ConsoleId::proven(system, XVD_DETAIL);
+                id.kind = kind;
+                id.id_source = Some(IdSource::Header);
+                id.encrypted = Some(flags & XVD_FLAG_ENCRYPTION_DISABLED == 0);
+                id.content_id = content_id.clone();
+                id.product_id = product_id.clone();
+                id.version = version.clone();
+                id
+            })
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::testing::{self as t, RangeLog, SparseAt};
@@ -1517,6 +1634,174 @@ mod tests {
     fn other_files_are_nothing() {
         assert_eq!(run(&mut file(b"\0\0\0\0\0\0\0\0"), "iso"), None);
         assert_eq!(run(&mut file(b"XB"), "xbe"), None);
+    }
+
+    fn run_xvd(f: &mut SparseAt) -> (Option<Vec<ConsoleId>>, super::super::Used) {
+        let len = f.len;
+        let mut log = RangeLog::new(f);
+        let mut b = Budgeted::new(&mut log, len);
+        let ids = xvd(&mut b);
+        let used = b.used();
+        assert!(
+            used.read <= XVD_HEADER_END && used.seeks <= MAX_SEEKS,
+            "{used:?}"
+        );
+        (ids, used)
+    }
+
+    #[test]
+    fn xvd_header_fields_give_one_verdict_per_system() {
+        let (ids, used) = run_xvd(&mut t::xvd_head(0x01));
+        let ids = ids.unwrap();
+        let systems: Vec<&str> = ids.iter().map(|i| i.system.as_str()).collect();
+        assert_eq!(systems, ["xboxone", "xboxseries"]);
+        assert_eq!(ids[0].confidence, ids[1].confidence);
+        for id in &ids {
+            assert_eq!(id.detail, XVD_DETAIL);
+            assert_eq!(id.kind, TitleKind::Base);
+            assert_eq!(id.content_id.as_deref(), Some(t::XVD_CONTENT_ID));
+            assert_eq!(id.product_id.as_deref(), Some(t::XVD_PRODUCT_ID));
+            assert_eq!(id.version.as_deref(), Some("1.2.3.4"));
+            assert_eq!(id.encrypted, Some(true));
+            assert_eq!((id.title_id.as_ref(), id.title.as_ref()), (None, None));
+            assert_eq!(id.id_source, Some(IdSource::Header));
+        }
+        // Nothing past the header: 0x200..0x3C4 at most.
+        assert!(used.read <= XVD_HEADER_END - XVD_MAGIC_AT, "{used:?}");
+    }
+
+    #[test]
+    fn xvd_guids_use_the_windows_layout() {
+        let mut b = [0u8; 16];
+        b.copy_from_slice(&t::guid_bytes("00112233-4455-6677-8899-aabbccddeeff"));
+        assert_eq!(
+            b,
+            [
+                0x33, 0x22, 0x11, 0x00, 0x55, 0x44, 0x77, 0x66, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
+                0xEE, 0xFF
+            ]
+        );
+        assert_eq!(guid(&b), "00112233-4455-6677-8899-aabbccddeeff");
+        assert_eq!(guid(&[0u8; 16]), "00000000-0000-0000-0000-000000000000");
+    }
+
+    #[test]
+    fn xvd_content_types() {
+        for (ct, kind) in [
+            (0x01, TitleKind::Base),
+            (0x18, TitleKind::Dlc),
+            (0x19, TitleKind::Dlc),
+            (0x1A, TitleKind::Dlc),
+            (0x08, TitleKind::Unknown),
+            (0x09, TitleKind::Unknown),
+            (0x0A, TitleKind::Unknown),
+        ] {
+            let ids = run_xvd(&mut t::xvd_head(ct)).0.unwrap();
+            assert_eq!(ids.len(), 2, "{ct:#x}");
+            assert!(ids.iter().all(|i| i.kind == kind), "{ct:#x}");
+        }
+        for ct in [0x02, 0x03, 0x06, 0x07, 0x0B, 0x0C, 0x1E, 0x7F] {
+            let ids = run_xvd(&mut t::xvd_head(ct)).0.unwrap();
+            assert_eq!(ids.len(), 1, "{ct:#x}");
+            assert_eq!(ids[0].detail, XVD_SYSTEM_DETAIL, "{ct:#x}");
+        }
+    }
+
+    #[test]
+    fn xvd_encryption_flag_and_a_blank_product_id() {
+        let mut f = t::xvd_head_with(
+            t::XVD_CONTENT_ID,
+            "00000000-0000-0000-0000-000000000000",
+            0x01,
+            0x4,
+            [0, 0, 0, 0],
+            0x1_0000,
+        );
+        let ids = run_xvd(&mut f).0.unwrap();
+        assert_eq!(ids[0].encrypted, Some(false));
+        assert_eq!(ids[0].product_id, None);
+        assert_eq!(ids[0].version, None);
+    }
+
+    #[test]
+    fn a_truncated_xvd_header_is_nothing() {
+        let full = t::xvd_head(0x01).bytes();
+        let mut short = file(&full[..0x300]);
+        assert_eq!(run_xvd(&mut short).0, None);
+        let mut tiny = file(&full[..0x204]);
+        assert_eq!(run_xvd(&mut tiny).0, None);
+    }
+
+    #[test]
+    fn a_file_without_the_magic_is_peeked_in_the_magic_window_only() {
+        let mut f = t::xvd_head(0x01);
+        f.put(0x200, b"not-xvd!");
+        let len = f.len;
+        let mut log = RangeLog::new(&mut f);
+        let mut b = Budgeted::new(&mut log, len);
+        assert_eq!(xvd(&mut b), None);
+        assert_eq!(log.ranges, [(XVD_MAGIC_AT, 8)]);
+    }
+
+    #[test]
+    fn xvd_never_reads_past_the_header() {
+        let mut f = t::xvd_head(0x01);
+        let data = f.entry_range(0);
+        let len = f.len;
+        let mut log = RangeLog::new(&mut f);
+        let mut b = Budgeted::new(&mut log, len);
+        assert!(xvd(&mut b).is_some());
+        assert!(!log.touched(data.start, data.end - data.start));
+        assert!(!log.touched(0, XVD_MAGIC_AT), "the signature is not read");
+    }
+
+    #[test]
+    fn identify_all_returns_both_xvd_verdicts() {
+        let mut f = t::xvd_head(0x01);
+        let len = f.len;
+        let mut b = Budgeted::new(&mut f, len);
+        let ids = super::super::identify_all(&mut b, "xvc", "game.xvc");
+        assert_eq!(ids.len(), 2);
+        let mut f = t::xvd_head(0x01);
+        let mut b = Budgeted::new(&mut f, len);
+        assert_eq!(
+            super::super::identify(&mut b, "xvc", "game.xvc").map(|i| i.system),
+            Some("xboxone".into())
+        );
+    }
+
+    #[test]
+    fn a_guid_named_file_is_read_by_the_xvd_reader_only() {
+        let mut f = t::xvd_head(0x01);
+        let len = f.len;
+        let mut log = RangeLog::new(&mut f);
+        let mut b = Budgeted::new(&mut log, len);
+        let name = "4f0b3e0a-1c2d-4e5f-8a9b-c1d2e3f4a5b6";
+        assert_eq!(super::super::identify_all(&mut b, "", name).len(), 2);
+        assert!(!log.touched(0, XVD_MAGIC_AT), "{:?}", log.ranges);
+        assert_eq!(log.ranges[0], (XVD_MAGIC_AT, 8));
+        // A cache blob with such a name: the magic window and nothing else.
+        let mut blob = file(&[0x42u8; 8192]);
+        let mut log = RangeLog::new(&mut blob);
+        let mut b = Budgeted::new(&mut log, 8192);
+        assert!(super::super::identify_all(&mut b, "", name).is_empty());
+        assert_eq!(log.ranges, [(XVD_MAGIC_AT, 8)]);
+    }
+
+    #[test]
+    fn guid_names() {
+        assert!(is_guid_name("4f0b3e0a-1c2d-4e5f-8a9b-c1d2e3f4a5b6"));
+        assert!(is_guid_name("4F0B3E0A-1C2D-4E5F-8A9B-C1D2E3F4A5B6"));
+        for name in [
+            "4f0b3e0a-1c2d-4e5f-8a9b-c1d2e3f4a5b",
+            "4f0b3e0a-1c2d-4e5f-8a9b-c1d2e3f4a5b6.xvc",
+            "4f0b3e0a1c2d-4e5f-8a9b-c1d2e3f4a5b6-",
+            "{4f0b3e0a-1c2d-4e5f-8a9b-c1d2e3f4a5b6}",
+            "4g0b3e0a-1c2d-4e5f-8a9b-c1d2e3f4a5b6",
+            "",
+        ] {
+            assert!(!is_guid_name(name), "{name}");
+        }
     }
 
     mod folders {

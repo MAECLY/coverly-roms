@@ -1566,3 +1566,70 @@ pub fn era_folder(dir: &std::path::Path, manifest: &str) {
         ],
     );
 }
+
+/// The ContentId (VDUID) of [`xvd_head`], as xvdtool prints it.
+pub const XVD_CONTENT_ID: &str = "4f0b3e0a-1c2d-4e5f-8a9b-c1d2e3f4a5b6";
+/// The ProductId of [`xvd_head`], as xvdtool prints it.
+pub const XVD_PRODUCT_ID: &str = "7d9a2c11-5b3e-4f60-9a8b-0123456789ab";
+
+/// The 16 bytes of a GUID written `8-4-4-4-12`, in the Windows `GUID`
+/// layout (first three groups little-endian), as `new Guid(bytes)` in
+/// xvdtool reads them back.
+pub fn guid_bytes(text: &str) -> [u8; 16] {
+    let hex: String = text.chars().filter(|c| *c != '-').collect();
+    assert_eq!(hex.len(), 32, "{text}");
+    let mut b = [0u8; 16];
+    for (i, out) in b.iter_mut().enumerate() {
+        *out = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).expect("hex");
+    }
+    b[0..4].reverse();
+    b[4..6].reverse();
+    b[6..8].reverse();
+    b
+}
+
+/// An XVC/XVD head (systems batch 3 D19, xvdtool `XVDStructs.cs`): 0x200
+/// bytes standing for the RSA signature, `msft-xvd` at 0x200, then at
+/// file offsets VolumeFlags 0x208, ContentId 0x220, ContentType 0x284,
+/// ProductId 0x39C and PackageVersion1..4 at 0x3BC. Bytes past the header
+/// stand for the encrypted data (recorded as entry 0 of
+/// [`SparseAt::entries`]: never read). `len` bytes in all.
+pub fn xvd_head_with(
+    content_id: &str,
+    product_id: &str,
+    ctype: u32,
+    flags: u32,
+    version: [u16; 4],
+    len: u64,
+) -> SparseAt {
+    let mut s = SparseAt::new(len);
+    s.put(0, &[0xA5; 0x200])
+        .put(0x200, b"msft-xvd")
+        .put(0x208, &flags.to_le_bytes())
+        .put(0x20C, &3u32.to_le_bytes())
+        .put(0x220, &guid_bytes(content_id))
+        .put(0x284, &ctype.to_le_bytes())
+        .put(0x39C, &guid_bytes(product_id));
+    for (i, v) in version.iter().enumerate() {
+        s.put(0x3BC + 2 * i as u64, &v.to_le_bytes());
+    }
+    if len > 0x1000 {
+        s.put(0x1000, &[0xE7; 0x100]);
+        s.entries.push(0x1000..0x1100);
+    }
+    s
+}
+
+/// [`xvd_head_with`] for an encrypted package of 64 KiB with the ids
+/// [`XVD_CONTENT_ID`] and [`XVD_PRODUCT_ID`] and version 1.2.3.4 (as
+/// xvdtool prints it).
+pub fn xvd_head(ctype: u32) -> SparseAt {
+    xvd_head_with(
+        XVD_CONTENT_ID,
+        XVD_PRODUCT_ID,
+        ctype,
+        0,
+        [4, 3, 2, 1],
+        0x1_0000,
+    )
+}

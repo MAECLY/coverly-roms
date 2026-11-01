@@ -992,3 +992,50 @@ fn probe_leave_unreadable() {
     assert!(w.candidates.is_empty(), "{:?}", w.candidates);
     assert!(w.folder_games.is_empty(), "{:?}", w.folder_games);
 }
+
+/// Systems batch 3 D19: an extensionless file named like a GUID is an
+/// XVC candidate only with the `msft-xvd` magic at 0x200 and at least
+/// 4 KiB; a cache blob with a GUID name is another file, key material
+/// is left by name first, and a cloud placeholder is never peeked.
+#[test]
+fn guid_named_files_are_candidates_only_with_the_xvd_magic() {
+    use coverly_core::consoles::testing::xvd_head;
+    let tmp = tempfile::tempdir().unwrap();
+    let xvc = "4f0b3e0a-1c2d-4e5f-8a9b-c1d2e3f4a5b6";
+    let blob = "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9";
+    let small = "11111111-2222-3333-4444-555555555555";
+    let cloud = "99999999-8888-7777-6666-555555555555";
+    put(tmp.path(), xvc, &xvd_head(0x01).bytes());
+    put(tmp.path(), blob, &[0x42u8; 8192]);
+    put(tmp.path(), small, &xvd_head(0x01).bytes()[..2048]);
+    put(tmp.path(), cloud, &xvd_head(0x01).bytes());
+    put(
+        tmp.path(),
+        "abcdef01-2345-6789-abcd-ef0123456789.cik",
+        &[1u8; 0x30],
+    );
+
+    let w = run(
+        tmp.path(),
+        &CloudNamed("99999999-8888-7777-6666-555555555555"),
+    );
+    let names: Vec<String> = w
+        .candidates
+        .iter()
+        .map(|c| c.path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, [xvc], "{w:#?}");
+    assert_eq!(w.candidates[0].ext, "");
+    let others: Vec<String> = w
+        .other_files
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    for name in [blob, small, cloud] {
+        assert!(others.iter().any(|o| o == name), "{name}: {others:?}");
+    }
+    assert_eq!(
+        reason_of(&w, "abcdef01-2345-6789-abcd-ef0123456789.cik"),
+        Some(LeftReason::KeyMaterial)
+    );
+}
