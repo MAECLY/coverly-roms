@@ -732,7 +732,8 @@
     "paused": "Se ha parado: {reason}. Lo que falta puede continuar.",
     "format": {
       "arcade": "arcade",
-      "discs": "{count} discos"
+      "discs": "{count} discos",
+      "folder": "carpeta"
     },
     "tags": {
       "from": {

@@ -467,6 +467,13 @@ export function formatItems(unit: UnitRefView, t: Translate): string[] {
       return ['CHD'];
     case 'multi-disc':
       return ['M3U', t('dedupe.format.discs', { count: discCount(unit) })];
+    case 'folder':
+      // `Game.ps3` reads `PS3 (folder)`; a bare `BLUS30001/` only `folder`.
+      return [
+        ext
+          ? `${ext} (${t('dedupe.format.folder')})`
+          : t('dedupe.format.folder'),
+      ];
     case 'zip':
     case 'image':
     case 'single':

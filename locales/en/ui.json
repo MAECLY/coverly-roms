@@ -732,7 +732,8 @@
     "paused": "Stopped: {reason}. The rest can resume.",
     "format": {
       "arcade": "arcade",
-      "discs": "{count} discs"
+      "discs": "{count} discs",
+      "folder": "folder"
     },
     "tags": {
       "from": {

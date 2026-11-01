@@ -493,6 +493,8 @@ describe('formatOf', () => {
     ['/SD/ROMS/PSP/Loco.cso', 'image', 'CSO'],
     ['/SD/ROMS/GC/Melee.rvz', 'image', 'RVZ'],
     ['/SD/ROMS/GB/Tetris.gb', 'single', 'GB'],
+    ['/SD/ROMS/ps3/Game.ps3', 'folder', 'PS3 (carpeta)'],
+    ['/SD/ROMS/ps3/BLUS30001', 'folder', 'carpeta'],
     ['C:\\Roms\\PS\\Crash.pbp', 'image', 'PBP'],
   ] as const)('%s (%s) → %s', (primary, kind, want) => {
     expect(formatOf(unit(primary, kind), t)).toBe(want);

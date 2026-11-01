@@ -177,7 +177,15 @@ export type GroupActionView =
   | { kind: 'conflict'; saves: SaveInfoView[] };
 
 export type UnitKindView =
-  'single' | 'zip' | 'arcade' | 'disc-set' | 'chd' | 'image' | 'multi-disc';
+  | 'single'
+  | 'zip'
+  | 'arcade'
+  | 'disc-set'
+  | 'chd'
+  | 'image'
+  | 'multi-disc'
+  /** A folder game (systems batch 2 D26): reported, never set aside. */
+  | 'folder';
 
 export interface UnitRefView {
   primary: string;
