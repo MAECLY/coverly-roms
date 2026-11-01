@@ -452,6 +452,7 @@ fn cover_lookup_finds_batch_systems() {
             hash: None,
             size: 0,
             file_name: stem,
+            rom_path: None,
         })
         .unwrap();
     assert_eq!(
@@ -992,6 +993,7 @@ fn model2_and_model3_covers_use_the_mame_folder() {
                 hash: None,
                 size: 0,
                 file_name: stem,
+                rom_path: None,
             })
             .unwrap();
         assert_eq!(

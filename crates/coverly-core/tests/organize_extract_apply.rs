@@ -832,6 +832,7 @@ mod apply_phases {
             },
             disc: None,
             action: OrganizeAction::Auto,
+            title_id: None,
         }
     }
 
@@ -859,6 +860,7 @@ mod apply_phases {
             created_at: "2026-10-24T00:00:00Z".into(),
             duplicates: Vec::new(),
             set_aside_trash: false,
+            updates: 0,
         }
     }
 

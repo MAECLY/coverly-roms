@@ -1663,3 +1663,182 @@ fn wad_without_magic_is_not_auto() {
         id.combined
     );
 }
+
+// --- GameCube and Wii: weak `.wad`/`.tgc` owners (systems batch 2, Task 7) ---
+
+fn write_sparse(
+    dir: &Path,
+    name: &str,
+    src: &coverly_core::consoles::testing::SparseAt,
+) -> std::path::PathBuf {
+    let p = dir.join(name);
+    std::fs::write(&p, src.bytes()).unwrap();
+    p
+}
+
+#[test]
+fn wii_wad_contradicts_doom() {
+    // D7/D24: `.wad` is doom's; a Wii WAD header proves wii, which lists
+    // `wad` as weak, so doom's extension is contradicted.
+    use coverly_core::consoles::testing as t;
+    let tmp = tempfile::tempdir().unwrap();
+    let p = write_sparse(
+        tmp.path(),
+        "WiiWare Game.wad",
+        &t::wii_wad(0x0001_0001_5741_4145),
+    );
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.verdict, id.combined.system.as_deref()),
+        (Verdict::Auto, Some("wii"))
+    );
+    assert!(
+        id.notes.contains(&ItemNote::ExtensionContradicted {
+            ext: "wad".into(),
+            system: Some("doom".into()),
+        }),
+        "{:?}",
+        id.notes
+    );
+}
+
+#[test]
+fn iwad_stays_doom() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut wad = b"IWAD\x02\0\0\0\x0c\0\0\0".to_vec();
+    wad.resize(4096, 0);
+    let p = tmp.path().join("doom2.wad");
+    std::fs::write(&p, &wad).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("doom"));
+    assert!(!id
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::ExtensionContradicted { .. })));
+}
+
+#[test]
+fn tgc_magic_contradicts_gamecom() {
+    use coverly_core::consoles::testing as t;
+    let tmp = tempfile::tempdir().unwrap();
+    let p = write_sparse(
+        tmp.path(),
+        "Demo Disc.tgc",
+        &t::tgc(&t::gc_header("GM8E01", false)),
+    );
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.verdict, id.combined.system.as_deref()),
+        (Verdict::Auto, Some("gamecube"))
+    );
+    assert!(id.notes.contains(&ItemNote::ExtensionContradicted {
+        ext: "tgc".into(),
+        system: Some("gamecom".into()),
+    }));
+    // A Game.com cart has no TGC magic and stays gamecom's.
+    let p = tmp.path().join("Lights Out.tgc");
+    std::fs::write(&p, fx::zeros(64 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("gamecom"));
+}
+
+#[test]
+fn gcz_without_header_is_shared_review() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Unknown.gcz");
+    std::fs::write(&p, fx::zeros(64 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.verdict, Verdict::Review);
+    let alts: Vec<&str> = std::iter::once(id.combined.system.as_deref())
+        .flatten()
+        .chain(id.combined.alternatives.iter().map(|a| a.0.as_str()))
+        .collect();
+    assert!(
+        alts.contains(&"gamecube") && alts.contains(&"wii"),
+        "{alts:?}"
+    );
+}
+
+// --- Nintendo 3DS: `3ds` is DECISIVE (systems batch 2, Task 8) ---
+
+#[test]
+fn autodesk_3ds_never_auto() {
+    // D7: a 3D Studio model opens with the main chunk `4D 4D`.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut model = vec![0x4D, 0x4D, 0x10, 0x27, 0, 0, 0x02, 0];
+    model.resize(4096, 0);
+    let p = tmp.path().join("model.3ds");
+    std::fs::write(&p, &model).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        id.left,
+        Some(LeftReason::NotARom {
+            what: NotARom::Model3d
+        })
+    );
+    assert_ne!(id.combined.verdict, Verdict::Auto);
+}
+
+#[test]
+fn unknown_3ds_is_0_60() {
+    // No NCSD/NCCH and no `4D 4D`: the failed sniff weighs against 3ds.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Something.3ds");
+    std::fs::write(&p, fx::zeros(64 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_ne!(id.combined.verdict, Verdict::Auto, "{:?}", id.combined);
+    assert!(id.combined.confidence <= 0.60 + 1e-3, "{:?}", id.combined);
+}
+
+#[test]
+fn ncsd_3ds_is_auto_and_encrypted_noted() {
+    use coverly_core::consoles::testing as t;
+    let tmp = tempfile::tempdir().unwrap();
+    let mut img = t::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, false);
+    img.len = 0x10_0000; // small enough to write; the header is at 0x4000
+    let p = write_sparse(tmp.path(), "Mario Kart 7 (Europe).3ds", &img);
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.verdict, id.combined.system.as_deref()),
+        (Verdict::Auto, Some("3ds"))
+    );
+    assert!(id.notes.contains(&ItemNote::EncryptedContent {
+        emulator: "Azahar".into()
+    }));
+    // A decrypted (NoCrypto) image carries no note.
+    let mut img = t::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, true);
+    img.len = 0x10_0000;
+    let p = write_sparse(tmp.path(), "Mario Kart 7 (Europe) (Decrypted).3ds", &img);
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("3ds"));
+    assert!(!id
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::EncryptedContent { .. })));
+}
+
+#[test]
+fn xex2_header_contradicts_atari_xex() {
+    // `.xex` is the Atari 8-bit executable; `xbox360` lists it weak, so
+    // an `XEX2` header proves Xbox 360 and contradicts a800 (D7/D24), and
+    // an Atari file (`FF FF` load header) stays a800's.
+    use coverly_core::consoles::testing as t;
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("default.xex");
+    std::fs::write(&p, t::xex2(0x4D53_07E6)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.verdict, id.combined.system.as_deref()),
+        (Verdict::Auto, Some("xbox360"))
+    );
+    assert!(id.notes.contains(&ItemNote::ExtensionContradicted {
+        ext: "xex".into(),
+        system: Some("a800".into()),
+    }));
+    let p = tmp.path().join("Boulder Dash.xex");
+    let mut atari = vec![0xFF, 0xFF, 0x00, 0x20, 0xFF, 0x20];
+    atari.resize(4096, 0xEA);
+    std::fs::write(&p, &atari).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("a800"));
+}

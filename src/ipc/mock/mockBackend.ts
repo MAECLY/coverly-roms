@@ -263,6 +263,8 @@ const MUOS_FOLDERS = {
   doom: 'doom',
   quake: 'quake',
   wolf3d: 'wolfenstein3d',
+  // Systems batch 2 (spec §6).
+  '3ds': '3ds',
 };
 const ESDE_FOLDERS = {
   '3do': '3do',
@@ -297,6 +299,16 @@ const ESDE_FOLDERS = {
   quake: 'quake',
   solarus: 'solarus',
   ...EXTRA_ARCADE,
+  // Systems batch 2 (spec §6).
+  gamecube: 'gc',
+  wii: 'wii',
+  '3ds': 'n3ds',
+  wiiu: 'wiiu',
+  switch: 'switch',
+  psvita: 'psvita',
+  ps3: 'ps3',
+  xbox: 'xbox',
+  xbox360: 'xbox360',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -339,6 +351,16 @@ const BATOCERA_FOLDERS = {
   wolf3d: 'ecwolf',
   xrick: 'xrick',
   ...EXTRA_ARCADE,
+  // Systems batch 2 (spec §6).
+  gamecube: 'gamecube',
+  wii: 'wii',
+  '3ds': '3ds',
+  wiiu: 'wiiu',
+  switch: 'switch',
+  psvita: 'psvita',
+  ps3: 'ps3',
+  xbox: 'xbox',
+  xbox360: 'xbox360',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends
@@ -391,6 +413,8 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'esde',
+      folder_game_suffix: { ps3: '.ps3' },
+      folder_stem_keeps_suffix: true,
       disc_layout: { kind: 'game-folder', m3u_for_multi: true },
       folder_names: ESDE_FOLDERS,
       name: 'ES-DE',
@@ -416,6 +440,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'batocera',
+      folder_game_suffix: { ps3: '.ps3' },
       disc_layout: { kind: 'flat', m3u_for_multi: true },
       folder_names: BATOCERA_FOLDERS,
       name: 'Batocera / Knulli / EmulationStation',

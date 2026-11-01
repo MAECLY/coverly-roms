@@ -226,7 +226,7 @@ pub struct FileSource {
 impl FileSource {
     /// Opens `path` and detects its layout from its first sectors.
     pub fn open(path: &Path) -> io::Result<FileSource> {
-        FileSource::new(File::open(path)?)
+        FileSource::new(crate::consoles::open_rom(path)?)
     }
 
     /// A source over `file`, layout detected from its first sectors.

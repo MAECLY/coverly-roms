@@ -97,6 +97,7 @@ describe('mock settings', () => {
       ['libretro', true, true],
       ['steamgriddb', true, false],
       ['screenscraper', false, false],
+      ['embedded', true, true],
     ]);
     expect(info[1]!.needs).toEqual(['steamgriddb-api-key']);
     expect(await m.testSourceKey('steamgriddb')).toBe('missing');

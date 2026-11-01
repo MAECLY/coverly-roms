@@ -38,12 +38,13 @@ The CC licence grants no trademark rights. See `TRADEMARKS.md`.
 
 ## Audit
 
-77 system ids, each checked against its source
+86 system ids, each checked against its source
 file for maker marks (logos, wordmarks, badges, registered button symbols).
 
 | id                | source file                                        | depicts  | audit                                                                                    |
 | ----------------- | -------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
 | `3do`             | The 3DO Company - 3DO.svg                          | pad      | crescent pad, d-pad and plain round buttons, no marks                                    |
+| `3ds`             | Nintendo - Nintendo 3DS.svg                        | handheld | open clamshell handheld, two blank screens, plain buttons, no badge                      |
 | `a2600`           | Atari - 2600.svg                                   | pad      | joystick seen from above, plain knob, no marks                                           |
 | `a5200`           | Atari - 5200.svg                                   | pad      | keypad controller, plain keys, no marks                                                  |
 | `a7800`           | Atari - 7800.svg                                   | pad      | joystick base with plain knob and two plain buttons, no marks                            |
@@ -64,6 +65,7 @@ file for maker marks (logos, wordmarks, badges, registered button symbols).
 | `fds`             | Nintendo - Family Computer Disk System.svg         | pad      | rectangular pad, d-pad and plain round buttons, no marks                                 |
 | `fmtowns`         | Fujitsu - FM Towns.svg                             | computer | keyboard, plain keys, no marks                                                           |
 | `gamecom`         | Tiger - Game.com.svg                               | handheld | landscape handheld, blank screen, plain buttons, no badge                                |
+| `gamecube`        | Nintendo - GameCube.svg                            | pad      | pad with grips, plain stick, cross pad and plain round buttons, no marks                 |
 | `gamegear`        | Sega - Game Gear.svg                               | handheld | landscape handheld, blank screen, no badge                                               |
 | `gb`              | Nintendo - Game Boy.svg                            | handheld | portrait handheld, blank screen, no badge                                                |
 | `gba`             | Nintendo - Game Boy Advance.svg                    | handheld | landscape handheld, blank screen, no badge                                               |
@@ -97,7 +99,9 @@ file for maker marks (logos, wordmarks, badges, registered button symbols).
 | `plus4`           | Commodore - Plus-4.svg                             | computer | keyboard computer, plain keys, no marks                                                  |
 | `pokemini`        | Nintendo - Pokemon Mini.svg                        | handheld | small handheld, blank screen, d-pad, no character art or badge                           |
 | `ps2`             | Sony - PlayStation 2.svg                           | pad      | pad with grips and two sticks, plain round face buttons, no face-button symbols          |
+| `ps3`             | Sony - PlayStation 3.svg                           | pad      | pad with grips and two sticks, plain round face buttons, no face-button symbols          |
 | `psp`             | Sony - PlayStation Portable.svg                    | handheld | landscape handheld, blank screen, plain round buttons, no symbols                        |
+| `psvita`          | Sony - PlayStation Vita.svg                        | handheld | oval handheld, blank screen, plain cross pad and round buttons, no symbols               |
 | `psx`             | Sony - PlayStation.svg                             | pad      | pad with grips, plain round face buttons, no face-button symbols                         |
 | `satellaview`     | Nintendo - Satellaview.svg                         | pad      | rounded pad, plain dots, no marks                                                        |
 | `saturn`          | Sega - Saturn.svg                                  | pad      | rounded pad, plain dots, no marks                                                        |
@@ -109,15 +113,20 @@ file for maker marks (logos, wordmarks, badges, registered button symbols).
 | `sufami`          | Nintendo - Sufami Turbo.svg                        | pad      | rounded pad, plain dots, no marks                                                        |
 | `supergrafx`      | NEC - PC Engine SuperGrafx.svg                     | pad      | rectangular pad, d-pad and plain buttons, no marks                                       |
 | `supervision`     | Watara - Supervision.svg                           | handheld | portrait handheld, blank screen, plain buttons, no badge                                 |
+| `switch`          | Nintendo - Switch.svg                              | handheld | tablet with side controllers, blank screen, plain buttons, no marks                      |
 | `thomson`         | Thomson - MOTO.svg                                 | computer | keyboard computer, plain keys, no marks                                                  |
 | `ti99`            | Texas Instruments - TI-99-4A.svg                   | computer | keyboard computer with blank cartridge slot, plain keys, no marks                        |
 | `varcade`         | FBNeo - Arcade Games.svg                           | cabinet  | arcade cabinet in side profile, no marquee art, no marks (shared cabinet proxy)          |
 | `vic20`           | Commodore - VIC-20.svg                             | computer | keyboard computer, plain keys, no marks                                                  |
 | `virtualboy`      | Nintendo - Virtual Boy.svg                         | pad      | double-grip pad, two d-pads, plain buttons, no marks                                     |
+| `wii`             | Nintendo - Wii.svg                                 | pad      | remote and corded attachment, plain cross pad and dots, no wordmark                      |
+| `wiiu`            | Nintendo - Wii U.svg                               | pad      | tablet controller, blank screen, plain sticks, cross pad and dots, no marks              |
 | `wonderswan`      | Bandai - WonderSwan.svg                            | handheld | landscape handheld, blank screen, plain button clusters, no badge                        |
 | `wonderswancolor` | Bandai - WonderSwan Color.svg                      | handheld | landscape handheld, blank screen, plain button clusters, no badge                        |
 | `x1`              | Sharp - X1.svg                                     | computer | keyboard, plain keys, no marks                                                           |
 | `x68000`          | Sharp - X68000.svg                                 | computer | keyboard, plain keys, no marks                                                           |
+| `xbox`            | Microsoft - Xbox.svg                               | pad      | wide pad, plain sticks and round buttons, blank centre ring, no logo                     |
+| `xbox360`         | Microsoft - Xbox 360.svg                           | pad      | pad with grips, plain sticks and round buttons, blank centre ring, no logo               |
 | `zx81`            | Sinclair - ZX 81.svg                               | computer | keyboard computer, plain keys, blank nameplate, no wordmark                              |
 | `zxspectrum`      | Sinclair - ZX Spectrum.svg                         | computer | keyboard computer, plain keys, blank nameplate, plain corner stripe, no wordmark         |
 

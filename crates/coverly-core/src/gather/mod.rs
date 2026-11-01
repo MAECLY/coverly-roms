@@ -78,7 +78,7 @@ pub fn select_targets(art: &[SystemArt], filter: &TargetFilter) -> Vec<GatherTar
         let Some(system_id) = system.scan.system_id.clone() else {
             continue;
         };
-        let strip = names::detect_numbering(system.roms.iter().map(|r| r.rom.stem.as_str()));
+        let strip = names::detect_numbering(system.roms.iter().map(|r| r.rom.title_stem()));
         for rom_art in &system.roms {
             let media: Vec<Media> = filter
                 .media
@@ -225,7 +225,7 @@ pub fn gather(
                     progress.event(ProgressEvent::Warning(w.clone()));
                     out.warnings.push(w);
                 }
-                identifier.unidentified(names::parse_name(&t.rom.stem, t.strip_numbering))
+                identifier.unidentified(names::parse_name(t.rom.title_stem(), t.strip_numbering))
             }
         };
         let mut item = GatherItem {
@@ -339,7 +339,10 @@ fn source_candidates(
     opts: &GatherOptions,
 ) -> Result<Vec<Candidate>, SourceError> {
     let key = cache_key(src.id(), system, media, identity, &t.rom.stem, opts);
-    if !opts.refresh {
+    // The embedded source reads the ROM itself (its path, not its name,
+    // decides), and costs a few local reads: never cached by name.
+    let cacheable = src.id() != crate::sources::embedded::ID;
+    if cacheable && !opts.refresh {
         // An unreadable cached value is a miss.
         if let Ok(Some(s)) = cache.get_json::<Vec<Candidate>>(NS, &key) {
             if now_unix() - s.fetched_at < opts.ttl_secs {
@@ -352,7 +355,7 @@ fn source_candidates(
         media,
         canonical: identity.canonical.as_deref(),
         rom: &identity.parsed,
-        stem: &t.rom.stem,
+        stem: t.rom.title_stem(),
         by_name: identity.method != IdMethod::Unknown || identity.canonical.is_some(),
         fuzzy: opts.fuzzy,
         min_score: opts.min_score,
@@ -365,13 +368,16 @@ fn source_candidates(
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or(&t.rom.stem),
+        rom_path: Some(&t.rom.path),
     };
     let mut found = src.candidates(&q)?;
     if opts.consensus {
         add_consensus(src, system, media, &mut found)?;
     }
     // The cache only saves work: failing to store is not an error.
-    let _ = cache.put_json(NS, &key, &found, None);
+    if cacheable {
+        let _ = cache.put_json(NS, &key, &found, None);
+    }
     Ok(found)
 }
 

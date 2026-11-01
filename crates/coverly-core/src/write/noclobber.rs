@@ -87,6 +87,53 @@ fn rename_noclobber_inner(
     std::fs::rename(from, to)
 }
 
+/// Moves the directory `from` to `to` on one volume, never replacing or
+/// merging into an existing folder (spec D25). Fails with
+/// [`ErrorKind::AlreadyExists`] when `to`, or a case/NFC twin of it,
+/// exists.
+///
+/// The exclusive rename comes first (`RENAME_EXCL`, `RENAME_NOREPLACE`,
+/// `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`, which refuses an
+/// existing target and moves folders within one volume). Where the volume
+/// does not support it (FAT/exFAT on macOS/Linux) there is **no** hard
+/// link step (`link(2)` of a directory is `EPERM`) and never a bare
+/// rename onto a name that may hold a folder: POSIX `rename(2)` of a
+/// directory onto an *empty* directory silently replaces it. Instead the
+/// twin check runs again, `to` is created exclusively and the tree is
+/// renamed onto that empty folder this call just made.
+pub fn rename_dir_noclobber(from: &Path, to: &Path) -> io::Result<()> {
+    rename_dir_noclobber_using(from, to, &|f, t| {
+        with_sharing_retries(|| exclusive_rename(f, t))
+    })
+}
+
+/// [`rename_dir_noclobber`] with the exclusive rename injected, so the
+/// create-then-rename fallback can be tested on any file system.
+#[doc(hidden)]
+pub fn rename_dir_noclobber_using(
+    from: &Path,
+    to: &Path,
+    exclusive: &dyn Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    if twin_exists(to)? {
+        return Err(io::Error::from(ErrorKind::AlreadyExists));
+    }
+    match exclusive(from, to) {
+        Ok(()) => return Ok(()),
+        Err(e) if !is_unsupported(&e) => return Err(e),
+        Err(_) => {}
+    }
+    if twin_exists(to)? {
+        return Err(io::Error::from(ErrorKind::AlreadyExists));
+    }
+    // Exclusive: fails with `AlreadyExists` when anything took the name
+    // since the check, so the rename below only ever lands on our folder.
+    std::fs::create_dir(to)?;
+    with_sharing_retries(|| std::fs::rename(from, to)).inspect_err(|_| {
+        let _ = std::fs::remove_dir(to);
+    })
+}
+
 /// Whether `to` or a case/NFC twin of it exists. A missing folder is not
 /// an error here: the rename itself reports it.
 fn twin_exists(to: &Path) -> io::Result<bool> {

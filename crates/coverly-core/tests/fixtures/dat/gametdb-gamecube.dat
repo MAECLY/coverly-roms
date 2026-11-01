@@ -1,0 +1,27 @@
+clrmamepro (
+	name "Nintendo - Nintendo GameCube"
+	description "Nintendo - Nintendo GameCube"
+	version "2022.10.28"
+	homepage "https://github.com/RobLoach/libretro-database-gametdb"
+)
+
+game (
+	name "Test Game (USA)"
+	serial "GM8E01"
+	releaseyear 2002
+	users 1
+	rom (
+		name "Test Game (USA).iso"
+		serial "GM8E01"
+	)
+)
+
+game (
+	name "Test Game (USA) (Rev 1)"
+	serial "GM8E01"
+	users 1
+	rom (
+		name "Test Game (USA) (Rev 1).iso"
+		serial "GM8E01"
+	)
+)

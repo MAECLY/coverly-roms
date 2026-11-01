@@ -67,7 +67,7 @@ pub(super) fn open(path: &Path, limits: &Limits, tools: Option<&[FoundTool]>) ->
 /// The detection head, the tail (a zip end record's search window) and
 /// the length of `path`.
 fn probe(path: &Path) -> Result<(Vec<u8>, Vec<u8>, u64), ArchiveError> {
-    let mut file = File::open(path).map_err(ArchiveError::Io)?;
+    let mut file = crate::consoles::open_rom(path).map_err(ArchiveError::Io)?;
     let len = file.metadata().map_err(ArchiveError::Io)?.len();
     if len == 0 {
         return Ok((Vec::new(), Vec::new(), 0));
@@ -197,7 +197,7 @@ fn names_a_tar(name: &str) -> bool {
 /// probe decodes at most one block under the plan head budget, inside the
 /// guard; any failure is "no" and the single-file reader reports it.
 fn holds_tar(path: &Path, c: Compressor, limits: &Limits) -> bool {
-    let Ok(file) = File::open(path) else {
+    let Ok(file) = crate::consoles::open_rom(path) else {
         return false;
     };
     let budget = Budget::plan_head(limits);

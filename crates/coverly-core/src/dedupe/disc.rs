@@ -23,7 +23,7 @@
 //!
 //! The answer is given only for the system asked about. Read-only.
 
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Read};
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
@@ -238,7 +238,7 @@ fn is_of(d: &DiscIdentity, system: &str) -> bool {
 /// Every disc of the PS1 `EBOOT.PBP` at `path`, in order (`None` for a
 /// disc that is not identified); `None` when it holds no PS1 disc.
 fn pbp_discs(path: &Path) -> io::Result<Option<Vec<Option<DiscIdentity>>>> {
-    let Some(mut pbp) = Pbp::open(io::BufReader::new(File::open(path)?))? else {
+    let Some(mut pbp) = Pbp::open(io::BufReader::new(crate::consoles::open_rom(path)?))? else {
         return Ok(None);
     };
     let mut out = Vec::with_capacity(pbp.disc_count());
@@ -251,7 +251,7 @@ fn pbp_discs(path: &Path) -> io::Result<Option<Vec<Option<DiscIdentity>>>> {
 
 /// The disc of the `.cso` at `path`.
 fn identify_cso(path: &Path) -> io::Result<Option<DiscIdentity>> {
-    let Some(mut cso) = Cso::open(io::BufReader::new(File::open(path)?))? else {
+    let Some(mut cso) = Cso::open(io::BufReader::new(crate::consoles::open_rom(path)?))? else {
         return Ok(None);
     };
     let len = cso.image_len();
@@ -304,6 +304,8 @@ fn beside(list: &Path, name: &str) -> Option<PathBuf> {
 /// At most `cap` bytes of `path`.
 fn read_capped(path: &Path, cap: usize) -> io::Result<Vec<u8>> {
     let mut out = Vec::new();
-    File::open(path)?.take(cap as u64).read_to_end(&mut out)?;
+    crate::consoles::open_rom(path)?
+        .take(cap as u64)
+        .read_to_end(&mut out)?;
     Ok(out)
 }

@@ -36,7 +36,8 @@ use crate::disc::{
 };
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::sniff::{
-    sniff, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt, PREFIX, STREAM_CAP, UEF_MAGIC,
+    sniff_named, sniff_switch_first, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt,
+    PREFIX, STREAM_CAP, UEF_MAGIC,
 };
 use crate::organize::plan::SheetCheck;
 use crate::scan::classify::{extension, is_appledouble, is_junk_file};
@@ -401,13 +402,39 @@ pub fn inspect_file_with(
     tools: Option<&ToolsOnDemand>,
 ) -> io::Result<Inspection> {
     let ext = extension(path);
-    let mut file = File::open(path)?;
+    let mut at = FileAt(crate::consoles::open_rom(path)?);
+    // A Switch dump is read by its own reader only: the prefix, the tail
+    // and the head CRC would reach its tickets, NCAs and the encrypted
+    // gamecard info (systems batch 2 D4).
+    if let Some(sniff) = sniff_switch_first(&mut at, len, &ext, &file_name(path)) {
+        let mut out = Inspection::new(Container::Raw);
+        out.payloads.push(Payload {
+            name: file_name(path),
+            ext,
+            size: len,
+            crc32: None,
+            sniff,
+        });
+        return Ok(out);
+    }
+    let mut file = at.0;
+    file.seek(SeekFrom::Start(0))?;
     let mut head = vec![0u8; PREFIX.min(usize::try_from(len).unwrap_or(PREFIX))];
     let n = read_prefix(&mut file, &mut head)?;
     head.truncate(n);
     let tail = read_tail(&mut file, len, head.len())?;
-    let first = sniff(&mut SliceAt(&head), head.len() as u64, &ext);
-    let magic = detect_container(&head, len, Some(tail.as_deref().unwrap_or(&head)));
+    let first = sniff_named(
+        &mut SliceAt(&head),
+        head.len() as u64,
+        &ext,
+        &file_name(path),
+    );
+    let end = tail.as_deref().unwrap_or(&head);
+    // A ZArchive (Cemu `.wua`) opens with its first zstd block: its
+    // footer says it is one file, read by the console readers.
+    let magic = detect_container(&head, len, Some(end)).filter(|m| {
+        *m != ContainerMagic::Zstd || !crate::consoles::zarchive::ends_with_footer(end)
+    });
     let mut out = Inspection::new(container_for(&ext, magic));
     match out.container {
         Container::Chd => {
@@ -438,10 +465,17 @@ pub fn inspect_file_with(
             let mut sniffed = if len <= head.len() as u64 {
                 first
             } else {
-                sniff(&mut FileAt(file), len, &ext)
+                sniff_named(&mut FileAt(file), len, &ext, &file_name(path))
             };
             if magic.is_some() && PACKAGE_EXTS.contains(&ext.as_str()) {
                 sniffed.hits.extend(package_hits(path, &ext, limits));
+            }
+            if ext == "vpk" && magic == Some(ContainerMagic::Zip) {
+                if let Some(id) = vpk_console(path, limits) {
+                    sniffed.hit(&id.system, id.confidence, id.detail.clone());
+                    sniffed.serial = id.serial.clone();
+                    sniffed.console = Some(id);
+                }
             }
             out.head_crc = Some(format!("{:08X}", crc32fast::hash(&head)));
             if let Some(what) = sniffed.not_a_rom {
@@ -465,9 +499,14 @@ pub fn inspect_file_with(
 
 /// Header magic of the first data track of a cue/gdi set.
 pub fn inspect_set_primary(track: &Path) -> io::Result<Sniff> {
-    let file = File::open(track)?;
+    let file = crate::consoles::open_rom(track)?;
     let len = file.metadata()?.len();
-    Ok(sniff(&mut FileAt(file), len, &extension(track)))
+    Ok(sniff_named(
+        &mut FileAt(file),
+        len,
+        &extension(track),
+        &file_name(track),
+    ))
 }
 
 /// Reads the start of `file` into `buf` (fewer bytes at end of file).
@@ -506,11 +545,56 @@ fn file_name(path: &Path) -> String {
 }
 
 /// Zip-based game packages (Arduboy, MAME/TI-99 cartridge packages,
-/// Solarus quests, Lutro games) and gzip BBC Micro tapes (spec D25): the
+/// Solarus quests, Lutro games, PS Vita VPKs) and gzip BBC Micro tapes
+/// (spec D25, systems batch 2 D16): the
 /// item is one raw file whatever its magic, moved as-is and never
 /// extracted. A header check that needs the inner files reads them
 /// through the archive reader on the same bytes.
-pub const PACKAGE_EXTS: [&str; 5] = ["arduboy", "rpk", "solarus", "lutro", "uef"];
+pub const PACKAGE_EXTS: [&str; 6] = ["arduboy", "rpk", "solarus", "lutro", "uef", "vpk"];
+
+/// The console id of a PS Vita VPK (systems batch 2 D16): its
+/// `sce_sys/param.sfo` entry (at most 64 KiB decoded, the plan head
+/// budget) read through the archive layer, and the `sce_sys/icon0.png`
+/// entry as the art locator. Nothing is extracted; any archive problem
+/// names no system.
+pub(crate) fn vpk_console(path: &Path, limits: &Limits) -> Option<crate::consoles::ConsoleId> {
+    let mut reader = archive::open_archive_with(path, limits, Some(&[])).ok()??;
+    let entries: Vec<Entry> = file_entries(reader.as_ref()).cloned().collect();
+    let named = |want: &str| {
+        entries
+            .iter()
+            .find(|e| e.unsafe_name.is_none() && e.name.as_str().eq_ignore_ascii_case(want))
+    };
+    let sfo = named("sce_sys/param.sfo").filter(|e| e.size <= crate::consoles::MAX_META_FILE)?;
+    let icon = named("sce_sys/icon0.png").map(|e| e.name.as_str().to_string());
+    let mut budget = Budget::plan_head(limits);
+    let bytes = read_entry(
+        reader.as_mut(),
+        sfo.index,
+        crate::consoles::MAX_META_FILE,
+        &mut budget,
+    )
+    .ok()?;
+    crate::consoles::sony::from_vpk(&bytes, icon.as_deref())
+}
+
+/// The bytes of the file entry `name` (case-insensitive) of the VPK at
+/// `path`, read through the archive layer (never extracted), when it is
+/// at most `cap` bytes; the embedded cover source (systems batch 2 D17)
+/// reads `sce_sys/icon0.png` with it.
+pub(crate) fn vpk_entry(path: &Path, name: &str, cap: u64) -> Option<Vec<u8>> {
+    let limits = Limits {
+        plan_head_budget: cap,
+        ..Limits::default()
+    };
+    let mut reader = archive::open_archive_with(path, &limits, Some(&[])).ok()??;
+    let entry = file_entries(reader.as_ref())
+        .find(|e| e.unsafe_name.is_none() && e.name.as_str().eq_ignore_ascii_case(name))
+        .filter(|e| e.size <= cap)?
+        .index;
+    let mut budget = Budget::plan_head(&limits);
+    read_entry(reader.as_mut(), entry, cap, &mut budget).ok()
+}
 
 /// Header evidence of a game package read through the archive layer
 /// (spec §8.1, D25): an `.rpk` whose zip holds `layout.xml` (a MAME
@@ -801,7 +885,7 @@ fn inspect_archive(
                 rom.index,
                 rom.info.size,
                 want_crc,
-                &ext,
+                (&ext, entry_file_name(&rom.info.name)),
                 &mut budget,
             ) {
                 Ok(read) => {
@@ -1030,6 +1114,11 @@ fn not_read(e: ArchiveError, out: &mut Inspection) -> Result<(), ArchiveError> {
 /// `(directory, file name)` of a `/`-separated entry name.
 fn split_dir(name: &str) -> (&str, &str) {
     name.rsplit_once('/').unwrap_or(("", name))
+}
+
+/// The file name of a `/`-separated entry name.
+fn entry_file_name(name: &str) -> &str {
+    split_dir(name).1
 }
 
 /// The file stem of an entry name.
@@ -1613,7 +1702,12 @@ fn identify_track(
             return Ok(None);
         }
     };
-    payload.sniff = sniff(&mut SliceAt(&bytes), entry.size, &track.ext);
+    payload.sniff = sniff_named(
+        &mut SliceAt(&bytes),
+        entry.size,
+        &track.ext,
+        entry_file_name(&track.name),
+    );
     out.payloads.push(payload);
     let index = entry.index;
     let mut failed: Option<ArchiveError> = None;
@@ -1727,7 +1821,7 @@ fn read_payload(
     index: usize,
     size: u64,
     want_crc: bool,
-    ext: &str,
+    (ext, name): (&str, &str),
     budget: &mut Budget,
 ) -> Result<PayloadRead, ArchiveError> {
     let stream = reader.open_entry(index, budget)?;
@@ -1736,10 +1830,11 @@ fn read_payload(
         hasher: crc32fast::Hasher::new(),
         error: None,
     };
-    let sniffed = sniff(
+    let sniffed = sniff_named(
         &mut StreamAt::new((&mut tee).take(STREAM_CAP), STREAM_CAP),
         size,
         ext,
+        name,
     );
     if let Some(e) = tee.error.take() {
         return Err(e);
@@ -1765,6 +1860,31 @@ fn read_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Systems batch 2 D4: a Switch dump is inspected by its own reader
+    /// only, with no head CRC over its first bytes (its NCAs and tickets
+    /// in a small NSP), under its extension or as a checked table.
+    #[test]
+    fn a_switch_dump_gets_no_prefix_read_or_head_crc() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let nsp = crate::consoles::testing::nsp(&[
+            ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nca", &[0x55; 64]),
+            ("01000000000100000000000000000000.tik", &[0x66; 0x2C0]),
+        ]);
+        let db = SystemDb::builtin();
+        for name in ["Mario.nsp", "Mario.bin"] {
+            let path = tmp.path().join(name);
+            std::fs::write(&path, nsp.bytes()).unwrap();
+            let out = inspect_file(&path, nsp.len, &db).unwrap();
+            assert_eq!(out.container, Container::Raw, "{name}");
+            assert_eq!(out.head_crc, None, "{name}");
+            let sniff = &out.payloads[0].sniff;
+            let id = sniff.console.as_ref().expect(name);
+            assert_eq!(id.system, "switch");
+            assert_eq!(id.title_id.as_deref(), Some("0100000000010000"));
+            assert!(sniff.read < 0x100, "{name}: {}", sniff.read);
+        }
+    }
 
     #[test]
     fn magic_decides_before_extension() {

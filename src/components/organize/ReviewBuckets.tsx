@@ -15,6 +15,7 @@ import { useT } from '@/i18n/useT';
 import type { OrganizeItem } from '@/ipc/types';
 import { ROWS_PER_GROUP, whyKey, type ReviewBucket } from '@/lib/organize';
 
+import { ItemName, TitleIdLine } from './ItemName';
 import { NewBadge, NewCount, newRow, type IsNew } from './NewMarks';
 import {
   chevron,
@@ -23,7 +24,6 @@ import {
   hintText,
   listViewport,
   panel,
-  pathText,
   sectionTitle,
 } from './styles';
 
@@ -258,7 +258,7 @@ function ReviewRow({
   return (
     <li className={fresh ? `${fileRow} ${newRow}` : fileRow}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className={`${pathText} min-w-0 flex-1`}>{name}</span>
+        <ItemName item={item} className="min-w-0 flex-1" />
         {fresh && <NewBadge />}
         <NativeSelect
           size="sm"
@@ -282,6 +282,7 @@ function ReviewRow({
           </p>
         );
       })}
+      <TitleIdLine item={item} />
     </li>
   );
 }

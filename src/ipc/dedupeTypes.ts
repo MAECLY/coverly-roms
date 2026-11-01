@@ -145,6 +145,8 @@ export const REPORT_WHY_KINDS = [
   'big-group',
   'user-skipped',
   'chd-metadata-differs',
+  'title-id',
+  'folder-game',
 ] as const;
 
 export type ReportWhyView =
@@ -158,7 +160,11 @@ export type ReportWhyView =
   | { kind: 'arcade-no-dat' }
   | { kind: 'big-group'; members: number }
   | { kind: 'user-skipped' }
-  | { kind: 'chd-metadata-differs' };
+  | { kind: 'chd-metadata-differs' }
+  /** Same console title id (plan P-6): contents never compared. */
+  | { kind: 'title-id' }
+  /** A folder game (D28): reported, never set aside. */
+  | { kind: 'folder-game' };
 
 export type SaveKeyView = 'stem' | 'serial' | 'set';
 
@@ -177,7 +183,15 @@ export type GroupActionView =
   | { kind: 'conflict'; saves: SaveInfoView[] };
 
 export type UnitKindView =
-  'single' | 'zip' | 'arcade' | 'disc-set' | 'chd' | 'image' | 'multi-disc';
+  | 'single'
+  | 'zip'
+  | 'arcade'
+  | 'disc-set'
+  | 'chd'
+  | 'image'
+  | 'multi-disc'
+  /** A folder game (systems batch 2 D26): reported, never set aside. */
+  | 'folder';
 
 export interface UnitRefView {
   primary: string;

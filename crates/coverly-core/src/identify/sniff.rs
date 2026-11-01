@@ -15,18 +15,19 @@ pub const PREFIX: usize = 128 * 1024;
 pub const STREAM_CAP: u64 = 8 * 1024 * 1024;
 /// Systems every real dump of which carries the checked signature: a
 /// failed sniff is negative evidence for them (O-D5).
-pub const DECISIVE: [&str; 14] = [
+pub const DECISIVE: [&str; 15] = [
     "gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x", "vectrex", "pico", "sufami",
-    "uzebox", "vircon32", "doom",
+    "uzebox", "vircon32", "doom", "3ds",
 ];
 /// Extensions of games (and disc-set companions) that are text by nature:
 /// PICO-8 carts, ScummVM launchers, DOSBox configs and batch files, BASIC
 /// listings, cue sheets and playlists, Intel HEX (Arduboy), LowRes NX
-/// sources, Lua games and `.game` files (spec D26). Only a web page is
-/// "not a ROM" there.
-pub const TEXT_NATIVE_EXTS: [&str; 14] = [
+/// sources, Lua games and `.game` files (spec D26), and the Vita3K and
+/// RPCS3 launchers `.psvita` and `.psn` and the Xenia launcher `.xbox360`
+/// (systems batch 2 D14). Only a web page is "not a ROM" there.
+pub const TEXT_NATIVE_EXTS: [&str; 17] = [
     "p8", "scummvm", "svm", "conf", "bat", "bas", "cue", "m3u", "gdi", "ccd", "hex", "nx", "lua",
-    "game",
+    "game", "psvita", "psn", "xbox360",
 ];
 
 /// Bounded reads at given offsets.
@@ -122,6 +123,13 @@ pub enum NotARom {
     /// An archive holding only a ROM patch (`.ips`, `.bps`…): it needs
     /// the original ROM and does not play on its own.
     Patch,
+    /// A macOS installer package (`xar!` named `.pkg`, systems batch 2 D7).
+    Installer,
+    /// An Autodesk 3D Studio model (main chunk `4D 4D` named `.3ds`).
+    Model3d,
+    /// A PC game's data pack: a Valve VPK (`34 12 AA 55`) named `.vpk`,
+    /// as Steam workshop folders hold by the hundred (systems batch 2).
+    PcGameData,
 }
 
 /// Container formats recognised by their magic (contents not read here).
@@ -196,12 +204,16 @@ pub struct Sniff {
     /// by `disc::`; `None` for carts and discs without one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serial: Option<String>,
+    /// What a console header reader found (`consoles::identify`): system,
+    /// title id, kind, embedded-art locators. Memoised with the facts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub console: Option<crate::consoles::ConsoleId>,
     /// Bytes of prefix actually read (0 = unreadable or empty).
     pub read: usize,
 }
 
 impl Sniff {
-    fn hit(&mut self, system: &str, weight: f32, detail: impl Into<String>) {
+    pub(crate) fn hit(&mut self, system: &str, weight: f32, detail: impl Into<String>) {
         self.hits
             .push(Evidence::new(IdLevel::Header, system, weight, detail));
     }
@@ -223,7 +235,16 @@ fn starts(head: &[u8], offset: usize, magic: &[u8]) -> bool {
 
 /// Header magic of the file behind `src` (`len` bytes, extension `ext`).
 pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
+    sniff_named(src, len, ext, "")
+}
+
+/// [`sniff`] with the file (or archive entry) name, which the console
+/// readers may use (Switch title-id tokens, spec D10); `""` when unknown.
+pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sniff {
     let ext = ext.to_ascii_lowercase();
+    if let Some(s) = sniff_switch_first(src, len, &ext, name) {
+        return s;
+    }
     let mut head = vec![0u8; PREFIX.min(usize::try_from(len).unwrap_or(PREFIX))];
     let n = read_exact_at(src, 0, &mut head);
     head.truncate(n);
@@ -234,24 +255,99 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
     if n == 0 {
         return s;
     }
+    if let Some(kind) = not_a_console_file(&head, &ext) {
+        s.not_a_rom = Some(kind);
+        return s;
+    }
     if let Some(kind) = text_kind(&head) {
         // `[`/`{` also open INI files and configs: under a text-native
         // extension only markup (an HTML error page) is not a game.
         if !TEXT_NATIVE_EXTS.contains(&ext.as_str()) || starts_with_markup(&head) {
             s.not_a_rom = Some(kind);
+        } else if let Some(id) = crate::consoles::sony::launcher(&head, &ext)
+            .or_else(|| crate::consoles::xbox::launcher(&head, &ext))
+        {
+            s.hit(&id.system, id.confidence, id.detail.clone());
+            s.serial = id.serial.clone();
+            s.console = Some(id);
         }
         return s;
+    }
+    // A Cemu WUA or a Xenia ZAR (ZArchive) starts with its first zstd
+    // block, so its footer is checked before the head is taken for a
+    // `.zst` file.
+    if ext == "wua" || ext == "zar" || head.starts_with(&[0x28, 0xB5, 0x2F, 0xFD]) {
+        let wua = {
+            let mut b = crate::consoles::Budgeted::new(&mut *src, len);
+            crate::consoles::wiiu::wua(&mut b, &ext)
+        };
+        let id = wua.or_else(|| {
+            let mut b = crate::consoles::Budgeted::new(&mut *src, len);
+            crate::consoles::xbox::zar(&mut b, &ext)
+        });
+        if let Some(id) = id {
+            s.hit(&id.system, id.confidence, id.detail.clone());
+            s.serial = id.serial.clone();
+            s.console = Some(id);
+            return s;
+        }
     }
     if let Some(c) = container(&head, len) {
         s.container = Some(c);
         return s;
     }
-    // Disc images first (sector 16), then cartridges, most specific first.
+    // Disc images first (sector 16), then the console header readers of
+    // systems batch 2 (plan P-1), then cartridges, most specific first.
     discs(src, &head, len, &ext, &mut s);
+    if s.hits.is_empty() && s.unsupported.is_none() {
+        let mut b = crate::consoles::Budgeted::new(&mut *src, len);
+        if let Some(id) = crate::consoles::identify(&mut b, &ext, name) {
+            s.hit(&id.system, id.confidence, id.detail.clone());
+            s.serial = id.serial.clone();
+            s.console = Some(id);
+        }
+    }
     if s.hits.is_empty() && s.unsupported.is_none() {
         cartridges(src, &head, len, &ext, &mut s);
     }
     s
+}
+
+/// A Switch dump, recognised before any generic head read (spec D4): the
+/// 128 KiB prefix would reach a small NSP's ticket and NCA bodies and an
+/// XCI's encrypted gamecard info, so only `consoles::nx` reads it. `ext`
+/// is lowercase. `None` when it is not one (see `nx::identify_first`).
+pub fn sniff_switch_first(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Option<Sniff> {
+    let (id, read) = crate::consoles::nx::identify_first(src, len, ext, name)?;
+    let mut s = Sniff {
+        read: usize::try_from(read).unwrap_or(usize::MAX),
+        ..Sniff::default()
+    };
+    s.hit(&id.system, id.confidence, id.detail.clone());
+    s.serial = id.serial.clone();
+    s.console = Some(id);
+    Some(s)
+}
+
+/// Files that share an extension with a console format and are told
+/// apart by two cheap magics (systems batch 2 D7): every macOS installer
+/// is a `xar!` archive named `.pkg`, and a 3D Studio model opens with the
+/// main chunk `4D 4D`. A `.3ds` carrying `NCSD` or `NCCH` at 0x100 is a
+/// 3DS image whatever its first bytes. A Valve pack named `.vpk` (the
+/// Source engine's archives, seen by the hundred in a real Steam library)
+/// is no Vita package: a Vita VPK is a zip.
+fn not_a_console_file(head: &[u8], ext: &str) -> Option<NotARom> {
+    match ext {
+        "pkg" if head.starts_with(b"xar!") => Some(NotARom::Installer),
+        "vpk" if head.starts_with(&[0x34, 0x12, 0xAA, 0x55]) => Some(NotARom::PcGameData),
+        "3ds"
+            if head.starts_with(&[0x4D, 0x4D])
+                && !matches!(head.get(0x100..0x104), Some(b"NCSD" | b"NCCH")) =>
+        {
+            Some(NotARom::Model3d)
+        }
+        _ => None,
+    }
 }
 
 /// Printable text (no NUL/control bytes but tab/CR/LF in the first 512
@@ -337,6 +433,10 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sniff) 
         }
     }
     if starts(head, 0, b"CISO") {
+        // A Nintendo CISO shares the magic: the console readers take it.
+        if crate::consoles::nintendo_disc::is_nintendo_ciso(head) {
+            return;
+        }
         // PCSX2 reads CSO too: a PS2 volume inside says so (spec §12).
         if let Some((system, weight, detail, serial)) = cso_playstation(src, len) {
             s.hit(system, weight, detail);
@@ -576,7 +676,14 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
         let logo_crc = u16::from_le_bytes([h[0x15C], h[0x15D]]);
         let header_crc = u16::from_le_bytes([h[0x15E], h[0x15F]]);
         if logo_crc == 0xCF56 && crc16_modbus(&h[..0x15E]) == header_crc {
-            s.hit("nds", 0.95, "NDS header");
+            // Unit code (D6): DSi and DSiWare stay `nds`, only the detail
+            // says so.
+            let detail = match h[0x12] {
+                0x03 => "NDS header (DSi)",
+                0x02 => "NDS header (DSi-enhanced)",
+                _ => "NDS header",
+            };
+            s.hit("nds", 0.95, detail);
             return;
         }
     }

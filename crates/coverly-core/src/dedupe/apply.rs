@@ -35,7 +35,7 @@ use crate::write::{
 };
 
 use super::plan::{set_keeper, skip_group};
-use super::units::mtime_ns;
+use super::units::{mtime_ns, UnitKind};
 use super::{DedupeDecisions, DedupeError, DedupePlan, GroupAction, Member, ReportWhy};
 
 /// FAT32 cannot store a file of this size or larger.
@@ -806,9 +806,14 @@ impl<'a> Run<'a> {
         let g = &plan.groups[batch[0].g];
         let keeper = &g.members[g.keeper];
         let mut keeper_ok: Option<bool> = None;
+        // Folder games are only reported (systems batch 2 D28): a plan that
+        // says otherwise (an edited file) moves nothing of the group.
+        let folders = g.members.iter().any(|m| m.unit.kind == UnitKind::Folder);
         for (n, w) in batch.iter().enumerate() {
             let m = &g.members[w.m];
-            let step = if self.started(w, m) {
+            let step = if folders {
+                skipped(DedupeSkip::ReportOnly)
+            } else if self.started(w, m) {
                 if plan.trash {
                     self.trash_extra(w, m)
                 } else {

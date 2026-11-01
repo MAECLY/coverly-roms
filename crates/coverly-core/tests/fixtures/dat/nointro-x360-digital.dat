@@ -1,0 +1,19 @@
+clrmamepro (
+	name "Microsoft - Xbox 360 (Digital)"
+	description "Trimmed No-Intro Xbox 360 (Digital) sample (synthetic rows)"
+)
+
+game (
+	name "Test Arcade Game (World)"
+	rom ( name "58410889000D00001111111111111111111111111111111111111111" size 1024 crc 01234567 )
+)
+
+game (
+	name "Test Arcade Game (World) (Title Update)"
+	rom ( name "58410889000B00002222222222222222222222222222222222222222" size 1024 crc 89ABCDEF )
+)
+
+game (
+	name "Other Arcade Game (USA)"
+	rom ( name "584108FF000D00003333333333333333333333333333333333333333" size 1024 crc 13579BDF )
+)

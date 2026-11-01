@@ -2,7 +2,9 @@
 //! candidates, which stay where they are and why, which folders are
 //! already sorted by system and which are too deep to look into. Reads
 //! names and metadata only, plus the first 4 bytes of a `.wad` directly
-//! in a folder (the folder-game proof, spec D15).
+//! in a folder (the folder-game proof, spec D15). Key and licence files
+//! are left by name before anything opens them, and emulator data trees
+//! are left whole (systems batch 2 D4, §12).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -10,10 +12,12 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use super::plan::LeftReason;
 use crate::archive::detect::multi_volume_part;
+use crate::consoles::{identify_dir, is_key_material, ConsoleId, DirListing};
 use crate::identify::sniff::is_doom_wad;
 use crate::organize::inspect::names_an_archive;
 use crate::profiles::naming::system_folder;
@@ -38,6 +42,13 @@ pub const FOLDER_GAME_SYSTEMS: [&str; 4] = ["doom", "solarus", "lutro", "scummvm
 /// (reading it would trigger a download).
 pub trait MetaProbe: Sync {
     fn cloud_only(&self, path: &Path, meta: &fs::Metadata) -> bool;
+
+    /// The length a folder game's [`tree_summary`] counts for a file:
+    /// its metadata length (tests answer more, never writing 4 GiB).
+    fn file_len(&self, path: &Path, meta: &fs::Metadata) -> u64 {
+        let _ = path;
+        meta.len()
+    }
 }
 
 /// The real probe: macOS `SF_DATALESS`, Windows `OFFLINE` /
@@ -99,6 +110,120 @@ pub struct Walked {
     pub chd_folders: Vec<(PathBuf, Vec<PathBuf>)>,
     /// OS metadata, AppleDouble twins, hidden files, copied ADS streams.
     pub junk: usize,
+    /// Folders a console probe proved to be one game (spec D12): not
+    /// walked, moved whole.
+    pub folder_games: Vec<WalkFolderGame>,
+    /// Folders two probes claimed for different systems (review), with
+    /// those systems in probe order and the folder's tree.
+    pub folder_conflicts: Vec<(PathBuf, Vec<String>, TreeSummary)>,
+}
+
+/// A folder game the walk found (spec D12, plan P-3).
+#[derive(Clone, Debug, PartialEq)]
+pub struct WalkFolderGame {
+    /// Absolute.
+    pub path: PathBuf,
+    pub id: ConsoleId,
+    /// The probe file, relative to `path`.
+    pub probe: PathBuf,
+    pub tree: TreeSummary,
+}
+
+/// Most entries [`tree_summary`] looks at before it stops (D27).
+pub const TREE_MAX_ENTRIES: usize = 100_000;
+/// Deepest folder [`tree_summary`] enters below the game folder (D27).
+pub const TREE_MAX_DEPTH: usize = 16;
+
+/// A folder game's tree, from metadata only (spec D27).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TreeSummary {
+    /// Files counted (OS junk is not).
+    pub files: u64,
+    pub bytes: u64,
+    /// Newest file modification, nanoseconds since the Unix epoch.
+    pub newest_mtime_ns: i64,
+    pub largest_file: u64,
+    /// Longest path below the folder, in UTF-16 units (Windows limit
+    /// check).
+    pub longest_rel_utf16: usize,
+    /// Over [`TREE_MAX_ENTRIES`] entries or [`TREE_MAX_DEPTH`] levels:
+    /// the counts are a lower bound.
+    pub truncated: bool,
+    /// A symlink or reparse point inside.
+    pub symlink: bool,
+    /// A `.part`/`.crdownload` file or a zero-byte file inside.
+    pub partial: bool,
+    /// A file modified within the `recent` window.
+    pub recent: bool,
+    /// A cloud placeholder inside.
+    pub cloud_only: bool,
+}
+
+/// Measures the tree below `dir` with `read_dir` and `symlink_metadata`
+/// only (never a file's content), without following links, within
+/// [`TREE_MAX_ENTRIES`] and [`TREE_MAX_DEPTH`] (spec D27).
+pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
+    let mut out = TreeSummary::default();
+    let mut seen = 0usize;
+    let mut stack: Vec<(PathBuf, usize)> = vec![(dir.to_path_buf(), 0)];
+    while let Some((folder, depth)) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&folder) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            seen += 1;
+            if seen > TREE_MAX_ENTRIES {
+                out.truncated = true;
+                return out;
+            }
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Ok(meta) = fs::symlink_metadata(&path) else {
+                continue;
+            };
+            // A link is a link whatever its name: a `._x` or `Thumbs.db`
+            // link must not hide from the gate.
+            if meta.file_type().is_symlink() || is_reparse_point(&meta) {
+                out.symlink = true;
+                continue;
+            }
+            // Only junk *files* are OS litter: a folder named so is copied
+            // with the rest (`write::transfer::list_tree`), so it counts.
+            if meta.is_file()
+                && (is_appledouble(&name) || is_junk_file(&name) || is_zone_identifier(&name))
+            {
+                continue;
+            }
+            if let Ok(rel) = path.strip_prefix(dir) {
+                let units = rel.as_os_str().to_string_lossy().encode_utf16().count();
+                out.longest_rel_utf16 = out.longest_rel_utf16.max(units);
+            }
+            if meta.is_dir() {
+                if depth + 1 > TREE_MAX_DEPTH {
+                    out.truncated = true;
+                } else {
+                    stack.push((path, depth + 1));
+                }
+                continue;
+            }
+            let len = opts.probe.file_len(&path, &meta);
+            out.files += 1;
+            out.bytes = out.bytes.saturating_add(len);
+            out.largest_file = out.largest_file.max(len);
+            let mtime = meta.modified().unwrap_or(UNIX_EPOCH);
+            out.newest_mtime_ns = out.newest_mtime_ns.max(mtime_ns(mtime));
+            if is_partial_download(&name) || len == 0 {
+                out.partial = true;
+            }
+            if is_recent(opts.now, mtime, opts.recent) {
+                out.recent = true;
+            }
+            if opts.probe.cloud_only(&path, &meta) {
+                out.cloud_only = true;
+            }
+        }
+    }
+    out
 }
 
 /// Knobs of [`walk`].
@@ -132,6 +257,9 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     let mut out = Walked::default();
     let mut sorted: Vec<(PathBuf, String)> = Vec::new();
     let mut folder_games: Vec<(PathBuf, LeftReason)> = Vec::new();
+    let mut console_folders: Vec<WalkFolderGame> = Vec::new();
+    let mut folder_conflicts: Vec<(PathBuf, Vec<String>, TreeSummary)> = Vec::new();
+    let mut emulator_data: Vec<(PathBuf, LeftReason)> = Vec::new();
     let mut refused_links: Vec<PathBuf> = Vec::new();
     let skip_keys: Vec<String> = opts.skip_dirs.iter().map(|p| dir_key(p)).collect();
     let roms_root_key = opts.roms_root.as_deref().map(dir_key);
@@ -177,11 +305,49 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             if roms_root_key.as_deref() == Some(key.as_str()) {
                 return true;
             }
+            if is_emulator_data_root(entry.path(), &name) {
+                emulator_data.push((
+                    entry.path().to_path_buf(),
+                    LeftReason::EmulatorData {
+                        folder: name.into_owned(),
+                    },
+                ));
+                return false;
+            }
             if let Some(system) = db.resolve_folder_in(opts.profile, &name) {
                 sorted.push((entry.path().to_path_buf(), system.id.clone()));
                 return false;
             }
-            match folder_game_in(entry.path(), db, opts) {
+            // One listing serves the console probes and the batch 1 rule.
+            let Some(listed) = list_dir(entry.path()) else {
+                return true;
+            };
+            let names: Vec<String> = listed.iter().map(|(n, _, _)| n.clone()).collect();
+            let listing = DirListing {
+                dir: entry.path(),
+                names: &names,
+            };
+            match identify_dir(&listing) {
+                Ok(Some(found)) => {
+                    console_folders.push(WalkFolderGame {
+                        path: entry.path().to_path_buf(),
+                        tree: tree_summary(entry.path(), opts),
+                        id: found.id,
+                        probe: found.probe,
+                    });
+                    return false;
+                }
+                Err(conflict) => {
+                    folder_conflicts.push((
+                        entry.path().to_path_buf(),
+                        conflict.systems,
+                        tree_summary(entry.path(), opts),
+                    ));
+                    return false;
+                }
+                Ok(None) => {}
+            }
+            match folder_game_in(&listed, db, opts) {
                 Some(reason) => {
                     folder_games.push((entry.path().to_path_buf(), reason));
                     false
@@ -220,6 +386,11 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             out.junk += 1;
             continue;
         }
+        // By name, before the size, the siblings or a byte (D4).
+        if is_key_material(&name) {
+            out.left.push((path.to_path_buf(), LeftReason::KeyMaterial));
+            continue;
+        }
         if is_partial_download(&name)
             || meta.len() == 0
             || has_partial_sibling(&mut siblings, path, &name)
@@ -251,7 +422,10 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 size: meta.len(),
                 mtime_ns: mtime_ns(mtime),
             });
-        } else if is_companion(&name, &ext) || ignored_exts.contains(&ext) {
+        } else if is_companion(&name, &ext)
+            || crate::organize::target::is_wbfs_part(&ext)
+            || ignored_exts.contains(&ext)
+        {
             out.companions.push(path.to_path_buf());
         } else {
             out.other_files.push(path.to_path_buf());
@@ -261,12 +435,17 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     out.left
         .extend(refused_links.into_iter().map(|p| (p, LeftReason::Symlink)));
     out.left.extend(folder_games);
+    out.left.extend(emulator_data);
     out.left.extend(
         partial_dirs
             .into_iter()
             .map(|p| (p, LeftReason::PartialDownload)),
     );
     out.sorted_folders = sorted;
+    console_folders.sort_by(|a, b| a.path.cmp(&b.path));
+    out.folder_games = console_folders;
+    folder_conflicts.sort_by(|a, b| a.0.cmp(&b.0));
+    out.folder_conflicts = folder_conflicts;
     out.candidates.sort_by(|a, b| a.path.cmp(&b.path));
     out.chd_folders = take_chd_folders(&mut out.candidates);
     out.left.sort_by(|a, b| a.0.cmp(&b.0));
@@ -277,23 +456,43 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     Ok(out)
 }
 
-/// The folder-game reason of `dir` when it directly holds a file proven
-/// for one of [`FOLDER_GAME_SYSTEMS`] (spec D15); `None` otherwise. Only a
-/// `.wad` is read (its first 4 bytes), never one in the cloud.
-fn folder_game_in(dir: &Path, db: &SystemDb, opts: &WalkOptions) -> Option<LeftReason> {
-    let mut files: Vec<(String, PathBuf)> = fs::read_dir(dir)
+/// One `read_dir` of `dir`: each entry's name, path and whether it is a
+/// file, sorted by name, AppleDouble twins and OS junk left out; `None`
+/// when it cannot be listed.
+pub(crate) fn list_dir(dir: &Path) -> Option<Vec<(String, PathBuf, bool)>> {
+    let mut out: Vec<(String, PathBuf, bool)> = fs::read_dir(dir)
         .ok()?
         .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
-        .filter(|(name, _)| {
-            !(is_hidden(name)
-                || is_appledouble(name)
-                || is_junk_file(name)
-                || is_zone_identifier(name))
+        .map(|e| {
+            let is_file = e.file_type().is_ok_and(|t| t.is_file());
+            (
+                e.file_name().to_string_lossy().into_owned(),
+                e.path(),
+                is_file,
+            )
+        })
+        .filter(|(name, _, _)| {
+            !(is_appledouble(name) || is_junk_file(name) || is_zone_identifier(name))
         })
         .collect();
-    files.sort();
+    out.sort();
+    Some(out)
+}
+
+/// The folder-game reason of the folder `listed` lists when it directly
+/// holds a file proven for one of [`FOLDER_GAME_SYSTEMS`] (spec D15);
+/// `None` otherwise. Only a `.wad` is read (its first 4 bytes), never one
+/// in the cloud.
+fn folder_game_in(
+    listed: &[(String, PathBuf, bool)],
+    db: &SystemDb,
+    opts: &WalkOptions,
+) -> Option<LeftReason> {
+    let files: Vec<(&String, &PathBuf)> = listed
+        .iter()
+        .filter(|(name, _, is_file)| *is_file && !(is_hidden(name) || is_key_material(name)))
+        .map(|(name, path, _)| (name, path))
+        .collect();
     let has = |want: &str| files.iter().any(|(n, _)| n.eq_ignore_ascii_case(want));
     let proven = files
         .iter()
@@ -318,6 +517,25 @@ fn folder_game_in(dir: &Path, db: &SystemDb, opts: &WalkOptions) -> Option<LeftR
         system: system.id.clone(),
         folder,
     })
+}
+
+/// Names of the folders that hold an emulator's own installed data
+/// (systems batch 2 §12): Vita3K `ux0`, RPCS3 `dev_hdd0`, Cemu `mlc01`,
+/// Ryujinx/yuzu `nand`. Azahar's `sdmc` counts only with its
+/// `Nintendo 3DS` child, the name being common elsewhere.
+const EMULATOR_DATA_ROOTS: [&str; 4] = ["ux0", "dev_hdd0", "mlc01", "nand"];
+
+/// Whether the folder `dir` named `name` is an emulator's data root: its
+/// files are installed titles, saves and licences that break if moved.
+fn is_emulator_data_root(dir: &Path, name: &str) -> bool {
+    if EMULATOR_DATA_ROOTS
+        .iter()
+        .any(|root| name.eq_ignore_ascii_case(root))
+    {
+        return true;
+    }
+    name.eq_ignore_ascii_case("sdmc")
+        && fs::symlink_metadata(dir.join("Nintendo 3DS")).is_ok_and(|m| m.is_dir())
 }
 
 /// Takes out of `candidates` the `.chd` files of every `<set>/` folder
@@ -408,7 +626,7 @@ fn starts_like_a_wad(path: &Path, probe: &dyn MetaProbe) -> bool {
         return false;
     }
     let mut head = [0u8; 4];
-    fs::File::open(path)
+    crate::consoles::open_rom(path)
         .and_then(|mut f| io::Read::read_exact(&mut f, &mut head))
         .is_ok()
         && is_doom_wad(&head)
@@ -602,6 +820,60 @@ mod tests {
         assert!(is_recent(now, now - Duration::from_secs(5), minute));
         assert!(is_recent(now, now + Duration::from_secs(5), minute));
         assert!(!is_recent(now, now - Duration::from_secs(3600), minute));
+    }
+
+    fn tree_opts(probe: &dyn MetaProbe) -> WalkOptions<'_> {
+        WalkOptions {
+            skip_dirs: Vec::new(),
+            roms_root: None,
+            art_dirs: &[],
+            ignored_dirs: &[],
+            now: SystemTime::now(),
+            recent: Duration::from_secs(60),
+            probe,
+            max_depth: MAX_DEPTH,
+            profile: None,
+        }
+    }
+
+    #[test]
+    fn tree_summary_counts_metadata_and_stops_past_the_depth_cap() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path().join("G");
+        let mut deep = root.clone();
+        for i in 0..TREE_MAX_DEPTH {
+            deep.push(format!("d{i}"));
+        }
+        fs::create_dir_all(&deep).unwrap();
+        let old = SystemTime::now() - Duration::from_secs(3600);
+        for (path, len) in [(root.join("a.bin"), 3usize), (deep.join("z.bin"), 7)] {
+            fs::write(&path, vec![1u8; len]).unwrap();
+            fs::File::options()
+                .write(true)
+                .open(&path)
+                .and_then(|f| f.set_modified(old))
+                .unwrap();
+        }
+        fs::write(root.join(".DS_Store"), b"junk").unwrap();
+        let probe = OsMetaProbe;
+        let t = tree_summary(&root, &tree_opts(&probe));
+        // `d0/…/d15` is the 16th level below the folder: still entered.
+        assert!(!t.truncated);
+        assert_eq!((t.files, t.bytes, t.largest_file), (2, 10, 7));
+        assert!(!t.partial && !t.recent && !t.symlink && !t.cloud_only);
+        assert!(t.longest_rel_utf16 >= "d0/d1/d2/d3/d4/d5/d6/d7/d8/d9".len());
+
+        // A 17th level is past the cap: not entered, the counts a floor.
+        fs::create_dir(deep.join("d16")).unwrap();
+        let t = tree_summary(&root, &tree_opts(&probe));
+        assert!(t.truncated);
+        assert_eq!(t.files, 2);
+
+        fs::remove_dir_all(root.join("d0").join("d1")).unwrap();
+        let t = tree_summary(&root, &tree_opts(&probe));
+        assert!(!t.truncated);
+        assert_eq!(t.files, 1);
+        assert_eq!(t.longest_rel_utf16, "a.bin".len());
     }
 
     #[test]

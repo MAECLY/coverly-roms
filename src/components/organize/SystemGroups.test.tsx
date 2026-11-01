@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { SystemGroups } from '@/components/organize/SystemGroups';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { groupBySystem } from '@/lib/organize';
-import type { SystemInfo, TransferMode } from '@/ipc/types';
+import type { OrganizeItem, SystemInfo, TransferMode } from '@/ipc/types';
 import { autoItem, discItem, planOf } from '@/test/organizeFixtures';
 
 const NAMES: Record<string, string> = {
@@ -373,5 +373,115 @@ describe('SystemGroups — extract rows keep warnings in sight', () => {
         name: 'Files to extract from Tetris Plus.zip',
       }),
     ).toBeInTheDocument();
+  });
+
+  describe('systems batch 2 (spec §9.1)', () => {
+    const demons = (extra: Partial<OrganizeItem> = {}) =>
+      autoItem(0, "Demon's Souls (BLUS-30443)", 'ps3', 'ps3', {
+        kind: 'folder',
+        size: 23_410_000_000,
+        target: "ps3/Demon's Souls (BLUS-30443).ps3",
+        method: 'header',
+        confidence: 0.95,
+        why: [
+          { kind: 'header', system: 'ps3', weight: 0.95, detail: 'PARAM.SFO' },
+        ],
+        title_id: { id: 'BLUS30443', source: 'param-sfo' },
+        notes: [
+          {
+            kind: 'folder-suffix',
+            name: "Demon's Souls (BLUS-30443).ps3",
+            layout: 'ES-DE',
+          },
+        ],
+        ...extra,
+      });
+
+    function renderIn(locale: 'es' | 'en', items: OrganizeItem[]) {
+      render(
+        <I18nProvider locale={locale}>
+          <SystemGroups
+            groups={groupBySystem(planOf(items))}
+            layoutName="ES-DE"
+            systemName={(id) =>
+              id === 'ps3' ? 'Sony PlayStation 3' : 'Nintendo Switch'
+            }
+            profile={null}
+          />
+        </I18nProvider>,
+      );
+    }
+
+    it('a game folder shows the folder glyph, a hidden label and its size in mono', () => {
+      renderIn('es', [demons()]);
+      const row = screen.getByRole('listitem');
+      const label = within(row).getByText('Carpeta de juego');
+      expect(label).toHaveClass('sr-only');
+      // The label is read before the name.
+      expect(label.parentElement).toHaveTextContent(
+        "Carpeta de juego Demon's Souls (BLUS-30443)",
+      );
+      expect(row.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+      const size = within(row).getByText('23,41 GB');
+      expect(size).toHaveClass('font-mono');
+      expect(
+        within(row).getByText("→ ps3/Demon's Souls (BLUS-30443).ps3"),
+      ).toBeInTheDocument();
+      // The id's source, then the rename note, as plain sentences.
+      expect(
+        within(row).getByText('PARAM.SFO').closest('.mono'),
+      ).not.toBeNull();
+      expect(
+        within(row).getByText('BLUS30443').closest('.mono'),
+      ).not.toBeNull();
+      expect(row).toHaveTextContent('Title ID BLUS30443 en PARAM.SFO');
+      expect(
+        within(row).getByText(
+          "Se renombra a Demon's Souls (BLUS-30443).ps3 para que ES-DE lo muestre",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('the size uses the English separator in English', () => {
+      renderIn('en', [demons()]);
+      expect(screen.getByText('23.41 GB')).toHaveClass('font-mono');
+      expect(screen.getByText('Game folder')).toHaveClass('sr-only');
+    });
+
+    it('a file row has no folder label', () => {
+      renderIn('en', [autoItem(1, 'Halo 3 (USA).iso', 'ps3', 'ps3', {})]);
+      expect(screen.queryByText('Game folder')).toBeNull();
+    });
+
+    it('an update sits right under its base, whatever order it came in', () => {
+      const base = autoItem(
+        1,
+        'Super Mario Odyssey [0100000000010000][v0].nsp',
+        'switch',
+        'switch',
+        {
+          title_id: { id: '0100000000010000', source: 'ticket-name' },
+        },
+      );
+      const update = autoItem(
+        2,
+        'Super Mario Odyssey [0100000000010800][v393216].nsp',
+        'switch',
+        'switch',
+        { notes: [{ kind: 'update', of: 'Super Mario Odyssey' }] },
+      );
+      const other = autoItem(3, 'Mario Kart 8.nsp', 'switch', 'switch');
+      renderIn('es', [update, other, base]);
+      const rows = screen.getAllByRole('listitem');
+      expect(rows.map((r) => r.textContent?.slice(0, 24))).toEqual([
+        'Mario Kart 8.nsp → switc',
+        'Super Mario Odyssey [010',
+        'Super Mario Odyssey [010',
+      ]);
+      expect(rows[1]).toHaveTextContent(
+        'Title ID 0100000000010000 en el nombre del ticket',
+      );
+      expect(rows[2]).toHaveTextContent('Actualización de Super Mario Odyssey');
+    });
   });
 });

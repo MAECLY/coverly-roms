@@ -90,6 +90,15 @@ pub struct ProfileFile {
         skip_serializing_if = "is_default_overrides"
     )]
     pub container_overrides: BTreeMap<String, Vec<ContainerKind>>,
+    /// Suffix a folder game of a system ends in on this layout (system id
+    /// → `.ps3`-style suffix; systems batch 2 D13). Files from before it
+    /// load with none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub folder_game_suffix: BTreeMap<String, String>,
+    /// Media of a folder game are named after its whole folder name
+    /// (ES-DE); files from before it load with `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub folder_stem_keeps_suffix: bool,
 }
 
 fn is_default_layout(l: &DiscLayout) -> bool {
@@ -159,6 +168,8 @@ impl ProfileFile {
             disc_layout: p.disc_layout,
             accepts_containers: p.accepts_containers.clone(),
             container_overrides: p.container_overrides.clone(),
+            folder_game_suffix: p.folder_game_suffix.clone(),
+            folder_stem_keeps_suffix: p.folder_stem_keeps_suffix,
         }
     }
 
@@ -210,6 +221,8 @@ impl ProfileFile {
                 .iter()
                 .map(|(id, f)| (id.clone(), ProfileFolder::Named(f.trim().to_string())))
                 .collect(),
+            folder_game_suffix: self.folder_game_suffix.clone(),
+            folder_stem_keeps_suffix: self.folder_stem_keeps_suffix,
         }
     }
 
@@ -220,6 +233,14 @@ impl ProfileFile {
     pub fn to_toml(&self) -> String {
         toml::to_string_pretty(self).expect("a profile file serialises")
     }
+}
+
+/// A folder-game suffix: a dot and 1 to 16 ASCII letters or digits
+/// (`.ps3`), so it never adds a separator, a space or a reserved name.
+fn valid_folder_suffix(s: &str) -> bool {
+    s.strip_prefix('.').is_some_and(|rest| {
+        (1..=16).contains(&rest.len()) && rest.bytes().all(|b| b.is_ascii_alphanumeric())
+    })
 }
 
 fn plain_name(s: &str) -> bool {
@@ -402,6 +423,14 @@ pub fn validate_profile(p: &ProfileFile, builtin_ids: &[String]) -> Vec<FieldErr
         if !known {
             out.push(FieldError::new(
                 format!("container_overrides.{system_id}"),
+                Invalid,
+            ));
+        }
+    }
+    for (system_id, suffix) in &p.folder_game_suffix {
+        if db.get(system_id).is_none_or(|s| s.id != *system_id) || !valid_folder_suffix(suffix) {
+            out.push(FieldError::new(
+                format!("folder_game_suffix.{system_id}"),
                 Invalid,
             ));
         }

@@ -63,6 +63,26 @@ expression: rows
   },
   {
     "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "3ds",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "3dsx",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
       "vic20"
     ],
     "class": "Unique",
@@ -369,6 +389,16 @@ expression: rows
   },
   {
     "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "cci",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
       "dreamcast",
       "jaguarcd"
     ],
@@ -438,6 +468,28 @@ expression: rows
     "ext": "chf",
     "strong": [
       "channelf"
+    ]
+  },
+  {
+    "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "cia",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
+      "gamecube",
+      "wii"
+    ],
+    "class": "Shared",
+    "ext": "ciso",
+    "strong": [
+      "gamecube",
+      "wii"
     ]
   },
   {
@@ -577,6 +629,16 @@ expression: rows
   },
   {
     "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "cxi",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
       "c64",
       "vic20",
       "plus4",
@@ -660,6 +722,15 @@ expression: rows
   },
   {
     "accepting": [
+      "gamecube",
+      "wii"
+    ],
+    "class": "Unknown",
+    "ext": "dol",
+    "strong": []
+  },
+  {
+    "accepting": [
       "dos"
     ],
     "class": "Unique",
@@ -676,6 +747,16 @@ expression: rows
     "ext": "dsd",
     "strong": [
       "bbcmicro"
+    ]
+  },
+  {
+    "accepting": [
+      "nds"
+    ],
+    "class": "Unique",
+    "ext": "dsi",
+    "strong": [
+      "nds"
     ]
   },
   {
@@ -832,6 +913,28 @@ expression: rows
   },
   {
     "accepting": [
+      "gamecube"
+    ],
+    "class": "Unique",
+    "ext": "gcm",
+    "strong": [
+      "gamecube"
+    ]
+  },
+  {
+    "accepting": [
+      "gamecube",
+      "wii"
+    ],
+    "class": "Shared",
+    "ext": "gcz",
+    "strong": [
+      "gamecube",
+      "wii"
+    ]
+  },
+  {
+    "accepting": [
       "dreamcast"
     ],
     "class": "Unique",
@@ -960,7 +1063,12 @@ expression: rows
       "amigacd32",
       "cdtv",
       "fmtowns",
-      "triforce"
+      "triforce",
+      "gamecube",
+      "wii",
+      "ps3",
+      "xbox",
+      "xbox360"
     ],
     "class": "Generic",
     "ext": "iso",
@@ -977,7 +1085,12 @@ expression: rows
       "cdi",
       "amigacd32",
       "cdtv",
-      "fmtowns"
+      "fmtowns",
+      "gamecube",
+      "wii",
+      "ps3",
+      "xbox",
+      "xbox360"
     ]
   },
   {
@@ -1082,7 +1195,12 @@ expression: rows
       "ps2",
       "amstradcpc",
       "x68000",
-      "pc98"
+      "pc98",
+      "gamecube",
+      "wii",
+      "ps3",
+      "xbox",
+      "xbox360"
     ],
     "class": "Shared",
     "ext": "m3u",
@@ -1099,7 +1217,12 @@ expression: rows
       "ps2",
       "amstradcpc",
       "x68000",
-      "pc98"
+      "pc98",
+      "gamecube",
+      "wii",
+      "ps3",
+      "xbox",
+      "xbox360"
     ]
   },
   {
@@ -1196,6 +1319,14 @@ expression: rows
   },
   {
     "accepting": [
+      "switch"
+    ],
+    "class": "Unknown",
+    "ext": "nca",
+    "strong": []
+  },
+  {
+    "accepting": [
       "n64dd"
     ],
     "class": "Unique",
@@ -1274,6 +1405,42 @@ expression: rows
     "ext": "nib",
     "strong": [
       "apple2"
+    ]
+  },
+  {
+    "accepting": [
+      "switch"
+    ],
+    "class": "Unknown",
+    "ext": "nro",
+    "strong": []
+  },
+  {
+    "accepting": [
+      "switch"
+    ],
+    "class": "Unknown",
+    "ext": "nso",
+    "strong": []
+  },
+  {
+    "accepting": [
+      "switch"
+    ],
+    "class": "Unique",
+    "ext": "nsp",
+    "strong": [
+      "switch"
+    ]
+  },
+  {
+    "accepting": [
+      "switch"
+    ],
+    "class": "Unique",
+    "ext": "nsz",
+    "strong": [
+      "switch"
     ]
   },
   {
@@ -1370,6 +1537,15 @@ expression: rows
   },
   {
     "accepting": [
+      "psvita",
+      "ps3"
+    ],
+    "class": "Unknown",
+    "ext": "pkg",
+    "strong": []
+  },
+  {
+    "accepting": [
       "pico8"
     ],
     "class": "Unknown",
@@ -1399,6 +1575,44 @@ expression: rows
     "strong": [
       "c64",
       "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "ps3"
+    ],
+    "class": "Unique",
+    "ext": "ps3",
+    "strong": [
+      "ps3"
+    ]
+  },
+  {
+    "accepting": [
+      "ps3"
+    ],
+    "class": "Unique",
+    "ext": "psn",
+    "strong": [
+      "ps3"
+    ]
+  },
+  {
+    "accepting": [
+      "psvita"
+    ],
+    "class": "Unknown",
+    "ext": "psvimg",
+    "strong": []
+  },
+  {
+    "accepting": [
+      "psvita"
+    ],
+    "class": "Unique",
+    "ext": "psvita",
+    "strong": [
+      "psvita"
     ]
   },
   {
@@ -1434,6 +1648,28 @@ expression: rows
     "ext": "rpk",
     "strong": [
       "ti99"
+    ]
+  },
+  {
+    "accepting": [
+      "wiiu"
+    ],
+    "class": "Unique",
+    "ext": "rpx",
+    "strong": [
+      "wiiu"
+    ]
+  },
+  {
+    "accepting": [
+      "gamecube",
+      "wii"
+    ],
+    "class": "Shared",
+    "ext": "rvz",
+    "strong": [
+      "gamecube",
+      "wii"
     ]
   },
   {
@@ -1700,7 +1936,8 @@ expression: rows
   },
   {
     "accepting": [
-      "gamecom"
+      "gamecom",
+      "gamecube"
     ],
     "class": "Unique",
     "ext": "tgc",
@@ -1717,6 +1954,14 @@ expression: rows
     "strong": [
       "tic80"
     ]
+  },
+  {
+    "accepting": [
+      "wiiu"
+    ],
+    "class": "Unknown",
+    "ext": "tmd",
+    "strong": []
   },
   {
     "accepting": [
@@ -1841,7 +2086,18 @@ expression: rows
   },
   {
     "accepting": [
-      "doom"
+      "psvita"
+    ],
+    "class": "Unique",
+    "ext": "vpk",
+    "strong": [
+      "psvita"
+    ]
+  },
+  {
+    "accepting": [
+      "doom",
+      "wii"
     ],
     "class": "Unique",
     "ext": "wad",
@@ -1856,6 +2112,28 @@ expression: rows
     "class": "Unknown",
     "ext": "wasm",
     "strong": []
+  },
+  {
+    "accepting": [
+      "wii"
+    ],
+    "class": "Unique",
+    "ext": "wbfs",
+    "strong": [
+      "wii"
+    ]
+  },
+  {
+    "accepting": [
+      "gamecube",
+      "wii"
+    ],
+    "class": "Shared",
+    "ext": "wia",
+    "strong": [
+      "gamecube",
+      "wii"
+    ]
   },
   {
     "accepting": [
@@ -1891,6 +2169,84 @@ expression: rows
   },
   {
     "accepting": [
+      "wiiu"
+    ],
+    "class": "Unique",
+    "ext": "wua",
+    "strong": [
+      "wiiu"
+    ]
+  },
+  {
+    "accepting": [
+      "wiiu"
+    ],
+    "class": "Unique",
+    "ext": "wud",
+    "strong": [
+      "wiiu"
+    ]
+  },
+  {
+    "accepting": [
+      "wiiu"
+    ],
+    "class": "Unique",
+    "ext": "wuhb",
+    "strong": [
+      "wiiu"
+    ]
+  },
+  {
+    "accepting": [
+      "wiiu"
+    ],
+    "class": "Unique",
+    "ext": "wux",
+    "strong": [
+      "wiiu"
+    ]
+  },
+  {
+    "accepting": [
+      "xbox"
+    ],
+    "class": "Unknown",
+    "ext": "xbe",
+    "strong": []
+  },
+  {
+    "accepting": [
+      "xbox360"
+    ],
+    "class": "Unique",
+    "ext": "xbox360",
+    "strong": [
+      "xbox360"
+    ]
+  },
+  {
+    "accepting": [
+      "switch"
+    ],
+    "class": "Unique",
+    "ext": "xci",
+    "strong": [
+      "switch"
+    ]
+  },
+  {
+    "accepting": [
+      "switch"
+    ],
+    "class": "Unique",
+    "ext": "xcz",
+    "strong": [
+      "switch"
+    ]
+  },
+  {
+    "accepting": [
       "x68000"
     ],
     "class": "Unique",
@@ -1902,7 +2258,8 @@ expression: rows
   {
     "accepting": [
       "a800",
-      "atarixe"
+      "atarixe",
+      "xbox360"
     ],
     "class": "Unique",
     "ext": "xex",
@@ -1923,6 +2280,26 @@ expression: rows
   },
   {
     "accepting": [
+      "xbox"
+    ],
+    "class": "Unique",
+    "ext": "xiso",
+    "strong": [
+      "xbox"
+    ]
+  },
+  {
+    "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "z3dsx",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
       "n64"
     ],
     "class": "Unique",
@@ -1939,6 +2316,46 @@ expression: rows
     "ext": "z80",
     "strong": [
       "zxspectrum"
+    ]
+  },
+  {
+    "accepting": [
+      "xbox360"
+    ],
+    "class": "Unique",
+    "ext": "zar",
+    "strong": [
+      "xbox360"
+    ]
+  },
+  {
+    "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "zcci",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "zcia",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "zcxi",
+    "strong": [
+      "3ds"
     ]
   },
   {

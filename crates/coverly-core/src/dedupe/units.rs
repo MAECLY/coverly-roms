@@ -10,8 +10,7 @@
 //! No name ever joins two units; a name may only exclude one.
 
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File, Metadata};
-use std::io::Read;
+use std::fs::{self, Metadata};
 use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -19,7 +18,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::archive::detect::by_extension;
 use crate::identify::dat::DatGame;
-use crate::identify::sniff::{sniff, ContainerMagic, NotARom, SliceAt};
+use crate::identify::sniff::{
+    sniff, sniff_switch_first, ContainerMagic, FileAt, NotARom, ReadAt, SliceAt,
+};
 use crate::organize::evidence::Facts;
 use crate::organize::inspect::{ArchiveIssue, Container};
 use crate::organize::walk::FOLDER_GAME_SYSTEMS;
@@ -62,6 +63,9 @@ pub enum UnitKind {
     Image,
     /// An m3u playlist over several discs.
     MultiDisc,
+    /// A folder game (systems batch 2 D26): `primary` is the folder, never
+    /// read as a file. Reported, never set aside (D28).
+    Folder,
 }
 
 /// One playable thing and every file that belongs to it.
@@ -312,6 +316,46 @@ pub fn units_from_facts(
     finish(drafts, excluded, &link_targets)
 }
 
+/// The units of an organise pile's folder games (systems batch 2 D28):
+/// `(folder, system, size, newest mtime)` as the survey measured them
+/// (metadata only). Like a library folder game, the folder is never read
+/// as a file, so only its title id can match it, and its group is
+/// reported, never set aside.
+pub fn units_from_folders(folders: &[(PathBuf, String, u64, i64)]) -> UnitSet {
+    let mut excluded = Vec::new();
+    let mut drafts = Vec::new();
+    for (path, system, size, mtime_ns) in folders {
+        match fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                excluded.push((path.clone(), Exclusion::Symlink));
+            }
+            Ok(meta) if meta.is_dir() => drafts.push(Draft {
+                unit: Unit {
+                    id: 0,
+                    system: system.clone(),
+                    primary: path.clone(),
+                    files: vec![path.clone()],
+                    kind: UnitKind::Folder,
+                    size: *size,
+                    payload_size: None,
+                    mtime_ns: *mtime_ns,
+                    file_id: None,
+                    patches: Vec::new(),
+                    rel_dir: PathBuf::new(),
+                    stem: file_name(path),
+                    ext: String::new(),
+                    in_library: false,
+                },
+                sizes: vec![*size],
+                // Folders cannot be hard links: no twin to drop.
+                dev_ino: None,
+            }),
+            _ => excluded.push((path.clone(), Exclusion::Unreadable)),
+        }
+    }
+    finish(drafts, excluded, &HashSet::new())
+}
+
 /// Units of an organise pile's loose disc sets: each entry is the set's
 /// files (the sheet or playlist first) and the system it belongs to. A
 /// set whose sheet is an `.m3u` is a [`UnitKind::MultiDisc`], any other a
@@ -465,6 +509,11 @@ fn draft_from_rom(
     {
         return Err(Some(Exclusion::Folder));
     }
+    // A folder game (systems batch 2 D26) is one unit, never read as a
+    // file: only its title id can group it, and only to report (D28).
+    if rom.is_dir {
+        return draft_from_folder(rom, system);
+    }
     let files: Vec<PathBuf> = std::iter::once(primary.clone())
         .chain(rom.companions.iter().cloned())
         .collect();
@@ -500,6 +549,43 @@ fn draft_from_rom(
         },
         sizes,
         dev_ino: dev_ino(&meta),
+    })
+}
+
+/// The unit of a folder game entry: the folder alone, its size and
+/// newest modification time as the scan measured them (metadata only).
+fn draft_from_folder(rom: &RomEntry, system: &System) -> Result<Draft, Option<Exclusion>> {
+    let meta = fs::symlink_metadata(&rom.path).map_err(|_| Some(Exclusion::Unreadable))?;
+    if meta.file_type().is_symlink() {
+        return Err(Some(Exclusion::Symlink));
+    }
+    if !meta.is_dir() {
+        return Err(Some(Exclusion::Unreadable));
+    }
+    let mtime_ns = rom
+        .modified
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX));
+    Ok(Draft {
+        unit: Unit {
+            id: 0,
+            system: system.id.clone(),
+            primary: rom.path.clone(),
+            files: vec![rom.path.clone()],
+            kind: UnitKind::Folder,
+            size: rom.size,
+            payload_size: None,
+            mtime_ns,
+            file_id: None,
+            patches: Vec::new(),
+            rel_dir: rom.rel_dir.clone(),
+            stem: rom.title_stem().to_string(),
+            ext: rom.ext.clone(),
+            in_library: true,
+        },
+        sizes: vec![rom.size],
+        // Folders cannot be hard links: no twin to drop.
+        dev_ino: None,
     })
 }
 
@@ -692,10 +778,23 @@ fn probe_magic(
     path: &Path,
     ext: &str,
 ) -> Result<(crate::identify::sniff::Sniff, Vec<u8>), Option<Exclusion>> {
-    let mut head = Vec::with_capacity(MAGIC_PROBE);
-    File::open(path)
-        .and_then(|f| f.take(MAGIC_PROBE as u64).read_to_end(&mut head))
+    let file = crate::consoles::open_rom(path).map_err(|_| Some(Exclusion::Unreadable))?;
+    let len = file
+        .metadata()
+        .map_err(|_| Some(Exclusion::Unreadable))?
+        .len();
+    // A Switch dump is read by its own reader only (systems batch 2 D4):
+    // 512 bytes would reach a small NSP's first NCA and an XCI's
+    // encrypted gamecard info.
+    let mut at = FileAt(file);
+    if let Some(s) = sniff_switch_first(&mut at, len, ext, "") {
+        return Ok((s, Vec::new()));
+    }
+    let mut head = vec![0u8; MAGIC_PROBE.min(usize::try_from(len).unwrap_or(MAGIC_PROBE))];
+    let n = at
+        .read_at(0, &mut head)
         .map_err(|_| Some(Exclusion::Unreadable))?;
+    head.truncate(n);
     let sniffed = sniff(&mut SliceAt(&head), head.len() as u64, ext);
     Ok((sniffed, head))
 }

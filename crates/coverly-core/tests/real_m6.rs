@@ -65,6 +65,7 @@ fn real_m6_steamgriddb_key_finds_voted_covers() {
                 hash: None,
                 size: 0,
                 file_name: title,
+                rom_path: None,
             })
             .unwrap();
         eprintln!(
@@ -114,6 +115,7 @@ fn real_m6_screenscraper_dev_credentials_find_box_art() {
             hash: None,
             size: 0,
             file_name: "Sonic The Hedgehog (USA, Europe).md",
+            rom_path: None,
         })
         .unwrap();
     eprintln!("{} covers; threads {}", c.len(), src.threads());

@@ -108,6 +108,7 @@ fn run(
         hash,
         size: 16,
         file_name: "Golden Sun (USA, Europe).gba",
+        rom_path: None,
     })
 }
 
@@ -228,6 +229,7 @@ fn requests_are_spaced_by_the_min_interval() {
             hash: Some(&h),
             size: 16,
             file_name: file,
+            rom_path: None,
         })
         .unwrap();
     }
@@ -266,6 +268,7 @@ fn maxthreads_from_ssuser_set_the_thread_count() {
         hash: Some(&h),
         size: 16,
         file_name: "Golden Sun (USA, Europe).gba",
+        rom_path: None,
     })
     .unwrap();
     assert_eq!(src.threads(), 3);
@@ -312,6 +315,7 @@ fn a_reached_quota_skips_screenscraper_for_the_run() {
         hash: Some(&h),
         size: 16,
         file_name: "Golden Sun (USA, Europe).gba",
+        rom_path: None,
     };
     src.candidates(&q).unwrap();
     // A cached game needs no request; a title search does, and is refused.
@@ -387,6 +391,7 @@ fn a_system_without_a_screenscraper_id_is_unavailable() {
             hash: None,
             size: 0,
             file_name: "x.p8",
+            rom_path: None,
         })
         .unwrap_err();
     assert!(matches!(e, SourceError::SystemUnavailable { .. }));

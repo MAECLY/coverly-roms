@@ -283,7 +283,10 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
             if cluster.len() < 2 {
                 continue;
             }
-            if !first.confirmed || first.exact.as_ref().is_some_and(|e| !e.is_confirmed()) {
+            if matches!(first.exact, Some(ExactKey::Title { .. })) {
+                // A title id is no CRC: say what matched (plan P-6).
+                reasons.push(ReportWhy::TitleId);
+            } else if !first.confirmed || first.exact.as_ref().is_some_and(|e| !e.is_confirmed()) {
                 reasons.push(ReportWhy::Unconfirmed);
             }
             match self.header_keepers(&cluster, keyed) {
@@ -293,6 +296,7 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
             }
             let why = strictest(reasons);
             let confidence = match (&first.exact, &why) {
+                (Some(ExactKey::Title { .. }), _) => VERSION_CONFIDENCE,
                 (_, Some(ReportWhy::Unconfirmed)) => UNCONFIRMED_CONFIDENCE,
                 (Some(ExactKey::Arcade { .. }), _) => ARCADE_CONFIDENCE,
                 _ => EXACT_CONFIDENCE,
@@ -459,11 +463,22 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
         for &(u, k) in versions {
             buckets.entry(k.key_string()).or_default().push(u);
         }
-        let why = (!self.opts.one_game_one_rom).then_some(ReportWhy::LevelTwoOff);
+        let title_ids: BTreeSet<String> = versions
+            .iter()
+            .filter(|(_, k)| k.by_title_id)
+            .map(|(_, k)| k.key_string())
+            .collect();
         for (key, list) in buckets {
             if list.len() < 2 {
                 continue;
             }
+            // A console title id is no catalogue identity (plan P-6): its
+            // other versions are only reported, "one game, one ROM" or not.
+            let why = if title_ids.contains(&key) {
+                Some(ReportWhy::TitleId)
+            } else {
+                (!self.opts.one_game_one_rom).then_some(ReportWhy::LevelTwoOff)
+            };
             // One representative per copy cluster: exact copies of one
             // catalogue game share its key, but they are not other
             // versions of each other, and a version link between them
@@ -560,16 +575,19 @@ enum HeaderCheck {
 /// group is the least strict, as it is the only one you may override.
 fn rank(why: &ReportWhy) -> u8 {
     match why {
-        ReportWhy::Modified => 10,
-        ReportWhy::SerialConflict => 9,
-        ReportWhy::HeaderDiffers => 8,
-        ReportWhy::BuildDiffers => 7,
-        ReportWhy::ChdMetadataDiffers => 6,
-        ReportWhy::PartialSet => 5,
-        ReportWhy::Unconfirmed => 4,
-        ReportWhy::ArcadeNoDat => 3,
-        ReportWhy::LevelTwoOff => 2,
-        ReportWhy::UserSkipped => 1,
+        ReportWhy::Modified => 12,
+        ReportWhy::SerialConflict => 11,
+        ReportWhy::HeaderDiffers => 10,
+        ReportWhy::BuildDiffers => 9,
+        ReportWhy::ChdMetadataDiffers => 8,
+        ReportWhy::PartialSet => 7,
+        ReportWhy::Unconfirmed => 6,
+        ReportWhy::TitleId => 5,
+        ReportWhy::ArcadeNoDat => 4,
+        ReportWhy::LevelTwoOff => 3,
+        ReportWhy::UserSkipped => 2,
+        // Only the planner gives it, after grouping.
+        ReportWhy::FolderGame => 1,
         ReportWhy::BigGroup { .. } => 0,
     }
 }

@@ -408,6 +408,7 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         catalogue_name: None,
         transfer: Default::default(),
         disc: None,
+        title_id: None,
         action,
     };
     let auto = OrganizeItem {
@@ -481,6 +482,7 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         created_at: "2026-10-17T10:32:00Z".into(),
         duplicates: vec![],
         set_aside_trash: false,
+        updates: 0,
     }
 }
 
@@ -557,6 +559,7 @@ fn organize_extract_item_sample() -> coverly_core::organize::OrganizeItem {
             volume: None,
             source: DiscIdSource::SystemCnf,
         }),
+        title_id: None,
         action: OrganizeAction::Auto,
     }
 }
@@ -1089,6 +1092,7 @@ fn organise_set_aside_views_match_the_shared_sample() {
         catalogue_name: Some("Tetris (World) (Rev 1)".into()),
         transfer: Transfer::AsIs,
         disc: None,
+        title_id: None,
         action: OrganizeAction::SetAside {
             keeper: "ROMS/GB/Tetris (World) (Rev 1).gb".into(),
             relation: Relation::Exact,
@@ -1168,4 +1172,102 @@ fn system_families_and_folder_games_match_the_shared_sample() {
             serde_json::to_string_pretty(value).unwrap()
         );
     }
+}
+
+/// Systems batch 2 (spec §10): a game folder with its title id and the
+/// new notes, the new reasons and the plan's update count.
+#[test]
+fn systems_batch_2_items_match_the_shared_sample() {
+    use coverly_core::consoles::{IdSource, TitleIdRef};
+    use coverly_core::identify::evidence::{Evidence, IdLevel};
+    use coverly_core::identify::sniff::NotARom;
+    use coverly_core::organize::{
+        ItemKind, ItemNote, LeftReason, OrganizeAction, OrganizeItem, SourceFp, Transfer,
+    };
+
+    let folder = OrganizeItem {
+        id: 7,
+        sources: vec!["Demon's Souls (BLUS-30443)".into()],
+        kind: ItemKind::Folder,
+        size: 23_410_000_000,
+        fps: vec![SourceFp {
+            size: 23_410_000_000,
+            mtime_ns: 1_700_000_000_000_000_000,
+        }],
+        target: Some("ps3/Demon's Souls (BLUS-30443).ps3".into()),
+        set_targets: vec![],
+        system_id: Some("ps3".into()),
+        folder: Some("ps3".into()),
+        confidence: 0.95,
+        method: Some(IdLevel::Header),
+        why: vec![Evidence::new(IdLevel::Header, "ps3", 0.95, "PARAM.SFO")],
+        alternatives: vec![],
+        rename: None,
+        notes: vec![
+            ItemNote::FolderSuffix {
+                name: "Demon's Souls (BLUS-30443).ps3".into(),
+                layout: "ES-DE".into(),
+            },
+            ItemNote::Update {
+                of: "Demon's Souls".into(),
+            },
+            ItemNote::Dlc {
+                of: "Demon's Souls".into(),
+            },
+            ItemNote::EncryptedContent {
+                emulator: "Azahar".into(),
+            },
+            ItemNote::InstallFirst {
+                emulator: "RPCS3".into(),
+            },
+        ],
+        companions: vec![],
+        catalogue_name: None,
+        transfer: Transfer::AsIs,
+        disc: None,
+        title_id: Some(TitleIdRef {
+            id: "BLUS30443".into(),
+            source: IdSource::ParamSfo,
+        }),
+        action: OrganizeAction::Auto,
+    };
+    let sources: Vec<IdSource> = vec![
+        IdSource::ParamSfo,
+        IdSource::MetaXml,
+        IdSource::AppXml,
+        IdSource::DefaultXbe,
+        IdSource::DefaultXex,
+        IdSource::CnmtXml,
+        IdSource::TicketName,
+        IdSource::FileName,
+        IdSource::Header,
+    ];
+    let mut plan = organize_plan_sample();
+    plan.updates = 2;
+    // Through the text form, as on the wire (f32 0.95 prints as "0.95").
+    let folder: Value = serde_json::from_str(&serde_json::to_string(&folder).unwrap()).unwrap();
+    let actual = json!({
+        "organize_folder_item": folder,
+        "organize_id_sources": sources,
+        "organize_batch2_reasons": [
+            LeftReason::KeyMaterial,
+            LeftReason::EmulatorData { folder: "ux0".into() },
+            LeftReason::NotARom { what: NotARom::Installer },
+            LeftReason::NotARom { what: NotARom::Model3d },
+            LeftReason::NotARom { what: NotARom::PcGameData },
+        ],
+        "organize_plan_updates": serde_json::to_value(&plan).unwrap()["updates"],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+    // Absent when there is none, as every older plan.
+    assert!(serde_json::to_value(organize_plan_sample()).unwrap()["updates"].is_null());
 }

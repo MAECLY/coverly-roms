@@ -406,6 +406,63 @@ export const SYSTEM_ICON_SOURCES = Object.freeze({
     depicts: 'handheld',
     audit: 'card-sized handheld, blank screen, plain buttons, no badge',
   },
+  // Systems batch 2 (spec §9.2), audited on the contact sheet (D21): all
+  // nine are neutral drawings inside the 1:2 to 2.5:1 range, so none goes to
+  // WORDMARK_IDS.
+  gamecube: {
+    file: 'Nintendo - GameCube.svg',
+    depicts: 'pad',
+    audit:
+      'pad with grips, plain stick, cross pad and plain round buttons, no marks',
+  },
+  wii: {
+    file: 'Nintendo - Wii.svg',
+    depicts: 'pad',
+    audit:
+      'remote and corded attachment, plain cross pad and dots, no wordmark',
+  },
+  wiiu: {
+    file: 'Nintendo - Wii U.svg',
+    depicts: 'pad',
+    audit:
+      'tablet controller, blank screen, plain sticks, cross pad and dots, no marks',
+  },
+  '3ds': {
+    file: 'Nintendo - Nintendo 3DS.svg',
+    depicts: 'handheld',
+    audit:
+      'open clamshell handheld, two blank screens, plain buttons, no badge',
+  },
+  switch: {
+    file: 'Nintendo - Switch.svg',
+    depicts: 'handheld',
+    audit:
+      'tablet with side controllers, blank screen, plain buttons, no marks',
+  },
+  psvita: {
+    file: 'Sony - PlayStation Vita.svg',
+    depicts: 'handheld',
+    audit:
+      'oval handheld, blank screen, plain cross pad and round buttons, no symbols',
+  },
+  ps3: {
+    file: 'Sony - PlayStation 3.svg',
+    depicts: 'pad',
+    audit:
+      'pad with grips and two sticks, plain round face buttons, no face-button symbols',
+  },
+  xbox: {
+    file: 'Microsoft - Xbox.svg',
+    depicts: 'pad',
+    audit:
+      'wide pad, plain sticks and round buttons, blank centre ring, no logo',
+  },
+  xbox360: {
+    file: 'Microsoft - Xbox 360.svg',
+    depicts: 'pad',
+    audit:
+      'pad with grips, plain sticks and round buttons, blank centre ring, no logo',
+  },
   fbneo: { file: CABINET, depicts: 'cabinet', audit: CABINET_AUDIT },
   varcade: {
     file: CABINET,

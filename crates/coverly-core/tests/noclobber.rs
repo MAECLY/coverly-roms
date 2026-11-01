@@ -4,7 +4,10 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 
-use coverly_core::write::{rename_noclobber, rename_noclobber_using, same_volume};
+use coverly_core::write::{
+    rename_dir_noclobber, rename_dir_noclobber_using, rename_noclobber, rename_noclobber_using,
+    same_volume,
+};
 
 #[cfg(unix)]
 const UNSUPPORTED: i32 = libc::ENOTSUP;
@@ -156,4 +159,79 @@ fn an_unlistable_target_folder_is_refused_as_permission_denied() {
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(result.unwrap_err().kind(), ErrorKind::PermissionDenied);
     assert_eq!(fs::read(&a).unwrap(), b"A");
+}
+
+/// A small game folder: `dir/GAME.PROBE` and `dir/data/a.bin`.
+fn game_dir(dir: &Path) {
+    fs::create_dir_all(dir.join("data")).unwrap();
+    fs::write(dir.join("GAME.PROBE"), b"P").unwrap();
+    fs::write(dir.join("data/a.bin"), b"A").unwrap();
+}
+
+#[test]
+fn dir_rename_moves_a_tree_to_a_free_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (a, b) = (tmp.path().join("Zelda"), tmp.path().join("GB"));
+    game_dir(&a);
+    fs::create_dir(&b).unwrap();
+    rename_dir_noclobber(&a, &b.join("Zelda")).unwrap();
+    assert!(!a.exists());
+    assert_eq!(fs::read(b.join("Zelda/data/a.bin")).unwrap(), b"A");
+}
+
+#[test]
+fn dir_rename_refuses_an_existing_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (a, b) = (tmp.path().join("Zelda"), tmp.path().join("Taken"));
+    game_dir(&a);
+    fs::create_dir(&b).unwrap();
+    let err = rename_dir_noclobber(&a, &b).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::AlreadyExists);
+    assert!(a.join("data/a.bin").is_file(), "the source stays whole");
+    assert_eq!(fs::read_dir(&b).unwrap().count(), 0, "never merged");
+}
+
+#[test]
+fn dir_rename_fallback_creates_then_renames() {
+    // FAT/exFAT on macOS/Linux: no exclusive rename. Never a hard link
+    // (`EPERM` on folders) and never a bare rename onto a folder this call
+    // did not create (POSIX replaces an empty one).
+    let tmp = tempfile::tempdir().unwrap();
+    let a = tmp.path().join("Zelda");
+    game_dir(&a);
+    let b = tmp.path().join("Moved");
+    rename_dir_noclobber_using(&a, &b, &unsupported).unwrap();
+    assert!(!a.exists());
+    assert_eq!(fs::read(b.join("GAME.PROBE")).unwrap(), b"P");
+    assert_eq!(fs::read(b.join("data/a.bin")).unwrap(), b"A");
+
+    // An empty folder already at the target: refused, nothing moves.
+    let c = tmp.path().join("Other");
+    game_dir(&c);
+    let empty = tmp.path().join("Empty");
+    fs::create_dir(&empty).unwrap();
+    let err = rename_dir_noclobber_using(&c, &empty, &unsupported).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::AlreadyExists);
+    assert!(c.join("data/a.bin").is_file());
+    assert_eq!(fs::read_dir(&empty).unwrap().count(), 0);
+
+    // A case twin of the target name is taken too.
+    fs::create_dir(tmp.path().join("game")).unwrap();
+    let err = rename_dir_noclobber_using(&c, &tmp.path().join("Game"), &unsupported).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::AlreadyExists);
+    assert!(c.join("data/a.bin").is_file());
+    assert_eq!(fs::read_dir(tmp.path().join("game")).unwrap().count(), 0);
+}
+
+#[test]
+fn dir_rename_returns_other_exclusive_errors_untouched() {
+    let tmp = tempfile::tempdir().unwrap();
+    let a = tmp.path().join("Zelda");
+    game_dir(&a);
+    let b = tmp.path().join("Moved");
+    let full = |_: &Path, _: &Path| Err(std::io::Error::from(ErrorKind::StorageFull));
+    let err = rename_dir_noclobber_using(&a, &b, &full).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::StorageFull);
+    assert!(a.join("data/a.bin").is_file());
+    assert!(!b.exists(), "no folder made for a failed rename");
 }

@@ -18,11 +18,14 @@ use walkdir::WalkDir;
 use crate::archive::names::UnsafeWhy;
 use crate::archive::{ContainerKind, Limits, Tool, ToolsOnDemand};
 use crate::cache::Cache;
+use crate::consoles::{base_title_id, TitleKind};
 use crate::dedupe::archive::ArchiveEntryListing;
 use crate::dedupe::disc::ReaderDiscProbe;
 use crate::dedupe::source::DiscId;
 use crate::dedupe::source::{CacheDats, DiscProbe, EntryListing, ListedEntry};
-use crate::dedupe::units::{units_from_facts, units_from_scan, units_from_sets, UnitOptions};
+use crate::dedupe::units::{
+    units_from_facts, units_from_folders, units_from_scan, units_from_sets, UnitOptions,
+};
 use crate::dedupe::{
     group_units, DedupeOptions, DupGroup, GroupAction, GroupEnv, KeepReason, QuarantineChoice,
     Relation, ReportWhy, DEFAULT_QUARANTINE_NAME,
@@ -32,6 +35,7 @@ use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::HeaderRule;
 use crate::identify::sniff::{NotARom, Sniff};
 use crate::organize::apply::{cluster_size, user_available};
+use crate::organize::evidence::Combined;
 use crate::organize::evidence::{
     identify_candidate, DatCatalogue, Facts, Identification, LadderEnv, OnlineLookup, Thresholds,
     Verdict, MAX_DAT_DOWNLOADS,
@@ -42,10 +46,11 @@ use crate::organize::inspect::{
 };
 use crate::organize::target::{
     assign_targets_with_extracts, attach_set_aside_companions, default_companion_exts,
-    file_system_is_fat32, limit_fat_folders, DirIndex, ExtractShape, TargetLayout,
+    file_system_is_fat32, folder_gate, limit_fat_folders, windows_paths, DirIndex, ExtractShape,
+    TargetLayout,
 };
 use crate::organize::walk::{
-    is_broad_root, walk, MetaProbe, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
+    is_broad_root, walk, MetaProbe, TreeSummary, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
 };
 use crate::profiles::{detect, Profile};
 use crate::scan::classify::{
@@ -86,6 +91,10 @@ pub enum ItemKind {
     Archive,
     /// Several files that travel together (`.cue` + `.bin`, `.m3u`, `.gdi`).
     Set,
+    /// A game that is a folder (systems batch 2 D12): moved whole, its
+    /// `size` the metadata sum of its files and its one fingerprint the
+    /// tree's total bytes and newest mtime (D25, D27).
+    Folder,
 }
 
 /// Why a file stays where it is.
@@ -208,6 +217,15 @@ pub enum LeftReason {
     Unreadable,
     /// One file of a set collides at the target: the whole set stays.
     CollisionSet,
+    /// A console key or licence file (systems batch 2 D4): never read,
+    /// never moved.
+    KeyMaterial,
+    /// Inside an emulator's own data tree (`ux0`, `dev_hdd0`, `mlc01`,
+    /// `sdmc/Nintendo 3DS`, `nand`): moving it breaks the install.
+    /// `folder` is the root's name as on disk.
+    EmulatorData {
+        folder: String,
+    },
 }
 
 /// The reason an inspection issue leaves an item in place (archives spec
@@ -281,6 +299,19 @@ pub enum ItemNote {
     SheetNotReadYet,
     /// Several ROMs of one system are extracted from one archive.
     MultiRomExtract { count: usize },
+    /// An update of `of` (its title, or its title id when the base is not
+    /// in the plan).
+    Update { of: String },
+    /// Downloadable content of `of` (as for [`ItemNote::Update`]).
+    Dlc { of: String },
+    /// The header says the content is encrypted; `emulator` only opens
+    /// decrypted copies (a fact about the emulator, systems batch 2 D4).
+    EncryptedContent { emulator: String },
+    /// A package the emulator installs (PS3/Vita PKG).
+    InstallFirst { emulator: String },
+    /// The folder is renamed to `name` so `layout` shows it (systems
+    /// batch 2 D13).
+    FolderSuffix { name: String, layout: String },
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -446,6 +477,10 @@ pub struct OrganizeItem {
     /// The disc's serials and fingerprint, for the UI and dedupe level 3.
     #[serde(default)]
     pub disc: Option<DiscId>,
+    /// A console title id and where it was read (systems batch 2 §10),
+    /// for the row's «why» line; left out of the JSON when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_id: Option<crate::consoles::TitleIdRef>,
     #[serde(flatten)]
     pub action: OrganizeAction,
 }
@@ -656,6 +691,15 @@ pub enum OrganizePhase {
         /// generated playlist is not one).
         entries_total: usize,
     },
+    /// Copying the files of folder item `item` (a game that is a folder,
+    /// spec D25): `bytes_done` of its `bytes_total` (the item's `size`).
+    /// The first event of an item has `bytes_done == 0` and the last
+    /// `bytes_done == bytes_total`; a move by one rename sends none.
+    Folder {
+        item: usize,
+        bytes_done: u64,
+        bytes_total: u64,
+    },
 }
 
 /// Planning progress: `done` of `total` in `phase`.
@@ -783,6 +827,10 @@ pub struct OrganizePlan {
     /// (left out of the JSON when false).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub set_aside_trash: bool,
+    /// Rows that are an update or DLC of a game (systems batch 2 D11),
+    /// for the summary sentence; left out of the JSON when 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub updates: usize,
 }
 
 /// One future plan item as the survey found it.
@@ -802,6 +850,12 @@ pub struct SurveyEntry {
     /// What the ladder read (identified entries): the duplicates step
     /// builds its units from it without reading the file again.
     pub facts: Option<Facts>,
+    /// A folder game's tree (systems batch 2 D27): the target gates
+    /// (FAT32 member size, Windows path length) read it.
+    pub tree: Option<TreeSummary>,
+    /// What a console header reader found (systems batch 2 §8): title id
+    /// and kind group updates and DLC with their base (D11).
+    pub console: Option<crate::consoles::ConsoleId>,
 }
 
 /// What a pile holds and what each candidate is: everything a plan needs
@@ -1056,11 +1110,22 @@ pub fn survey(
                 identification: None,
                 inspection: None,
                 facts: None,
+                tree: None,
+                console: None,
             },
             candidate: None,
             set_sniff: None,
         });
     }
+    entries.extend(
+        folder_entries(&mut walked, opts.thresholds)
+            .into_iter()
+            .map(|entry| Pending {
+                entry,
+                candidate: None,
+                set_sniff: None,
+            }),
+    );
     entries.sort_by(|a, b| a.entry.sources[0].cmp(&b.entry.sources[0]));
 
     // 3. The identification ladder on a few workers.
@@ -1092,8 +1157,9 @@ pub fn survey(
         arcade_order: &arcade_order,
         online: if opts.offline { None } else { env.online },
     };
+    // Folder games come identified by their probe (plan P-3).
     let todo: Vec<usize> = (0..entries.len())
-        .filter(|&i| entries[i].entry.left.is_none())
+        .filter(|&i| entries[i].entry.left.is_none() && entries[i].entry.kind != ItemKind::Folder)
         .collect();
     let workers = if crate::write::on_removable_volume(&source_abs) {
         SLOW_VOLUME_WORKERS
@@ -1208,6 +1274,17 @@ pub fn survey(
     }
     let mut entries: Vec<SurveyEntry> = entries.into_iter().map(|p| p.entry).collect();
     gather_volume_sets(&mut entries, &volume_sets, &mut walked);
+    for entry in &mut entries {
+        if entry.console.is_none() {
+            entry.console = entry.facts.as_ref().and_then(|f| {
+                f.inspection
+                    .payloads
+                    .iter()
+                    .find_map(|p| p.sniff.console.clone())
+            });
+        }
+    }
+    let entries = updates_after_bases(entries);
 
     Ok(Survey {
         source_root: source_abs,
@@ -1216,6 +1293,207 @@ pub fn survey(
         entries,
         walked,
     })
+}
+
+/// The base title id and kind of an entry's console header (D11).
+fn title_group(entry: &SurveyEntry) -> Option<((String, String), TitleKind)> {
+    let c = entry.console.as_ref()?;
+    Some(((c.system.clone(), base_title_id(c)?), c.kind))
+}
+
+/// Puts every update and DLC right after its base (systems batch 2
+/// D11): updates first, then DLC, each in path order. One with no base in
+/// the pile keeps its place. Item ids are survey positions, so the plan
+/// lists them in this order too.
+fn updates_after_bases(entries: Vec<SurveyEntry>) -> Vec<SurveyEntry> {
+    let bases: BTreeSet<(String, String)> = entries
+        .iter()
+        .filter_map(title_group)
+        .filter(|(_, kind)| *kind == TitleKind::Base)
+        .map(|(group, _)| group)
+        .collect();
+    if bases.is_empty() {
+        return entries;
+    }
+    let mut rest: Vec<SurveyEntry> = Vec::with_capacity(entries.len());
+    let mut children: HashMap<(String, String), Vec<SurveyEntry>> = HashMap::new();
+    for entry in entries {
+        match title_group(&entry) {
+            Some((group, TitleKind::Update | TitleKind::Dlc)) if bases.contains(&group) => {
+                children.entry(group).or_default().push(entry);
+            }
+            _ => rest.push(entry),
+        }
+    }
+    let mut out = Vec::with_capacity(rest.len());
+    for entry in rest {
+        let group = title_group(&entry)
+            .filter(|(_, kind)| *kind == TitleKind::Base)
+            .map(|(group, _)| group);
+        out.push(entry);
+        if let Some(mut kids) = group.and_then(|g| children.remove(&g)) {
+            kids.sort_by_key(|e| title_group(e).map(|(_, k)| k == TitleKind::Dlc));
+            out.extend(kids);
+        }
+    }
+    out
+}
+
+/// The title of the base game an update or DLC belongs to, for its note:
+/// the header's title, else the base's file (or folder) name without its
+/// tags, else the base title id.
+fn base_title(base: Option<(&SurveyEntry, &OrganizeItem)>, id: &str) -> String {
+    let Some((entry, item)) = base else {
+        return id.to_string();
+    };
+    if let Some(title) = entry.console.as_ref().and_then(|c| c.title.clone()) {
+        return title;
+    }
+    let name = item
+        .sources
+        .first()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stem = match item.kind {
+        ItemKind::Folder => name.as_str(),
+        _ => name
+            .rsplit_once('.')
+            .map_or(name.as_str(), |(stem, _)| stem),
+    };
+    let title = crate::identify::names::parse_name(stem, false).title;
+    if title.trim().is_empty() {
+        id.to_string()
+    } else {
+        title.trim().to_string()
+    }
+}
+
+/// Notes every update and DLC with the base it belongs to (D11), when
+/// its header names the system the item goes to; returns how many rows
+/// carry such a note.
+fn note_updates(items: &mut [OrganizeItem], entries: &[SurveyEntry]) -> usize {
+    let mut bases: HashMap<(String, String), usize> = HashMap::new();
+    for (i, entry) in entries.iter().enumerate() {
+        if let Some((group, TitleKind::Base)) = title_group(entry) {
+            bases.entry(group).or_insert(i);
+        }
+    }
+    let mut notes: Vec<(usize, ItemNote)> = Vec::new();
+    for (i, entry) in entries.iter().enumerate() {
+        let Some(((system, base_id), kind)) = title_group(entry) else {
+            continue;
+        };
+        let Some(item) = items.get(i) else { continue };
+        if item.system_id.as_deref() != Some(system.as_str()) {
+            continue;
+        }
+        let base = bases
+            .get(&(system.clone(), base_id.clone()))
+            .and_then(|&b| Some((entries.get(b)?, items.get(b)?)));
+        let note = match kind {
+            TitleKind::Update => ItemNote::Update {
+                of: base_title(base, &base_id),
+            },
+            TitleKind::Dlc => ItemNote::Dlc {
+                of: base_title(base, &base_id),
+            },
+            _ => continue,
+        };
+        notes.push((i, note));
+    }
+    let count = notes.len();
+    for (i, note) in notes {
+        items[i].notes.push(note);
+    }
+    count
+}
+
+/// One entry per folder game of the walk (systems batch 2 D12, D27),
+/// identified already by its probe: Auto or Review by its confidence, or
+/// left by the first gate its tree fails (a symlink, a partial download,
+/// a recent file, a cloud placeholder, in that order). A tree past the
+/// caps stays in review. Folders two probes claimed for different
+/// systems go to review with both systems as alternatives.
+fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntry> {
+    let entry = |path: PathBuf,
+                 tree: TreeSummary,
+                 combined: Combined,
+                 console: Option<crate::consoles::ConsoleId>| {
+        let left = if tree.symlink {
+            Some(LeftReason::Symlink)
+        } else if tree.partial {
+            Some(LeftReason::PartialDownload)
+        } else if tree.recent {
+            Some(LeftReason::RecentlyModified)
+        } else if tree.cloud_only {
+            Some(LeftReason::CloudOnly)
+        } else {
+            None
+        };
+        let fp = SourceFp {
+            size: tree.bytes,
+            mtime_ns: tree.newest_mtime_ns,
+        };
+        SurveyEntry {
+            sources: vec![path],
+            kind: ItemKind::Folder,
+            size: tree.bytes,
+            fps: vec![fp],
+            left,
+            identification: Some(Identification {
+                combined,
+                left: None,
+                catalogue_name: None,
+                content_key: None,
+                rom_count: 1,
+                notes: Vec::new(),
+                disc: None,
+            }),
+            inspection: None,
+            facts: None,
+            tree: Some(tree),
+            console,
+        }
+    };
+    let mut out = Vec::new();
+    for game in std::mem::take(&mut walked.folder_games) {
+        let id = &game.id;
+        let verdict = if !game.tree.truncated && id.confidence >= thresholds.auto {
+            Verdict::Auto
+        } else {
+            Verdict::Review
+        };
+        let combined = Combined {
+            verdict,
+            system: Some(id.system.clone()),
+            confidence: id.confidence,
+            method: Some(IdLevel::Header),
+            why: vec![Evidence::new(
+                IdLevel::Header,
+                &id.system,
+                id.confidence,
+                id.detail.clone(),
+            )],
+            alternatives: Vec::new(),
+        };
+        out.push(entry(game.path, game.tree, combined, Some(game.id)));
+    }
+    for (path, systems, tree) in std::mem::take(&mut walked.folder_conflicts) {
+        let combined = Combined {
+            verdict: Verdict::Review,
+            system: None,
+            confidence: 0.0,
+            method: Some(IdLevel::Header),
+            why: Vec::new(),
+            alternatives: systems
+                .into_iter()
+                .map(|s| (s, thresholds.review))
+                .collect(),
+        };
+        out.push(entry(path, tree, combined, None));
+    }
+    out
 }
 
 /// Turns every multi-volume set into one Left entry holding all its parts
@@ -1301,6 +1579,8 @@ fn build_entries(
             identification: None,
             inspection: None,
             facts: None,
+            tree: None,
+            console: None,
         };
         if !is_list {
             if candidate.ext == "zip" || candidate.ext == "7z" {
@@ -1515,7 +1795,9 @@ fn identify_one(
 /// unknown system.
 /// 6: PS2, 3DO and Pico verdicts became systems, and a loose 3DO, PC-FX,
 /// CD-i, CD32 or CDTV image is told by its disc signature (systems batch 1).
-const FACTS_VERSION: u32 = 6;
+/// 7: Tanda 2 console ids on `Sniff.console`, and macOS installers and 3D
+/// Studio models are no ROMs (systems batch 2 D23, D7).
+const FACTS_VERSION: u32 = 7;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -1688,6 +1970,7 @@ pub fn plan_from_survey(
             action: OrganizeAction::Left {
                 reason: LeftReason::Unknown,
             },
+            title_id: None,
         };
         let mut key = None;
         match (&entry.left, &entry.identification) {
@@ -1719,6 +2002,13 @@ pub fn plan_from_survey(
                 if found.left.is_none() {
                     item.system_id = c.system.clone();
                 }
+                // The header's title id, for the «why» line (spec §10),
+                // when the header names the system the item goes to.
+                item.title_id = entry
+                    .console
+                    .as_ref()
+                    .filter(|con| c.system.as_deref() == Some(con.system.as_str()))
+                    .and_then(crate::consoles::TitleIdRef::of);
             }
             (None, None) => {}
         }
@@ -1816,12 +2106,21 @@ pub fn plan_from_survey(
         profile,
         overrides: opts.folder_names.clone(),
         fat32,
-        windows_paths: cfg!(windows),
+        windows_paths: windows_paths(),
         names: opts.names,
         companion_exts: opts.companion_exts.clone(),
     };
+    // A FAT32 member too big is known before any name is claimed (D27).
+    if fat32 {
+        for item in items.iter_mut().filter(|i| i.moves_in()) {
+            let tree = survey.entries.get(item.id).and_then(|e| e.tree.as_ref());
+            if tree.is_some_and(|t| folder_gate(Path::new(""), t, true, false).is_some()) {
+                item.leave(LeftReason::TooBigForFat);
+            }
+        }
+    }
     let same_content = |existing: &Path, item: &OrganizeItem| -> bool {
-        item.kind != ItemKind::Set
+        !matches!(item.kind, ItemKind::Set | ItemKind::Folder)
             && item
                 .sources
                 .first()
@@ -1837,6 +2136,20 @@ pub fn plan_from_survey(
         &mut DirIndex::new(),
         &same_content,
     );
+    // A folder game's deepest member must fit below its target (D27).
+    for item in items.iter_mut().filter(|i| i.moves_in()) {
+        let (Some(target), Some(tree)) = (
+            item.target.as_ref(),
+            survey.entries.get(item.id).and_then(|e| e.tree.as_ref()),
+        ) else {
+            continue;
+        };
+        if let Some(reason) =
+            folder_gate(&target_root.join(target), tree, false, layout.windows_paths)
+        {
+            item.leave(reason);
+        }
+    }
     left_companions.extend(attach_chd_folders(
         &mut items,
         &survey.walked.chd_folders,
@@ -1883,6 +2196,7 @@ pub fn plan_from_survey(
             transfer: Transfer::AsIs,
             disc: None,
             action: OrganizeAction::Left { reason },
+            title_id: None,
         });
     }
 
@@ -1925,6 +2239,7 @@ pub fn plan_from_survey(
     if let Some(free) = user_available(&target_root).filter(|&free| free < needed) {
         warnings.push(PlanWarning::NoSpace { needed, free });
     }
+    let updates = note_updates(&mut items, &survey.entries);
     let mut counts = count(&items, &survey.walked);
     counts.in_library = dups.in_library;
 
@@ -1964,6 +2279,7 @@ pub fn plan_from_survey(
         set_aside_trash: opts.duplicates == OrganizeDedupeMode::SetAside
             && opts.dedupe.quarantine == QuarantineChoice::Trash,
         duplicates: dups.groups,
+        updates,
     })
 }
 
@@ -2008,6 +2324,7 @@ fn duplicates_step(
     let mut facts: Vec<(PathBuf, Facts)> = Vec::new();
     let mut fact_systems: Vec<String> = Vec::new();
     let mut sets: Vec<(Vec<PathBuf>, String)> = Vec::new();
+    let mut folders: Vec<(PathBuf, String, u64, i64)> = Vec::new();
     let mut by_primary: HashMap<PathBuf, usize> = HashMap::new();
     let mut listed: HashMap<PathBuf, Vec<ListedEntry>> = HashMap::new();
     let mut discs: HashMap<PathBuf, Option<DiscId>> = HashMap::new();
@@ -2023,6 +2340,14 @@ fn duplicates_step(
         }
         match (entry.kind, &entry.facts) {
             (ItemKind::Set, _) => sets.push((entry.sources.clone(), system.clone())),
+            // A folder game is a unit too (D28): only its title id can
+            // match it, and its group is reported, never set aside.
+            (ItemKind::Folder, _) => folders.push((
+                primary.clone(),
+                system.clone(),
+                entry.size,
+                entry.fps.first().map_or(0, |fp| fp.mtime_ns),
+            )),
             (_, Some(f)) => {
                 if f.inspection.container.is_archive() {
                     listed.insert(primary.clone(), listed_entries(&f.inspection));
@@ -2040,6 +2365,7 @@ fn duplicates_step(
     }
     let mut units = units_from_facts(&facts, &|i| fact_systems.get(i).cloned()).units;
     units.extend(units_from_sets(&sets).units);
+    units.extend(units_from_folders(&folders).units);
 
     // Library units: only the system folders the pile goes to.
     let listing = ArchiveEntryListing::with_tools(opts.limits.clone(), &[src, target_root]);
@@ -2689,7 +3015,7 @@ fn same_bytes(a: &Path, b: &Path) -> bool {
 
 fn file_crc(path: &Path) -> Option<u32> {
     use std::io::Read;
-    let mut file = fs::File::open(path).ok()?;
+    let mut file = crate::consoles::open_rom(path).ok()?;
     let mut hasher = crc32fast::Hasher::new();
     let mut buf = vec![0u8; 64 * 1024];
     loop {

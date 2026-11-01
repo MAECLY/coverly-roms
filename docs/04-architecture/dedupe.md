@@ -79,7 +79,7 @@ A **unit** is what is compared: a single ROM (raw file or single-ROM archive of 
 4. A group is one connected component inside one system. Each member's relation to the keeper is the **weakest link** on the path (`exact` < `format` < `version`).
 5. One-member groups are dropped.
 
-`GroupAction` is `act`, `report-only { why: ReportWhy }` or `conflict`. `ReportWhy`: `level-two-off`, `unconfirmed`, `header-differs`, `build-differs`, `partial-set`, `serial-conflict`, `modified`, `arcade-no-dat`, `big-group`, `user-skipped`, `chd-metadata-differs`.
+`GroupAction` is `act`, `report-only { why: ReportWhy }` or `conflict`. `ReportWhy`: `level-two-off`, `unconfirmed`, `header-differs`, `build-differs`, `partial-set`, `serial-conflict`, `modified`, `arcade-no-dat`, `big-group`, `user-skipped`, `chd-metadata-differs`, `title-id` (same console title id, contents not compared; systems batch 2 P-6), `folder-game` (a folder game is in the group, never set aside; D28).
 
 ## Saves and conflicts (`dedupe/saves.rs`)
 

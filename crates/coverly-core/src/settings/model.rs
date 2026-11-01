@@ -12,16 +12,18 @@ use crate::organize::{NameMode, DEFAULT_LAYOUT};
 use crate::profiles::Media;
 use crate::scan::ScanOptions;
 
-/// Format version written by this build (`library.json` was 1).
-pub const SETTINGS_VERSION: u32 = 2;
+/// Format version written by this build (`library.json` was 1; version 3
+/// added the `embedded` source, turned on once for older files).
+pub const SETTINGS_VERSION: u32 = 3;
 /// Recent libraries kept.
 pub const MAX_RECENT: usize = 10;
 /// Every art source the settings know, in default order.
-pub const KNOWN_SOURCES: [&str; 3] = ["libretro", "steamgriddb", "screenscraper"];
+pub const KNOWN_SOURCES: [&str; 4] = ["libretro", "steamgriddb", "screenscraper", "embedded"];
 
-/// Sources this build can use: libretro and SteamGridDB always (SteamGridDB
-/// is skipped at fill time without a key), ScreenScraper only with
-/// developer credentials (D36).
+/// Sources this build can use: libretro, SteamGridDB and the icons inside
+/// games always (SteamGridDB is skipped at fill time without a key;
+/// `embedded` needs neither a key nor the network), ScreenScraper only
+/// with developer credentials (D36).
 pub fn available_sources() -> Vec<&'static str> {
     available_sources_with(crate::credentials::DevCredentials::from_build().is_some())
 }
@@ -32,6 +34,7 @@ pub fn available_sources_with(screenscraper: bool) -> Vec<&'static str> {
     if screenscraper {
         v.push("screenscraper");
     }
+    v.push(crate::sources::embedded::ID);
     v
 }
 
@@ -276,7 +279,7 @@ impl Default for SourcesSettings {
                 .iter()
                 .map(|id| SourceEntry {
                     id: (*id).to_string(),
-                    enabled: *id == "libretro",
+                    enabled: *id == "libretro" || *id == crate::sources::embedded::ID,
                 })
                 .collect(),
         }

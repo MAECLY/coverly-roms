@@ -66,7 +66,7 @@
   },
   "library_settings": { "ignored_dirs": ["bios"] },
   "settings": {
-    "version": 2,
+    "version": 3,
     "general": {
       "language": "auto",
       "theme": "system",
@@ -134,6 +134,10 @@
         {
           "id": "screenscraper",
           "enabled": false
+        },
+        {
+          "id": "embedded",
+          "enabled": true
         }
       ]
     },
@@ -621,6 +625,7 @@
         "id": "muos",
         "folder_names": {
           "3do": "3do",
+          "3ds": "3ds",
           "amstradcpc": "amstradcpc",
           "arduboy": "arduboy",
           "c128": "c128",
@@ -720,9 +725,12 @@
     {
       "profile": {
         "id": "esde",
+        "folder_game_suffix": { "ps3": ".ps3" },
+        "folder_stem_keeps_suffix": true,
         "disc_layout": { "kind": "game-folder", "m3u_for_multi": true },
         "folder_names": {
           "3do": "3do",
+          "3ds": "n3ds",
           "amigacd32": "amigacd32",
           "amstradcpc": "amstradcpc",
           "apple2": "apple2",
@@ -739,6 +747,7 @@
           "dragon": "dragon32",
           "fmtowns": "fmtowns",
           "gamecom": "gamecom",
+          "gamecube": "gc",
           "intellivision": "intellivision",
           "jaguar": "atarijaguar",
           "jaguarcd": "atarijaguarcd",
@@ -757,6 +766,8 @@
           "pcfx": "pcfx",
           "plus4": "plus4",
           "ps2": "ps2",
+          "ps3": "ps3",
+          "psvita": "psvita",
           "quake": "quake",
           "satellaview": "satellaview",
           "scv": "scv",
@@ -765,6 +776,7 @@
           "sufami": "sufami",
           "supergrafx": "supergrafx",
           "supervision": "supervision",
+          "switch": "switch",
           "thomson": "moto",
           "ti99": "ti99",
           "tic80": "tic80",
@@ -773,8 +785,12 @@
           "vectrex": "vectrex",
           "vircon32": "vircon32",
           "wasm4": "wasm4",
+          "wii": "wii",
+          "wiiu": "wiiu",
           "x1": "x1",
           "x68000": "x68000",
+          "xbox": "xbox",
+          "xbox360": "xbox360",
           "zx81": "zx81",
           "zxspectrum": "zxspectrum"
         },
@@ -810,9 +826,11 @@
     {
       "profile": {
         "id": "batocera",
+        "folder_game_suffix": { "ps3": ".ps3" },
         "disc_layout": { "kind": "flat", "m3u_for_multi": true },
         "folder_names": {
           "3do": "3do",
+          "3ds": "3ds",
           "amigacd32": "amigacd32",
           "amstradcpc": "amstradcpc",
           "apple2": "apple2",
@@ -832,6 +850,7 @@
           "flashback": "reminiscence",
           "fmtowns": "fmtowns",
           "gamecom": "gamecom",
+          "gamecube": "gamecube",
           "intellivision": "intellivision",
           "jaguar": "jaguar",
           "jaguarcd": "jaguarcd",
@@ -853,6 +872,8 @@
           "pico": "pico",
           "plus4": "cplus4",
           "ps2": "ps2",
+          "ps3": "ps3",
+          "psvita": "psvita",
           "quake": "quake",
           "satellaview": "satellaview",
           "scv": "scv",
@@ -861,6 +882,7 @@
           "sufami": "sufami",
           "supergrafx": "supergrafx",
           "supervision": "supervision",
+          "switch": "switch",
           "thomson": "thomson",
           "ti99": "ti99",
           "tic80": "tic80",
@@ -869,9 +891,13 @@
           "vectrex": "vectrex",
           "vircon32": "vircon32",
           "wasm4": "wasm4",
+          "wii": "wii",
+          "wiiu": "wiiu",
           "wolf3d": "ecwolf",
           "x1": "x1",
           "x68000": "x68000",
+          "xbox": "xbox",
+          "xbox360": "xbox360",
           "xrick": "xrick",
           "zx81": "zx81",
           "zxspectrum": "zxspectrum"
@@ -1659,5 +1685,100 @@
     },
     { "id": "mame", "name": "MAME", "family": "arcade" },
     { "id": "wasm4", "name": "WASM-4", "family": "engine" }
-  ]
+  ],
+  "organize_folder_item": {
+    "id": 7,
+    "sources": ["Demon's Souls (BLUS-30443)"],
+    "kind": "folder",
+    "size": 23410000000,
+    "fps": [
+      {
+        "size": 23410000000,
+        "mtime_ns": 1700000000000000000
+      }
+    ],
+    "target": "ps3/Demon's Souls (BLUS-30443).ps3",
+    "set_targets": [],
+    "system_id": "ps3",
+    "folder": "ps3",
+    "confidence": 0.95,
+    "method": "header",
+    "why": [
+      {
+        "kind": "header",
+        "system": "ps3",
+        "weight": 0.95,
+        "detail": "PARAM.SFO"
+      }
+    ],
+    "alternatives": [],
+    "rename": null,
+    "notes": [
+      {
+        "kind": "folder-suffix",
+        "name": "Demon's Souls (BLUS-30443).ps3",
+        "layout": "ES-DE"
+      },
+      {
+        "kind": "update",
+        "of": "Demon's Souls"
+      },
+      {
+        "kind": "dlc",
+        "of": "Demon's Souls"
+      },
+      {
+        "kind": "encrypted-content",
+        "emulator": "Azahar"
+      },
+      {
+        "kind": "install-first",
+        "emulator": "RPCS3"
+      }
+    ],
+    "companions": [],
+    "catalogue_name": null,
+    "transfer": {
+      "kind": "as-is"
+    },
+    "disc": null,
+    "title_id": {
+      "id": "BLUS30443",
+      "source": "param-sfo"
+    },
+    "action": "auto"
+  },
+  "organize_id_sources": [
+    "param-sfo",
+    "meta-xml",
+    "app-xml",
+    "default-xbe",
+    "default-xex",
+    "cnmt-xml",
+    "ticket-name",
+    "file-name",
+    "header"
+  ],
+  "organize_batch2_reasons": [
+    {
+      "kind": "key-material"
+    },
+    {
+      "kind": "emulator-data",
+      "folder": "ux0"
+    },
+    {
+      "kind": "not-a-rom",
+      "what": "installer"
+    },
+    {
+      "kind": "not-a-rom",
+      "what": "model3d"
+    },
+    {
+      "kind": "not-a-rom",
+      "what": "pc-game-data"
+    }
+  ],
+  "organize_plan_updates": 2
 }

@@ -453,6 +453,28 @@ impl<'a> DatStore<'a> {
         Ok(None)
     }
 
+    /// The DAT game whose ROM name starts with `prefix` (an Xbox 360
+    /// STFS item's `<titleid8><contenttype8>`, spec §8.5), first by game
+    /// name. See [`dat_by_name_prefix`].
+    pub fn by_name_prefix(
+        &self,
+        dats: &[String],
+        prefix: &str,
+    ) -> Result<Option<String>, DatError> {
+        for dat in dats {
+            if self.ensure(dat)? == DatStatus::Missing {
+                continue;
+            }
+            if let Some(game) = dat_by_name_prefix(self.cache, dat, prefix)
+                .into_iter()
+                .next()
+            {
+                return Ok(Some(game));
+            }
+        }
+        Ok(None)
+    }
+
     /// The DAT game (description) whose ROM set is `short_name`, ignoring case.
     pub fn arcade_description(
         &self,
@@ -476,10 +498,58 @@ impl<'a> DatStore<'a> {
     }
 }
 
+/// Length of the rom-name prefix of an Xbox 360 digital row: the title id
+/// and the content type, 8 hex each (spec §8.5).
+pub const NAME_PREFIX_LEN: usize = 16;
+
+/// The games of `dat` whose ROM name starts with `prefix` (exactly
+/// [`NAME_PREFIX_LEN`] hex characters, case ignored), each once, by game
+/// name. Anything else matches nothing; a cache error reads as no hit.
+pub fn dat_by_name_prefix(cache: &Cache, dat: &str, prefix: &str) -> Vec<String> {
+    if prefix.len() != NAME_PREFIX_LEN || !prefix.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Vec::new();
+    }
+    let mut games: Vec<String> = cache
+        .dat_by_rom_prefix(dat, prefix)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| r.game)
+        .collect();
+    games.dedup();
+    games
+}
+
 /// The first serial of a DAT `serial` field, which may list several
 /// (`"SLUS-00543, SLUS-00544"`).
 fn first_serial(v: &str) -> Option<String> {
-    v.split(',').find_map(normalise_serial)
+    v.split(',')
+        .find_map(normalise_serial)
+        .map(|s| nintendo_disc_key(&s).unwrap_or(s))
+}
+
+/// The game code of a Redump GameCube or Wii serial: `RVL-RMGE-USA`,
+/// `RVL-SP3E-USA-B0` and `DL-DOL-GW7P-EUR` are indexed under `RMGE`,
+/// `SP3E` and `GW7P`, the first four characters of the disc header's ID6
+/// (spec §7: GameTDB DATs list the ID6 itself, Redump the middle key).
+fn nintendo_disc_key(serial: &str) -> Option<String> {
+    let parts: Vec<&str> = serial.split('-').collect();
+    let at = parts.iter().position(|p| *p == "RVL" || *p == "DOL")?;
+    let code = parts.get(at + 1)?;
+    (code.len() == 4 && code.bytes().all(|b| b.is_ascii_alphanumeric())).then(|| (*code).to_owned())
+}
+
+/// The serial keys to look `serial` up by, best first: a GameCube or Wii
+/// ID6 is tried whole (GameTDB), then as its first four characters (the
+/// Redump middle key). A Wii U ID6 (`ATWE01`, the product code plus the
+/// maker of `meta.xml`) is tried whole, then as its ID4: GameTDB's Wii U
+/// DAT lists retail discs by ID6 and eShop titles by ID4. Every other
+/// system has one key.
+pub fn serial_keys(system: &str, serial: &str) -> Vec<String> {
+    let mut keys = vec![serial.to_owned()];
+    if matches!(system, "gamecube" | "wii" | "wiiu") && serial.len() == 6 && serial.is_ascii() {
+        keys.push(serial[..4].to_owned());
+    }
+    keys
 }
 
 /// A disc or product serial in one canonical form, or `None` when `raw` is

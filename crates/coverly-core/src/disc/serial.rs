@@ -45,6 +45,69 @@ pub fn normalise_serial(raw: &str) -> Option<String> {
     ok.then(|| core.to_owned())
 }
 
+/// The DAT form of a console serial (spec D22): ID6/ID4 for Nintendo
+/// discs, `CTR-P-XXXX` product codes, `AAAA-NNNNN` for Sony, `XX-NNN`
+/// for Xbox, 8 hex for Xbox 360. `None` when `raw` is not that shape.
+///
+/// - `gamecube`: ID6 (`GALE01`); `wii`: ID6 or the ID4 of a WAD (`WAAE`);
+///   `nds`: the DSi game code (`KJUJ`).
+/// - `wiiu`: the 4-character code, also out of `WUP-P-ARPE`, or the
+///   6-character code with the maker (`ARPE01`); GameTDB keys on both.
+/// - `3ds`: `CTR-` or `KTR-` (New 3DS), a `P`/`N`/`M`/`U` letter, four
+///   characters (No-Intro's form).
+/// - `ps3`, `psvita`: four letters and five digits, `BLUS30443` →
+///   `BLUS-30443` (the PlayStation rule of [`normalise_serial`]).
+/// - `xbox`: `EA-013`; `xbox360`: the 8-hex title id, upper-case.
+///
+/// Unlike [`normalise_serial`], ID6/ID4 need no digit: `RMGE01` has one,
+/// `WAAE` does not.
+pub fn normalise_console_serial(system: &str, raw: &str) -> Option<String> {
+    let trimmed = raw.trim_end_matches(['\0', ' ']).trim_start_matches(' ');
+    if !trimmed.is_ascii() {
+        return None;
+    }
+    let s = trimmed.to_ascii_uppercase();
+    let alnum = |t: &str, n: usize| {
+        t.len() == n
+            && t.bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+    };
+    let ok = match system {
+        "gamecube" => alnum(&s, 6),
+        "wii" => alnum(&s, 6) || alnum(&s, 4),
+        "nds" => alnum(&s, 4),
+        "wiiu" => {
+            let code = match s.strip_prefix("WUP-") {
+                Some(rest) => match rest.as_bytes() {
+                    [b'P' | b'N' | b'M', b'-', ..] => rest[2..].to_owned(),
+                    _ => return None,
+                },
+                None => s.clone(),
+            };
+            return (alnum(&code, 4) || alnum(&code, 6)).then_some(code);
+        }
+        "3ds" => {
+            let b = s.as_bytes();
+            s.len() == 10
+                && (s.starts_with("CTR-") || s.starts_with("KTR-"))
+                && matches!(b[4], b'P' | b'N' | b'M' | b'U')
+                && b[5] == b'-'
+                && alnum(&s[6..], 4)
+        }
+        "ps3" | "psvita" => return playstation(&s),
+        "xbox" => {
+            let b = s.as_bytes();
+            s.len() == 6
+                && alnum(&s[..2], 2)
+                && b[2] == b'-'
+                && b[3..].iter().all(u8::is_ascii_digit)
+        }
+        "xbox360" => s.len() == 8 && s.bytes().all(|b| b.is_ascii_hexdigit()),
+        _ => false,
+    };
+    ok.then_some(s)
+}
+
 /// The serial named by a `SYSTEM.CNF` `BOOT`/`BOOT2` value
 /// (`cdrom:\SLUS_008.62;1`, `cdrom0:\SLUS_200.62;1`): its file name,
 /// normalised. `None` when the boot file is not named like a serial
@@ -98,4 +161,51 @@ fn sega_dash(core: &str) -> String {
 
 fn is_digits(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn console_serial_forms() {
+        let n = super::normalise_console_serial;
+        assert_eq!(n("gamecube", "GALE01").as_deref(), Some("GALE01"));
+        assert_eq!(n("wii", "rmge01").as_deref(), Some("RMGE01"));
+        assert_eq!(n("wii", "WAAE").as_deref(), Some("WAAE")); // WAD ID4
+        assert_eq!(n("3ds", "CTR-P-AMKP").as_deref(), Some("CTR-P-AMKP"));
+        assert_eq!(
+            n("3ds", "CTR-P-AMKP\0\0\0\0\0\0").as_deref(),
+            Some("CTR-P-AMKP")
+        );
+        assert_eq!(n("nds", "KJUJ").as_deref(), Some("KJUJ"));
+        assert_eq!(n("ps3", "BLUS30443").as_deref(), Some("BLUS-30443"));
+        assert_eq!(n("psvita", "PCSE00844").as_deref(), Some("PCSE-00844"));
+        assert_eq!(n("wiiu", "WUP-P-ARPE").as_deref(), Some("ARPE"));
+        assert_eq!(n("xbox", "EA-013").as_deref(), Some("EA-013"));
+        assert_eq!(n("xbox360", "4d5307e6").as_deref(), Some("4D5307E6"));
+        assert_eq!(n("gamecube", "GA E01"), None);
+        assert_eq!(n("ps3", "BLUS3044"), None);
+        // The PlayStation path is untouched.
+        assert_eq!(
+            super::normalise_serial("SLUS_008.62").as_deref(),
+            Some("SLUS-00862")
+        );
+    }
+
+    #[test]
+    fn console_serial_rejects_other_shapes() {
+        let n = super::normalise_console_serial;
+        assert_eq!(n("gamecube", "GALE0"), None);
+        assert_eq!(n("nds", "KJUJ01"), None);
+        assert_eq!(n("3ds", "CTR-X-AMKP"), None);
+        assert_eq!(n("3ds", "KTR-N-AAAA").as_deref(), Some("KTR-N-AAAA"));
+        assert_eq!(n("wiiu", "WUP-Q-ARPE"), None);
+        assert_eq!(n("wiiu", "arpe").as_deref(), Some("ARPE"));
+        assert_eq!(n("wiiu", "ATWE01").as_deref(), Some("ATWE01"));
+        assert_eq!(n("wiiu", "ATWE0"), None);
+        assert_eq!(n("xbox", "EA-01A"), None);
+        assert_eq!(n("xbox360", "4D5307E"), None);
+        assert_eq!(n("xbox360", "4D5307EG"), None);
+        assert_eq!(n("psx", "SLUS00862"), None);
+        assert_eq!(n("wii", "RMGÉ01"), None);
+    }
 }

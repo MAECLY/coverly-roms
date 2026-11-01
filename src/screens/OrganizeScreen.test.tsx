@@ -13,7 +13,11 @@ import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
-import { MOCK_DOWNLOADS, MOCK_MIXED } from '@/ipc/mock/mockOrganize';
+import {
+  MOCK_DOWNLOADS,
+  MOCK_MIXED,
+  MOCK_MODERN,
+} from '@/ipc/mock/mockOrganize';
 import type { OrganizePlanView, OrganizeRequest } from '@/ipc/types';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
@@ -112,6 +116,31 @@ describe('OrganizeScreen', () => {
     expect(
       screen.queryByRole('heading', { name: 'To review' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('the modern pile counts its updates and reads game folders as one row', async () => {
+    renderScreen(MOCK_MODERN);
+    expect(
+      await screen.findByText(
+        'ROMs: 18 · Systems: 9 · To review: 0 · Staying put: 6',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Includes 1 update or DLC')).toBeInTheDocument();
+    const ps3 = screen.getByRole('group', { name: /^ROMS\/PS3\/ \(2\)/ });
+    const row = within(ps3)
+      .getAllByRole('listitem')
+      .find((li) => li.textContent?.includes("Demon's Souls"))!;
+    expect(within(row).getByText('Game folder')).toHaveClass('sr-only');
+    expect(within(row).getByText('23.41 GB')).toHaveClass('font-mono');
+    expect(row).toHaveTextContent('Title ID BLUS30443 in PARAM.SFO');
+    const left = screen
+      .getByRole('heading', { name: 'Staying where they are' })
+      .closest('section')!;
+    expect(
+      within(left).getAllByText(
+        'Key or licence file: Coverly never reads or moves it',
+      ),
+    ).toHaveLength(3);
   });
 
   it('groups by system with target folder, confidence and why', async () => {

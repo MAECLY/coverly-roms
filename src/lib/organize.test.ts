@@ -34,7 +34,11 @@ import {
   organizeDupGroups,
   reviewBuckets,
   ROWS_PER_GROUP,
+  rowNotes,
   targetDir,
+  titleIdKey,
+  updatesSummaryKey,
+  updatesUnderBases,
   whyKey,
 } from './organize';
 
@@ -86,6 +90,7 @@ const ALL_REASONS: LeftReason[] = [
   { kind: 'not-a-rom', what: 'web-page' },
   { kind: 'not-a-rom', what: 'text' },
   { kind: 'not-a-rom', what: 'patch' },
+  { kind: 'not-a-rom', what: 'pc-game-data' },
   { kind: 'bios' },
   { kind: 'damaged-archive' },
   { kind: 'unsupported-archive' },
@@ -104,6 +109,10 @@ const ALL_REASONS: LeftReason[] = [
   { kind: 'too-big-for-fat' },
   { kind: 'unreadable' },
   { kind: 'collision-set' },
+  { kind: 'key-material' },
+  { kind: 'emulator-data', folder: 'ux0' },
+  { kind: 'not-a-rom', what: 'installer' },
+  { kind: 'not-a-rom', what: 'model3d' },
 ];
 
 describe('organise plan helpers', () => {
@@ -182,6 +191,9 @@ describe('organise plan helpers', () => {
     );
     expect(leftReasonText(t, { kind: 'not-a-rom', what: 'patch' })).toBe(
       'organize.left.notARom{"what":"organize.left.patch"}',
+    );
+    expect(leftReasonText(t, { kind: 'not-a-rom', what: 'pc-game-data' })).toBe(
+      'organize.left.notARom{"what":"organize.left.pcGameData"}',
     );
     expect(leftReasonText(t, { kind: 'duplicate', of: 'a.zip' })).toBe(
       'organize.left.duplicate{"name":"a.zip"}',
@@ -903,5 +915,240 @@ describe('organise disc and tool copy', () => {
       lostTrashedCopies(lost, { items: [] } as unknown as OrganizeReport, p)
         .size,
     ).toBe(0);
+  });
+});
+
+describe('systems batch 2 copy (spec §10)', () => {
+  const t = (key: string, vars?: TranslateVars) =>
+    translate('es', key, vars ?? {});
+  const tEn = (key: string, vars?: TranslateVars) =>
+    translate('en', key, vars ?? {});
+
+  it('key material and emulator data read as the spec says', () => {
+    expect(leftReasonText(t, { kind: 'key-material' })).toBe(
+      'Archivo de claves o licencia: Coverly no lo lee ni lo mueve',
+    );
+    expect(leftReasonText(tEn, { kind: 'key-material' })).toBe(
+      'Key or licence file: Coverly never reads or moves it',
+    );
+    expect(leftReasonText(t, { kind: 'emulator-data', folder: 'ux0' })).toBe(
+      'Está dentro de los datos de un emulador (ux0); se deja tal cual',
+    );
+    expect(leftReasonKey({ kind: 'emulator-data', folder: 'ux0' })).toEqual({
+      key: 'organize.left.emulatorData',
+      vars: { folder: 'ux0' },
+    });
+  });
+
+  it('installers and 3D models fill the not-a-ROM sentence', () => {
+    expect(leftReasonText(t, { kind: 'not-a-rom', what: 'installer' })).toBe(
+      'No es una ROM (instalador de programas)',
+    );
+    expect(leftReasonText(t, { kind: 'not-a-rom', what: 'model3d' })).toBe(
+      'No es una ROM (modelo 3D)',
+    );
+    expect(leftReasonText(tEn, { kind: 'not-a-rom', what: 'model3d' })).toBe(
+      'Not a ROM (3D model)',
+    );
+  });
+
+  it('every new note has its sentence', () => {
+    const cases: [ItemNote, string][] = [
+      { kind: 'update', of: 'Super Mario Odyssey' },
+      { kind: 'dlc', of: 'Super Mario Odyssey' },
+      { kind: 'encrypted-content', emulator: 'Azahar' },
+      { kind: 'install-first', emulator: 'RPCS3' },
+      {
+        kind: 'folder-suffix',
+        name: "Demon's Souls (BLUS-30443).ps3",
+        layout: 'ES-DE',
+      },
+    ].map((n, i) => [
+      n as ItemNote,
+      [
+        'Actualización de Super Mario Odyssey',
+        'Contenido descargable de Super Mario Odyssey',
+        'Copia cifrada: Azahar solo abre copias descifradas',
+        'RPCS3 lo instala; no se abre desde la carpeta',
+        "Se renombra a Demon's Souls (BLUS-30443).ps3 para que ES-DE lo muestre",
+      ][i]!,
+    ]);
+    for (const [note, text] of cases) {
+      const item = autoItem(0, 'x', 'switch', 'switch', { notes: [note] });
+      expect(itemNotes(t, item, 'ES-DE', (id) => id)).toEqual([text]);
+    }
+    expect(noteKey({ kind: 'update', of: 'Halo' })).toEqual({
+      key: 'organize.note.update',
+      vars: { title: 'Halo' },
+    });
+  });
+
+  it('an update or DLC says whose it is before any other note', () => {
+    // The row sits under its base; the first line under it must say why.
+    const row = autoItem(0, 'x.nsp', 'switch', 'switch', {
+      rename: { kind: 'path-length' },
+      notes: [
+        { kind: 'no-folder-on-device', folder: 'SWITCH' },
+        { kind: 'dlc', of: 'Super Mario Odyssey' },
+      ],
+    });
+    const lines = itemNotes(t, row, 'Anbernic stock', (id) => id);
+    expect(lines[0]).toBe('Contenido descargable de Super Mario Odyssey');
+    expect(lines).toHaveLength(3);
+    expect(rowNotes(t, row, 'Anbernic stock', (id) => id).inline[0]).toBe(
+      'Contenido descargable de Super Mario Odyssey',
+    );
+  });
+
+  it('a title id line names its file, the ticket or the file name', () => {
+    expect(titleIdKey({ id: 'BLUS30443', source: 'param-sfo' })).toEqual({
+      key: 'organize.why.titleIdFile',
+      vars: { id: 'BLUS30443', file: 'PARAM.SFO' },
+    });
+    const text = (r: Parameters<typeof titleIdKey>[0], tt = t) => {
+      const k = titleIdKey(r);
+      return k ? tt(k.key, k.vars) : null;
+    };
+    expect(text({ id: 'BLUS30443', source: 'param-sfo' })).toBe(
+      'Title ID BLUS30443 en PARAM.SFO',
+    );
+    expect(text({ id: '0100000000010000', source: 'ticket-name' })).toBe(
+      'Title ID 0100000000010000 en el nombre del ticket',
+    );
+    expect(text({ id: '0100000000010000', source: 'file-name' })).toBe(
+      'Title ID 0100000000010000 tomado del nombre del archivo',
+    );
+    expect(text({ id: '0100000000010000', source: 'ticket-name' }, tEn)).toBe(
+      'Title ID 0100000000010000 in the ticket name',
+    );
+    // `{file}` only ever comes from the fixed set.
+    const files = (
+      [
+        'param-sfo',
+        'meta-xml',
+        'app-xml',
+        'default-xbe',
+        'default-xex',
+        'cnmt-xml',
+      ] as const
+    ).map((source) => titleIdKey({ id: 'X', source })!.vars.file);
+    expect(files).toEqual([
+      'PARAM.SFO',
+      'meta.xml',
+      'app.xml',
+      'default.xbe',
+      'default.xex',
+      'cnmt.xml',
+    ]);
+    // A header id is already told by the header line.
+    expect(titleIdKey({ id: 'GM8E01', source: 'header' })).toBeNull();
+  });
+
+  it('the updates summary picks the singular for one', () => {
+    expect(updatesSummaryKey({ updates: 1 } as OrganizePlan)).toEqual({
+      key: 'organize.summaryUpdatesOne',
+      vars: {},
+    });
+    const many = updatesSummaryKey({ updates: 3 } as OrganizePlan)!;
+    expect(t(many.key, many.vars)).toBe(
+      'Incluye 3 actualizaciones o contenidos descargables',
+    );
+    expect(t('organize.summaryUpdatesOne')).toBe(
+      'Incluye 1 actualización o contenido descargable',
+    );
+    expect(updatesSummaryKey({} as OrganizePlan)).toBeNull();
+    expect(updatesSummaryKey({ updates: 0 } as OrganizePlan)).toBeNull();
+  });
+
+  it('the new copy exists in both locales with the same placeholders', () => {
+    for (const key of [
+      'organize.left.keyMaterial',
+      'organize.left.emulatorData',
+      'organize.left.installer',
+      'organize.left.model3d',
+      'organize.why.titleIdFile',
+      'organize.why.titleIdName',
+      'organize.why.titleIdTicket',
+      'organize.note.update',
+      'organize.note.dlc',
+      'organize.note.encryptedContent',
+      'organize.note.installFirst',
+      'organize.note.folderSuffix',
+      'organize.summaryUpdates',
+      'organize.summaryUpdatesOne',
+      'organize.item.folder',
+      'settings.sources.hint.embedded',
+    ]) {
+      expect(has(es, key) && has(en, key), key).toBe(true);
+      expect(placeholders(lookup(en, key)), key).toEqual(
+        placeholders(lookup(es, key)),
+      );
+    }
+  });
+});
+
+describe('updatesUnderBases', () => {
+  const sw = (id: number, name: string, extra: Partial<OrganizeItem> = {}) =>
+    autoItem(id, name, 'switch', 'switch', extra);
+  const names = (items: OrganizeItem[]) => items.map((i) => i.sources[0]);
+
+  it('puts updates and DLC under the base they name, by title or title id', () => {
+    const dlc = sw(1, 'Odyssey DLC.nsp', {
+      notes: [{ kind: 'dlc', of: '0100000000010000' }],
+    });
+    const update = sw(2, 'SMO [v393216].nsp', {
+      notes: [{ kind: 'update', of: 'Super Mario Odyssey' }],
+    });
+    const other = sw(3, 'Mario Kart 8.nsp');
+    const base = sw(4, 'Super Mario Odyssey [0100000000010000][v0].nsp', {
+      title_id: { id: '0100000000010000', source: 'ticket-name' },
+    });
+    expect(names(updatesUnderBases([dlc, update, other, base]))).toEqual([
+      'Mario Kart 8.nsp',
+      'Super Mario Odyssey [0100000000010000][v0].nsp',
+      'Odyssey DLC.nsp',
+      'SMO [v393216].nsp',
+    ]);
+  });
+
+  it('an update whose base is not in the group keeps its place', () => {
+    const orphan = sw(1, 'Zelda [v2].nsp', {
+      notes: [{ kind: 'update', of: '01007EF00011E000' }],
+    });
+    const other = sw(2, 'Mario Kart 8.nsp');
+    const items = [orphan, other];
+    expect(updatesUnderBases(items)).toBe(items);
+  });
+
+  it('the first base with the name wins, and game folders keep their dots', () => {
+    const first = sw(1, 'Game. Part One', { kind: 'folder' });
+    const second = sw(2, 'Game. Part One (Rev 1).nsp');
+    const update = sw(3, 'patch.nsp', {
+      notes: [{ kind: 'update', of: 'Game. Part One' }],
+    });
+    expect(names(updatesUnderBases([update, first, second]))).toEqual([
+      'Game. Part One',
+      'patch.nsp',
+      'Game. Part One (Rev 1).nsp',
+    ]);
+  });
+
+  it('stays linear on a large library (one lookup per update)', () => {
+    const items: OrganizeItem[] = [];
+    const n = 8000;
+    for (let i = 0; i < n; i++) items.push(sw(i, `Game ${i} [v0].nsp`));
+    for (let i = 0; i < n; i++)
+      items.push(
+        sw(n + i, `Game ${i} [v1].nsp`, {
+          notes: [{ kind: 'update', of: `Game ${i}` }],
+        }),
+      );
+    const start = performance.now();
+    const out = updatesUnderBases(items);
+    const elapsed = performance.now() - start;
+    expect(out[1]!.sources[0]).toBe('Game 0 [v1].nsp');
+    expect(out[2 * n - 1]!.sources[0]).toBe(`Game ${n - 1} [v1].nsp`);
+    // Quadratic matching took seconds here; a map takes milliseconds.
+    expect(elapsed).toBeLessThan(1000);
   });
 });

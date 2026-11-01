@@ -70,6 +70,9 @@ pub struct System {
     pub extensions: Vec<String>,
     /// libretro-thumbnails playlist name, exactly as on the server.
     pub libretro: Option<String>,
+    /// Extra libretro-thumbnails folders tried after `libretro`, for covers
+    /// only (spec D9). `{libretro}` in templates keeps the primary.
+    pub libretro_also: Vec<String>,
     /// Arcade platform (ROM set names instead of game titles).
     pub arcade: bool,
     /// Disc system: cue/bin, m3u, gdi, chd.
@@ -156,6 +159,7 @@ struct RawSystem {
     aliases: Option<Vec<String>>,
     extensions: Option<Vec<String>>,
     libretro: Option<String>,
+    libretro_also: Option<Vec<String>>,
     arcade: Option<bool>,
     multi_file: Option<bool>,
     header: Option<String>,
@@ -192,9 +196,9 @@ impl SystemDb {
     /// Ids are trimmed and lowercased, aliases are trimmed (empty ones are
     /// dropped). An entry whose `id` already exists overrides it: `name`, `libretro`,
     /// `arcade`, `multi_file`, `header`, `dats` and `screenscraper` replace the current values when given;
-    /// `aliases`, `extensions`, `weak_extensions` and `scoped_aliases` are
-    /// added to the current lists. An alias claimed by an override is removed
-    /// from any other system (and from its scoped aliases), so the user file
+    /// `aliases`, `extensions`, `weak_extensions`, `scoped_aliases` and
+    /// `libretro_also` are added to the current lists (without repeats). An
+    /// alias claimed by an override is removed from any other system (and from its scoped aliases), so the user file
     /// always wins. A strong extension removes the same weak one. `family`
     /// replaces the current value when it is known; an unknown value is
     /// ignored, so user files stay lenient. An entry with a new `id` is
@@ -234,6 +238,13 @@ impl SystemDb {
             .iter()
             .map(|e| normalize_extension(e))
             .filter(|e| !e.is_empty())
+            .collect();
+        let libretro_also: Vec<String> = raw
+            .libretro_also
+            .unwrap_or_default()
+            .iter()
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty())
             .collect();
         let scoped_aliases: Vec<String> = raw
             .scoped_aliases
@@ -280,6 +291,7 @@ impl SystemDb {
                     aliases: Vec::new(),
                     extensions: Vec::new(),
                     libretro: None,
+                    libretro_also: Vec::new(),
                     arcade: false,
                     multi_file: false,
                     header: HeaderRule::Plain,
@@ -342,6 +354,11 @@ impl SystemDb {
         // The user wins: an extension listed as strong is never also weak.
         let strong = &system.extensions;
         system.weak_extensions.retain(|w| !strong.contains(w));
+        for name in libretro_also {
+            if !system.libretro_also.contains(&name) {
+                system.libretro_also.push(name);
+            }
+        }
         for alias in scoped_aliases {
             if !system.scoped_aliases.contains(&alias) {
                 system.scoped_aliases.push(alias);
@@ -390,6 +407,14 @@ impl SystemDb {
         let mut errors = Vec::new();
         let mut owners: std::collections::HashMap<String, &str> = std::collections::HashMap::new();
         for s in &self.systems {
+            if !s.libretro_also.is_empty() && s.libretro.is_none() {
+                errors.push(format!("{}: libretro_also without libretro", s.id));
+            }
+            for also in &s.libretro_also {
+                if Some(also) == s.libretro.as_ref() {
+                    errors.push(format!("{}: libretro_also repeats libretro {also}", s.id));
+                }
+            }
             for w in &s.weak_extensions {
                 if s.extensions.contains(w) {
                     errors.push(format!("{}: .{w} is both strong and weak", s.id));
@@ -445,6 +470,11 @@ const LIST_EXTS: [&str; 3] = ["cue", "gdi", "m3u"];
 /// `.conf`). Loose, they are screenshots, installers and scripts: no
 /// evidence and no organise candidate (plan O-D7).
 const EVERYDAY_EXTS: [&str; 4] = ["png", "exe", "bat", "conf"];
+/// Weak-only extensions whose own header decides (systems batch 2 D7):
+/// a loose `.pkg` is an organise candidate so the PKG header (PS3, Vita)
+/// or the `xar!` magic of a macOS installer can name it. Its class stays
+/// [`ExtClass::Unknown`]: the extension alone is no evidence.
+const HEADER_DECIDED_EXTS: [&str; 1] = ["pkg"];
 
 /// How much an extension says about the system (spec §6.4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -533,6 +563,7 @@ impl SystemDb {
         let lower = normalize_extension(ext);
         !lower.is_empty()
             && (LIST_EXTS.contains(&lower.as_str())
+                || HEADER_DECIDED_EXTS.contains(&lower.as_str())
                 || self.extension_class(&lower) != ExtClass::Unknown)
     }
 }
@@ -1142,9 +1173,13 @@ mod tests {
     #[test]
     fn rom_like_extensions() {
         let db = SystemDb::builtin();
-        for ext in ["gba", "zip", "7z", "bin", "cue", "m3u", "gdi", "chd", "NDS"] {
+        for ext in [
+            "gba", "zip", "7z", "bin", "cue", "m3u", "gdi", "chd", "NDS", "pkg",
+        ] {
             assert!(db.is_rom_like_extension(ext), "{ext}");
         }
+        // A weak-only `.pkg` is a candidate, but no evidence by itself.
+        assert_eq!(db.extension_class("pkg"), ExtClass::Unknown);
         for ext in ["txt", "jpg", "docx", "dmg", ""] {
             assert!(!db.is_rom_like_extension(ext), "{ext}");
         }
@@ -1213,6 +1248,48 @@ mod tests {
             .with_overrides("[[system]]\nid = \"yy\"\nname = \"YY\"\narcade = true\n")
             .unwrap();
         assert_eq!(arcade.get("yy").unwrap().family, Family::Arcade);
+    }
+
+    #[test]
+    fn libretro_also_is_parsed_and_lenient() {
+        // A user file appends extra thumbnail folders; repeating one does
+        // not duplicate it, and the primary is untouched.
+        let db = SystemDb::builtin()
+            .with_overrides(
+                r#"
+                [[system]]
+                id = "snes"
+                libretro_also = ["X - Y", "X - Y"]
+                [[system]]
+                id = "snes"
+                libretro_also = ["X - Y", "X - Z"]
+                "#,
+            )
+            .unwrap();
+        let snes = db.get("snes").unwrap();
+        assert_eq!(snes.libretro_also, ["X - Y", "X - Z"]);
+        assert_eq!(
+            snes.libretro.as_deref(),
+            Some("Nintendo - Super Nintendo Entertainment System")
+        );
+        assert!(SystemDb::builtin().all().iter().all(|s| s
+            .libretro_also
+            .iter()
+            .all(|a| Some(a) != s.libretro.as_ref())));
+
+        // `libretro_also` without `libretro` is a built-in invariant
+        // violation only: a user file may still say it.
+        let lone = SystemDb::builtin()
+            .with_overrides("[[system]]\nid = \"zz\"\nname = \"ZZ\"\nlibretro_also = [\"X - Y\"]\n")
+            .unwrap();
+        assert_eq!(lone.get("zz").unwrap().libretro_also, ["X - Y"]);
+        let errors = lone.check_builtin_invariants().unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("zz") && e.contains("libretro_also")),
+            "{errors:?}"
+        );
     }
 
     #[test]

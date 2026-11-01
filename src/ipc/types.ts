@@ -408,7 +408,8 @@ export interface OrganizeSettings {
   external_tools: ExternalToolsSetting;
 }
 export type MatchMethod = 'hash-then-name' | 'hash-only' | 'name-only';
-export type SourceId = 'libretro' | 'steamgriddb' | 'screenscraper';
+export type SourceId =
+  'libretro' | 'steamgriddb' | 'screenscraper' | 'embedded';
 
 export interface RecentEntry {
   path: string;
@@ -607,6 +608,12 @@ export interface ProfileFile {
   accepts_containers?: ContainerKind[];
   /** Per-system replacements of `accepts_containers`; absent = `psp: []`. */
   container_overrides?: Record<string, ContainerKind[]>;
+  /** Suffix a folder game of a system must end in (system id → suffix,
+   * `ps3 → .ps3` on ES-DE and Batocera); absent = none. */
+  folder_game_suffix?: Record<string, string>;
+  /** Media of a folder game are named after its whole folder name, suffix
+   * included (ES-DE); absent = the suffix is dropped. */
+  folder_stem_keeps_suffix?: boolean;
 }
 
 /** `profiles::DiscLayout`. */
@@ -733,12 +740,23 @@ export type UnsafeWhy =
   | 'link'
   | 'too-long';
 
+/** What a file says it is not (Rust `NotARom`). */
+export type NotARom =
+  | 'web-page'
+  | 'text'
+  | 'patch'
+  | 'pc-game-data'
+  /** A macOS installer package named `.pkg`. */
+  | 'installer'
+  /** An Autodesk 3D Studio model named `.3ds`. */
+  | 'model3d';
+
 /** Why a file stays where it is. */
 export type LeftReason =
   | { kind: 'partial-download' }
   | { kind: 'recently-modified' }
   | { kind: 'cloud-only' }
-  | { kind: 'not-a-rom'; what: 'web-page' | 'text' | 'patch' }
+  | { kind: 'not-a-rom'; what: NotARom }
   | { kind: 'bios' }
   | { kind: 'damaged-archive' }
   /** `need` names the tool that would open it (absent in older plans). */
@@ -784,7 +802,11 @@ export type LeftReason =
   | { kind: 'ambiguous-companion' }
   | { kind: 'too-big-for-fat' }
   | { kind: 'unreadable' }
-  | { kind: 'collision-set' };
+  | { kind: 'collision-set' }
+  /** A console key or licence file: never read, never moved. */
+  | { kind: 'key-material' }
+  /** Inside an emulator's own data tree; `folder` is its root (`ux0`). */
+  | { kind: 'emulator-data'; folder: string };
 
 /** Something worth telling about an item that still moves. */
 export type ItemNote =
@@ -808,7 +830,18 @@ export type ItemNote =
   /** The sheet sits beyond the plan-time budget: checked on apply. */
   | { kind: 'sheet-not-read-yet' }
   /** Several ROMs of one system are extracted from one archive. */
-  | { kind: 'multi-rom-extract'; count: number };
+  | { kind: 'multi-rom-extract'; count: number }
+  /** An update of `of` (its title, or its title id without the base). */
+  | { kind: 'update'; of: string }
+  /** Downloadable content of `of`. */
+  | { kind: 'dlc'; of: string }
+  /** The content is encrypted; `emulator` (a fixed name) only opens
+   * decrypted copies. */
+  | { kind: 'encrypted-content'; emulator: string }
+  /** A package the emulator installs (PS3/Vita PKG). */
+  | { kind: 'install-first'; emulator: string }
+  /** The folder is renamed to `name` so `layout` shows it. */
+  | { kind: 'folder-suffix'; name: string; layout: string };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =
@@ -840,7 +873,26 @@ export interface SourceFp {
   mtime_ns: number;
 }
 
-export type OrganizeItemKind = 'file' | 'archive' | 'set';
+/** A game that is a folder moves whole; its `size` is the sum of its files. */
+export type OrganizeItemKind = 'file' | 'archive' | 'set' | 'folder';
+
+/** Where a console title id was read (Rust `IdSource`). */
+export type IdSource =
+  | 'param-sfo'
+  | 'meta-xml'
+  | 'app-xml'
+  | 'default-xbe'
+  | 'default-xex'
+  | 'cnmt-xml'
+  | 'ticket-name'
+  | 'file-name'
+  | 'header';
+
+/** A console title id and where it came from. */
+export interface TitleIdRef {
+  id: string;
+  source: IdSource;
+}
 
 export type OrganizeAction =
   | { action: 'auto' }
@@ -938,6 +990,8 @@ export type OrganizeItem = OrganizeAction & {
   /** As-is (move or copy the file) or extract. */
   transfer: Transfer;
   disc: DiscId | null;
+  /** The console title id and its source (Rust leaves it out when absent). */
+  title_id?: TitleIdRef;
 };
 
 export interface OrganizeCounts {
@@ -987,6 +1041,8 @@ export interface OrganizePlan {
   duplicates: DupGroupView[];
   /** Set-aside items go to the OS Trash (Rust leaves it out when false). */
   set_aside_trash: boolean;
+  /** Rows that are an update or DLC of a game (Rust leaves it out when 0). */
+  updates?: number;
 }
 
 /** What to plan; missing fields take `settings.organize`. */

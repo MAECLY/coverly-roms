@@ -7,6 +7,9 @@
 #   extensions  ROM extensions, lowercase, without the dot
 #   libretro    playlist folder name exactly as on https://thumbnails.libretro.com/
 #               (live server root listing, not the GitHub umbrella repo names)
+#   libretro_also  extra libretro-thumbnails folders tried, in order, after
+#               libretro for cover lookup only (e.g. a digital-only catalogue);
+#               {libretro} in templates keeps the primary; needs libretro
 #   arcade      ROM set short names instead of game titles
 #   multi_file  disc system: cue/bin, m3u, gdi, chd
 #   header      header rule for content hashing: plain (default), nes, fds,
@@ -319,9 +322,13 @@ arcade = true
 id = "nds"
 name = "Nintendo DS"
 family = "handheld"
-aliases = ["NDS", "nintendods"]
-extensions = ["nds", "zip", "7z"]
+# DSi and DSiWare (D6): no researched profile separates them, so `.dsi`,
+# the DSi DAT and the DSi thumbnails live here; the unit code is detail.
+aliases = ["NDS", "nintendods", "dsi", "nintendodsi"]
+extensions = ["nds", "dsi", "zip", "7z"]
 libretro = "Nintendo - Nintendo DS"
+libretro_also = ["Nintendo - Nintendo DSi"]
+dats = ["metadat/no-intro/Nintendo - Nintendo DS.dat", "metadat/no-intro/Nintendo - Nintendo DSi.dat"]
 screenscraper = 15
 
 [[system]]
@@ -1220,3 +1227,145 @@ family = "arcade"
 aliases = ["TRIFORCE"]
 weak_extensions = ["iso"]
 arcade = true
+
+# ---------------------------------------------------------------------
+# Systems batch 2 (spec 2026-10-26 batch 2, §7): big discs and handhelds
+# with their own format. Each is read by a header reader in `consoles/`.
+# ---------------------------------------------------------------------
+
+[[system]]
+id = "gamecube"
+name = "Nintendo GameCube"
+family = "console"
+aliases = ["GAMECUBE", "gc", "ngc", "gcn"]
+# `gcz rvz wia ciso` are shared with wii: the disc header decides (D7).
+# `tgc` stays gamecom's; a TGC magic proves GameCube (D24).
+extensions = ["gcm", "iso", "ciso", "gcz", "rvz", "wia", "m3u"]
+weak_extensions = ["tgc", "dol"]
+libretro = "Nintendo - GameCube"
+dats = ["dat/Nintendo - GameCube.dat", "metadat/redump/Nintendo - GameCube.dat", "metadat/homebrew/Nintendo - GameCube.dat"]
+multi_file = true
+screenscraper = 13
+
+[[system]]
+id = "wii"
+name = "Nintendo Wii"
+family = "console"
+aliases = ["WII"]
+# `wad` stays doom's; a Wii WAD header proves Wii (D7, D24).
+extensions = ["wbfs", "iso", "ciso", "gcz", "rvz", "wia", "m3u"]
+weak_extensions = ["wad", "dol"]
+libretro = "Nintendo - Wii"
+dats = ["dat/Nintendo - Wii.dat", "metadat/redump/Nintendo - Wii.dat", "metadat/no-intro/Nintendo - Wii (Digital).dat"]
+multi_file = true
+screenscraper = 16
+
+[[system]]
+id = "3ds"
+name = "Nintendo 3DS"
+family = "handheld"
+aliases = ["3DS", "n3ds", "nintendo3ds"]
+# `3ds` is DECISIVE: an Autodesk `.3ds` has no NCSD magic (D7).
+extensions = ["3ds", "cci", "cxi", "cia", "3dsx", "zcci", "zcxi", "zcia", "z3dsx"]
+libretro = "Nintendo - Nintendo 3DS"
+libretro_also = ["Nintendo - Nintendo 3DS (Digital)"]
+dats = [
+  "metadat/no-intro/Nintendo - Nintendo 3DS.dat",
+  "metadat/no-intro/Nintendo - Nintendo 3DS (Digital).dat",
+  "metadat/no-intro/Nintendo - New Nintendo 3DS.dat",
+  "metadat/no-intro/Nintendo - New Nintendo 3DS (Digital).dat",
+]
+screenscraper = 17
+
+[[system]]
+id = "wiiu"
+name = "Nintendo Wii U"
+family = "console"
+aliases = ["WIIU"]
+# Loadiine and NUS folders are folder games (D12); `tmd` is weak: a lone
+# `title.tmd` is only a Wii U title with its TMD title id.
+extensions = ["wud", "wux", "wua", "rpx", "wuhb"]
+weak_extensions = ["tmd"]
+libretro = "Nintendo - Wii U"
+dats = ["dat/Nintendo - Wii U.dat", "metadat/no-intro/Nintendo - Wii U (Digital).dat"]
+screenscraper = 18
+
+[[system]]
+id = "switch"
+name = "Nintendo Switch"
+family = "console"
+# `switch` is an everyday word: scoped (D8). No libretro folder and no
+# DAT exist (D18): header for the system, name for the rest (D10).
+aliases = ["SWITCH", "nintendoswitch", "nsw"]
+scoped_aliases = ["switch"]
+# Split «archive bit» files (`Game.nsp/00`, `01`…) are folder games (D12);
+# `nro`, `nso`, `nca` are weak: homebrew and loose contents.
+extensions = ["xci", "nsp", "nsz", "xcz"]
+weak_extensions = ["nro", "nso", "nca"]
+screenscraper = 225
+
+[[system]]
+id = "psvita"
+name = "Sony PlayStation Vita"
+family = "handheld"
+# `vita` is an everyday word: scoped (D8). Decrypted app folders
+# (`sce_sys/param.sfo`) are folder games (D12); a `.vpk` is a zip package
+# moved as it is (D16); `.psvita` is the ES-DE/Batocera launcher (D14).
+aliases = ["PSVITA", "vita"]
+scoped_aliases = ["vita"]
+extensions = ["vpk", "psvita"]
+# `pkg` is shared with PS3 and every macOS installer: magic decides (D7);
+# `psvimg` is an encrypted backup with no reader.
+weak_extensions = ["psvimg", "pkg"]
+libretro = "Sony - PlayStation Vita"
+dats = ["metadat/no-intro/Sony - PlayStation Vita.dat", "metadat/no-intro/Sony - PlayStation Vita (PSN).dat"]
+screenscraper = 62
+
+[[system]]
+id = "ps3"
+name = "Sony PlayStation 3"
+family = "console"
+aliases = ["PS3", "playstation3"]
+# JB (`PS3_GAME/PARAM.SFO`) and HDD (`PARAM.SFO` + `USRDIR/`) folders are
+# folder games (D12), suffixed `.ps3` on ES-DE and Batocera (D13); `.psn`
+# is the RPCS3 launcher (D14). `pkg` is shared with Vita and every macOS
+# installer: magic decides (D7).
+extensions = ["iso", "ps3", "psn", "m3u"]
+weak_extensions = ["pkg"]
+libretro = "Sony - PlayStation 3"
+libretro_also = ["Sony - PlayStation 3 (Downloadable)"]
+dats = ["dat/Sony - PlayStation 3.dat", "metadat/redump/Sony - PlayStation 3.dat", "metadat/no-intro/Sony - PlayStation 3 (PSN).dat"]
+multi_file = true
+screenscraper = 59
+
+[[system]]
+id = "xbox"
+name = "Microsoft Xbox"
+family = "console"
+aliases = ["XBOX"]
+# Folders with `default.xbe` are folder games (D12); a loose `.xbe` is
+# weak: only in the system's folder or with its header (D7). An `.iso` is
+# Xbox when its XDVDFS root holds `default.xbe` (§8.5).
+extensions = ["xiso", "iso", "m3u"]
+weak_extensions = ["xbe"]
+libretro = "Microsoft - Xbox"
+dats = ["metadat/redump/Microsoft - Xbox.dat"]
+multi_file = true
+screenscraper = 32
+
+[[system]]
+id = "xbox360"
+name = "Microsoft Xbox 360"
+family = "console"
+aliases = ["XBOX360", "x360"]
+# Folders with `default.xex` and GOD/XBLA trees (`<titleid>/<type>/<hash>`)
+# are folder games (D12); `.zar` is a Xenia ZArchive; `.xbox360` is the
+# ES-DE/Batocera launcher (D14). `xex` is weak: it is the Atari 8-bit
+# executable (`a800`) too, so only an `XEX2` header (which contradicts
+# a800) or the system's folder makes it Xbox 360 (D7).
+extensions = ["zar", "xbox360", "iso", "m3u"]
+weak_extensions = ["xex"]
+libretro = "Microsoft - Xbox 360"
+dats = ["metadat/redump/Microsoft - Xbox 360.dat", "metadat/no-intro/Microsoft - Xbox 360.dat", "metadat/no-intro/Microsoft - Xbox 360 (Digital).dat"]
+multi_file = true
+screenscraper = 33

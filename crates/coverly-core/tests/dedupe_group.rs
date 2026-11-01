@@ -68,6 +68,8 @@ fn vkey(system: &str, game: &str) -> Option<VersionKey> {
         disc: tags.disc,
         game: game.to_string(),
         tags,
+        console_version: None,
+        by_title_id: false,
     })
 }
 

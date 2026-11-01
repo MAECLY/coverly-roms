@@ -428,6 +428,28 @@ impl Cache {
         self.dat_query(DatFilter::Serial, dat, serial)
     }
 
+    /// Rows of `dat` whose ROM name starts with `prefix`, ignoring case,
+    /// ordered by game (Xbox 360 digital rows are named `<titleid8>
+    /// <contenttype8><hash>`, systems batch 2 §8.5). A range over the
+    /// `(dat, rom_stem)` index; an empty prefix matches nothing.
+    pub fn dat_by_rom_prefix(&self, dat: &str, prefix: &str) -> Result<Vec<DatRow>, CacheError> {
+        let low = prefix.to_lowercase();
+        let Some(last) = low.chars().next_back() else {
+            return Ok(Vec::new());
+        };
+        let Some(next) = char::from_u32(u32::from(last) + 1) else {
+            return Ok(Vec::new());
+        };
+        let high = format!("{}{next}", &low[..low.len() - last.len_utf8()]);
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT game, rom_name, size, crc32, md5, sha1, serial FROM dat_roms \
+             WHERE dat = ?1 AND rom_stem >= ?2 AND rom_stem < ?3 ORDER BY game, rom_name",
+        )?;
+        let rows = stmt.query_map(params![dat, low, high], |r| dat_row(r, 0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     fn dat_query(
         &self,
         filter: DatFilter,

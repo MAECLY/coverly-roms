@@ -26,6 +26,12 @@
  *   `.dsk` for review, Doom loose and as a folder game, a Cave Story folder
  *   left as other files, a MAME set with its CHD folder and an unknown
  *   `.bin`.
+ * - `MOCK_MODERN` is the systems batch 2 pile of spec §9.3 with the
+ *   verdicts of the core's plan snapshots (`organize_plan__systems_batch_2__*`)
+ *   and synthetic sizes: one disc or package per system, game folders
+ *   (PS3 JB, Vita app, Wii U loadiine, Xbox 360 XBLA) moved whole, a Switch
+ *   update under its base, key files and an emulator's `ux0` left, a macOS
+ *   installer and a 3D Studio model that are not ROMs.
  *
  * Only these piles exist for organising; any other source is
  * `not-found`. Targets are not checked.
@@ -82,6 +88,7 @@ import {
   type OrganizeDedupeMode,
   type SystemFamily,
   type SystemView,
+  type TitleIdRef,
   type Transfer,
   type TransferMode,
 } from '../types';
@@ -95,16 +102,18 @@ export const MOCK_DOWNLOADS = '/Users/demo/Downloads/roms';
 export const MOCK_MIXED = '/Users/demo/Mixed';
 export const MOCK_SAMPLE = '/Users/demo/ROMs-Downloaded';
 export const MOCK_RETRO = '/Users/demo/Retro';
+export const MOCK_MODERN = '/Users/demo/Modern';
 export const MOCK_PLAN_EXPORT = 'coverly-organize-plan.json';
 export const MOCK_PICK_KEY = 'coverly.mock.pick';
 
 /**
  * What "Open folder…" picks in the browser mock, so the organise offer is
  * reachable from the start screen:
- * `?mockPick=downloads|loose|mixed|retro|<absolute path>` (or localStorage
- * `coverly.mock.pick`). `downloads` is the owner's pile as it is now
- * (`MOCK_SAMPLE`), `loose` the same pile before any of it was sorted
- * (`MOCK_DOWNLOADS`), `retro` the systems batch 1 pile (`MOCK_RETRO`).
+ * `?mockPick=downloads|loose|mixed|retro|modern|<absolute path>` (or
+ * localStorage `coverly.mock.pick`). `downloads` is the owner's pile as it
+ * is now (`MOCK_SAMPLE`), `loose` the same pile before any of it was sorted
+ * (`MOCK_DOWNLOADS`), `retro` the systems batch 1 pile (`MOCK_RETRO`),
+ * `modern` the systems batch 2 pile (`MOCK_MODERN`).
  * Null: the first fixture library, as before.
  */
 export function readMockPick(): string | null {
@@ -113,6 +122,7 @@ export function readMockPick(): string | null {
     if (v === 'loose') return MOCK_DOWNLOADS;
     if (v === 'mixed') return MOCK_MIXED;
     if (v === 'retro') return MOCK_RETRO;
+    if (v === 'modern') return MOCK_MODERN;
     return v && v.startsWith('/') ? v : null;
   };
   try {
@@ -209,6 +219,10 @@ interface PileFile {
   /** What Rust's `group_units` reads from its names when it is grouped
    * as a duplicate (TS never parses file names). */
   facts?: MemberFactsView;
+  /** A game that is a folder, moved whole (`size`: its files' sum). */
+  folder?: true;
+  /** The console title id the header reader found, and where. */
+  titleId?: TitleIdRef;
 }
 
 interface PileDef {
@@ -253,6 +267,33 @@ const ev = (
   detail: string,
 ): Evidence => ({ kind, system, weight, detail });
 const PARTIAL: LeftReason = { kind: 'partial-download' };
+
+/** A batch 2 console verdict as the core's snapshots give it: the header
+ * (0.95) and, when the extension adds to it, both clues (0.98). */
+const consoleFile = (
+  name: string,
+  size: number,
+  system: string,
+  detail: string,
+  titleId: TitleIdRef | null,
+  extra: Partial<PileFile> & { ext?: [number, string] } = {},
+): PileFile => {
+  const { ext, ...rest } = extra;
+  return {
+    name,
+    size,
+    system,
+    method: 'header',
+    confidence: ext ? 0.98 : 0.95,
+    why: [
+      ev('header', system, 0.95, detail),
+      ...(ext ? [ev('extension', system, ext[0], ext[1])] : []),
+    ],
+    ...(titleId && { titleId }),
+    ...rest,
+  };
+};
+const KEYS: LeftReason = { kind: 'key-material' };
 
 /** A disc archive of `discFixture.ts` as a pile file. */
 const DISC_FILES: PileFile[] = MOCK_DISC_ARCHIVES.map((d) => ({
@@ -646,6 +687,206 @@ const PILES: readonly PileDef[] = [
       },
     ],
   },
+  {
+    // Systems batch 2, spec §9.3, as the core plans it (Task 16
+    // snapshots); sizes are synthetic.
+    path: MOCK_MODERN,
+    junk: [],
+    files: [
+      consoleFile(
+        '58410889',
+        145_000_000,
+        'xbox360',
+        'XBLA package',
+        { id: '58410889', source: 'header' },
+        { folder: true },
+      ),
+      consoleFile(
+        "Demon's Souls (BLUS-30443)",
+        23_410_000_000,
+        'ps3',
+        'PARAM.SFO',
+        { id: 'BLUS30443', source: 'param-sfo' },
+        { folder: true },
+      ),
+      consoleFile(
+        'Excitebike - World Rally (Europe) (WiiWare).wad',
+        41_000_000,
+        'wii',
+        'WAD TMD',
+        { id: '0001000157414150', source: 'header' },
+        {
+          ext: [0.5, 'wad~'],
+          alternatives: [['doom', 0.6]],
+          sure: true,
+          notes: [
+            { kind: 'extension-contradicted', ext: 'wad', system: 'doom' },
+          ],
+        },
+      ),
+      {
+        name: 'Foo.pkg',
+        size: 8_192,
+        left: { kind: 'not-a-rom', what: 'installer' },
+      },
+      consoleFile(
+        'Halo (USA).xiso',
+        3_900_000_000,
+        'xbox',
+        'XISO default.xbe',
+        { id: '4D530004', source: 'default-xbe' },
+        { ext: [0.85, 'xiso'] },
+      ),
+      consoleFile(
+        'Halo 3 (USA).xex',
+        12_000_000,
+        'xbox360',
+        'XEX2 execution info',
+        { id: '4D5307E6', source: 'header' },
+        {
+          ext: [0.5, 'xex~'],
+          alternatives: [['a800', 0.6]],
+          sure: true,
+          notes: [
+            { kind: 'extension-contradicted', ext: 'xex', system: 'a800' },
+          ],
+        },
+      ),
+      consoleFile(
+        'Mario Kart 7 (Europe).3ds',
+        1_840_000_000,
+        '3ds',
+        'NCSD header',
+        { id: '0004000000030800', source: 'header' },
+        { ext: [0.85, '3ds'] },
+      ),
+      consoleFile(
+        'Metroid Prime (USA).rvz',
+        1_020_000_000,
+        'gamecube',
+        'RVZ disc header',
+        { id: 'GM8E01', source: 'header' },
+        { ext: [0.5, 'rvz'], alternatives: [['wii', 0.5]], sure: true },
+      ),
+      consoleFile(
+        'NPUB30024.pkg',
+        230_000_000,
+        'ps3',
+        'PKG header',
+        { id: 'NPUB30024', source: 'header' },
+        {
+          ext: [0.5, 'pkg~'],
+          notes: [{ kind: 'install-first', emulator: 'RPCS3' }],
+        },
+      ),
+      { name: 'NPUB30024.rap', size: 16, left: KEYS },
+      consoleFile(
+        'PCSE00844',
+        3_100_000_000,
+        'psvita',
+        'sce_sys/param.sfo',
+        { id: 'PCSE00844', source: 'param-sfo' },
+        { folder: true },
+      ),
+      consoleFile(
+        'Persona 4 Golden.vpk',
+        2_950_000_000,
+        'psvita',
+        'VPK param.sfo',
+        { id: 'PCSB00245', source: 'param-sfo' },
+        { ext: [0.85, 'vpk'] },
+      ),
+      consoleFile(
+        'Pokemon Y (Europe).cia',
+        1_710_000_000,
+        '3ds',
+        'CIA TMD',
+        { id: '0004000000055E00', source: 'header' },
+        {
+          ext: [0.85, 'cia'],
+          notes: [{ kind: 'encrypted-content', emulator: 'Azahar' }],
+        },
+      ),
+      consoleFile(
+        'Resident Evil 4 (USA) (Disc 1).rvz',
+        1_200_000_000,
+        'gamecube',
+        'RVZ disc header',
+        { id: 'G4BE08', source: 'header' },
+        { ext: [0.5, 'rvz'], alternatives: [['wii', 0.5]], sure: true },
+      ),
+      consoleFile(
+        'Resident Evil 4 (USA) (Disc 2).rvz',
+        1_150_000_000,
+        'gamecube',
+        'RVZ disc header',
+        { id: 'G4BE08', source: 'header' },
+        { ext: [0.5, 'rvz'], alternatives: [['wii', 0.5]], sure: true },
+      ),
+      consoleFile(
+        'Super Mario 3D World [0005000010145D00]',
+        1_700_000_000,
+        'wiiu',
+        'meta.xml',
+        { id: '0005000010145D00', source: 'meta-xml' },
+        { folder: true },
+      ),
+      consoleFile(
+        // Its `.wbf1` part travels with it (one item).
+        'Super Mario Galaxy (Europe).wbfs',
+        3_220_000_000,
+        'wii',
+        'WBFS disc header',
+        { id: 'RMGP01', source: 'header' },
+        { ext: [0.85, 'wbfs'] },
+      ),
+      consoleFile(
+        'Super Mario Odyssey [0100000000010000][v0].nsp',
+        5_610_000_000,
+        'switch',
+        'PFS0 ticket name',
+        { id: '0100000000010000', source: 'ticket-name' },
+        { ext: [0.85, 'nsp'] },
+      ),
+      {
+        // Magic only (0.90): the id comes from the file name.
+        ...consoleFile(
+          'Super Mario Odyssey [0100000000010800][v393216].nsp',
+          920_000_000,
+          'switch',
+          'PFS0',
+          { id: '0100000000010800', source: 'file-name' },
+          { notes: [{ kind: 'update', of: 'Super Mario Odyssey' }] },
+        ),
+        confidence: 0.93,
+        why: [
+          ev('header', 'switch', 0.9, 'PFS0'),
+          ev('extension', 'switch', 0.85, 'nsp'),
+        ],
+      },
+      consoleFile(
+        // No id in clear and none in the name: the header alone.
+        'Zelda BotW.xci',
+        13_400_000_000,
+        'switch',
+        'XCI HFS0: secure',
+        null,
+        { ext: [0.85, 'xci'] },
+      ),
+      {
+        name: 'model.3ds',
+        size: 24_576,
+        left: { kind: 'not-a-rom', what: 'model3d' },
+      },
+      { name: 'prod.keys', size: 9_216, left: KEYS },
+      { name: 'title.keys', size: 2_048, left: KEYS },
+      {
+        name: 'ux0',
+        size: 64,
+        left: { kind: 'emulator-data', folder: 'ux0' },
+      },
+    ],
+  },
 ];
 
 const ARCHIVE_EXTS = ['.zip', '.7z', '.rar', '.gz', '.tgz'];
@@ -707,6 +948,25 @@ export const ORGANIZE_SYSTEMS: readonly {
     family: 'arcade',
   },
   { id: 'doom', name: 'Doom (PrBoom)', folder: 'PRBOOM', family: 'engine' },
+  // The modern pile (systems batch 2; GameCube, PS3 and Switch are in the
+  // fixture libraries): folders are the first alias.
+  { id: 'wii', name: 'Nintendo Wii', folder: 'WII', family: 'console' },
+  { id: 'wiiu', name: 'Nintendo Wii U', folder: 'WIIU', family: 'console' },
+  { id: '3ds', name: 'Nintendo 3DS', folder: '3DS', family: 'handheld' },
+  {
+    id: 'psvita',
+    name: 'Sony PlayStation Vita',
+    folder: 'PSVITA',
+    family: 'handheld',
+  },
+  { id: 'xbox', name: 'Microsoft Xbox', folder: 'XBOX', family: 'console' },
+  {
+    id: 'xbox360',
+    name: 'Microsoft Xbox 360',
+    folder: 'XBOX360',
+    family: 'console',
+  },
+  { id: 'a800', name: 'Atari 8-bit', folder: 'A800', family: 'computer' },
 ];
 
 /**
@@ -722,6 +982,17 @@ const ABSENT_ON: Readonly<Record<string, readonly string[]>> = {
   sufami: ['anbernic-stock', 'minui'],
   zxspectrum: ['anbernic-stock', 'minui'],
   amstradcpc: ['anbernic-stock'],
+  // Systems batch 2 (spec §6): only ES-DE and Batocera name them, and
+  // muOS 3DS; Batocera's Switch folder follows Knulli (D19).
+  gamecube: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
+  wii: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
+  wiiu: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
+  '3ds': ['anbernic-stock', 'garlicos', 'onion', 'minui'],
+  switch: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
+  psvita: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
+  ps3: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
+  xbox: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
+  xbox360: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
 };
 const SYSTEMS = new Map<string, { id: string; name: string; folder: string }>(
   [...FIXTURE_SYSTEMS, ...ORGANIZE_SYSTEMS].map((s) => [s.id, s]),
@@ -1092,7 +1363,11 @@ export function createMockOrganize(
     const common = {
       id,
       sources: [file.name],
-      kind: isArchive(file) ? ('archive' as const) : ('file' as const),
+      kind: file.folder
+        ? ('folder' as const)
+        : isArchive(file)
+          ? ('archive' as const)
+          : ('file' as const),
       size: file.size,
       fps: [{ size: file.size, mtime_ns: host.now * 1e9 - (id + 1) * 6e10 }],
       target: null,
@@ -1111,6 +1386,9 @@ export function createMockOrganize(
       catalogue_name: file.catalogue ?? null,
       transfer: { kind: 'as-is' } as const,
       disc: null,
+      ...(identified &&
+        !file.left &&
+        file.titleId && { title_id: { ...file.titleId } }),
     };
     if (file.left)
       return {
@@ -1291,8 +1569,16 @@ export function createMockOrganize(
       if (item.action === 'left' || item.system_id === null) continue;
       const folder = folderFor(r, item.system_id);
       const dir = join(r.romsRel, folder);
-      if (ABSENT_ON[item.system_id]?.includes(r.layout.profile.id))
-        item.notes = [...item.notes, { kind: 'no-folder-on-device', folder }];
+      if (ABSENT_ON[item.system_id]?.includes(r.layout.profile.id)) {
+        // Like Rust, an update or DLC note comes last (it is added once
+        // every target is known).
+        const late = (n: ItemNote) => n.kind === 'update' || n.kind === 'dlc';
+        item.notes = [
+          ...item.notes.filter((n) => !late(n)),
+          { kind: 'no-folder-on-device', folder },
+          ...item.notes.filter(late),
+        ];
+      }
       if (item.action === 'review') {
         items[i] = { ...item, folder };
         continue;
@@ -1324,6 +1610,19 @@ export function createMockOrganize(
       const source = files[i]!.name;
       let name = source;
       let rename: OrganizeItem['rename'] = null;
+      // A game folder the layout shows only with a suffix (D13: PS3 JB
+      // folders on ES-DE and Batocera) is renamed and says so.
+      const suffix =
+        item.kind === 'folder'
+          ? r.layout.profile.folder_game_suffix?.[item.system_id]
+          : undefined;
+      if (suffix && !source.toLowerCase().endsWith(suffix)) {
+        name = `${source}${suffix}`;
+        item.notes = [
+          ...item.notes,
+          { kind: 'folder-suffix', name, layout: r.layout.profile.name },
+        ];
+      }
       if (
         r.names === 'catalogue' &&
         item.catalogue_name &&
@@ -1476,6 +1775,9 @@ export function createMockOrganize(
       : [];
     if (moving.length === 0 && sortedFolders.length > 0)
       warnings.push({ kind: 'sorted-only' });
+    const updates = items.filter((i) =>
+      i.notes.some((n) => n.kind === 'update' || n.kind === 'dlc'),
+    ).length;
     const plan: OrganizePlan = {
       source_root: r.source,
       target_root: r.target,
@@ -1510,6 +1812,8 @@ export function createMockOrganize(
       duplicates,
       set_aside_trash:
         r.trash && duplicates.length > 0 && r.duplicates === 'set-aside',
+      // Rows that are an update or DLC of a game; Rust omits it when 0.
+      ...(updates > 0 && { updates }),
     };
     return { plan, files };
   }

@@ -12,7 +12,7 @@ import { SYSTEM_ICONS } from './systemIcons.generated';
 const IDS = [...toml.matchAll(/^id\s*=\s*"([^"]+)"/gm)].map((m) => m[1]!);
 
 describe('system icon data', () => {
-  it('reads the 118 systems', () => expect(IDS).toHaveLength(118));
+  it('reads the 127 systems', () => expect(IDS).toHaveLength(127));
   it('every systems.toml id resolves to an icon or an abbreviation, not both', () => {
     for (const id of IDS) {
       const has = Number(id in SYSTEM_ICONS) + Number(id in FALLBACK_ABBR);
@@ -31,6 +31,29 @@ describe('system icon data', () => {
       expect(IDS, id).toContain(id);
       expect(SYSTEM_ICONS, id).not.toHaveProperty(id);
       expect(FALLBACK_ABBR, id).toHaveProperty(id);
+    }
+  });
+  it('systems batch 2: each has an audited silhouette or a wordmark slot', () => {
+    const batch2 = [
+      'gamecube',
+      'wii',
+      'wiiu',
+      '3ds',
+      'switch',
+      'psvita',
+      'ps3',
+      'xbox',
+      'xbox360',
+    ];
+    for (const id of batch2) {
+      const silhouette = Object.hasOwn(SYSTEM_ICONS, id);
+      const wordmark = WORDMARK_IDS.includes(id);
+      expect(silhouette !== wordmark, id).toBe(true);
+      if (silhouette) {
+        expect(Object.hasOwn(SYSTEM_ICON_SOURCES, id), id).toBe(true);
+      } else {
+        expect(FALLBACK_ABBR[id], id).toMatch(/^[A-Z0-9]{1,4}$/);
+      }
     }
   });
   it('bodies are clean', () => {

@@ -1884,3 +1884,55 @@ fn arduboy_package_is_raw() {
     zip_file(&nested, &[("sub/info.json", b"{}", true)]);
     assert!(header_hits(&inspect(&nested)).is_empty());
 }
+
+#[test]
+fn vpk_is_one_raw_vita_package_read_through_its_param_sfo() {
+    use coverly_core::consoles::{ArtFormat, ArtLocator};
+    // Systems batch 2 D16: a VPK is a zip the user installs as it is; its
+    // `sce_sys/param.sfo` entry names the game, nothing is extracted.
+    let tmp = tempfile::tempdir().unwrap();
+    let vpk = tmp.path().join("Persona 4 Golden.vpk");
+    coverly_core::consoles::testing::vpk(&vpk, "PCSE00120");
+    let i = inspect(&vpk);
+    assert_eq!(i.container, Container::Raw);
+    assert_eq!(i.issue, None);
+    assert!(i.entries.is_empty(), "nothing listed");
+    assert_eq!(i.payloads.len(), 1);
+    assert_eq!(header_hits(&i), [("psvita".to_string(), 0.95)]);
+    let sniff = &i.payloads[0].sniff;
+    assert_eq!(sniff.serial.as_deref(), Some("PCSE-00120"));
+    let c = sniff.console.as_ref().unwrap();
+    assert_eq!(c.detail, "VPK param.sfo");
+    assert_eq!(
+        c.art,
+        [ArtLocator::ZipEntry {
+            name: "sce_sys/icon0.png".into(),
+            format: ArtFormat::Png
+        }]
+    );
+    // A zip named `.vpk` without a param.sfo names nothing and is still
+    // not opened as an archive.
+    let bare = tmp.path().join("Bare.vpk");
+    zip_file(&bare, &[("eboot.bin", &[0u8; 64], false)]);
+    let i = inspect(&bare);
+    assert_eq!(i.container, Container::Raw);
+    assert!(header_hits(&i).is_empty());
+}
+
+#[test]
+fn a_xar_pkg_is_still_an_installer() {
+    // Systems batch 2 D7: the PKG reader never claims a macOS installer.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Foo.pkg");
+    let mut bytes = b"xar!\0\x1c\0\x01".to_vec();
+    bytes.resize(4096, 0);
+    std::fs::write(&p, &bytes).unwrap();
+    let i = inspect(&p);
+    assert_eq!(
+        i.issue,
+        Some(ArchiveIssue::NotARom {
+            what: NotARom::Installer
+        })
+    );
+    assert!(header_hits(&i).is_empty());
+}

@@ -16,8 +16,10 @@ use sha1::Sha1;
 /// Files larger than this are not hashed by default (spec §9 "max file size to hash").
 pub const DEFAULT_HASH_MAX_BYTES: u64 = 64 * 1024 * 1024;
 /// Formats identified by name: multi-file sets, compressed discs, 7z (deferred).
-const NAME_ONLY_EXTS: [&str; 10] = [
-    "cue", "gdi", "m3u", "ccd", "chd", "7z", "pbp", "cso", "rvz", "zso",
+const NAME_ONLY_EXTS: [&str; 27] = [
+    "cue", "gdi", "m3u", "ccd", "chd", "7z", "pbp", "cso", "rvz", "zso", "gcz", "wia", "wbfs",
+    "ciso", "cia", "zcci", "zcia", "wua", "wux", "wud", "nsp", "nsz", "xci", "xcz", "vpk", "pkg",
+    "zar",
 ];
 const CHUNK: usize = 64 * 1024;
 /// A zip with more entries than this is not a single ROM; do not walk it.
@@ -201,7 +203,7 @@ pub fn hash_rom_mode(
     if NAME_ONLY_EXTS.contains(&ext.as_str()) {
         return Ok(HashOutcome::NameOnly);
     }
-    let mut file = File::open(path)?;
+    let mut file = crate::consoles::open_rom(path)?;
     let size = file.metadata()?.len();
     if ext == "zip" {
         if let Some((mut outcome, index)) = zip_outcome(&mut file) {

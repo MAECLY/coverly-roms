@@ -676,6 +676,8 @@ fn report_text(why: &ReportWhy) -> String {
         }
         ReportWhy::UserSkipped => "report only: skipped".into(),
         ReportWhy::ChdMetadataDiffers => "report only: same CHD data, other metadata".into(),
+        ReportWhy::TitleId => "report only: same title id, contents not compared".into(),
+        ReportWhy::FolderGame => "report only: game folders are never set aside".into(),
         _ => "report only".into(),
     }
 }

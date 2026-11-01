@@ -11,7 +11,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
-use super::noclobber::{is_cross_device, rename_noclobber_indexed, with_sharing_retries};
+use super::noclobber::{
+    is_cross_device, rename_dir_noclobber, rename_noclobber_indexed, with_sharing_retries,
+};
+use super::undo_organize::{file_matches_fp, same_mtime};
 use super::{
     apple_double, ensure_within, find_twin, is_job_temp, map_io, name_key, remove_apple_doubles,
     rename_noclobber, safe_file_name, same_volume, Fingerprint, Op, Via, WriteError, Writer,
@@ -39,6 +42,22 @@ pub enum MoveOutcome {
     CopiedNotRemoved { to: PathBuf, renamed: bool },
     /// The target name is taken and the collision policy is
     /// [`Collision::Skip`].
+    SkippedExists { existing: PathBuf },
+}
+
+/// Result of one [`Writer::move_dir`] or [`Writer::copy_dir`] (spec D25).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "outcome", rename_all = "kebab-case")]
+pub enum DirOutcome {
+    /// The folder is now at `to` (`renamed`: under another name than asked).
+    Moved { to: PathBuf, renamed: bool },
+    /// A copy of the tree is at `to`; the source stays (asked for).
+    Copied { to: PathBuf, renamed: bool },
+    /// Every file copied and verified, but the source tree could not be
+    /// removed (a file that is not the job's is still in it, or a delete
+    /// failed): what could not go stays at the source.
+    CopiedNotRemoved { to: PathBuf, renamed: bool },
+    /// The target name is taken and the policy is [`Collision::Skip`].
     SkippedExists { existing: PathBuf },
 }
 
@@ -282,6 +301,38 @@ impl Writer {
         self.transfer(from, to, collision, item, Mode::Copy, false)
     }
 
+    /// Moves the folder `from` (inside the source root) to `to` (inside the
+    /// root), never merging into or replacing a folder (spec D25): one
+    /// no-clobber rename on one volume, journaled as [`Op::DirMoved`];
+    /// across volumes the tree is copied file by file (each streamed,
+    /// verified and journaled like a file move, each folder journaled as
+    /// created), and only once every file is verified are the sources
+    /// deleted and the emptied source folders removed. `progress` gets the
+    /// bytes copied so far within the folder.
+    pub fn move_dir(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        collision: Collision,
+        item: Option<usize>,
+        progress: &mut dyn FnMut(u64),
+    ) -> Result<DirOutcome, WriteError> {
+        self.transfer_dir(from, to, collision, item, Mode::Move, progress)
+    }
+
+    /// Copies the folder `from` to `to` file by file, as a move across
+    /// volumes does; the source stays.
+    pub fn copy_dir(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        collision: Collision,
+        item: Option<usize>,
+        progress: &mut dyn FnMut(u64),
+    ) -> Result<DirOutcome, WriteError> {
+        self.transfer_dir(from, to, collision, item, Mode::Copy, progress)
+    }
+
     /// Deletes this job's temp files (`.coverly-<job>-*.tmp`) and their
     /// AppleDouble sidecars directly in `dirs`, best effort: what a crash
     /// in the middle of a copy leaves behind.
@@ -501,6 +552,491 @@ impl Writer {
         let prefix = format!(".coverly-{}-", self.job);
         stream_copy(from, to, &prefix, &mut self.counter, list_target)
     }
+
+    fn transfer_dir(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        collision: Collision,
+        item: Option<usize>,
+        mode: Mode,
+        progress: &mut dyn FnMut(u64),
+    ) -> Result<DirOutcome, WriteError> {
+        let from = ensure_within(&self.source_root, from)?;
+        let to = ensure_within(&self.root, to)?;
+        let meta = fs::symlink_metadata(&from).map_err(|e| map_io(e, &from))?;
+        if !meta.is_dir() {
+            return Err(not_a_folder(&from));
+        }
+        // A copy into itself would never end; a rename into itself fails.
+        if to.starts_with(&from) {
+            return Err(WriteError::Io(io::Error::new(
+                ErrorKind::InvalidInput,
+                format!("{} cannot go inside itself", from.display()),
+            )));
+        }
+        let asked = file_name_of(&to)?.to_string();
+        if safe_file_name(&asked)? != asked {
+            return Err(WriteError::NameInvalid(asked));
+        }
+        let parent = to
+            .parent()
+            .ok_or_else(|| WriteError::OutsideRoot(to.clone()))?
+            .to_path_buf();
+        if mode == Mode::Move
+            && from.parent() == Some(parent.as_path())
+            && name_key(file_name_of(&from)?) == name_key(&asked)
+        {
+            return Ok(DirOutcome::Moved {
+                to: from,
+                renamed: false,
+            });
+        }
+        self.ensure_dir(&parent)?;
+        let mut rename = mode == Mode::Move && same_volume(&from, &parent);
+        let mut name = asked.clone();
+        let mut n = 1u32;
+        loop {
+            if n > MAX_NAMES {
+                return Err(too_many_collisions(&parent, &asked));
+            }
+            let candidate = parent.join(&name);
+            let renamed = name != asked;
+            let taken = |existing: PathBuf, n: &mut u32, name: &mut String| {
+                *n += 1;
+                *name = numbered_dir(&asked, *n);
+                (collision == Collision::Skip).then_some(DirOutcome::SkippedExists { existing })
+            };
+            if let Some(existing) = find_twin(&parent, &name)? {
+                // A folder an earlier run of this job started copying the
+                // tree into: carry on there instead of starting over.
+                if self.started_copy(&from, &existing) {
+                    return self.copy_tree(&from, &existing, mode, item, renamed, progress);
+                }
+                if let Some(skip) = taken(existing, &mut n, &mut name) {
+                    return Ok(skip);
+                }
+                continue;
+            }
+            if rename {
+                match self.rename_dir_into(&from, &candidate, item)? {
+                    DirRenamed::Done => {
+                        return Ok(DirOutcome::Moved {
+                            to: candidate,
+                            renamed,
+                        })
+                    }
+                    DirRenamed::Taken => {
+                        if let Some(skip) = taken(candidate, &mut n, &mut name) {
+                            return Ok(skip);
+                        }
+                        continue;
+                    }
+                    DirRenamed::CrossDevice => {
+                        rename = false;
+                        continue;
+                    }
+                }
+            }
+            // The top folder is created exclusively: an existing one is
+            // never merged into.
+            self.append_entry(candidate.clone(), Op::DirCreated, None, None, item)?;
+            match fs::create_dir(&candidate) {
+                Ok(()) => {
+                    self.changes += 1;
+                    remove_apple_doubles(std::slice::from_ref(&candidate));
+                    return self.copy_tree(&from, &candidate, mode, item, renamed, progress);
+                }
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+                    if let Some(skip) = taken(candidate, &mut n, &mut name) {
+                        return Ok(skip);
+                    }
+                }
+                Err(e) => return Err(map_io(e, &candidate)),
+            }
+        }
+    }
+
+    /// Journals the folder move (with the tree's fingerprint, so undo can
+    /// tell the folder is still the one moved), then renames without
+    /// replacing or merging.
+    fn rename_dir_into(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        item: Option<usize>,
+    ) -> Result<DirRenamed, WriteError> {
+        let fp = dir_fingerprint(from).map_err(|e| map_io(e, from))?;
+        self.append_entry(
+            to.to_path_buf(),
+            Op::DirMoved {
+                from: from.to_path_buf(),
+            },
+            None,
+            Some(fp),
+            item,
+        )?;
+        let result = match fault(CopyStage::Rename, from) {
+            Some(e) => Err(e),
+            None => rename_dir_noclobber(from, to),
+        };
+        match result {
+            Ok(()) => {
+                self.changes += 1;
+                Ok(DirRenamed::Done)
+            }
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(DirRenamed::Taken),
+            Err(e) if is_cross_device(&e) => Ok(DirRenamed::CrossDevice),
+            Err(e) => Err(map_io(e, from)),
+        }
+    }
+
+    /// Whether an earlier run of this job created `existing` and copied
+    /// files of `from` into it.
+    fn started_copy(&self, from: &Path, existing: &Path) -> bool {
+        self.prior_dirs.contains(existing)
+            && self.prior_copies.iter().any(|(target, (source, _))| {
+                target.starts_with(existing) && source.starts_with(from)
+            })
+    }
+
+    /// Copies the tree `from` into the folder `top` (created by this job),
+    /// then, for a move, deletes the sources. A failure that pauses the job
+    /// (a full or read-only target) keeps the verified copies for the
+    /// resume; any other failure removes the copies and folders this item
+    /// made, so no half game is left in the library. The sources are never
+    /// touched before every file is verified.
+    fn copy_tree(
+        &mut self,
+        from: &Path,
+        top: &Path,
+        mode: Mode,
+        item: Option<usize>,
+        renamed: bool,
+        progress: &mut dyn FnMut(u64),
+    ) -> Result<DirOutcome, WriteError> {
+        let tree = match list_tree(from) {
+            Ok(tree) => tree,
+            Err(e) => {
+                // Refused before a byte was copied: the folder this item
+                // just made goes too (only while it is still empty).
+                let empty = Tree {
+                    dirs: Vec::new(),
+                    files: Vec::new(),
+                };
+                roll_back_tree(top, &empty, &[]);
+                return Err(e);
+            }
+        };
+        let mut copied: Vec<(PathBuf, Fingerprint)> = Vec::new();
+        let result = self.copy_files(from, top, &tree, mode, item, progress, &mut copied);
+        if let Err(e) = result {
+            let e = match e {
+                WriteError::Io(io) => map_io(io, top),
+                other => other,
+            };
+            if !matches!(e, WriteError::DiskFull | WriteError::Denied(_)) {
+                roll_back_tree(top, &tree, &copied);
+            }
+            return Err(e);
+        }
+        let to = top.to_path_buf();
+        if mode == Mode::Copy {
+            return Ok(DirOutcome::Copied { to, renamed });
+        }
+        let mut kept = false;
+        for (rel, _) in &tree.files {
+            let source = from.join(rel);
+            let deleted = with_sharing_retries(|| match fault(CopyStage::Delete, &source) {
+                Some(e) => Err(e),
+                None => fs::remove_file(&source),
+            });
+            if deleted.is_err() {
+                kept = true;
+                // Both exist now: undo removes the copy, never the source.
+                let target = top.join(rel);
+                let fp = copied.iter().find(|c| c.0 == target).map(|c| c.1);
+                self.append_entry(target, Op::Copied { from: source }, None, fp, item)?;
+            }
+        }
+        // Deepest first; known junk goes, anything else keeps its folder.
+        for rel in tree.dirs.iter().rev().chain([&PathBuf::new()]) {
+            let dir = from.join(rel);
+            remove_junk_in(&dir);
+            if fs::remove_dir(&dir).is_err() {
+                kept = true;
+            }
+        }
+        if !kept {
+            remove_apple_doubles(&[from.to_path_buf()]);
+            Ok(DirOutcome::Moved { to, renamed })
+        } else {
+            Ok(DirOutcome::CopiedNotRemoved { to, renamed })
+        }
+    }
+
+    /// Step one of [`Writer::copy_tree`]: the folders, then every file
+    /// streamed and verified, each journaled before and after. A file an
+    /// earlier run finished (journaled, still as it left it) is not copied
+    /// again.
+    #[allow(clippy::too_many_arguments)]
+    fn copy_files(
+        &mut self,
+        from: &Path,
+        top: &Path,
+        tree: &Tree,
+        mode: Mode,
+        item: Option<usize>,
+        progress: &mut dyn FnMut(u64),
+        copied: &mut Vec<(PathBuf, Fingerprint)>,
+    ) -> Result<(), WriteError> {
+        progress(0);
+        for rel in &tree.dirs {
+            self.ensure_dir(&top.join(rel))?;
+        }
+        let mut done = 0u64;
+        for (rel, len) in &tree.files {
+            let source = from.join(rel);
+            let target = top.join(rel);
+            let op = || match mode {
+                Mode::Move => Op::Moved {
+                    from: source.clone(),
+                    via: Via::Copy,
+                },
+                Mode::Copy => Op::Copied {
+                    from: source.clone(),
+                },
+            };
+            let fp = match self.earlier_copy(&source, &target, op(), item)? {
+                Some(fp) => fp,
+                None => {
+                    self.append_entry(target.clone(), op(), None, None, item)?;
+                    let prefix = format!(".coverly-{}-", self.job);
+                    let fp = stream_copy_with(
+                        &source,
+                        &target,
+                        &prefix,
+                        &mut self.counter,
+                        false,
+                        &mut |n| progress(done + n),
+                    )?;
+                    self.changes += 1;
+                    self.append_entry(target.clone(), op(), None, Some(fp), item)?;
+                    fp
+                }
+            };
+            copied.push((target, fp));
+            done = done.saturating_add(*len);
+            progress(done);
+        }
+        Ok(())
+    }
+
+    /// The fingerprint of `target` when an earlier run of the job already
+    /// copied `source` there: journaled finished and unchanged, or (a stop
+    /// between the rename into place and its journal line) the same size,
+    /// time and CRC-32 as the source, which is then journaled finished.
+    fn earlier_copy(
+        &mut self,
+        source: &Path,
+        target: &Path,
+        op: Op,
+        item: Option<usize>,
+    ) -> Result<Option<Fingerprint>, WriteError> {
+        let Some((from, fp)) = self.prior_copies.get(target).cloned() else {
+            return Ok(None);
+        };
+        if from != source {
+            return Ok(None);
+        }
+        if let Some(fp) = fp {
+            if file_matches_fp(target, &fp) {
+                return Ok(Some(fp));
+            }
+        }
+        let (Ok(t), Ok(s)) = (fs::symlink_metadata(target), fs::symlink_metadata(source)) else {
+            return Ok(None);
+        };
+        let same = t.file_type().is_file()
+            && t.len() == s.len()
+            && matches!((t.modified(), s.modified()), (Ok(a), Ok(b)) if same_mtime(mtime_ns(a), mtime_ns(b)));
+        let crc = if same { Some(crc_of(target)?) } else { None };
+        if crc.is_none() || crc != Some(crc_of(source)?) {
+            // Not the job's copy (or torn): never overwritten.
+            return Err(WriteError::Io(io::Error::from(ErrorKind::AlreadyExists)));
+        }
+        let fp = fingerprint(&t, crc);
+        self.append_entry(target.to_path_buf(), op, None, Some(fp), item)?;
+        Ok(Some(fp))
+    }
+}
+
+enum DirRenamed {
+    Done,
+    /// The name was taken meanwhile: nothing moved.
+    Taken,
+    /// The folders are on two volumes after all: copy instead.
+    CrossDevice,
+}
+
+fn not_a_folder(path: &Path) -> WriteError {
+    WriteError::Io(io::Error::new(
+        ErrorKind::InvalidInput,
+        format!("not a folder: {}", path.display()),
+    ))
+}
+
+/// Files the OS leaves in folders, never copied and deleted with the
+/// folder: Finder's `.DS_Store`, AppleDouble `._*`, Windows' `Thumbs.db`
+/// and `desktop.ini`.
+pub(super) fn is_junk_name(name: &str) -> bool {
+    name == ".DS_Store"
+        || name.starts_with("._")
+        || name.eq_ignore_ascii_case("Thumbs.db")
+        || name.eq_ignore_ascii_case("desktop.ini")
+}
+
+/// A folder's contents by metadata only, relative to it, in name order
+/// (pre-order): folders and the regular files to copy with their sizes.
+/// Junk is left out.
+struct Tree {
+    dirs: Vec<PathBuf>,
+    files: Vec<(PathBuf, u64)>,
+}
+
+/// Lists `root` with `symlink_metadata` (no link followed). A symlink or
+/// anything but a file or a folder inside refuses the whole tree before
+/// anything is written: a rename would move the link, a copy would not
+/// follow it.
+fn list_tree(root: &Path) -> Result<Tree, WriteError> {
+    let mut tree = Tree {
+        dirs: Vec::new(),
+        files: Vec::new(),
+    };
+    let mut stack = vec![PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        let dir = root.join(&rel);
+        let mut names: Vec<(String, fs::Metadata)> = Vec::new();
+        for entry in fs::read_dir(&dir).map_err(|e| map_io(e, &dir))? {
+            let entry = entry.map_err(|e| map_io(e, &dir))?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                return Err(WriteError::NameInvalid(entry.path().display().to_string()));
+            };
+            let meta = fs::symlink_metadata(entry.path()).map_err(|e| map_io(e, &entry.path()))?;
+            names.push((name.to_string(), meta));
+        }
+        names.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut subdirs = Vec::new();
+        for (name, meta) in names {
+            let child = rel.join(&name);
+            let kind = meta.file_type();
+            if kind.is_dir() {
+                tree.dirs.push(child.clone());
+                subdirs.push(child);
+            } else if kind.is_file() {
+                if !is_junk_name(&name) {
+                    tree.files.push((child, meta.len()));
+                }
+            } else {
+                return Err(WriteError::NotAFile(root.join(child)));
+            }
+        }
+        // Reversed onto the stack, so folders come out in name order.
+        stack.extend(subdirs.into_iter().rev());
+    }
+    Ok(tree)
+}
+
+/// Removes what one failed folder copy made: each copied file still as it
+/// left it, then the folders bottom-up when empty (best effort; the
+/// journal still lets undo finish the job).
+fn roll_back_tree(top: &Path, tree: &Tree, copied: &[(PathBuf, Fingerprint)]) {
+    for (target, fp) in copied {
+        if file_matches_fp(target, fp) {
+            let _ = with_sharing_retries(|| fs::remove_file(target));
+            remove_apple_doubles(std::slice::from_ref(target));
+        }
+    }
+    for rel in tree.dirs.iter().rev().chain([&PathBuf::new()]) {
+        let dir = top.join(rel);
+        remove_junk_in(&dir);
+        if fs::remove_dir(&dir).is_ok() {
+            remove_apple_doubles(&[dir]);
+        }
+    }
+}
+
+/// Deletes the junk files directly in `dir` when nothing else is in it,
+/// best effort: a folder that stays keeps its litter, since an
+/// AppleDouble `._x` there is the metadata of a file `x` that stays.
+fn remove_junk_in(dir: &Path) {
+    let Ok(read) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut junk = Vec::new();
+    for entry in read.flatten() {
+        let is_junk = entry.file_name().to_str().is_some_and(is_junk_name)
+            && entry.file_type().is_ok_and(|t| t.is_file());
+        if !is_junk {
+            return;
+        }
+        junk.push(entry.path());
+    }
+    for path in junk {
+        let _ = fs::remove_file(path);
+    }
+}
+
+/// What a folder's tree looks like, by metadata only: the bytes of its
+/// regular files and the newest modification time among them (junk left
+/// out). A rename keeps both; undo of a folder move checks them.
+pub(super) fn dir_fingerprint(root: &Path) -> io::Result<Fingerprint> {
+    let mut size = 0u64;
+    let mut newest = i64::MIN;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            let meta = fs::symlink_metadata(entry.path())?;
+            if meta.is_dir() {
+                stack.push(entry.path());
+            } else if meta.file_type().is_file()
+                && !entry.file_name().to_str().is_some_and(is_junk_name)
+            {
+                size = size.saturating_add(meta.len());
+                newest = newest.max(meta.modified().map_or(0, mtime_ns));
+            }
+        }
+    }
+    Ok(Fingerprint {
+        size,
+        mtime_ns: if newest == i64::MIN { 0 } else { newest },
+        crc32: None,
+    })
+}
+
+/// Whether the tree at `root` still has the fingerprint `fp` (sizes
+/// exactly, the newest time within what the volume stores).
+pub(super) fn dir_matches_fp(root: &Path, fp: &Fingerprint) -> bool {
+    dir_fingerprint(root)
+        .is_ok_and(|now| now.size == fp.size && same_mtime(now.mtime_ns, fp.mtime_ns))
+}
+
+/// `"{name} ({n})"`, or before a short suffix such as `.ps3` or `.nsp`
+/// (`"Game (2).ps3"`): 1–8 ASCII letters or digits with at least one
+/// letter. A dot in a title (`Super Mario Bros. 3`) is not a suffix.
+pub(super) fn numbered_dir(name: &str, n: u32) -> String {
+    let suffix = name.rfind('.').filter(|&i| i > 0).filter(|&i| {
+        let ext = &name[i + 1..];
+        (1..=8).contains(&ext.len())
+            && ext.bytes().all(|b| b.is_ascii_alphanumeric())
+            && ext.bytes().any(|b| b.is_ascii_alphabetic())
+    });
+    match suffix {
+        Some(i) => format!("{} ({n}){}", &name[..i], &name[i..]),
+        None => format!("{name} ({n})"),
+    }
 }
 
 /// Deletes the temp files of job `job` (`.coverly-<job>-<n>.tmp`) and
@@ -539,6 +1075,19 @@ pub(super) fn stream_copy(
     counter: &mut u32,
     list_target: bool,
 ) -> Result<Fingerprint, WriteError> {
+    stream_copy_with(from, to, tmp_prefix, counter, list_target, &mut |_| {})
+}
+
+/// [`stream_copy`], telling `progress` the bytes copied so far after each
+/// chunk.
+fn stream_copy_with(
+    from: &Path,
+    to: &Path,
+    tmp_prefix: &str,
+    counter: &mut u32,
+    list_target: bool,
+    progress: &mut dyn FnMut(u64),
+) -> Result<Fingerprint, WriteError> {
     let dir = to
         .parent()
         .ok_or_else(|| WriteError::OutsideRoot(to.to_path_buf()))?;
@@ -561,6 +1110,7 @@ pub(super) fn stream_copy(
     let copied = (|| {
         let mut hasher = crc32fast::Hasher::new();
         let mut buf = vec![0u8; CHUNK];
+        let mut total = 0u64;
         loop {
             let n = match source.read(&mut buf) {
                 Ok(0) => break,
@@ -570,6 +1120,8 @@ pub(super) fn stream_copy(
             };
             hasher.update(&buf[..n]);
             file.write_all(&buf[..n]).map_err(|e| map_io(e, to))?;
+            total = total.saturating_add(n as u64);
+            progress(total);
         }
         file.set_modified(modified).map_err(|e| map_io(e, to))?;
         file.sync_all().map_err(|e| map_io(e, to))?;
@@ -696,6 +1248,35 @@ mod tests {
         );
         assert_eq!(numbered("README", 2), "README (2)");
         assert_eq!(numbered(".hidden", 2), ".hidden (2)");
+    }
+
+    #[test]
+    fn numbered_folders_go_before_a_short_suffix_only() {
+        assert_eq!(numbered_dir("Zelda", 2), "Zelda (2)");
+        assert_eq!(numbered_dir("Game.ps3", 2), "Game (2).ps3");
+        assert_eq!(numbered_dir("Mario.gbdir", 3), "Mario (3).gbdir");
+        assert_eq!(
+            numbered_dir("Super Mario Bros. 3", 2),
+            "Super Mario Bros. 3 (2)"
+        );
+        assert_eq!(numbered_dir("Vol.2", 2), "Vol.2 (2)");
+        assert_eq!(numbered_dir(".hidden", 2), ".hidden (2)");
+    }
+
+    #[test]
+    fn junk_names_are_the_os_litter_only() {
+        for junk in [
+            ".DS_Store",
+            "._a.bin",
+            "Thumbs.db",
+            "desktop.ini",
+            "DESKTOP.INI",
+        ] {
+            assert!(is_junk_name(junk), "{junk}");
+        }
+        for kept in ["a.bin", "DS_Store", "thumbs.dbx", "PARAM.SFO"] {
+            assert!(!is_junk_name(kept), "{kept}");
+        }
     }
 
     #[test]

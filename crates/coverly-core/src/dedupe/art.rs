@@ -114,6 +114,7 @@ pub fn libretro_cached_url(
         hash: None,
         size: 0,
         file_name: name,
+        rom_path: None,
     };
     let candidates = source.candidates(&query).ok()?;
     candidates

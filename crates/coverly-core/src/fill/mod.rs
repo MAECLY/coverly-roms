@@ -24,6 +24,7 @@ use crate::net::Http;
 use crate::plan::{build_plan, Plan, PlanAction, PlanItem, PlanOptions};
 use crate::profiles::{Media, Profile};
 use crate::progress::{NoProgress, ProgressSink};
+use crate::sources::embedded::{self, EmbeddedSource};
 use crate::sources::libretro::{
     LibretroConfig, LibretroSource, INDEX_TTL_SECS, LIBRETRO_BASE, LIBRETRO_RAW_BASE,
 };
@@ -177,11 +178,13 @@ pub const SS_UNAVAILABLE_WARNING: &str = "screenscraper: not available in this b
 /// The sources one fill can use: libretro and SteamGridDB always (its
 /// images come from the CDN without the key, so a plan made with a key can
 /// still be applied or previewed after the key is removed), ScreenScraper
-/// only with this build's developer credentials. Only *asking* SteamGridDB
-/// for candidates needs the key: [`Sources::enabled`] leaves it out
-/// without one.
+/// only with this build's developer credentials, and the icons inside
+/// games (`embedded`, no key and no network) in every build. Only *asking*
+/// SteamGridDB for candidates needs the key: [`Sources::enabled`] leaves
+/// it out without one.
 pub struct Sources<'e> {
     libretro: LibretroSource<'e>,
+    embedded: EmbeddedSource,
     steamgriddb: SteamGridDbSource<'e>,
     sgdb_has_key: bool,
     screenscraper: Option<ScreenScraperSource<'e>>,
@@ -194,6 +197,7 @@ impl Sources<'_> {
             "libretro" => Some(&self.libretro),
             steamgriddb::SOURCE_ID => Some(&self.steamgriddb),
             screenscraper::SOURCE_ID => self.screenscraper.as_ref().map(|s| s as &dyn ArtSource),
+            embedded::ID => Some(&self.embedded),
             _ => None,
         }
     }
@@ -227,10 +231,15 @@ impl Sources<'_> {
 
     /// Every source this build has, in default order.
     pub fn all(&self) -> Vec<&dyn ArtSource> {
-        ["libretro", steamgriddb::SOURCE_ID, screenscraper::SOURCE_ID]
-            .iter()
-            .filter_map(|id| self.by_id(id))
-            .collect()
+        [
+            "libretro",
+            steamgriddb::SOURCE_ID,
+            screenscraper::SOURCE_ID,
+            embedded::ID,
+        ]
+        .iter()
+        .filter_map(|id| self.by_id(id))
+        .collect()
     }
 }
 
@@ -302,6 +311,7 @@ impl FillEnv<'_> {
         }
         Sources {
             libretro: self.libretro(refresh, ttl_secs),
+            embedded: EmbeddedSource,
             steamgriddb: SteamGridDbSource::new(
                 self.http,
                 self.cache,
@@ -481,6 +491,7 @@ impl FillEnv<'_> {
             hash: None,
             size: 0,
             file_name: &q,
+            rom_path: None,
         };
         let mut found = Vec::new();
         for source in &sources {

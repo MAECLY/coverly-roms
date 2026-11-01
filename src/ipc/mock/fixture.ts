@@ -79,6 +79,15 @@ export const FIXTURE_SYSTEMS: readonly FixtureSystem[] = [
     weight: 5,
   },
   {
+    // Batch 2: a few games of three big disc and folder systems.
+    folder: 'GAMECUBE',
+    id: 'gamecube',
+    family: 'console',
+    name: 'Nintendo GameCube',
+    exts: ['rvz', 'iso'],
+    weight: 1,
+  },
+  {
     folder: 'GG',
     id: 'gamegear',
     family: 'handheld',
@@ -160,6 +169,14 @@ export const FIXTURE_SYSTEMS: readonly FixtureSystem[] = [
     weight: 1,
   },
   {
+    folder: 'PS3',
+    id: 'ps3',
+    family: 'console',
+    name: 'Sony PlayStation 3',
+    exts: ['ps3', 'iso'],
+    weight: 1,
+  },
+  {
     folder: 'PSP',
     id: 'psp',
     family: 'handheld',
@@ -182,6 +199,14 @@ export const FIXTURE_SYSTEMS: readonly FixtureSystem[] = [
     name: 'Master System',
     exts: ['sms'],
     weight: 3,
+  },
+  {
+    folder: 'SWITCH',
+    id: 'switch',
+    family: 'console',
+    name: 'Nintendo Switch',
+    exts: ['nsp', 'xci'],
+    weight: 1,
   },
   {
     folder: 'WASM4',

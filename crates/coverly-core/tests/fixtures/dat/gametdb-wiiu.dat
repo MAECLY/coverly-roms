@@ -1,0 +1,22 @@
+clrmamepro (
+	name "Nintendo - Nintendo Wii U"
+	description "Trimmed GameTDB Wii U sample (synthetic rows)"
+)
+
+game (
+	name "Test Wii U Disc (USA)"
+	serial "ATWE01"
+	rom (
+		name "Test Wii U Disc (USA).wux"
+		serial "ATWE01"
+	)
+)
+
+game (
+	name "Test Wii U eShop Game (Europe)"
+	serial "SNKP"
+	rom (
+		name "Test Wii U eShop Game (Europe).wux"
+		serial "SNKP"
+	)
+)

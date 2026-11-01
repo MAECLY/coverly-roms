@@ -59,6 +59,7 @@ fn cand<'a>(member: usize, unit: &'a Unit) -> Candidate<'a> {
         has_cover: false,
         relation: Relation::Exact,
         headered_functional: None,
+        console_version: None,
     }
 }
 

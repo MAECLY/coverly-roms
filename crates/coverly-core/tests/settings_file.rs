@@ -71,7 +71,8 @@ fn defaults_follow_the_spec() {
         [
             ("libretro", true),
             ("steamgriddb", false),
-            ("screenscraper", false)
+            ("screenscraper", false),
+            ("embedded", true)
         ]
     );
     assert_eq!(
@@ -426,7 +427,8 @@ fn normalise_cleans_lists_and_keeps_unavailable_sources_off() {
         [
             ("screenscraper", ss),
             ("libretro", true),
-            ("steamgriddb", false)
+            ("steamgriddb", false),
+            ("embedded", false)
         ]
     );
     assert_eq!(s.art.media, [Media::Cover, Media::Title]);
@@ -1242,4 +1244,119 @@ fn old_settings_file_without_field_loads() {
     assert_eq!(s.organize.external_tools, ExternalTools::Auto);
     assert_eq!(s.organize.mode, OrganizeModeSetting::Copy);
     assert_eq!(report.fixed, ["organize.external_tools"]);
+}
+
+// Systems batch 2 (D17): the embedded source and settings version 3.
+
+fn source_order(s: &Settings) -> Vec<(&str, bool)> {
+    s.sources
+        .order
+        .iter()
+        .map(|e| (e.id.as_str(), e.enabled))
+        .collect()
+}
+
+#[test]
+fn v2_file_gains_embedded_enabled_at_the_end() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"version":2,"sources":{"order":[
+            {"id":"steamgriddb","enabled":true},
+            {"id":"libretro","enabled":true},
+            {"id":"screenscraper","enabled":false}]}}"#,
+    );
+    let (s, report) = load_settings(dir.path(), &known());
+    assert_eq!(s.version, 3);
+    assert_eq!(SETTINGS_VERSION, 3);
+    assert_eq!(
+        source_order(&s),
+        [
+            ("steamgriddb", true),
+            ("libretro", true),
+            ("screenscraper", false),
+            ("embedded", true)
+        ]
+    );
+    assert!(report.fixed.is_empty(), "{:?}", report.fixed);
+    // Saved and read again, it is a version 3 file and stays as it is.
+    save_settings(dir.path(), &s).unwrap();
+    let text = fs::read_to_string(dir.path().join(SETTINGS_FILE)).unwrap();
+    assert!(text.contains("\"version\": 3"), "{text}");
+    let (again, _) = load_settings(dir.path(), &known());
+    assert_eq!(source_order(&again), source_order(&s));
+}
+
+#[test]
+fn v2_file_without_sources_gets_the_defaults() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), r#"{"version":2,"general":{"theme":"dark"}}"#);
+    let (s, _) = load_settings(dir.path(), &known());
+    assert_eq!(source_order(&s), source_order(&Settings::default()));
+    assert!(s
+        .sources
+        .order
+        .iter()
+        .any(|e| e.id == "embedded" && e.enabled));
+}
+
+#[test]
+fn v3_file_keeps_embedded_off() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"version":3,"sources":{"order":[
+            {"id":"libretro","enabled":true},
+            {"id":"embedded","enabled":false},
+            {"id":"steamgriddb","enabled":false},
+            {"id":"screenscraper","enabled":false}]}}"#,
+    );
+    let (s, _) = load_settings(dir.path(), &known());
+    assert_eq!(
+        source_order(&s),
+        [
+            ("libretro", true),
+            ("embedded", false),
+            ("steamgriddb", false),
+            ("screenscraper", false)
+        ]
+    );
+    // A version 3 file that lost the entry gets it back off (normalise).
+    write(
+        dir.path(),
+        r#"{"version":3,"sources":{"order":[{"id":"libretro","enabled":true}]}}"#,
+    );
+    let (s, _) = load_settings(dir.path(), &known());
+    assert!(s
+        .sources
+        .order
+        .iter()
+        .any(|e| e.id == "embedded" && !e.enabled));
+}
+
+#[test]
+fn available_sources_with_false_contains_embedded() {
+    assert!(available_sources_with(false).contains(&"embedded"));
+    assert!(available_sources_with(true).contains(&"embedded"));
+    assert!(available_sources().contains(&"embedded"));
+    assert!(KNOWN_SOURCES.contains(&"embedded"));
+}
+
+#[test]
+fn an_unknown_source_in_a_v3_file_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"version":3,"sources":{"order":[
+            {"id":"hologram","enabled":true},
+            {"id":"embedded","enabled":true},
+            {"id":"libretro","enabled":false}]}}"#,
+    );
+    let (s, _) = load_settings(dir.path(), &known());
+    let ids: Vec<&str> = s.sources.order.iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        ["embedded", "libretro", "steamgriddb", "screenscraper"]
+    );
+    assert!(s.sources.order[0].enabled);
 }

@@ -97,11 +97,13 @@ const BUILT: Record<SourceId, boolean> = {
   libretro: true,
   steamgriddb: true,
   screenscraper: false,
+  embedded: true,
 };
 const NEEDS: Record<SourceId, readonly CredentialKey[]> = {
   libretro: [],
   steamgriddb: ['steamgriddb-api-key'],
   screenscraper: [],
+  embedded: [],
 };
 
 const CORRUPT = Symbol('corrupt');

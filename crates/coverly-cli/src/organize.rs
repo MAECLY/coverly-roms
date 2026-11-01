@@ -21,10 +21,10 @@ use coverly_core::net::{PoliteHttp, UreqHttp};
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
     apply_organize, load_plan, plan_from_survey, resume_organize, survey, ApplyEnv, ApplyError,
-    Choice, Decision, ItemNote, ItemOutcome, ItemStatus, LeftReason, NameMode, OrganizeAction,
-    OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan,
-    OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason, SkipReason, Survey,
-    Transfer, TransferMode,
+    Choice, Decision, ItemKind, ItemNote, ItemOutcome, ItemStatus, LeftReason, NameMode,
+    OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase,
+    OrganizePlan, OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason,
+    SkipReason, Survey, Transfer, TransferMode,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
@@ -240,6 +240,15 @@ struct ProgressGate {
 
 impl ProgressGate {
     fn due(&self, p: OrganizeProgress, now: Instant) -> bool {
+        if let OrganizePhase::Folder {
+            bytes_done,
+            bytes_total,
+            ..
+        } = p.phase
+        {
+            // A folder copy prints its start and its end only.
+            return bytes_done == 0 || bytes_done >= bytes_total;
+        }
         let OrganizePhase::Extract {
             item,
             entries_done,
@@ -292,6 +301,17 @@ fn progress_text(p: OrganizeProgress) -> Option<String> {
         OrganizePhase::Dats => "catalogues",
         OrganizePhase::Hash => "hash",
         OrganizePhase::Apply => "apply",
+        OrganizePhase::Folder {
+            bytes_done,
+            bytes_total,
+            ..
+        } => {
+            return Some(format!(
+                "copy folder item {}/{} bytes {bytes_done}/{bytes_total}",
+                p.done + 1,
+                p.total
+            ));
+        }
         OrganizePhase::Extract {
             entries_done,
             entries_total,
@@ -714,6 +734,9 @@ fn left_reason_text(reason: &LeftReason) -> String {
             NotARom::WebPage => "not a ROM (web page)".into(),
             NotARom::Text => "not a ROM (text)".into(),
             NotARom::Patch => "not a ROM (a patch: apply it to the original ROM)".into(),
+            NotARom::Installer => "not a ROM (installer)".into(),
+            NotARom::Model3d => "not a ROM (3D model)".into(),
+            NotARom::PcGameData => "not a ROM (PC game data)".into(),
         },
         LeftReason::Bios => "BIOS or firmware".into(),
         LeftReason::DamagedArchive => "damaged archive".into(),
@@ -772,6 +795,10 @@ fn left_reason_text(reason: &LeftReason) -> String {
         LeftReason::TooBigForFat => "larger than 4 GiB on a FAT32 target".into(),
         LeftReason::Unreadable => "cannot be read".into(),
         LeftReason::CollisionSet => "a file of the game is taken at the target".into(),
+        LeftReason::KeyMaterial => "key or licence file: never read or moved".into(),
+        LeftReason::EmulatorData { folder } => {
+            format!("inside an emulator's data folder ({folder}): left as it is")
+        }
     }
 }
 
@@ -826,6 +853,17 @@ fn note_text(n: &ItemNote) -> Option<String> {
         }
         ItemNote::SheetNotReadYet => "the .cue sheet is checked while extracting".into(),
         ItemNote::MultiRomExtract { count } => format!("contains {count} ROMs"),
+        ItemNote::Update { of } => format!("update for {of}"),
+        ItemNote::Dlc { of } => format!("downloadable content for {of}"),
+        ItemNote::EncryptedContent { emulator } => {
+            format!("encrypted copy: {emulator} only opens decrypted copies")
+        }
+        ItemNote::InstallFirst { emulator } => {
+            format!("{emulator} installs it; it does not open from the folder")
+        }
+        ItemNote::FolderSuffix { name, layout } => {
+            format!("renamed to {name} so {layout} shows it")
+        }
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })
@@ -869,8 +907,16 @@ fn candidates_text(item: &OrganizeItem) -> String {
 
 /// The first source and, for sets, how many files travel with it.
 fn source_label(item: &OrganizeItem) -> String {
-    let first = item.sources.first().map(|p| slash(p)).unwrap_or_default();
-    match item.sources.len() {
+    source_label_of(&item.sources, item.kind)
+}
+
+/// `Zelda/ (folder)` for a folder game, `Game.cue (+2 files)` for a set.
+fn source_label_of(sources: &[PathBuf], kind: ItemKind) -> String {
+    let first = sources.first().map(|p| slash(p)).unwrap_or_default();
+    if kind == ItemKind::Folder {
+        return format!("{first}/ (folder)");
+    }
+    match sources.len() {
         0 | 1 => first,
         n => format!("{first} (+{} files)", n - 1),
     }
@@ -1307,6 +1353,25 @@ mod tests {
     }
 
     #[test]
+    fn folder_games_read_as_folders() {
+        assert_eq!(
+            source_label_of(&[PathBuf::from("Zelda")], ItemKind::Folder),
+            "Zelda/ (folder)"
+        );
+        assert_eq!(
+            source_label_of(
+                &[PathBuf::from("a.cue"), PathBuf::from("a.bin")],
+                ItemKind::Set
+            ),
+            "a.cue (+1 files)"
+        );
+        assert_eq!(
+            source_label_of(&[PathBuf::from("a.gb")], ItemKind::File),
+            "a.gb"
+        );
+    }
+
+    #[test]
     fn assign_splits_on_the_last_equals() {
         let (file, system) = parse_assign("a=b.gb=GBC").unwrap();
         assert_eq!(file, PathBuf::from("a=b.gb"));
@@ -1342,6 +1407,28 @@ mod tests {
         assert!(!due(at(OrganizePhase::Hash, 7, 500)));
         assert!(due(at(OrganizePhase::Hash, 25, 500)));
         assert!(due(at(OrganizePhase::Hash, 500, 500)));
+    }
+
+    #[test]
+    fn a_folder_copy_prints_its_start_and_end_only() {
+        let gate = ProgressGate::default();
+        let folder = |bytes_done| OrganizeProgress {
+            phase: OrganizePhase::Folder {
+                item: 2,
+                bytes_done,
+                bytes_total: 900,
+            },
+            done: 1,
+            total: 4,
+        };
+        let now = Instant::now();
+        assert!(gate.due(folder(0), now));
+        assert!(!gate.due(folder(450), now));
+        assert!(gate.due(folder(900), now));
+        assert_eq!(
+            progress_text(folder(450)).as_deref(),
+            Some("copy folder item 2/4 bytes 450/900")
+        );
     }
 
     #[test]
@@ -1551,5 +1638,81 @@ mod tests {
     #[test]
     fn slash_joins_with_forward_slashes() {
         assert_eq!(slash(Path::new("ROMS").join("GBA").as_path()), "ROMS/GBA");
+    }
+    #[test]
+    fn left_text_new_reasons() {
+        let cases = [
+            (
+                LeftReason::KeyMaterial,
+                "key or licence file: never read or moved",
+            ),
+            (
+                LeftReason::EmulatorData {
+                    folder: "ux0".into(),
+                },
+                "inside an emulator's data folder (ux0): left as it is",
+            ),
+            (
+                LeftReason::NotARom {
+                    what: NotARom::Installer,
+                },
+                "not a ROM (installer)",
+            ),
+            (
+                LeftReason::NotARom {
+                    what: NotARom::Model3d,
+                },
+                "not a ROM (3D model)",
+            ),
+            (
+                LeftReason::NotARom {
+                    what: NotARom::PcGameData,
+                },
+                "not a ROM (PC game data)",
+            ),
+        ];
+        for (reason, text) in cases {
+            assert_eq!(left_text(&reason), text);
+        }
+    }
+
+    #[test]
+    fn note_text_new_notes() {
+        let cases = [
+            (
+                ItemNote::Update {
+                    of: "Mario Kart 8".into(),
+                },
+                "update for Mario Kart 8",
+            ),
+            (
+                ItemNote::Dlc {
+                    of: "0100152000022000".into(),
+                },
+                "downloadable content for 0100152000022000",
+            ),
+            (
+                ItemNote::EncryptedContent {
+                    emulator: "Azahar".into(),
+                },
+                "encrypted copy: Azahar only opens decrypted copies",
+            ),
+            (
+                ItemNote::InstallFirst {
+                    emulator: "RPCS3".into(),
+                },
+                "RPCS3 installs it; it does not open from the folder",
+            ),
+            (
+                ItemNote::FolderSuffix {
+                    name: "Game.ps3".into(),
+                    layout: "ES-DE".into(),
+                },
+                "renamed to Game.ps3 so ES-DE shows it",
+            ),
+        ];
+        for (note, text) in cases {
+            assert_eq!(note_text(&note).as_deref(), Some(text));
+        }
     }
 }

@@ -1077,3 +1077,150 @@ fn folder_game_dirs_are_out_of_scope() {
         );
     }
 }
+
+// --- Folder games (systems batch 2 D26, D28) ---
+
+use coverly_core::cache::Cache;
+use coverly_core::consoles::testing::param_sfo;
+use coverly_core::dedupe::keys::DiskBytes;
+use coverly_core::dedupe::testing::pin_mtime;
+use coverly_core::dedupe::{
+    apply_dedupe, plan_dedupe, DedupeApplyEnv, DedupeDecisions, DedupeEnv, DedupeItemStatus,
+    DedupeOptions, DedupeSkip, GroupAction, ReportWhy,
+};
+use coverly_core::settings::Settings;
+use coverly_core::write::trash::FakeTrash;
+
+/// A PS3 JB folder at `ROMS/ps3/<name>/` whose `PARAM.SFO` names
+/// `title_id`, version `01.00`, as a disc game.
+fn ps3_jb(root: &Path, name: &str, title_id: &str, n: u64) -> PathBuf {
+    let sfo = param_sfo(&[
+        ("CATEGORY", "DG"),
+        ("TITLE_ID", title_id),
+        ("TITLE", "Game"),
+        ("APP_VER", "01.00"),
+    ]);
+    let dir = root.join("ROMS/ps3").join(name);
+    let p = put(&dir, "PS3_GAME/PARAM.SFO", &sfo);
+    pin_mtime(&p, n);
+    let eboot = put(&dir, "PS3_GAME/USRDIR/EBOOT.BIN", &rom_bytes(n as u8, 4096));
+    pin_mtime(&eboot, n);
+    dir
+}
+
+#[test]
+fn folder_games_are_units_and_never_set_aside() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let a = ps3_jb(root, "Game.ps3", "BLUS30001", 1);
+    let b = ps3_jb(root, "Game (2).ps3", "BLUS30001", 2);
+    let other = ps3_jb(root, "Other.ps3", "BLUS30002", 3);
+    // Key material and emulator data beside them are never units.
+    put(root, "ROMS/ps3/prod.keys", b"not read");
+    put(root, "ROMS/ps3/NPUB30024.rap", &[0u8; 16]);
+    put(
+        root,
+        "ROMS/ps3/dev_hdd0/game/NPUB30024/USRDIR/EBOOT.BIN",
+        &rom_bytes(9, 64),
+    );
+
+    let set = units_of(root);
+    let mut folders: Vec<&Path> = set
+        .units
+        .iter()
+        .filter(|u| u.kind == UnitKind::Folder)
+        .map(|u| u.primary.as_path())
+        .collect();
+    folders.sort();
+    let mut want = vec![a.as_path(), b.as_path(), other.as_path()];
+    want.sort();
+    assert_eq!(folders, want, "{:?}", primaries(&set));
+    for u in &set.units {
+        let name = u.primary.file_name().unwrap().to_string_lossy();
+        assert!(
+            !coverly_core::consoles::is_key_material(&name),
+            "key material is no unit: {name}"
+        );
+        assert!(
+            !u.primary.components().any(|c| c.as_os_str() == "dev_hdd0"),
+            "emulator data is no unit: {}",
+            u.primary.display()
+        );
+    }
+    assert_eq!(unit_at(&set, &a).files, vec![a.clone()]);
+
+    // The plan reports the two copies of one title id, with the
+    // quarantine on, and moves nothing.
+    let cache = Cache::in_memory().unwrap();
+    let db = SystemDb::builtin();
+    let profile = common::profile("anbernic-stock");
+    let settings = Settings::default();
+    let archives = listing();
+    let cancel = AtomicBool::new(false);
+    let env = DedupeEnv {
+        cache: &cache,
+        db: &db,
+        profile: &profile,
+        settings: &settings,
+        listing: &archives,
+        discs: &NoDiscProbe,
+        dats: None,
+        bytes: &DiskBytes,
+        progress: &|_| {},
+        cancel: &cancel,
+    };
+    let scan = scan_with(root, &profile, &ScanOptions::default());
+    let opts = DedupeOptions::from_settings(&settings.dedupe);
+    let mut plan = plan_dedupe(&scan, &opts, &env).unwrap();
+    assert_eq!(plan.groups.len(), 1, "{:#?}", plan.groups);
+    let g = &plan.groups[0];
+    assert_eq!(g.system, "ps3");
+    assert_eq!(
+        g.action,
+        GroupAction::ReportOnly {
+            why: ReportWhy::FolderGame
+        },
+        "a folder group says it is a folder, not that only a CRC matched"
+    );
+    let mut members: Vec<&Path> = g.members.iter().map(|m| m.unit.primary.as_path()).collect();
+    members.sort();
+    let mut want = vec![a.as_path(), b.as_path()];
+    want.sort();
+    assert_eq!(members, want);
+    assert!(g.members.iter().all(|m| m.dest.is_none()));
+    assert_eq!(plan.totals.extras, 0);
+
+    // A plan forced to act on a folder (an edited plan file) is refused
+    // by the set-aside step itself: the folder stays where it is.
+    let g = &mut plan.groups[0];
+    g.action = GroupAction::Act;
+    let keeper = g.keeper;
+    for m in g.members.iter_mut().filter(|m| m.id != keeper) {
+        m.dest = Some(
+            plan.quarantine
+                .join("ps3")
+                .join(m.unit.primary.file_name().unwrap()),
+        );
+    }
+    let data = TempDir::new().unwrap();
+    let trash = FakeTrash::new(data.path().join("trash"));
+    let apply_env = DedupeApplyEnv {
+        data_dir: data.path(),
+        trash: &trash,
+        cache: &cache,
+        progress: &|_, _| {},
+        cancel: &cancel,
+    };
+    let report = apply_dedupe(&plan, &DedupeDecisions::default(), &apply_env).unwrap();
+    assert_eq!(report.outcomes.len(), 1, "{report:?}");
+    assert_eq!(
+        report.outcomes[0].status,
+        DedupeItemStatus::Skipped {
+            reason: DedupeSkip::ReportOnly
+        }
+    );
+    for p in [&a, &b] {
+        assert!(p.join("PS3_GAME/PARAM.SFO").is_file(), "{}", p.display());
+    }
+    assert!(!plan.quarantine.join("ps3").exists());
+}

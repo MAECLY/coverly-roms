@@ -127,7 +127,9 @@ enum PhaseName {
 
 impl From<OrganizeProgressEvent> for ProgressWire {
     fn from(e: OrganizeProgressEvent) -> Self {
-        let (phase, extract) = match e.phase {
+        // (item, bytes done, bytes total, entries done, entries total)
+        type Counts = (usize, u64, u64, Option<usize>, Option<usize>);
+        let (phase, counts): (PhaseName, Option<Counts>) = match e.phase {
             OrganizePhase::Walk => (PhaseName::Walk, None),
             OrganizePhase::Identify => (PhaseName::Identify, None),
             OrganizePhase::Dats => (PhaseName::Dats, None),
@@ -141,7 +143,23 @@ impl From<OrganizeProgressEvent> for ProgressWire {
                 entries_total,
             } => (
                 PhaseName::Extract,
-                Some((item, bytes_done, bytes_total, entries_done, entries_total)),
+                Some((
+                    item,
+                    bytes_done,
+                    bytes_total,
+                    Some(entries_done),
+                    Some(entries_total),
+                )),
+            ),
+            // A folder game being copied (spec D25): still the apply
+            // phase on the wire, with the item and its byte counts.
+            OrganizePhase::Folder {
+                item,
+                bytes_done,
+                bytes_total,
+            } => (
+                PhaseName::Apply,
+                Some((item, bytes_done, bytes_total, None, None)),
             ),
         };
         ProgressWire {
@@ -149,11 +167,11 @@ impl From<OrganizeProgressEvent> for ProgressWire {
             phase,
             done: e.done,
             total: e.total,
-            item: extract.map(|x| x.0),
-            bytes_done: extract.map(|x| x.1),
-            bytes_total: extract.map(|x| x.2),
-            entries_done: extract.map(|x| x.3),
-            entries_total: extract.map(|x| x.4),
+            item: counts.map(|x| x.0),
+            bytes_done: counts.map(|x| x.1),
+            bytes_total: counts.map(|x| x.2),
+            entries_done: counts.and_then(|x| x.3),
+            entries_total: counts.and_then(|x| x.4),
         }
     }
 }
@@ -263,6 +281,32 @@ mod tests {
                 "bytes_total": 405_749_493u64,
                 "entries_done": 4,
                 "entries_total": 12,
+            })
+        );
+    }
+
+    #[test]
+    fn folder_progress_is_an_apply_event_with_byte_counts() {
+        let e = OrganizeProgressEvent {
+            plan_id: 3,
+            phase: OrganizePhase::Folder {
+                item: 7,
+                bytes_done: 4096,
+                bytes_total: 25_000_000_000,
+            },
+            done: 2,
+            total: 9,
+        };
+        assert_eq!(
+            serde_json::to_value(e).unwrap(),
+            json!({
+                "plan_id": 3,
+                "phase": "apply",
+                "done": 2,
+                "total": 9,
+                "item": 7,
+                "bytes_done": 4096,
+                "bytes_total": 25_000_000_000u64,
             })
         );
     }

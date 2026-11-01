@@ -648,3 +648,102 @@ fn a_console_game_folder_of_chds_beside_its_zip_is_walked() {
         ]
     );
 }
+
+#[test]
+fn key_material_is_left_before_any_read() {
+    // Batch 2 D4: key and licence files are left by name.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let keys = [
+        "prod.keys",
+        "title.keys",
+        "NPUB30024.rap",
+        "work.bin",
+        "x.tik",
+    ];
+    for name in keys {
+        put(root, name, &[7u8; 64]);
+    }
+    put(root, "keys.txt", b"just notes");
+    put(root, "Game.iso", &[0u8; 4096]);
+    let w = run(root, &NoCloud);
+    for name in keys {
+        assert_eq!(reason_of(&w, name), Some(LeftReason::KeyMaterial), "{name}");
+        assert!(
+            !w.candidates
+                .iter()
+                .any(|c| c.path.file_name().unwrap() == name),
+            "{name} is no candidate"
+        );
+    }
+    // `keys.txt` is no key file: a document like any other `.txt`.
+    assert_eq!(reason_of(&w, "keys.txt"), None);
+    assert!(w
+        .companions
+        .iter()
+        .chain(&w.other_files)
+        .any(|p| p.file_name().unwrap() == "keys.txt"));
+    assert!(w
+        .candidates
+        .iter()
+        .any(|c| c.path.file_name().unwrap() == "Game.iso"));
+}
+
+#[test]
+fn emulator_data_roots_are_left() {
+    // Batch 2 §12: Vita3K, RPCS3, Cemu, Azahar and Ryujinx/yuzu data trees.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    put(root, "ux0/app/PCSB00245/eboot.bin", &[1u8; 64]);
+    put(root, "dev_hdd0/game/X/PARAM.SFO", &[1u8; 64]);
+    put(root, "mlc01/usr/title/x.rpx", &[1u8; 64]);
+    put(root, "sdmc/Nintendo 3DS/a.cia", &[1u8; 64]);
+    put(root, "nand/system/x.nca", &[1u8; 64]);
+    put(root, "other/sdmc/other.gba", &[1u8; 64]);
+    let w = run(root, &NoCloud);
+    for folder in ["ux0", "dev_hdd0", "mlc01", "sdmc", "nand"] {
+        assert_eq!(
+            reason_of(&w, folder),
+            Some(LeftReason::EmulatorData {
+                folder: folder.to_string()
+            }),
+            "{folder}"
+        );
+    }
+    let candidates = file_names(
+        &w.candidates
+            .iter()
+            .map(|c| c.path.clone())
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(candidates, vec!["other.gba".to_string()]);
+    // An `sdmc` folder without `Nintendo 3DS` is walked normally.
+    let sdmc = w
+        .left
+        .iter()
+        .filter(|(p, _)| p.file_name().unwrap() == "sdmc")
+        .count();
+    assert_eq!(sdmc, 1, "only the root sdmc is left");
+}
+
+#[test]
+fn a_wiiu_folder_carries_its_title_id_from_meta_xml() {
+    use coverly_core::consoles::testing::wiiu_folder;
+    use coverly_core::consoles::IdSource;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Super Mario 3D World [0005000010145D00]");
+    wiiu_folder(
+        &dir,
+        "0005000010145D00",
+        "WUP-P-ARDP",
+        "Super Mario 3D World",
+    );
+    let w = run(tmp.path(), &NoCloud);
+    assert_eq!(w.folder_games.len(), 1, "{:?}", w.folder_games);
+    let game = &w.folder_games[0];
+    assert_eq!(game.path, dir);
+    assert_eq!(game.id.title_id.as_deref(), Some("0005000010145D00"));
+    assert_eq!(game.id.id_source, Some(IdSource::MetaXml));
+    assert_eq!(game.probe, Path::new("meta").join("meta.xml"));
+    assert!(w.candidates.is_empty(), "{:?}", w.candidates);
+}

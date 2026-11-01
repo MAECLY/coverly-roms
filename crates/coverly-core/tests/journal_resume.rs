@@ -378,3 +378,48 @@ mod extraction {
         assert_eq!(left, [newest, open]);
     }
 }
+
+mod folders {
+    use super::*;
+    use coverly_core::write::{job_transfers, list_jobs, Collision, DirOutcome, JobKind, JobMeta};
+
+    #[test]
+    fn a_folder_move_is_a_finished_transfer_and_undoable() {
+        let (src, root, data) = (
+            TempDir::new().unwrap(),
+            TempDir::new().unwrap(),
+            TempDir::new().unwrap(),
+        );
+        let game = src.path().join("Zelda");
+        fs::create_dir_all(game.join("d")).unwrap();
+        fs::write(game.join("d").join("a.bin"), b"A").unwrap();
+        let mut w = Writer::begin_with(
+            root.path(),
+            data.path(),
+            JobMeta {
+                kind: JobKind::Organize,
+                source_root: Some(src.path().to_path_buf()),
+            },
+        )
+        .unwrap();
+        let to = root.path().join("GB").join("Zelda");
+        let out = w
+            .move_dir(&game, &to, Collision::Rename, Some(0), &mut |_| {})
+            .unwrap();
+        assert_eq!(
+            out,
+            DirOutcome::Moved {
+                to: to.clone(),
+                renamed: false
+            }
+        );
+        let job = w.finish().unwrap();
+        let records = job_transfers(data.path(), &job).unwrap();
+        let moved: Vec<_> = records.iter().filter(|r| r.from == game).collect();
+        assert_eq!(moved.len(), 1, "{records:?}");
+        assert!(moved[0].finished && !moved[0].copied);
+        assert_eq!(moved[0].target, to);
+        let listed = list_jobs(data.path()).unwrap();
+        assert!(listed.iter().any(|j| j.job == job && j.undoable));
+    }
+}

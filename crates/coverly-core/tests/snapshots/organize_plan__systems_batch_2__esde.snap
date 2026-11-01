@@ -1,0 +1,1141 @@
+---
+source: crates/coverly-core/tests/organize_plan.rs
+expression: redact(&p)
+---
+{
+  "broad_root": false,
+  "counts": {
+    "auto": 18,
+    "bytes": 254533,
+    "deep_folders": 0,
+    "junk": 0,
+    "left": 6,
+    "other_files": 0,
+    "review": 0,
+    "roms": 18,
+    "systems": 9
+  },
+  "created_at": "<created_at>",
+  "deep_folders": [],
+  "fat32": false,
+  "items": [
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "disc": null,
+      "folder": "xbox360",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 45056
+        }
+      ],
+      "id": 0,
+      "kind": "folder",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 45056,
+      "sources": [
+        "58410889"
+      ],
+      "system_id": "xbox360",
+      "target": "ROMs/xbox360/58410889",
+      "title_id": {
+        "id": "58410889",
+        "source": "header"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "XBLA package",
+          "kind": "header",
+          "system": "xbox360",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "disc": null,
+      "folder": "ps3",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 292
+        }
+      ],
+      "id": 1,
+      "kind": "folder",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "folder-suffix",
+          "layout": "ES-DE",
+          "name": "Demon's Souls (BLUS-30443).ps3"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 292,
+      "sources": [
+        "Demon's Souls (BLUS-30443)"
+      ],
+      "system_id": "ps3",
+      "target": "ROMs/ps3/Demon's Souls (BLUS-30443).ps3",
+      "title_id": {
+        "id": "BLUS30443",
+        "source": "param-sfo"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "PARAM.SFO",
+          "kind": "header",
+          "system": "ps3",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "doom",
+          0.6000000238418579
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "wii",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 3848
+        }
+      ],
+      "id": 2,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "ext": "wad",
+          "kind": "extension-contradicted",
+          "system": "doom"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 3848,
+      "sources": [
+        "Excitebike - World Rally (Europe) (WiiWare).wad"
+      ],
+      "system_id": "wii",
+      "target": "ROMs/wii/Excitebike - World Rally (Europe) (WiiWare).wad",
+      "title_id": {
+        "id": "0001000157414150",
+        "source": "header"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "WAD TMD",
+          "kind": "header",
+          "system": "wii",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "wad~",
+          "kind": "extension",
+          "system": "wii",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 8
+        }
+      ],
+      "id": 3,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "not-a-rom",
+        "what": "installer"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 8,
+      "sources": [
+        "Foo.pkg"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "xbox",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 86016
+        }
+      ],
+      "id": 4,
+      "kind": "file",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 86016,
+      "sources": [
+        "Halo (USA).xiso"
+      ],
+      "system_id": "xbox",
+      "target": "ROMs/xbox/Halo (USA).xiso",
+      "title_id": {
+        "id": "4D530004",
+        "source": "default-xbe"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "XISO default.xbe",
+          "kind": "header",
+          "system": "xbox",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "xiso",
+          "kind": "extension",
+          "system": "xbox",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "a800",
+          0.6000000238418579
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "xbox360",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 512
+        }
+      ],
+      "id": 5,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "ext": "xex",
+          "kind": "extension-contradicted",
+          "system": "a800"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 512,
+      "sources": [
+        "Halo 3 (USA).xex"
+      ],
+      "system_id": "xbox360",
+      "target": "ROMs/xbox360/Halo 3 (USA).xex",
+      "title_id": {
+        "id": "4D5307E6",
+        "source": "header"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "XEX2 execution info",
+          "kind": "header",
+          "system": "xbox360",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "xex~",
+          "kind": "extension",
+          "system": "xbox360",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "n3ds",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 36544
+        }
+      ],
+      "id": 6,
+      "kind": "file",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 36544,
+      "sources": [
+        "Mario Kart 7 (Europe).3ds"
+      ],
+      "system_id": "3ds",
+      "target": "ROMs/n3ds/Mario Kart 7 (Europe).3ds",
+      "title_id": {
+        "id": "0004000000030800",
+        "source": "header"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "NCSD header",
+          "kind": "header",
+          "system": "3ds",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "3ds",
+          "kind": "extension",
+          "system": "3ds",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "wii",
+          0.5
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "gc",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 216
+        }
+      ],
+      "id": 7,
+      "kind": "file",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 216,
+      "sources": [
+        "Metroid Prime (USA).rvz"
+      ],
+      "system_id": "gamecube",
+      "target": "ROMs/gc/Metroid Prime (USA).rvz",
+      "title_id": {
+        "id": "GM8E01",
+        "source": "header"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "RVZ disc header",
+          "kind": "header",
+          "system": "gamecube",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "rvz",
+          "kind": "extension",
+          "system": "gamecube",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "ps3",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 1216
+        }
+      ],
+      "id": 8,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "emulator": "RPCS3",
+          "kind": "install-first"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 1216,
+      "sources": [
+        "NPUB30024.pkg"
+      ],
+      "system_id": "ps3",
+      "target": "ROMs/ps3/NPUB30024.pkg",
+      "title_id": {
+        "id": "NPUB30024",
+        "source": "header"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "PKG header",
+          "kind": "header",
+          "system": "ps3",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "pkg~",
+          "kind": "extension",
+          "system": "ps3",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 128
+        }
+      ],
+      "id": 9,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "key-material"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 128,
+      "sources": [
+        "NPUB30024.rap"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "disc": null,
+      "folder": "psvita",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 836
+        }
+      ],
+      "id": 10,
+      "kind": "folder",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 836,
+      "sources": [
+        "PCSE00844"
+      ],
+      "system_id": "psvita",
+      "target": "ROMs/psvita/PCSE00844",
+      "title_id": {
+        "id": "PCSE00844",
+        "source": "param-sfo"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "sce_sys/param.sfo",
+          "kind": "header",
+          "system": "psvita",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "psvita",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 513
+        }
+      ],
+      "id": 11,
+      "kind": "file",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 513,
+      "sources": [
+        "Persona 4 Golden.vpk"
+      ],
+      "system_id": "psvita",
+      "target": "ROMs/psvita/Persona 4 Golden.vpk",
+      "title_id": {
+        "id": "PCSB00245",
+        "source": "param-sfo"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "VPK param.sfo",
+          "kind": "header",
+          "system": "psvita",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "vpk",
+          "kind": "extension",
+          "system": "psvita",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "n3ds",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 15104
+        }
+      ],
+      "id": 12,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "emulator": "Azahar",
+          "kind": "encrypted-content"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 15104,
+      "sources": [
+        "Pokemon Y (Europe).cia"
+      ],
+      "system_id": "3ds",
+      "target": "ROMs/n3ds/Pokemon Y (Europe).cia",
+      "title_id": {
+        "id": "0004000000055E00",
+        "source": "header"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "CIA TMD",
+          "kind": "header",
+          "system": "3ds",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "cia",
+          "kind": "extension",
+          "system": "3ds",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "wii",
+          0.5
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "gc",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 216
+        }
+      ],
+      "id": 13,
+      "kind": "file",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 216,
+      "sources": [
+        "Resident Evil 4 (USA) (Disc 1).rvz"
+      ],
+      "system_id": "gamecube",
+      "target": "ROMs/gc/Resident Evil 4 (USA) (Disc 1).rvz",
+      "title_id": {
+        "id": "G4BE08",
+        "source": "header"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "RVZ disc header",
+          "kind": "header",
+          "system": "gamecube",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "rvz",
+          "kind": "extension",
+          "system": "gamecube",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "wii",
+          0.5
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "gc",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 216
+        }
+      ],
+      "id": 14,
+      "kind": "file",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 216,
+      "sources": [
+        "Resident Evil 4 (USA) (Disc 2).rvz"
+      ],
+      "system_id": "gamecube",
+      "target": "ROMs/gc/Resident Evil 4 (USA) (Disc 2).rvz",
+      "title_id": {
+        "id": "G4BE08",
+        "source": "header"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "RVZ disc header",
+          "kind": "header",
+          "system": "gamecube",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "rvz",
+          "kind": "extension",
+          "system": "gamecube",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "disc": null,
+      "folder": "wiiu",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 1068
+        }
+      ],
+      "id": 15,
+      "kind": "folder",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 1068,
+      "sources": [
+        "Super Mario 3D World [0005000010145D00]"
+      ],
+      "system_id": "wiiu",
+      "target": "ROMs/wiiu/Super Mario 3D World [0005000010145D00]",
+      "title_id": {
+        "id": "0005000010145D00",
+        "source": "meta-xml"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "meta.xml",
+          "kind": "header",
+          "system": "wiiu",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [
+        {
+          "source": "Super Mario Galaxy (Europe).wbf1",
+          "target": "ROMs/wii/Super Mario Galaxy (Europe).wbf1"
+        }
+      ],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "wii",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 640
+        }
+      ],
+      "id": 16,
+      "kind": "file",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 640,
+      "sources": [
+        "Super Mario Galaxy (Europe).wbfs"
+      ],
+      "system_id": "wii",
+      "target": "ROMs/wii/Super Mario Galaxy (Europe).wbfs",
+      "title_id": {
+        "id": "RMGP01",
+        "source": "header"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "WBFS disc header",
+          "kind": "header",
+          "system": "wii",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "wbfs",
+          "kind": "extension",
+          "system": "wii",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "switch",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 160
+        }
+      ],
+      "id": 17,
+      "kind": "file",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 160,
+      "sources": [
+        "Super Mario Odyssey [0100000000010000][v0].nsp"
+      ],
+      "system_id": "switch",
+      "target": "ROMs/switch/Super Mario Odyssey [0100000000010000][v0].nsp",
+      "title_id": {
+        "id": "0100000000010000",
+        "source": "ticket-name"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "PFS0 ticket name",
+          "kind": "header",
+          "system": "switch",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "nsp",
+          "kind": "extension",
+          "system": "switch",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9299999475479126,
+      "disc": null,
+      "folder": "switch",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 32
+        }
+      ],
+      "id": 18,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "update",
+          "of": "Super Mario Odyssey"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 32,
+      "sources": [
+        "Super Mario Odyssey [0100000000010800][v393216].nsp"
+      ],
+      "system_id": "switch",
+      "target": "ROMs/switch/Super Mario Odyssey [0100000000010800][v393216].nsp",
+      "title_id": {
+        "id": "0100000000010800",
+        "source": "file-name"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "PFS0",
+          "kind": "header",
+          "system": "switch",
+          "weight": 0.8999999761581421
+        },
+        {
+          "detail": "nsp",
+          "kind": "extension",
+          "system": "switch",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "switch",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 62048
+        }
+      ],
+      "id": 19,
+      "kind": "file",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 62048,
+      "sources": [
+        "Zelda BotW.xci"
+      ],
+      "system_id": "switch",
+      "target": "ROMs/switch/Zelda BotW.xci",
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "XCI HFS0: secure",
+          "kind": "header",
+          "system": "switch",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "xci",
+          "kind": "extension",
+          "system": "switch",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 8
+        }
+      ],
+      "id": 20,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "not-a-rom",
+        "what": "model3d"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 8,
+      "sources": [
+        "model.3ds"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 128
+        }
+      ],
+      "id": 21,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "key-material"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 128,
+      "sources": [
+        "prod.keys"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 128
+        }
+      ],
+      "id": 22,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "key-material"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 128,
+      "sources": [
+        "title.keys"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 64
+        }
+      ],
+      "id": 23,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "folder": "ux0",
+        "kind": "emulator-data"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 64,
+      "sources": [
+        "ux0"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    }
+  ],
+  "layout": "esde",
+  "mode": "move",
+  "move_allowed": true,
+  "names": "keep",
+  "other_files": [],
+  "roms_dir": "<roms_dir>",
+  "sorted_folders": [],
+  "source_root": "<source_root>",
+  "target_detected": null,
+  "target_root": "<target_root>",
+  "updates": 1,
+  "warnings": []
+}

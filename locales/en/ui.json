@@ -171,7 +171,11 @@
       "name": {
         "libretro": "libretro-thumbnails",
         "steamgriddb": "SteamGridDB",
-        "screenscraper": "ScreenScraper"
+        "screenscraper": "ScreenScraper",
+        "embedded": "Image from the game files"
+      },
+      "hint": {
+        "embedded": "Uses the icon some games carry (PS3, PS Vita, Wii U, 3DS, Xbox 360) when no other source has a cover"
       },
       "notBuilt": "Not available in this build",
       "needsKey": "Store an API key below to turn it on",
@@ -603,7 +607,9 @@
       "arcadeNoDat": "Arcade without a catalogue: can't tell if it's the same game",
       "bigGroupMembers": "Too many copies to decide by itself: {count} files",
       "userSkipped": "You asked to leave it alone",
-      "chdMetadataDiffers": "Same content, different CHD metadata"
+      "chdMetadataDiffers": "Same content, different CHD metadata",
+      "titleId": "Same title id; the contents were not compared",
+      "folderGame": "Game folder: reported only, never set aside"
     },
     "notRom": "Not a ROM",
     "skip": {
@@ -732,7 +738,8 @@
     "paused": "Stopped: {reason}. The rest can resume.",
     "format": {
       "arcade": "arcade",
-      "discs": "{count} discs"
+      "discs": "{count} discs",
+      "folder": "folder"
     },
     "tags": {
       "from": {
@@ -1253,7 +1260,12 @@
       "noStoredChecksum": "This format stores no checksum; the size is checked",
       "notFullyRead": "Couldn't be read in full during the dry run; please review it",
       "sheetNotReadYet": "The .cue sheet is checked while extracting",
-      "twinSheets": "Has a .gdi and a .cue for the same tracks; some menus will list the game twice"
+      "twinSheets": "Has a .gdi and a .cue for the same tracks; some menus will list the game twice",
+      "update": "Update for {title}",
+      "dlc": "Downloadable content for {title}",
+      "encryptedContent": "Encrypted copy: {emulator} only opens decrypted copies",
+      "installFirst": "{emulator} installs it; it does not open from the folder",
+      "folderSuffix": "Renamed to {name} so {layout} shows it"
     },
     "pause": {
       "diskFull": "Disk full: {needed} more needed; the half-extracted game was undone"
@@ -1281,7 +1293,10 @@
       "extensionWeak": ".{ext} counts for {system} only inside its folder or with its header",
       "name": "The name resembles {name} ({system})",
       "online": "ScreenScraper knows it as {name} ({system})",
-      "user": "Chosen by you"
+      "user": "Chosen by you",
+      "titleIdFile": "Title ID {id} in {file}",
+      "titleIdName": "Title ID {id} taken from the file name",
+      "titleIdTicket": "Title ID {id} in the ticket name"
     },
     "left": {
       "archiveNeedsMemory": "Needs {mib} MB of memory to decompress",
@@ -1306,6 +1321,9 @@
       "webPage": "web page",
       "text": "text",
       "patch": "a patch; apply it to the original ROM",
+      "pcGameData": "PC game data",
+      "installer": "software installer",
+      "model3d": "3D model",
       "bios": "BIOS: belongs in the device's BIOS folder",
       "damagedArchive": "Damaged archive",
       "unsupportedArchive": "Unsupported archive format",
@@ -1323,12 +1341,19 @@
       "tooBigForFat": "Too big for FAT32 (exFAT needed)",
       "unreadable": "Can't be read",
       "collisionSet": "Another game already uses those names in the target",
+      "keyMaterial": "Key or licence file: Coverly never reads or moves it",
+      "emulatorData": "Inside an emulator's data ({folder}); left as it is",
       "title": "Staying where they are",
       "inLibrary": "Already in your library as {path}"
     },
     "planning": "Identifying {done} of {total}…",
     "walking": "Looking for files…",
     "summary": "ROMs: {roms} · Systems: {systems} · To review: {review} · Staying put: {left}",
+    "summaryUpdates": "Includes {count} updates or DLC",
+    "summaryUpdatesOne": "Includes 1 update or DLC",
+    "item": {
+      "folder": "Game folder"
+    },
     "empty": {
       "title": "Nothing to file away",
       "body": "No file here needs a system folder."

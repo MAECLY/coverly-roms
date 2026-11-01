@@ -29,12 +29,13 @@ use crate::organize::plan::{
     OrganizePhase, OrganizePlan, OrganizeProgress, Transfer, TransferMode, SPACE_RESERVE,
 };
 use crate::organize::target::DirIndex;
+use crate::organize::walk::{tree_summary, OsMetaProbe, WalkOptions};
 use crate::progress::PauseKind;
 use crate::write::trash::TrashBackend;
 use crate::write::{
     file_matches_fp, job_archive_steps, job_transfers, remove_apple_doubles, rename_noclobber,
-    same_volume, ArchiveRecord, ArchiveStep, Collision, Fingerprint, JobKind, JobMeta, MoveOutcome,
-    TransferRecord, WriteError, Writer,
+    same_volume, ArchiveRecord, ArchiveStep, Collision, DirOutcome, Fingerprint, JobKind, JobMeta,
+    MoveOutcome, TransferRecord, WriteError, Writer,
 };
 
 /// What happened to one item.
@@ -376,6 +377,13 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
             }
             continue;
         }
+        if item.kind == ItemKind::Folder {
+            match folder_done(&plan, item, &records) {
+                Some((status, targets)) => record_outcome(&mut report, item.id, status, targets),
+                None => pending.push(*item),
+            }
+            continue;
+        }
         if matches!(item.transfer, Transfer::Extract { .. }) {
             match ExtractJournal::of(&plan, item, &records, &steps).done(&plan, item) {
                 Some((status, targets)) => record_outcome(&mut report, item.id, status, targets),
@@ -627,6 +635,40 @@ fn last_step<'s>(steps: &'s [ArchiveRecord], id: usize, from: &Path) -> Option<&
         .rev()
         .find(|s| s.item == Some(id) && s.from == from)
         .map(|s| &s.step)
+}
+
+/// A folder item an earlier run finished (spec D25): moved by one rename
+/// (its journal line, the source gone), or, in move mode, copied file by
+/// file with its source tree gone. A copy (copy mode, or a source that
+/// could not be removed) is run again: it adopts its folder and skips
+/// every file already verified, so nothing is copied twice.
+fn folder_done(
+    plan: &OrganizePlan,
+    item: &OrganizeItem,
+    records: &[TransferRecord],
+) -> Option<(ItemStatus, Vec<PathBuf>)> {
+    let folder = plan.source_root.join(item.sources.first()?);
+    if let Some(record) = record_of(records, item.id, &folder) {
+        return Some((ItemStatus::Moved, vec![record.target.clone()]));
+    }
+    if plan.mode != TransferMode::Move || fs::symlink_metadata(&folder).is_ok() {
+        return None;
+    }
+    // The game folder at the target: a copied file's target without the
+    // part of its path below the source folder.
+    let top = records.iter().rev().find_map(|r| {
+        if r.item != Some(item.id) || !r.finished || r.copied {
+            return None;
+        }
+        let rel = r.from.strip_prefix(&folder).ok()?;
+        let depth = rel.components().count();
+        let mut top = r.target.clone();
+        for _ in 0..depth {
+            top = top.parent()?.to_path_buf();
+        }
+        Some(top)
+    })?;
+    Some((ItemStatus::Moved, vec![top]))
 }
 
 /// The journal record showing `item` done: its primary file was copied
@@ -947,7 +989,7 @@ fn split(path: &Path) -> Option<(&Path, &str)> {
 
 /// CRC-32 of a file; `None` when it cannot be read.
 fn crc_of(path: &Path) -> Option<u32> {
-    let mut file = File::open(path).ok()?;
+    let mut file = crate::consoles::open_rom(path).ok()?;
     let mut hasher = crc32fast::Hasher::new();
     let mut buf = vec![0u8; 1 << 20];
     loop {
@@ -1143,6 +1185,12 @@ impl<'a> Run<'a> {
                 }
                 Err(e) => return Some(self.on_error(&WriteError::Io(e))),
             };
+            if item.kind == ItemKind::Folder {
+                if !self.same_tree(item, &path, &meta) {
+                    return Some(skipped(SkipReason::ChangedSincePlan));
+                }
+                continue;
+            }
             let same = meta.file_type().is_file()
                 && item
                     .fps
@@ -1153,6 +1201,36 @@ impl<'a> Run<'a> {
             }
         }
         None
+    }
+
+    /// A folder game is still the tree the plan measured: a real folder
+    /// (not a link) whose total bytes and newest mtime match (D25).
+    fn same_tree(&self, item: &OrganizeItem, path: &Path, meta: &fs::Metadata) -> bool {
+        if !meta.is_dir() || meta.file_type().is_symlink() {
+            return false;
+        }
+        let opts = WalkOptions {
+            skip_dirs: Vec::new(),
+            roms_root: None,
+            art_dirs: &[],
+            ignored_dirs: &[],
+            now: std::time::SystemTime::now(),
+            recent: Duration::ZERO,
+            probe: &OsMetaProbe,
+            max_depth: 0,
+            profile: None,
+        };
+        let tree = tree_summary(path, &opts);
+        // A link or a cloud placeholder that appeared since the plan does
+        // not change the bytes or the newest time, but the plan would
+        // have left the folder for it: a rename would carry the link into
+        // the library, a copy would download the placeholder.
+        if tree.symlink || tree.cloud_only {
+            return false;
+        }
+        item.fps
+            .first()
+            .is_some_and(|fp| fp.size == tree.bytes && fp.mtime_ns == tree.newest_mtime_ns)
     }
 
     fn transfer(
@@ -1206,6 +1284,9 @@ impl<'a> Run<'a> {
         if item.is_set_aside() {
             return self.apply_set_aside(item);
         }
+        if item.kind == ItemKind::Folder {
+            return self.apply_folder(item);
+        }
         if let Some(step) = self.revalidate(item) {
             return step;
         }
@@ -1248,6 +1329,67 @@ impl<'a> Run<'a> {
             return pause;
         }
         Step::Done(status, targets)
+    }
+
+    /// A game that is a folder (spec D25): one rename on one volume, else
+    /// a verified copy file by file, the source tree removed only after.
+    /// An earlier run's copy is carried on, not checked against the plan's
+    /// tree again (its own sources are what it is deleting).
+    fn apply_folder(&mut self, item: &OrganizeItem) -> Step {
+        let started = self.resumed && self.records.iter().any(|r| r.item == Some(item.id));
+        if !started {
+            if let Some(step) = self.revalidate(item) {
+                return step;
+            }
+        }
+        let (Some(target), Some(source)) = (&item.target, item.sources.first()) else {
+            return skipped(SkipReason::NotDecided);
+        };
+        let from = self.plan.source_root.join(source);
+        let to = self.plan.target_root.join(target);
+        let (done, total) = self.at;
+        let progress = self.env.progress;
+        let (id, bytes_total) = (item.id, item.size);
+        let mut last: Option<Instant> = None;
+        let mut on_bytes = |bytes_done: u64| {
+            // The first and the last count always go out; the rest ride
+            // the 100 ms cadence.
+            let edge = bytes_done == 0 || bytes_done >= bytes_total;
+            if edge || last.is_none_or(|t| t.elapsed() >= PROGRESS_EVERY) {
+                last = Some(Instant::now());
+                progress(OrganizeProgress {
+                    phase: OrganizePhase::Folder {
+                        item: id,
+                        bytes_done: bytes_done.min(bytes_total),
+                        bytes_total,
+                    },
+                    done,
+                    total,
+                });
+            }
+        };
+        let outcome = match self.plan.mode {
+            TransferMode::Move => {
+                self.writer
+                    .move_dir(&from, &to, Collision::Rename, Some(id), &mut on_bytes)
+            }
+            TransferMode::Copy => {
+                self.writer
+                    .copy_dir(&from, &to, Collision::Rename, Some(id), &mut on_bytes)
+            }
+        };
+        let (status, at) = match outcome {
+            Ok(DirOutcome::Moved { to, .. }) => (ItemStatus::Moved, to),
+            Ok(DirOutcome::Copied { to, .. }) => (ItemStatus::Copied, to),
+            Ok(DirOutcome::CopiedNotRemoved { to, .. }) => (ItemStatus::CopiedNotRemoved, to),
+            // Not with `Collision::Rename`; kept for completeness.
+            Ok(DirOutcome::SkippedExists { .. }) => return skipped(SkipReason::AlreadyPresent),
+            Err(e) => return self.on_error(&e),
+        };
+        if let Some((dir, name)) = split(&at) {
+            self.index.claim(dir, name);
+        }
+        Step::Done(status, vec![at])
     }
 
     /// Sets a duplicate aside (duplicates spec §7.1): its files go to the

@@ -42,6 +42,7 @@ fn item(id: usize, sources: &[&str], system: &str, kind: ItemKind, size: u64) ->
         transfer: Default::default(),
         disc: None,
         action: OrganizeAction::Auto,
+        title_id: None,
     }
 }
 
@@ -483,6 +484,70 @@ fn auto_save_states_with_two_extensions_follow_and_are_renamed() {
             source: "Game.state.auto".into(),
             target: "ROMS/GBA/Game (USA).state.auto".into()
         }]
+    );
+}
+
+/// Systems batch 2 §12: the split parts of a WBFS image travel with it,
+/// whatever the companion setting says, and keep its new stem.
+#[test]
+fn split_wbfs_parts_move_with_their_image() {
+    let s = TempDir::new().unwrap();
+    let t = TempDir::new().unwrap();
+    put(s.path(), "Galaxy.wbfs", b"WBFS");
+    let one = put(s.path(), "Galaxy.wbf1", b"part");
+    let two = put(s.path(), "Galaxy.WBF2", b"part");
+    let mut it = auto(0, "Galaxy.wbfs", "wii");
+    it.catalogue_name = Some("Super Mario Galaxy (Europe)".into());
+    let mut items = vec![it];
+    let mut lay = layout(t.path(), true);
+    lay.names = NameMode::Catalogue;
+    lay.companion_exts = Vec::new();
+    let left = assign(&mut items, &lay, s.path(), &[one, two]);
+    assert!(left.is_empty(), "{left:?}");
+    let wii = target(&items[0]).parent().unwrap().to_path_buf();
+    assert_eq!(
+        target(&items[0]),
+        wii.join("Super Mario Galaxy (Europe).wbfs")
+    );
+    assert_eq!(
+        items[0].companions,
+        vec![
+            Companion {
+                source: "Galaxy.wbf1".into(),
+                target: wii.join("Super Mario Galaxy (Europe).wbf1")
+            },
+            Companion {
+                source: "Galaxy.WBF2".into(),
+                target: wii.join("Super Mario Galaxy (Europe).WBF2")
+            },
+        ]
+    );
+}
+
+/// A `.wbf1` beside no `.wbfs` of its stem is an incomplete set, and a
+/// `.wbf1` beside a non-WBFS ROM of its stem is not that ROM's companion.
+#[test]
+fn a_split_wbfs_part_without_its_image_is_left_incomplete() {
+    let s = TempDir::new().unwrap();
+    let t = TempDir::new().unwrap();
+    put(s.path(), "Galaxy.iso", b"iso");
+    let part = put(s.path(), "Galaxy.wbf1", b"part");
+    let mut items = vec![auto(0, "Galaxy.iso", "wii")];
+    let left = assign(
+        &mut items,
+        &layout(t.path(), true),
+        s.path(),
+        std::slice::from_ref(&part),
+    );
+    assert!(items[0].companions.is_empty());
+    assert_eq!(
+        left,
+        vec![(
+            part,
+            LeftReason::SetIncomplete {
+                missing: vec!["Galaxy.wbfs".into()]
+            }
+        )]
     );
 }
 

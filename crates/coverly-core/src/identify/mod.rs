@@ -125,13 +125,13 @@ impl<'a> Identifier<'a> {
                 hash: None,
             });
         }
-        let parsed = names::parse_name(&rom.stem, strip_numbering);
+        let parsed = names::parse_name(rom.title_stem(), strip_numbering);
         let dats = dat::dat_sources(system);
         if system.arcade {
             // Arcade sets are never hashed: the short-name lookup is their
             // DAT identification.
             if self.opts.arcade_translation {
-                if let Some(desc) = self.dats.arcade_description(&dats, &rom.stem)? {
+                if let Some(desc) = self.dats.arcade_description(&dats, rom.title_stem())? {
                     return Ok(Identity {
                         parsed: names::parse_name(&desc, false),
                         canonical: Some(desc),
@@ -141,7 +141,10 @@ impl<'a> Identifier<'a> {
                     });
                 }
             }
-        } else if self.opts.method != MatchMethod::NameOnly && !dats.is_empty() {
+        } else if self.opts.method != MatchMethod::NameOnly && !dats.is_empty() && !rom.is_dir {
+            // A folder game (systems batch 2 D26) is never opened as a
+            // file: it is identified by name, so no hash reaches
+            // ScreenScraper either.
             let mtime = crate::cache::mtime_ns(rom.modified);
             let outcome = match self.cache.quick_id(&rom.path, rom.size, mtime)? {
                 Some(o) => o,

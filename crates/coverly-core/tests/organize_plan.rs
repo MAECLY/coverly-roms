@@ -2901,8 +2901,8 @@ fn stored_facts(world: &World, path: &Path) -> Option<serde_json::Value> {
 }
 
 #[test]
-fn facts_of_version_5_are_read_again() {
-    // D27: version 5 facts call PS2, 3DO and Pico `Unsupported`.
+fn facts_of_version_6_are_read_again() {
+    // Batch 2 D23: version 6 facts carry no console id (`Sniff.console`).
     let dir = TempDir::new().unwrap();
     let rom = dir.path().join("Game.gba");
     put(&rom, &fx::gba());
@@ -2914,10 +2914,10 @@ fn facts_of_version_5_are_read_again() {
     };
     plan(&world, dir.path(), opts.clone());
     let mut stored = stored_facts(&world, &rom).expect("facts memoised");
-    assert_eq!(stored["v"], 6);
+    assert_eq!(stored["v"], 7);
 
-    // A version 5 row with a stale verdict is not trusted.
-    stored["v"] = 5.into();
+    // A version 6 row with a stale verdict is not trusted.
+    stored["v"] = 6.into();
     stored["inspection"]["payloads"][0]["sniff"]["hits"] = serde_json::json!([]);
     let meta = fs::metadata(&rom).unwrap();
     let mtime = FileTime::from_last_modification_time(&meta);
@@ -2933,7 +2933,7 @@ fn facts_of_version_5_are_read_again() {
         .find(|i| i.system_id.as_deref() == Some("gba"));
     assert!(item.is_some(), "the header is read again");
     let stored = stored_facts(&world, &rom).unwrap();
-    assert_eq!(stored["v"], 6);
+    assert_eq!(stored["v"], 7);
     assert_eq!(
         stored["inspection"]["payloads"][0]["sniff"]["hits"][0]["system"],
         "gba"
@@ -3322,4 +3322,400 @@ fn systems_batch_1_pile_plans() {
         "iso",
     );
     assert_eq!(s.serial.as_deref(), Some("SCES-51719"));
+}
+
+#[test]
+fn an_encrypted_cia_moves_with_the_azahar_note() {
+    use coverly_core::organize::ItemNote;
+    // Systems batch 2 D4: an encrypted 3DS package is identified by its
+    // TMD title id and moved normally, with a note about the emulator.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let cia = coverly_core::consoles::testing::cia(0x0004_0000_0005_5D00, true, true);
+    put(&s.path().join("Pokemon Y (Europe).cia"), &cia.bytes());
+    // Homebrew is never encrypted: no note.
+    let dsx = coverly_core::consoles::testing::dsx_with_smdh("Homebrew Tool");
+    put(&s.path().join("Homebrew Tool.3dsx"), &dsx.bytes());
+    for path in files_below(s.path()) {
+        pin_mtime(&path, 1);
+    }
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    let enc = by_name(&p, "Pokemon Y (Europe).cia");
+    assert_eq!(enc.system_id.as_deref(), Some("3ds"));
+    assert!(enc.moves_in(), "{:?}", enc.action);
+    assert!(enc.notes.contains(&ItemNote::EncryptedContent {
+        emulator: "Azahar".into()
+    }));
+    assert_eq!(enc.folder.as_deref(), Some("n3ds"));
+    let clear = by_name(&p, "Homebrew Tool.3dsx");
+    assert_eq!(clear.system_id.as_deref(), Some("3ds"));
+    assert!(!clear
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::EncryptedContent { .. })));
+}
+
+#[test]
+fn switch_update_is_listed_under_its_base() {
+    use coverly_core::organize::ItemNote;
+    // Systems batch 2 D11: an update follows its base in the plan with a
+    // note naming it; DLC whose base is not in the pile names the base id.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    // Different bytes per file: equal files would be duplicates.
+    let nsp = |fill: u8| {
+        coverly_core::consoles::testing::nsp(&[(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nca",
+            &[fill; 64],
+        )])
+        .bytes()
+    };
+    let base = "Super Mario Odyssey [0100000000010000][v0].nsp";
+    // Sorts before its base by path: only the grouping puts it after.
+    let update = "Odyssey Patch [0100000000010800][v393216].nsp";
+    let dlc = "Other Game DLC [0100000000021001][v0].nsp";
+    let loose = "Another Game [0100000000030000][v0].nsp";
+    for (fill, name) in [base, update, dlc, loose].into_iter().enumerate() {
+        put(&s.path().join(name), &nsp(fill as u8 + 1));
+    }
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    let names: Vec<String> = p.items.iter().map(|i| file_name(&i.sources[0])).collect();
+    let at = |n: &str| names.iter().position(|x| x == n).unwrap();
+    assert_eq!(at(update), at(base) + 1, "{names:?}");
+    for (i, item) in p.items.iter().enumerate() {
+        assert_eq!(item.id, i);
+    }
+    for name in [base, update, dlc, loose] {
+        let item = by_name(&p, name);
+        assert_eq!(item.system_id.as_deref(), Some("switch"), "{name}");
+        assert!(item.moves_in(), "{name}: {:?}", item.action);
+        assert_eq!(item.folder.as_deref(), Some("switch"), "{name}");
+    }
+    assert!(by_name(&p, update).notes.contains(&ItemNote::Update {
+        of: "Super Mario Odyssey".into()
+    }));
+    assert!(by_name(&p, dlc).notes.contains(&ItemNote::Dlc {
+        of: "0100000000020000".into()
+    }));
+    assert!(!by_name(&p, base)
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::Update { .. } | ItemNote::Dlc { .. })));
+    assert_eq!(p.updates, 2);
+    // The summary count is in the JSON only when there is one.
+    let json = serde_json::to_value(&p).unwrap();
+    assert_eq!(json["updates"], 2);
+}
+
+#[test]
+fn ps3_and_vita_pkgs_move_with_the_install_first_note() {
+    use coverly_core::organize::{ItemNote, Transfer};
+    // Systems batch 2 §8.4: a PKG is installed by the emulator, so it moves
+    // to the system folder as it is with a note naming the emulator; a VPK
+    // is a Vita package moved as it is, with no such note.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let ps3 = coverly_core::consoles::testing::pkg(1, "UP0001-NPUB30024_00-0000000000000001");
+    put(&s.path().join("NPUB30024.pkg"), &ps3.bytes());
+    let vita = coverly_core::consoles::testing::pkg(2, "EP0001-PCSB00245_00-0000000000000000");
+    put(&s.path().join("Vita Game.pkg"), &vita.bytes());
+    let vpk = s.path().join("Persona 4 Golden.vpk");
+    coverly_core::consoles::testing::vpk(&vpk, "PCSE00120");
+    filetime::set_file_mtime(&vpk, hour_ago()).unwrap();
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    let item = by_name(&p, "NPUB30024.pkg");
+    assert_eq!(item.system_id.as_deref(), Some("ps3"));
+    assert!(item.moves_in(), "{:?}", item.action);
+    assert!(item.notes.contains(&ItemNote::InstallFirst {
+        emulator: "RPCS3".into()
+    }));
+    assert_eq!(item.folder.as_deref(), Some("ps3"));
+    let item = by_name(&p, "Vita Game.pkg");
+    assert_eq!(item.system_id.as_deref(), Some("psvita"));
+    assert!(item.notes.contains(&ItemNote::InstallFirst {
+        emulator: "Vita3K".into()
+    }));
+    let item = by_name(&p, "Persona 4 Golden.vpk");
+    assert_eq!(item.system_id.as_deref(), Some("psvita"));
+    assert!(item.moves_in(), "{:?}", item.action);
+    assert_eq!(item.transfer, Transfer::AsIs);
+    assert!(!item
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::InstallFirst { .. })));
+}
+
+#[test]
+fn a_macos_installer_pkg_is_left_as_not_a_rom() {
+    // Systems batch 2 D7: a loose `.pkg` is a candidate so its header can
+    // name it; a `xar!` installer is left in place, never «unknown».
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let mut bytes = b"xar!\0\x1c\0\x01".to_vec();
+    bytes.resize(4096, 0);
+    put(&s.path().join("Install Thing.pkg"), &bytes);
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    assert_eq!(
+        left_reason(&p, "Install Thing.pkg"),
+        Some(LeftReason::NotARom {
+            what: coverly_core::identify::sniff::NotARom::Installer
+        })
+    );
+}
+
+/// The modern pile of systems batch 2 (spec §9.3): synthetic heads, real
+/// names, every mtime pinned in the past. Disc and card images are their
+/// heads only (the file ends after the last header), so a far offset
+/// reads as end of file; the Redump XGD1 offset is covered by the
+/// `SparseAt` tests of `systems_batch2.rs`, here the Xbox image is an
+/// XISO at offset 0.
+fn modern_pile(dir: &Path) {
+    use coverly_core::consoles::testing as ct;
+    let disc = |id6: &str, wii: bool, number: u8| {
+        let mut h = ct::gc_header(id6, wii);
+        h[6] = number;
+        h
+    };
+    put(
+        &dir.join("Metroid Prime (USA).rvz"),
+        &ct::wia(&disc("GM8E01", false, 0), true, 1).head_bytes(),
+    );
+    put(
+        &dir.join("Resident Evil 4 (USA) (Disc 1).rvz"),
+        &ct::wia(&disc("G4BE08", false, 0), true, 1).head_bytes(),
+    );
+    put(
+        &dir.join("Resident Evil 4 (USA) (Disc 2).rvz"),
+        &ct::wia(&disc("G4BE08", false, 1), true, 1).head_bytes(),
+    );
+    put(
+        &dir.join("Super Mario Galaxy (Europe).wbfs"),
+        &ct::wbfs(&disc("RMGP01", true, 0)).head_bytes(),
+    );
+    put(&dir.join("Super Mario Galaxy (Europe).wbf1"), &[0u8; 1024]);
+    put(
+        &dir.join("Excitebike - World Rally (Europe) (WiiWare).wad"),
+        &ct::wii_wad(0x0001_0001_5741_4150).head_bytes(),
+    );
+    ct::wiiu_folder(
+        &dir.join("Super Mario 3D World [0005000010145D00]"),
+        "0005000010145D00",
+        "WUP-P-ARDP",
+        "Super Mario 3D World",
+    );
+    put(
+        &dir.join("Mario Kart 7 (Europe).3ds"),
+        &ct::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, true).head_bytes(),
+    );
+    put(
+        &dir.join("Pokemon Y (Europe).cia"),
+        &ct::cia(0x0004_0000_0005_5E00, true, false).head_bytes(),
+    );
+    put(&dir.join("model.3ds"), &[0x4D, 0x4D, 0x10, 0, 0, 0, 2, 0]);
+    put(
+        &dir.join("Super Mario Odyssey [0100000000010000][v0].nsp"),
+        &ct::nsp(&[("01000000000100000000000000000000.tik", &[0; 64])]).bytes(),
+    );
+    put(
+        &dir.join("Super Mario Odyssey [0100000000010800][v393216].nsp"),
+        &ct::nsp(&[]).bytes(),
+    );
+    put(
+        &dir.join("Zelda BotW.xci"),
+        &ct::xci(&["secure"]).head_bytes(),
+    );
+    ct::vita_app(&dir.join("PCSE00844"), "PCSE00844");
+    ct::vpk(&dir.join("Persona 4 Golden.vpk"), "PCSB00245");
+    ct::ps3_jb(&dir.join("Demon's Souls (BLUS-30443)"), "BLUS30443", "DG");
+    put(
+        &dir.join("NPUB30024.pkg"),
+        &ct::pkg(1, "UP0001-NPUB30024_00-0000000000000000").head_bytes(),
+    );
+    put(
+        &dir.join("Halo (USA).xiso"),
+        &ct::xiso_at(0, &[("default.xbe", ct::xbe(0x4D53_0004, "Halo"))]).bytes(),
+    );
+    put(&dir.join("Halo 3 (USA).xex"), &ct::xex2(0x4D53_07E6));
+    ct::god_folder(dir, 0x5841_0889, 0x000D_0000, b"LIVE");
+    for k in ["prod.keys", "title.keys", "NPUB30024.rap"] {
+        put(&dir.join(k), &[9u8; 128]);
+    }
+    put(
+        &dir.join("ux0")
+            .join("app")
+            .join("PCSB00245")
+            .join("eboot.bin"),
+        &[1u8; 64],
+    );
+    put(&dir.join("Foo.pkg"), b"xar!\0\x1c\0\x01");
+    for path in files_below(dir) {
+        pin_mtime(&path, 1);
+    }
+}
+
+#[test]
+fn systems_batch_2_pile_plans() {
+    use coverly_core::organize::{ItemKind, ItemNote};
+    // Spec §9.3 / §14: the modern pile of systems batch 2 under the three
+    // layouts whose folder stories differ most (ES-DE and Batocera name
+    // every folder and rename folder games to `.ps3`, muOS lacks some).
+    for layout in ["esde", "batocera", "muos"] {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        modern_pile(s.path());
+        let p = plan(
+            &world,
+            s.path(),
+            OrganizeOptions {
+                offline: true,
+                target: Some(t.path().to_path_buf()),
+                ..defaults(layout)
+            },
+        );
+        // Asserts that hold whatever the snapshot says.
+        for key in ["prod.keys", "title.keys", "NPUB30024.rap"] {
+            assert_eq!(
+                left_reason(&p, key),
+                Some(LeftReason::KeyMaterial),
+                "{layout} {key}"
+            );
+        }
+        assert_eq!(
+            left_reason(&p, "ux0"),
+            Some(LeftReason::EmulatorData {
+                folder: "ux0".into()
+            }),
+            "{layout}"
+        );
+        for name in ["model.3ds", "Foo.pkg"] {
+            assert!(
+                matches!(left_reason(&p, name), Some(LeftReason::NotARom { .. })),
+                "{layout} {name}: {:?}",
+                by_name(&p, name).action
+            );
+        }
+        // §9.3: the split WBFS part is part of its image's item.
+        let galaxy = by_name(&p, "Super Mario Galaxy (Europe).wbfs");
+        assert_eq!(
+            galaxy
+                .companions
+                .iter()
+                .map(|c| file_name(&c.source))
+                .collect::<Vec<_>>(),
+            ["Super Mario Galaxy (Europe).wbf1"],
+            "{layout}"
+        );
+        assert!(p.other_files.is_empty(), "{layout}: {:?}", p.other_files);
+        let souls = by_name(&p, "Demon's Souls (BLUS-30443)");
+        assert_eq!(souls.kind, ItemKind::Folder, "{layout}");
+        assert_eq!(souls.sources.len(), 1, "{layout}");
+        assert_eq!(souls.system_id.as_deref(), Some("ps3"), "{layout}");
+        if layout != "muos" {
+            assert!(souls.moves_in(), "{layout}: {:?}", souls.action);
+            let target = souls.target.as_ref().unwrap();
+            assert_eq!(
+                target.file_name().unwrap(),
+                "Demon's Souls (BLUS-30443).ps3",
+                "{layout}"
+            );
+        }
+        let names: Vec<String> = p.items.iter().map(|i| file_name(&i.sources[0])).collect();
+        let at = |n: &str| names.iter().position(|x| x == n).unwrap();
+        let base = "Super Mario Odyssey [0100000000010000][v0].nsp";
+        let update = "Super Mario Odyssey [0100000000010800][v393216].nsp";
+        assert_eq!(at(update), at(base) + 1, "{layout}: {names:?}");
+        assert!(
+            by_name(&p, update)
+                .notes
+                .iter()
+                .any(|n| matches!(n, ItemNote::Update { .. })),
+            "{layout}: {:?}",
+            by_name(&p, update).notes
+        );
+        insta::assert_json_snapshot!(format!("systems_batch_2__{layout}"), redact(&p));
+    }
+}
+
+#[test]
+fn a_pile_folder_game_and_its_file_twin_are_reported_and_both_move() {
+    use coverly_core::consoles::testing as ct;
+    use coverly_core::dedupe::{GroupAction, ReportWhy, UnitKind};
+    use coverly_core::organize::ItemKind;
+    // D28: a folder game is a duplicates unit in the pile too. A Wii U
+    // loadiine folder and a WUA of the same title id, kind and version
+    // are one reported group; neither is set aside.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let folder = "Super Mario 3D World [0005000010145D00]";
+    ct::wiiu_folder(
+        &s.path().join(folder),
+        "0005000010145D00",
+        "WUP-P-ARDP",
+        "Super Mario 3D World",
+    );
+    put(
+        &s.path().join("Super Mario 3D World.wua"),
+        &ct::wua().bytes(),
+    );
+    for path in files_below(s.path()) {
+        pin_mtime(&path, 1);
+    }
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    let dir = by_name(&p, folder);
+    assert_eq!(dir.kind, ItemKind::Folder);
+    assert!(dir.moves_in(), "{:?}", dir.action);
+    let wua = by_name(&p, "Super Mario 3D World.wua");
+    assert!(wua.moves_in(), "{:?}", wua.action);
+    let group = p
+        .duplicates
+        .iter()
+        .find(|g| g.members.iter().any(|m| m.unit.kind == UnitKind::Folder))
+        .expect("a group with the folder game");
+    assert_eq!(group.members.len(), 2);
+    assert_eq!(
+        group.action,
+        GroupAction::ReportOnly {
+            why: ReportWhy::FolderGame
+        }
+    );
 }

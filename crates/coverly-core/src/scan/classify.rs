@@ -195,6 +195,7 @@ mod tests {
             family: crate::systems::Family::Console,
             weak_extensions: Vec::new(),
             scoped_aliases: Vec::new(),
+            libretro_also: Vec::new(),
         }
     }
 

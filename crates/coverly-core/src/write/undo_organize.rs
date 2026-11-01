@@ -18,8 +18,10 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 
-use super::noclobber::{is_cross_device, with_sharing_retries};
-use super::transfer::{clean_job_temps, crc_of, fault, mtime_ns, same_entry, stream_copy};
+use super::noclobber::{is_cross_device, rename_dir_noclobber, with_sharing_retries};
+use super::transfer::{
+    clean_job_temps, crc_of, dir_matches_fp, fault, mtime_ns, same_entry, stream_copy,
+};
 use super::trash::TrashBackend;
 use super::{
     absolute_from, apple_double, create_dirs, ensure_within, find_twin, is_job_temp, map_io,
@@ -59,6 +61,7 @@ pub(super) fn is_organize_op(op: &Op) -> bool {
         Op::Moved { .. }
             | Op::Copied { .. }
             | Op::DirCreated
+            | Op::DirMoved { .. }
             | Op::OverrideMoved { .. }
             | Op::Extracted { .. }
             | Op::RolledBack { .. }
@@ -93,6 +96,11 @@ pub(super) fn undo_entry(
                 Some(fp) => undo_move(ctx, &target, &from, via, &fp, report),
                 None => undo_intent(ctx, &target, &from, true, report),
             }
+        }
+        Op::DirMoved { from } => {
+            let target = within_either(ctx, &target)?;
+            let from = source_path(ctx.source_root, &from)?;
+            undo_dir_move(&target, &from, fp, report)
         }
         Op::Copied { from } => {
             let target = within_either(ctx, &target)?;
@@ -509,6 +517,47 @@ fn undo_move(
         occupied(report, target);
     }
     Ok(())
+}
+
+/// A folder moved by one rename (spec D25): renamed back the same way,
+/// never onto a taken name (`skipped_occupied`), and only while its tree
+/// is still the one moved (`skipped_modified` once something inside was
+/// added, removed or changed). A target that is not there, or is not a
+/// folder, was never moved (a stop between the journal line and the
+/// rename) or is gone already.
+fn undo_dir_move(
+    target: &Path,
+    from: &Path,
+    fp: Option<Fingerprint>,
+    report: &mut UndoReport,
+) -> Result<(), WriteError> {
+    let is_dir = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
+    if !is_dir(target) {
+        return Ok(());
+    }
+    if occupant(from)?.is_some() {
+        occupied(report, target);
+        return Ok(());
+    }
+    if !fp.is_some_and(|fp| dir_matches_fp(target, &fp)) {
+        report.skipped_modified.push(target.to_path_buf());
+        return Ok(());
+    }
+    let parent = from
+        .parent()
+        .ok_or_else(|| WriteError::OutsideRoot(from.to_path_buf()))?;
+    remove_apple_doubles(&create_dirs(parent)?);
+    match rename_dir_noclobber(target, from) {
+        Ok(()) => {
+            report.restored.push(from.to_path_buf());
+            Ok(())
+        }
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+            occupied(report, target);
+            Ok(())
+        }
+        Err(e) => Err(map_io(e, target)),
+    }
 }
 
 /// Moves `target` back to the free name `from`: a no-clobber rename, or

@@ -450,7 +450,30 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
         "triforce",
         [Some("triforce"), Some("triforce"), None, None, None],
     ),
+    // Systems batch 2 (spec §6).
+    ("gamecube", [Some("gc"), Some("gamecube"), None, None, None]),
+    ("wii", [Some("wii"), Some("wii"), None, None, None]),
+    ("3ds", [Some("n3ds"), Some("3ds"), Some("3ds"), None, None]),
+    ("wiiu", [Some("wiiu"), Some("wiiu"), None, None, None]),
+    // Batocera has no `switch` key at `a3d49969`; Knulli and RetroBat do.
+    // Named for the shared Batocera/Knulli profile (spec D19).
+    ("switch", [Some("switch"), Some("switch"), None, None, None]),
+    ("psvita", [Some("psvita"), Some("psvita"), None, None, None]),
+    ("ps3", [Some("ps3"), Some("ps3"), None, None, None]),
+    ("xbox", [Some("xbox"), Some("xbox"), None, None, None]),
+    (
+        "xbox360",
+        [Some("xbox360"), Some("xbox360"), None, None, None],
+    ),
 ];
+
+/// Folder-game suffixes of ES-DE and Batocera (spec D13): both show a
+/// PS3 game folder only when its name ends in `.ps3` (Batocera
+/// `es_systems.yml`: «PS3 roms are directories must be renamed to end
+/// with .ps3»; ES-DE `es_systems.xml` lists `.ps3` and `.ps3dir`).
+fn ps3_folder_suffix() -> BTreeMap<String, String> {
+    BTreeMap::from([("ps3".to_string(), ".ps3".to_string())])
+}
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks
 /// every listed system Absent.
@@ -555,7 +578,13 @@ pub fn builtin_profiles() -> Vec<Profile> {
         },
         Profile {
             folders: folders(Some(ESDE)),
+            folder_game_suffix: ps3_folder_suffix(),
             disc_layout: GAME_FOLDER,
+            // ES-DE `Utils::FileSystem::getStem` returns a directory's
+            // whole name (es-core/src/utils/FileSystemUtil.cpp at
+            // ef267ae6), and `getMediafilePath` and the scraper name
+            // media after it (systems batch 2 D26).
+            folder_stem_keeps_suffix: true,
             ..profile(
                 "esde",
                 "ES-DE",
@@ -581,6 +610,7 @@ pub fn builtin_profiles() -> Vec<Profile> {
         },
         Profile {
             folders: folders(Some(BATOCERA)),
+            folder_game_suffix: ps3_folder_suffix(),
             gamelist: true,
             disc_layout: FLAT_M3U,
             ..profile(
@@ -689,6 +719,8 @@ fn profile(
         accepts_containers: default_accepts_containers(),
         container_overrides: default_container_overrides(),
         folders: BTreeMap::new(),
+        folder_game_suffix: BTreeMap::new(),
+        folder_stem_keeps_suffix: false,
     }
 }
 
