@@ -56,6 +56,16 @@ describe('system icon data', () => {
       }
     }
   });
+  it('systems batch 3: audited silhouettes, PS5 on the Slot mount', () => {
+    for (const id of ['ps4', 'xboxone', 'xboxseries']) {
+      expect(Object.hasOwn(SYSTEM_ICONS, id), id).toBe(true);
+      expect(Object.hasOwn(SYSTEM_ICON_SOURCES, id), id).toBe(true);
+      expect(WORDMARK_IDS, id).not.toContain(id);
+    }
+    expect(Object.hasOwn(SYSTEM_ICONS, 'ps5')).toBe(false);
+    expect(FALLBACK_ABBR.ps5).toBe('PS5');
+    expect(WORDMARK_IDS).not.toContain('ps5');
+  });
   it('bodies are clean', () => {
     for (const [id, icon] of Object.entries(SYSTEM_ICONS)) {
       expect(icon.body, id).not.toMatch(/#fff|<text|<image|style=/i);
