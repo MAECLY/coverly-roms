@@ -17,7 +17,7 @@ use walkdir::WalkDir;
 
 use super::plan::LeftReason;
 use crate::archive::detect::multi_volume_part;
-use crate::consoles::{identify_dir, is_key_material, ConsoleId, DirListing};
+use crate::consoles::{identify_dir, is_key_material, ConsoleId, DirListing, FolderLeave};
 use crate::identify::sniff::is_doom_wad;
 use crate::organize::inspect::names_an_archive;
 use crate::profiles::naming::system_folder;
@@ -151,8 +151,12 @@ pub struct TreeSummary {
     pub truncated: bool,
     /// A symlink or reparse point inside.
     pub symlink: bool,
-    /// A `.part`/`.crdownload` file or a zero-byte file inside.
+    /// A `.part`/`.crdownload` file inside.
     pub partial: bool,
+    /// A zero-byte file inside: a partial download for most systems, an
+    /// ordinary file in a console dump (systems batch 3 D24).
+    #[serde(default)]
+    pub zero_bytes: bool,
     /// A file modified within the `recent` window.
     pub recent: bool,
     /// A cloud placeholder inside.
@@ -212,8 +216,11 @@ pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
             out.largest_file = out.largest_file.max(len);
             let mtime = meta.modified().unwrap_or(UNIX_EPOCH);
             out.newest_mtime_ns = out.newest_mtime_ns.max(mtime_ns(mtime));
-            if is_partial_download(&name) || len == 0 {
+            if is_partial_download(&name) {
                 out.partial = true;
+            }
+            if len == 0 {
+                out.zero_bytes = true;
             }
             if is_recent(opts.now, mtime, opts.recent) {
                 out.recent = true;
@@ -260,6 +267,8 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     let mut console_folders: Vec<WalkFolderGame> = Vec::new();
     let mut folder_conflicts: Vec<(PathBuf, Vec<String>, TreeSummary)> = Vec::new();
     let mut emulator_data: Vec<(PathBuf, LeftReason)> = Vec::new();
+    // Folders a probe or the overlay rule leaves whole (plan P-2, D11 d).
+    let mut left_dirs: Vec<(PathBuf, LeftReason)> = Vec::new();
     let mut refused_links: Vec<PathBuf> = Vec::new();
     let skip_keys: Vec<String> = opts.skip_dirs.iter().map(|p| dir_key(p)).collect();
     let roms_root_key = opts.roms_root.as_deref().map(dir_key);
@@ -322,6 +331,23 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             let Some(listed) = list_dir(entry.path()) else {
                 return true;
             };
+            if is_shadps4_user_dir(&listed) {
+                emulator_data.push((
+                    entry.path().to_path_buf(),
+                    LeftReason::EmulatorData {
+                        folder: name.into_owned(),
+                    },
+                ));
+                return false;
+            }
+            let overlay = overlay_base(entry.path(), &name);
+            if let Some((base, Overlay::Mods)) = &overlay {
+                left_dirs.push((
+                    entry.path().to_path_buf(),
+                    LeftReason::GameOverlay { of: base.clone() },
+                ));
+                return false;
+            }
             let names: Vec<String> = listed.iter().map(|(n, _, _)| n.clone()).collect();
             let listing = DirListing {
                 dir: entry.path(),
@@ -329,6 +355,14 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             };
             match identify_dir(&listing) {
                 Ok(Some(found)) => {
+                    if let Some(leave) = found.leave {
+                        let reason = match leave {
+                            FolderLeave::NotARom(what) => LeftReason::NotARom { what },
+                            FolderLeave::Unreadable => LeftReason::Unreadable,
+                        };
+                        left_dirs.push((entry.path().to_path_buf(), reason));
+                        return false;
+                    }
                     console_folders.push(WalkFolderGame {
                         path: entry.path().to_path_buf(),
                         tree: tree_summary(entry.path(), opts),
@@ -346,6 +380,14 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                     return false;
                 }
                 Ok(None) => {}
+            }
+            // An update overlay no probe proves cannot move alone (D11 d).
+            if let Some((base, Overlay::Update)) = overlay {
+                left_dirs.push((
+                    entry.path().to_path_buf(),
+                    LeftReason::GameOverlay { of: base },
+                ));
+                return false;
             }
             match folder_game_in(&listed, db, opts) {
                 Some(reason) => {
@@ -436,6 +478,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
         .extend(refused_links.into_iter().map(|p| (p, LeftReason::Symlink)));
     out.left.extend(folder_games);
     out.left.extend(emulator_data);
+    out.left.extend(left_dirs);
     out.left.extend(
         partial_dirs
             .into_iter()
@@ -522,7 +565,10 @@ fn folder_game_in(
 /// Names of the folders that hold an emulator's own installed data
 /// (systems batch 2 §12): Vita3K `ux0`, RPCS3 `dev_hdd0`, Cemu `mlc01`,
 /// Ryujinx/yuzu `nand`. Azahar's `sdmc` counts only with its
-/// `Nintendo 3DS` child, the name being common elsewhere.
+/// `Nintendo 3DS` child, the name being common elsewhere. A loose
+/// `sys_modules` folder (console firmware modules, systems batch 3 D25)
+/// counts in any case; shadPS4's user dir is recognised from its
+/// listing ([`is_shadps4_user_dir`]).
 const EMULATOR_DATA_ROOTS: [&str; 4] = ["ux0", "dev_hdd0", "mlc01", "nand"];
 
 /// Whether the folder `dir` named `name` is an emulator's data root: its
@@ -531,11 +577,59 @@ fn is_emulator_data_root(dir: &Path, name: &str) -> bool {
     if EMULATOR_DATA_ROOTS
         .iter()
         .any(|root| name.eq_ignore_ascii_case(root))
+        || name.eq_ignore_ascii_case("sys_modules")
     {
         return true;
     }
     name.eq_ignore_ascii_case("sdmc")
         && fs::symlink_metadata(dir.join("Nintendo 3DS")).is_ok_and(|m| m.is_dir())
+}
+
+/// Whether the folder `listed` lists is shadPS4's user directory
+/// (systems batch 3 D25): it holds both a `sys_modules/` and a
+/// `game_data/` directory (`SYSMODULES_DIR`, `METADATA_DIR` of shadPS4's
+/// `path_util.h`), names in any case, each checked with
+/// `symlink_metadata` (a link is no directory here).
+fn is_shadps4_user_dir(listed: &[(String, PathBuf, bool)]) -> bool {
+    let dir = |want: &str| {
+        listed.iter().any(|(name, path, _)| {
+            name.eq_ignore_ascii_case(want) && fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
+        })
+    };
+    dir("sys_modules") && dir("game_data")
+}
+
+/// The kind of a shadPS4 overlay folder (systems batch 3 D11).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Overlay {
+    /// `-mods`: loose replacement files, never walked.
+    Mods,
+    /// `-UPDATE` or `-patch`: a folder game when a probe proves it.
+    Update,
+}
+
+/// shadPS4 finds overlays by name: the base folder's path plus one of
+/// these suffixes (`src/core/file_sys/fs.cpp`, D11). Matched ASCII
+/// case-insensitively (f).
+const OVERLAY_SUFFIXES: [(&str, Overlay); 3] = [
+    ("-mods", Overlay::Mods),
+    ("-UPDATE", Overlay::Update),
+    ("-patch", Overlay::Update),
+];
+
+/// The base folder name and overlay kind of the folder `dir` named
+/// `name` when it is `<base><suffix>` and `<parent>/<base>` is a
+/// directory holding `sce_sys/` (one `symlink_metadata` each, D11 d).
+fn overlay_base(dir: &Path, name: &str) -> Option<(String, Overlay)> {
+    let (base, kind) = OVERLAY_SUFFIXES.iter().find_map(|(suffix, kind)| {
+        let cut = name.len().checked_sub(suffix.len()).filter(|&c| c > 0)?;
+        let tail = name.get(cut..)?;
+        tail.eq_ignore_ascii_case(suffix)
+            .then(|| (&name[..cut], *kind))
+    })?;
+    let base_dir = dir.parent()?.join(base);
+    let is_dir = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
+    (is_dir(&base_dir) && is_dir(&base_dir.join("sce_sys"))).then(|| (base.to_string(), kind))
 }
 
 /// Takes out of `candidates` the `.chd` files of every `<set>/` folder
@@ -834,6 +928,26 @@ mod tests {
             max_depth: MAX_DEPTH,
             profile: None,
         }
+    }
+
+    #[test]
+    fn tree_summary_records_zero_bytes_apart_from_partial() {
+        // Systems batch 3 D24: an empty file is its own signal.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path().join("G");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("empty.dat"), b"").unwrap();
+        let probe = OsMetaProbe;
+        let t = tree_summary(&root, &tree_opts(&probe));
+        assert!(t.zero_bytes && !t.partial);
+        fs::write(root.join("x.iso.part"), b"xx").unwrap();
+        let t = tree_summary(&root, &tree_opts(&probe));
+        assert!(t.zero_bytes && t.partial);
+        // Facts stored before the field read it as false.
+        let mut json = serde_json::to_value(&t).unwrap();
+        json.as_object_mut().unwrap().remove("zero_bytes");
+        let back: TreeSummary = serde_json::from_value(json).unwrap();
+        assert!(!back.zero_bytes && back.partial);
     }
 
     #[test]

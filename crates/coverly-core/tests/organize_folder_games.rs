@@ -1739,3 +1739,52 @@ fn a_symlink_added_after_the_plan_is_skipped_at_apply() {
     );
     assert!(pile.path().join("Zelda").join("GAME.PROBE").is_file());
 }
+
+const BLOODBORNE: &str = "UP9000-CUSA00900_00-BLOODBORNE000000";
+
+/// Plans `pile` with the built-in probes only (no test probe).
+fn plan_builtin(pile: &Path, target: &Path) -> OrganizeItem {
+    set_extra_probe(None);
+    let world = World::new();
+    let p = plan(&world, pile, target, "esde");
+    only_folder(&p).clone()
+}
+
+#[test]
+fn ps4_folder_with_zero_byte_file_moves() {
+    // Systems batch 3 D24: console dumps hold empty files, the `.ps4`
+    // marker among them; they do not make the folder a partial download.
+    use coverly_core::consoles::testing::{ps4_app, put_file};
+    let (_, pile, target) = setup();
+    let dir = pile.path().join("CUSA00900");
+    ps4_app(&dir, "CUSA00900", "gd", BLOODBORNE);
+    put_file(&dir, "CUSA00900.ps4", b"");
+    put_file(&dir, "x.dat", b"");
+    let item = plan_builtin(pile.path(), target.path());
+    assert_eq!(item.system_id.as_deref(), Some("ps4"));
+    assert_eq!(item.action, OrganizeAction::Auto, "{:?}", item.action);
+    assert_eq!(last(item.target.as_ref().unwrap()), "CUSA00900");
+}
+
+#[test]
+fn ps2_style_folder_with_zero_byte_file_is_partial() {
+    // Other systems keep batch 2 D27: an empty file is still downloading.
+    use coverly_core::consoles::testing::{ps3_jb, put_file};
+    let (_, pile, target) = setup();
+    let dir = pile.path().join("BLUS30443");
+    ps3_jb(&dir, "BLUS30443", "DG");
+    put_file(&dir, "PS3_GAME/USRDIR/empty.dat", b"");
+    let item = plan_builtin(pile.path(), target.path());
+    assert_eq!(left_reason(&item), Some(&LeftReason::PartialDownload));
+}
+
+#[test]
+fn a_part_file_in_a_ps4_folder_is_still_partial() {
+    use coverly_core::consoles::testing::{ps4_app, put_file};
+    let (_, pile, target) = setup();
+    let dir = pile.path().join("CUSA00900");
+    ps4_app(&dir, "CUSA00900", "gd", BLOODBORNE);
+    put_file(&dir, "eboot2.bin.part", b"xx");
+    let item = plan_builtin(pile.path(), target.path());
+    assert_eq!(left_reason(&item), Some(&LeftReason::PartialDownload));
+}

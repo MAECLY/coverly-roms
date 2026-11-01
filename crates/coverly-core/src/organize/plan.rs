@@ -1396,6 +1396,38 @@ fn base_title(base: Option<(&SurveyEntry, &OrganizeItem)>, id: &str) -> String {
     }
 }
 
+/// Names the base's title in every item the walk left
+/// `GameOverlay { of: <base folder name> }` (plan P-3): when the folder
+/// `of` beside it is a folder item whose header has a title.
+fn overlay_titles(items: &mut [OrganizeItem], survey: &Survey) {
+    for (i, entry) in survey.entries.iter().enumerate() {
+        let Some(LeftReason::GameOverlay { of }) = &entry.left else {
+            continue;
+        };
+        let Some(parent) = entry.sources.first().and_then(|p| p.parent()) else {
+            continue;
+        };
+        let base_path = parent.join(of);
+        let Some(b) = survey.entries.iter().position(|e| {
+            e.kind == ItemKind::Folder
+                && e.sources.first() == Some(&base_path)
+                && e.console.as_ref().is_some_and(|c| c.title.is_some())
+        }) else {
+            continue;
+        };
+        let (Some(base_entry), Some(base_item)) = (survey.entries.get(b), items.get(b)) else {
+            continue;
+        };
+        let title = base_title(Some((base_entry, base_item)), of);
+        if let Some(OrganizeAction::Left {
+            reason: LeftReason::GameOverlay { of },
+        }) = items.get_mut(i).map(|item| &mut item.action)
+        {
+            *of = title;
+        }
+    }
+}
+
 /// Notes every update and DLC with the base it belongs to (D11), when
 /// its header names the system the item goes to; returns how many rows
 /// carry such a note.
@@ -1441,12 +1473,15 @@ fn note_updates(items: &mut [OrganizeItem], entries: &[SurveyEntry]) -> usize {
 /// left by the first gate its tree fails (a symlink, a partial download,
 /// a recent file, a cloud placeholder, in that order). A tree past the
 /// caps stays in review. Folders two probes claimed for different
-/// systems go to review with both systems as alternatives.
+/// systems go to review with both systems as alternatives. A zero-byte
+/// file is a partial download except in a folder game of
+/// [`ZERO_BYTE_OK`] (systems batch 3 D24).
 fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntry> {
     let entry = |path: PathBuf,
                  tree: TreeSummary,
                  combined: Combined,
-                 console: Option<crate::consoles::ConsoleId>| {
+                 console: Option<crate::consoles::ConsoleId>,
+                 zero_ok: bool| {
         // A PS5 app folder enhanced for the PS5 Pro (systems batch 3 D6):
         // the flag rides on the probe's fixed `detail`.
         let notes = console
@@ -1458,7 +1493,7 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
             .unwrap_or_default();
         let left = if tree.symlink {
             Some(LeftReason::Symlink)
-        } else if tree.partial {
+        } else if tree.partial || (tree.zero_bytes && !zero_ok) {
             Some(LeftReason::PartialDownload)
         } else if tree.recent {
             Some(LeftReason::RecentlyModified)
@@ -1513,9 +1548,18 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
             )],
             alternatives: Vec::new(),
         };
-        out.push(entry(game.path, game.tree, combined, Some(game.id)));
+        let zero_ok = ZERO_BYTE_OK.contains(&game.id.system.as_str());
+        out.push(entry(
+            game.path,
+            game.tree,
+            combined,
+            Some(game.id),
+            zero_ok,
+        ));
     }
     for (path, systems, tree) in std::mem::take(&mut walked.folder_conflicts) {
+        // Every system it may go to keeps empty files in its dumps.
+        let zero_ok = systems.iter().all(|s| ZERO_BYTE_OK.contains(&s.as_str()));
         let combined = Combined {
             verdict: Verdict::Review,
             system: None,
@@ -1527,10 +1571,14 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
                 .map(|s| (s, thresholds.review))
                 .collect(),
         };
-        out.push(entry(path, tree, combined, None));
+        out.push(entry(path, tree, combined, None, zero_ok));
     }
     out
 }
+
+/// Systems whose folder games may hold zero-byte files (systems batch 3
+/// D24): console dumps legitimately do, and the `.ps4` marker is one.
+const ZERO_BYTE_OK: [&str; 4] = ["ps4", "ps5", "xboxone", "xboxseries"];
 
 /// Turns every multi-volume set into one Left entry holding all its parts
 /// (archives spec §3.2 rule 6): the entry of the set's first part found
@@ -2056,6 +2104,7 @@ pub fn plan_from_survey(
         items.push(item);
         keys.push(key);
     }
+    overlay_titles(&mut items, survey);
 
     // The user's decisions.
     for decision in decisions {

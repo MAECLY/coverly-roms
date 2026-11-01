@@ -761,3 +761,52 @@ fn a_dlc_zar_and_a_pro_zar_keep_their_kind_and_note() {
     );
     assert!(!returnal.notes.contains(&ItemNote::NoEmulator));
 }
+
+#[test]
+fn game_overlay_names_the_base_title() {
+    // Plan P-3: the walk names the base folder; the planner names the
+    // base's title when the base is an item with a header title.
+    use coverly_core::organize::LeftReason;
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let base = pile.path().join("CUSA00900");
+    ps4_app(&base, "CUSA00900", "gd", BLOODBORNE);
+    let sfo = param_sfo_with(
+        &[
+            ("APP_VER", "01.09"),
+            ("CATEGORY", "gd"),
+            ("CONTENT_ID", BLOODBORNE),
+            ("TITLE", "Bloodborne"),
+            ("TITLE_ID", "CUSA00900"),
+            ("VERSION", "01.00"),
+        ],
+        &[("APP_TYPE", 1), ("PUBTOOLVER", 0x0289_0000)],
+    );
+    put_file(&base, "sce_sys/param.sfo", &sfo);
+    put_file(pile.path(), "CUSA00900-mods/x.bin", &[1u8; 64]);
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let mods = p
+        .items
+        .iter()
+        .find(|i| i.sources[0] == Path::new("CUSA00900-mods"))
+        .expect("the -mods row");
+    assert_eq!(
+        mods.action,
+        OrganizeAction::Left {
+            reason: LeftReason::GameOverlay {
+                of: "Bloodborne".into()
+            }
+        }
+    );
+    assert!(
+        p.items
+            .iter()
+            .all(|i| i.sources[0].file_name().is_none_or(|n| n != "x.bin")),
+        "{:#?}",
+        p.items
+    );
+    let base = only_folder(&p);
+    assert_eq!(base.action, OrganizeAction::Auto);
+}
