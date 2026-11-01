@@ -455,6 +455,9 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
     ("wii", [Some("wii"), Some("wii"), None, None, None]),
     ("3ds", [Some("n3ds"), Some("3ds"), Some("3ds"), None, None]),
     ("wiiu", [Some("wiiu"), Some("wiiu"), None, None, None]),
+    // Batocera has no `switch` key at `a3d49969`; Knulli and RetroBat do.
+    // Named for the shared Batocera/Knulli profile (spec D19).
+    ("switch", [Some("switch"), Some("switch"), None, None, None]),
 ];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks

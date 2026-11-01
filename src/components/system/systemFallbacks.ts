@@ -51,6 +51,7 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   wii: 'WII',
   '3ds': '3DS',
   wiiu: 'WIIU',
+  switch: 'NSW',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

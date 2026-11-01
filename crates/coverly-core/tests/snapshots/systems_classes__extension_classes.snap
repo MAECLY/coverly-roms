@@ -1297,6 +1297,14 @@ expression: rows
   },
   {
     "accepting": [
+      "switch"
+    ],
+    "class": "Unknown",
+    "ext": "nca",
+    "strong": []
+  },
+  {
+    "accepting": [
       "n64dd"
     ],
     "class": "Unique",
@@ -1375,6 +1383,42 @@ expression: rows
     "ext": "nib",
     "strong": [
       "apple2"
+    ]
+  },
+  {
+    "accepting": [
+      "switch"
+    ],
+    "class": "Unknown",
+    "ext": "nro",
+    "strong": []
+  },
+  {
+    "accepting": [
+      "switch"
+    ],
+    "class": "Unknown",
+    "ext": "nso",
+    "strong": []
+  },
+  {
+    "accepting": [
+      "switch"
+    ],
+    "class": "Unique",
+    "ext": "nsp",
+    "strong": [
+      "switch"
+    ]
+  },
+  {
+    "accepting": [
+      "switch"
+    ],
+    "class": "Unique",
+    "ext": "nsz",
+    "strong": [
+      "switch"
     ]
   },
   {
@@ -2082,6 +2126,26 @@ expression: rows
     "ext": "wux",
     "strong": [
       "wiiu"
+    ]
+  },
+  {
+    "accepting": [
+      "switch"
+    ],
+    "class": "Unique",
+    "ext": "xci",
+    "strong": [
+      "switch"
+    ]
+  },
+  {
+    "accepting": [
+      "switch"
+    ],
+    "class": "Unique",
+    "ext": "xcz",
+    "strong": [
+      "switch"
     ]
   },
   {

@@ -29,6 +29,8 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     ("3ds", Family::Handheld, false),
     // Task 9.
     ("wiiu", Family::Console, false),
+    // Task 10.
+    ("switch", Family::Console, false),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -51,6 +53,11 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("batocera", "wiiu", "wiiu", None),
     ("muos", "wiiu", "wiiu", Some(false)),
     ("minui", "wiiu", "WIIU", Some(false)),
+    // Task 10: Named on the shared Batocera/Knulli profile (D19).
+    ("esde", "switch", "switch", None),
+    ("batocera", "switch", "switch", None),
+    ("muos", "switch", "switch", Some(false)),
+    ("onion", "switch", "SWITCH", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -96,7 +103,30 @@ const CONSOLE_HEADERS: &[ConsoleHeader] = &[
     ("wiiu", "wua", wiiu_wua, Some("wiiu"), Some("ARDP01")),
     ("wiiu", "rpx", wiiu_rpx, Some("wiiu"), None),
     ("wiiu", "wuhb", wiiu_wuhb, Some("wiiu"), None),
+    // Task 10: Switch tables in clear; no serial (title ids only, D10).
+    ("switch", "xci", nx_xci, Some("switch"), None),
+    ("switch", "xcz", nx_xci, Some("switch"), None),
+    ("switch", "nsp", nx_nsp, Some("switch"), None),
+    ("switch", "nsz", nx_nsz, Some("switch"), None),
 ];
+
+mod nx {
+    use coverly_core::consoles::testing::{self as t, SparseAt};
+
+    pub fn nx_xci() -> SparseAt {
+        t::xci(&["update", "normal", "secure"])
+    }
+    pub fn nx_nsp() -> SparseAt {
+        t::nsp(&[
+            ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nca", &[0x55; 64]),
+            ("01000000000100000000000000000000.tik", &[0x66; 0x2C0]),
+        ])
+    }
+    pub fn nx_nsz() -> SparseAt {
+        t::nsz(&[("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ncz", &[0x55; 64])])
+    }
+}
+use nx::*;
 
 mod wiiu {
     use coverly_core::consoles::testing::{self as t, SparseAt};
@@ -395,4 +425,80 @@ fn cover_lookup_finds_batch_systems() {
             );
         }
     }
+}
+
+#[test]
+fn switch_folder_is_scoped_but_nintendoswitch_is_global() {
+    // D8: `switch` (and so its first alias `SWITCH`) is scoped, so a
+    // `Switch/` folder of network gear or mods in Downloads is still
+    // organised; under a profile, and as `nintendoswitch`/`nsw`, it is the
+    // console's.
+    let db = SystemDb::builtin();
+    for name in ["switch", "SWITCH", "Switch"] {
+        assert!(db.resolve_folder(name).is_none(), "{name}");
+    }
+    let id = |s: Option<&System>| s.map(|s| s.id.clone());
+    for name in ["nintendoswitch", "nsw"] {
+        assert_eq!(id(db.resolve_folder(name)), Some("switch".into()), "{name}");
+    }
+    for p in builtin_profiles() {
+        assert_eq!(
+            id(db.resolve_folder_in(Some(&p), "switch")),
+            Some("switch".into()),
+            "{}",
+            p.id
+        );
+    }
+}
+
+/// D18: no libretro-thumbnails folder and no DAT for Switch, so covers
+/// come from ScreenScraper (system 225) by name, and the libretro step is
+/// skipped (`cover_lookup_finds_batch_systems` passes over it).
+#[test]
+fn switch_covers_skip_libretro_and_ask_screenscraper_by_name() {
+    use coverly_core::credentials::{DevCredentials, Secret, UserCredentials};
+    use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig};
+    let db = SystemDb::builtin();
+    let switch = db.get("switch").unwrap();
+    assert_eq!(switch.libretro, None);
+    assert!(switch.libretro_also.is_empty());
+    assert!(coverly_core::identify::dat::dat_sources(switch).is_empty());
+    assert_eq!(switch.screenscraper, Some(225));
+    let server = MockServer::start();
+    let cfg = SsConfig {
+        base: server.url("/ss"),
+        min_interval: std::time::Duration::from_millis(1),
+        ..SsConfig::default()
+    };
+    let cache = Cache::in_memory().unwrap();
+    let http = http();
+    let dev = DevCredentials::from_values(Some("dev"), Some("devpw")).unwrap();
+    let user = UserCredentials {
+        user: Secret::new("me"),
+        password: Secret::new("mypw"),
+    };
+    let src = ScreenScraperSource::new(&http, &cache, dev, Some(user), cfg);
+    let stem = "Super Mario Odyssey [0100000000010000][v0]";
+    let rom = parse_name(stem, false);
+    let _ = src.candidates(&ArtQuery {
+        system: switch,
+        media: Media::Cover,
+        canonical: None,
+        rom: &rom,
+        stem,
+        by_name: true,
+        fuzzy: true,
+        min_score: 65,
+        max_candidates: 5,
+        hash: None,
+        size: 0,
+        file_name: "Super Mario Odyssey [0100000000010000][v0].nsp",
+    });
+    let asked = server.requests();
+    assert!(
+        asked.iter().any(|r| r.path.contains("systemeid=225")
+            && r.path.contains("Super%20Mario%20Odyssey")),
+        "{:?}",
+        asked.iter().map(|r| &r.path).collect::<Vec<_>>()
+    );
 }

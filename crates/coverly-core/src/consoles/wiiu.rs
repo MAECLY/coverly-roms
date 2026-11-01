@@ -75,7 +75,7 @@ fn title_id(raw: &str) -> Option<(String, u64)> {
 /// `wanted` names. `None` when the input is over [`MAX_META_FILE`], is
 /// not well formed, has a DTD or uses an entity other than the five XML
 /// ones (no DTD means no entity can be defined, so nothing expands).
-fn xml_fields(bytes: &[u8], wanted: &[&str]) -> Option<Vec<(String, String)>> {
+pub(super) fn xml_fields(bytes: &[u8], wanted: &[&str]) -> Option<Vec<(String, String)>> {
     if bytes.len() as u64 > MAX_META_FILE {
         return None;
     }
@@ -136,7 +136,7 @@ fn xml_fields(bytes: &[u8], wanted: &[&str]) -> Option<Vec<(String, String)>> {
     (depth == 0).then_some(out)
 }
 
-fn get<'a>(fields: &'a [(String, String)], name: &str) -> Option<&'a str> {
+pub(super) fn get<'a>(fields: &'a [(String, String)], name: &str) -> Option<&'a str> {
     fields
         .iter()
         .find(|(n, _)| n == name)
@@ -208,7 +208,7 @@ pub fn parse_app_xml(bytes: &[u8]) -> Option<ConsoleId> {
 }
 
 /// The listed name equal to `want` ignoring ASCII case.
-fn find<'a>(names: &'a [String], want: &str) -> Option<&'a str> {
+pub(super) fn find<'a>(names: &'a [String], want: &str) -> Option<&'a str> {
     names
         .iter()
         .find(|n| n.eq_ignore_ascii_case(want))
@@ -216,7 +216,7 @@ fn find<'a>(names: &'a [String], want: &str) -> Option<&'a str> {
 }
 
 /// A regular file (never a symlink) of at most `max` bytes.
-fn plain_file(path: &Path, max: u64) -> Option<u64> {
+pub(super) fn plain_file(path: &Path, max: u64) -> Option<u64> {
     let meta = fs::symlink_metadata(path).ok()?;
     (meta.file_type().is_file() && meta.len() <= max).then_some(meta.len())
 }

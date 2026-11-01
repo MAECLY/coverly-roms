@@ -15,6 +15,9 @@ use crate::identify::sniff::ReadAt;
 pub struct SparseAt {
     pub len: u64,
     pub parts: BTreeMap<u64, Vec<u8>>,
+    /// Byte ranges of the entries a container builder laid out (PFS0,
+    /// HFS0), in table order, for the D4 range tests.
+    pub entries: Vec<std::ops::Range<u64>>,
 }
 
 impl SparseAt {
@@ -22,7 +25,13 @@ impl SparseAt {
         SparseAt {
             len,
             parts: BTreeMap::new(),
+            entries: Vec::new(),
         }
+    }
+
+    /// The bytes of entry `i` of the container a builder laid out.
+    pub fn entry_range(&self, i: usize) -> std::ops::Range<u64> {
+        self.entries[i].clone()
     }
 
     /// Puts `bytes` at `offset` (a later part wins where two overlap).
@@ -701,4 +710,96 @@ pub fn wua() -> SparseAt {
         ("0005000010145d00_v0/meta/meta.xml", base.as_bytes()),
         ("0005000e10145d00_v32/meta/meta.xml", update.as_bytes()),
     ])
+}
+
+// ---------------------------------------------------------------------
+// Nintendo Switch (spec §8.3). Synthetic tables only: no NCA, ticket or
+// key byte of a real title; entry bodies are filler.
+// ---------------------------------------------------------------------
+
+/// A partition table (`PFS0` with 0x18-byte entries, `HFS0` with 0x40)
+/// of `entries` at `at` in `s`; the bodies follow the string table (padded
+/// to 0x20) and their ranges are recorded in `s.entries`. Returns the end.
+fn partition(
+    s: &mut SparseAt,
+    at: u64,
+    magic: &[u8; 4],
+    entry: usize,
+    entries: &[(&str, &[u8])],
+) -> u64 {
+    let mut strings = Vec::new();
+    let mut name_offs = Vec::new();
+    for (name, _) in entries {
+        name_offs.push(strings.len() as u32);
+        strings.extend_from_slice(name.as_bytes());
+        strings.push(0);
+    }
+    let header = 0x10 + entry * entries.len();
+    while !(header + strings.len()).is_multiple_of(0x20) {
+        strings.push(0);
+    }
+    let mut h = Vec::from(*magic);
+    h.extend(le32(entries.len() as u32));
+    h.extend(le32(strings.len() as u32));
+    h.extend(le32(0));
+    let data = at + (header + strings.len()) as u64;
+    let first = s.entries.len();
+    let mut off = 0u64;
+    for ((_, body), name_off) in entries.iter().zip(&name_offs) {
+        let mut e = vec![0u8; entry];
+        e[..8].copy_from_slice(&off.to_le_bytes());
+        e[8..16].copy_from_slice(&(body.len() as u64).to_le_bytes());
+        e[16..20].copy_from_slice(&le32(*name_off));
+        h.extend(e);
+        s.entries.push(data + off..data + off + body.len() as u64);
+        off += body.len() as u64;
+    }
+    h.extend(strings);
+    s.put(at, &h);
+    for (i, (_, body)) in entries.iter().enumerate() {
+        let start = s.entries[first + i].start;
+        s.put(start, body);
+    }
+    data + off
+}
+
+/// An NSP: a `PFS0` of `entries` (name, body), nothing else.
+pub fn nsp(entries: &[(&str, &[u8])]) -> SparseAt {
+    let mut s = SparseAt::new(0);
+    s.len = u64::MAX;
+    let end = partition(&mut s, 0, b"PFS0", 0x18, entries);
+    s.len = end;
+    s
+}
+
+/// An NSZ: an NSP whose NCAs are `.ncz` entries.
+pub fn nsz(entries: &[(&str, &[u8])]) -> SparseAt {
+    nsp(entries)
+}
+
+/// Start of the root HFS0 of [`xci`] (as in real dumps).
+pub const XCI_HFS0: u64 = 0xF000;
+/// The encrypted gamecard info of the card header (never read).
+pub const XCI_CARD_INFO: (u64, u64) = (0x190, 0x70);
+
+/// An XCI: a card header (`HEAD` at 0x100, the root HFS0 address at 0x130
+/// and its size at 0x138, filler where the encrypted gamecard info is)
+/// and a root HFS0 whose entries are `names`, each a 0x200-byte filler
+/// body. `s.entries` holds the bodies' ranges.
+pub fn xci(names: &[&str]) -> SparseAt {
+    let mut s = SparseAt::new(u64::MAX);
+    let mut head = vec![0u8; 0x200];
+    head[..0x100].fill(0x5A);
+    head[0x100..0x104].copy_from_slice(b"HEAD");
+    head[0x10D] = 0xE0;
+    head[0x130..0x138].copy_from_slice(&XCI_HFS0.to_le_bytes());
+    head[0x190..0x200].fill(0xC3);
+    let body = [0xA5u8; 0x200];
+    let entries: Vec<(&str, &[u8])> = names.iter().map(|n| (*n, &body[..])).collect();
+    let end = partition(&mut s, XCI_HFS0, b"HFS0", 0x40, &entries);
+    let size = 0x10 + 0x40 * names.len() as u64;
+    head[0x138..0x140].copy_from_slice(&size.to_le_bytes());
+    s.put(0, &head);
+    s.len = end.max(0x1_0000);
+    s
 }

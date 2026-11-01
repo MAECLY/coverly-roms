@@ -1285,3 +1285,17 @@ weak_extensions = ["tmd"]
 libretro = "Nintendo - Wii U"
 dats = ["dat/Nintendo - Wii U.dat", "metadat/no-intro/Nintendo - Wii U (Digital).dat"]
 screenscraper = 18
+
+[[system]]
+id = "switch"
+name = "Nintendo Switch"
+family = "console"
+# `switch` is an everyday word: scoped (D8). No libretro folder and no
+# DAT exist (D18): header for the system, name for the rest (D10).
+aliases = ["SWITCH", "nintendoswitch", "nsw"]
+scoped_aliases = ["switch"]
+# Split «archive bit» files (`Game.nsp/00`, `01`…) are folder games (D12);
+# `nro`, `nso`, `nca` are weak: homebrew and loose contents.
+extensions = ["xci", "nsp", "nsz", "xcz"]
+weak_extensions = ["nro", "nso", "nca"]
+screenscraper = 225

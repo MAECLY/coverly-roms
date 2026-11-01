@@ -31,8 +31,9 @@ use coverly_core::write::trash::FakeTrash;
 use coverly_core::write::{job_transfers, set_copy_fault, undo_job, CopyStage};
 use tempfile::TempDir;
 
-/// Answers `cloud_only` for files named `cloud.bin` and a 5 GiB length
-/// for files named `big.bin` (never a real 4 GiB file).
+/// Answers `cloud_only` for files named `cloud.bin`, a 5 GiB length for
+/// files named `big.bin` and a FAT32-sized part (0xFFFF0000) for the
+/// `00`/`01` parts of a split Switch file (never a real 4 GiB file).
 struct Probe;
 
 impl MetaProbe for Probe {
@@ -41,8 +42,15 @@ impl MetaProbe for Probe {
     }
 
     fn file_len(&self, path: &Path, meta: &fs::Metadata) -> u64 {
+        let split_part = path.file_name().is_some_and(|n| n == "00" || n == "01")
+            && path
+                .parent()
+                .and_then(|p| p.extension())
+                .is_some_and(|e| e == "nsp");
         if path.file_name().is_some_and(|n| n == "big.bin") {
             5 << 30
+        } else if split_part {
+            0xFFFF_0000
         } else {
             meta.len()
         }
@@ -1421,4 +1429,41 @@ fn a_wua_is_a_wiiu_file_not_a_zstd_archive() {
     assert_eq!(item.kind, ItemKind::File, "{item:#?}");
     assert_eq!(item.system_id.as_deref(), Some("wiiu"));
     assert!(item.why.iter().any(|e| e.detail == "WUA: base, update"));
+}
+
+/// Split «archive bit» Switch files (systems batch 2, Task 10, D12).
+mod switch {
+    use super::*;
+
+    const GAME: &str = "Super Mario Odyssey [0100000000010000][v0].nsp";
+
+    #[test]
+    fn a_split_nsp_folder_is_one_item_and_fits_fat32() {
+        let _g = ProbeGuard::new();
+        let (world, pile, target) = setup();
+        let dir = pile.path().join(GAME);
+        fs::create_dir(&dir).unwrap();
+        let head = coverly_core::consoles::testing::nsp(&[(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nca",
+            &[0x55; 64],
+        )]);
+        fs::write(dir.join("00"), head.bytes()).unwrap();
+        fs::write(dir.join("01"), [0x55u8; 32]).unwrap();
+        pin_mtime(&dir.join("00"), 1);
+        pin_mtime(&dir.join("01"), 2);
+        set_fat32_override(Some(true));
+        let p = plan(&world, pile.path(), target.path(), "esde");
+        let item = only_folder(&p);
+        assert_eq!(p.items.len(), 1, "{:#?}", p.items);
+        assert_eq!(item.sources, [PathBuf::from(GAME)]);
+        assert_eq!(item.system_id.as_deref(), Some("switch"));
+        // Each part is under 4 GiB: the folder fits although the game,
+        // two parts of 0xFFFF0000 bytes, does not fit in one file.
+        assert_eq!(item.size, 2 * 0xFFFF_0000);
+        assert!(item.moves_in(), "{:?}", item.action);
+        assert!(item.why.iter().any(|e| e.detail == "split NSP folder"));
+        let t = item.target.as_ref().unwrap();
+        assert_eq!(last(t), GAME);
+        assert_eq!(t.parent().map(last).as_deref(), Some("switch"));
+    }
 }

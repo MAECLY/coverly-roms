@@ -23,6 +23,7 @@ use crate::identify::sniff::ReadAt;
 
 pub mod ctr;
 pub mod nintendo_disc;
+pub mod nx;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
 pub mod wad;
@@ -367,11 +368,17 @@ pub fn take_open_log() -> Vec<PathBuf> {
 /// title-id tokens, spec D10); `""` when unknown.
 ///
 /// The readers join this list, in this order, as their systems land:
-/// `nintendo_disc`, `wad`, `ctr`, `nx`, `wiiu`, `sony`, `xbox` (`nx`
-/// will go before `wiiu`). Each is
+/// `nx`, `nintendo_disc`, `wad`, `ctr`, `wiiu`, `sony`, `xbox`. Each is
 /// called only when its magic or extension can apply.
+///
+/// `nx` goes first and reads only 0x10 bytes before it knows: the other
+/// readers' first reads (0x100 and 0x200 bytes) would reach into the
+/// first entry of a small NSP (a ticket, an NCA) and into an XCI's
+/// encrypted gamecard info at 0x190, which are never read (D4).
 pub fn identify(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
-    let _ = name;
+    if let Some(id) = nx::identify(src, ext, name) {
+        return Some(id);
+    }
     // The disc magics are specific enough for any extension, and so are
     // the 8-byte WAD header and the 3DS magics (`NCSD`/`NCCH` at 0x100,
     // `3DSX`, `Z3DS`); the CIA header only counts under `.cia`.
@@ -412,8 +419,9 @@ pub struct DirConflict {
 
 /// The built-in folder probes, in the fixed order of spec D12: PS3 and
 /// PS Vita (Task 11 puts theirs first), Wii U loadiine then NUS, then
-/// Xbox, Xbox 360 and split Switch files (Tasks 10 and 12, after these).
-const DIR_PROBES: &[DirProbe] = &[wiiu::probe_loadiine, wiiu::probe_nus];
+/// Xbox and Xbox 360 (Task 12, before the Switch one), then split Switch
+/// files.
+const DIR_PROBES: &[DirProbe] = &[wiiu::probe_loadiine, wiiu::probe_nus, nx::probe_split];
 
 #[cfg(any(test, feature = "test-util"))]
 thread_local! {
@@ -521,6 +529,27 @@ pub fn kind_switch(title_id: u64) -> TitleKind {
 /// `0100000000010800` → base `0100000000010000` (updates and DLC).
 pub fn switch_base(title_id: u64) -> u64 {
     title_id & !0x1FFF
+}
+
+/// The title id of the base game `id` belongs to (spec D11), for
+/// grouping updates and DLC with their base: Switch `id & !0x1FFF`, 3DS
+/// and Wii U the base high word with the same low 32 bits, Sony and
+/// Xbox 360 the title id itself. `None` for other systems or without a
+/// title id.
+pub fn base_title_id(id: &ConsoleId) -> Option<String> {
+    let tid = id.title_id.as_deref()?.trim();
+    let hex = || {
+        (tid.len() == 16)
+            .then(|| u64::from_str_radix(tid, 16).ok())
+            .flatten()
+    };
+    match id.system.as_str() {
+        "switch" => Some(format!("{:016X}", switch_base(hex()?))),
+        "3ds" => Some(format!("00040000{:08X}", hex()? as u32)),
+        "wiiu" => Some(format!("00050000{:08X}", hex()? as u32)),
+        "ps3" | "psvita" | "xbox360" if !tid.is_empty() => Some(tid.to_ascii_uppercase()),
+        _ => None,
+    }
 }
 
 /// A plaintext title from a header field: NULs and padding trimmed,
@@ -656,6 +685,30 @@ mod tests {
         assert_eq!(kind_switch(0x0100_0000_0001_0001), TitleKind::Unknown);
         assert_eq!(switch_base(0x0100_0000_0001_1001), 0x0100_0000_0001_0000);
         assert_eq!(switch_base(0x0100_0000_0001_0800), 0x0100_0000_0001_0000);
+    }
+
+    #[test]
+    fn base_title_ids() {
+        let with = |system: &str, tid: &str| {
+            let mut id = ConsoleId::proven(system, "x");
+            id.title_id = Some(tid.into());
+            base_title_id(&id)
+        };
+        assert_eq!(
+            with("switch", "0100000000011001").as_deref(),
+            Some("0100000000010000")
+        );
+        assert_eq!(
+            with("3ds", "0004000E00055D00").as_deref(),
+            Some("0004000000055D00")
+        );
+        assert_eq!(
+            with("wiiu", "0005000C10145D00").as_deref(),
+            Some("0005000010145D00")
+        );
+        assert_eq!(with("ps3", "blus30001").as_deref(), Some("BLUS30001"));
+        assert_eq!(with("switch", "nothex"), None);
+        assert_eq!(with("gamecube", "0100000000010000"), None);
     }
 
     #[test]
