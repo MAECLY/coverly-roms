@@ -389,7 +389,7 @@ Hecha el 2026-11-01 (4 investigadores y un verificador crítico por grupo, que a
 
 ## 3. Biblioteca
 
-> **Dependencias:** depende de 2.1 (el juego como entidad con sus actualizaciones, DLC, demo, versiones y revisiones, y la estructura de carpetas maestra). **Lo usan 4 y 5.**
+> **Dependencias:** depende de 2.1 (el juego como entidad con sus actualizaciones, DLC, demo, versiones y revisiones, y la estructura de carpetas maestra). **Lo usan 4 y 5.** Se coordina con 7.1: allí están las fuentes y los tipos de arte (portada, portada ancha y cuadrada, fondo, logo, icono), y aquí se guardan por juego y se muestran en su ficha. También con 6, que escribe ese arte en la carpeta de cada frontend.
 
 Hoy la app abre carpetas: en Inicio aparecen como «Unidades conectadas» y «Bibliotecas recientes», pero solo son rutas, y la «biblioteca» es lo que haya en esa ruta en ese momento. La idea es que exista **una biblioteca propia, la definitiva**, que vive en el ordenador y tiene identidad y funciones propias. Los dispositivos (la SD de la Anbernic, la Ayaneo…) pasan a ser destinos que se comparan y sincronizan con ella (bloque 4).
 
@@ -400,7 +400,7 @@ Referencias revisadas: [Playnite](https://api.playnite.link/docs/manual/gettingS
 - **Identidad propia.** Un nombre, una ubicación fija (una o varias carpetas raíz) y una base de datos que persiste entre sesiones. No depende de que la unidad esté conectada para ver qué hay.
 - **El juego como entidad, no el archivo.** Un juego identificado (hash / serial / catálogo) con sus archivos: ROM o set de disco, partidas, portadas, manual, parches. Varias versiones o regiones del mismo juego agrupadas.
 - **Metadatos ricos y editables.** Título, sistema, región, idioma, año, desarrollador, editor, género, jugadores, descripción, valoración. Fuentes: catálogos (No-Intro, Redump), ScreenScraper, IGDB, MobyGames, SteamGridDB. Corrección manual que no se pierde al volver a escanear.
-- **Arte completo.** Portada, título, captura, logo, fondo, caja 3D, vídeo de muestra; lo que ya hace el relleno, pero guardado en la biblioteca y no solo en la carpeta de cada frontend.
+- **Arte completo.** Portada (vertical, ancha y cuadrada), título, captura, logo, fondo (hero), icono, caja 3D y vídeo de muestra. Es lo que ya hace el relleno, pero guardado en la biblioteca y no solo en la carpeta de cada frontend. Los tipos y sus fuentes están en 7.1 (SteamGridDB completo y arte de fondo).
 - **Colecciones y etiquetas.** Favoritos, listas manuales («para la Anbernic», «RPG pendientes»), colecciones inteligentes por filtro (sistema, género, región, «sin portada») y etiquetas libres.
 - **Estado del jugador.** Jugado / sin jugar, completado, valoración propia, notas, tiempo de juego y última partida cuando se puedan leer (`gamelist.xml`, historial de RetroArch, Playnite).
 - **Integridad.** Verificación contra DAT (bien / mala / desconocida), duplicados (ya existe), huecos de arte (ya existe), archivos que faltan o cambiaron desde el último escaneo.
@@ -414,6 +414,7 @@ Referencias revisadas: [Playnite](https://api.playnite.link/docs/manual/gettingS
 - [ ] Crear biblioteca: nombre, carpetas raíz, perfil de organización interno (el formato «maestro» de la biblioteca, independiente del de cada dispositivo).
 - [ ] Importar a la biblioteca desde una carpeta o un dispositivo (copiar o mover, con deshacer), reutilizando Organizar y duplicados.
 - [ ] Ficha de juego con metadatos editables y fuentes nuevas (IGDB, MobyGames) además de las de arte.
+- [ ] Arte por juego en la biblioteca: guardar todos los tipos disponibles (huecos nuevos de 7.1). Elegir cuál usar en cada uno desde una galería, como el plugin de SteamGridDB en Decky, y que la elección no se pierda al volver a escanear. En la ficha, fondo a pantalla completa con el logo encima, como en el dashboard de PS5 o Xbox.
 - [ ] Colecciones manuales, inteligentes y favoritos; etiquetas.
 - [ ] Estado del jugador y lectura de tiempo de juego donde exista.
 - [ ] Rediseñar Inicio: «Mi biblioteca» como centro, y debajo «Dispositivos» (bloque 4) en lugar de rutas sueltas.
@@ -674,7 +675,7 @@ Tareas:
   | Icono            | `/icons`                                                                                                                           | `official`, `custom` (PNG/ICO, varios tamaños)                                          | Nuevo: «icono»                                                   |
   | —                | `/grids` cuadrado (512×512, 1024×1024)                                                                                             | los mismos estilos                                                                      | Nuevo: «portada cuadrada» (muOS y algunas portátiles)            |
   | —                | Búsqueda por plataforma: `/{tipo}/steam/{appid}` y `/{tipo}/{plataforma}/{id}` (egs, gog, origin, uplay, bnet, flashpoint, eshop…) | —                                                                                       | Buscar por id exacto (vía Wikidata o Steam) antes que por nombre |
-  - **Por juego y por sistema:** cada perfil de frontend dice qué huecos usa y con qué forma. Por ejemplo, ES-DE: `covers`, `marquees` (logo), `fanart` (fondo), `screenshots` y `titlescreens`. Las portátiles usan portada o cuadrada. La biblioteca guarda todos los tipos disponibles y Organizar escribe solo los que pide el perfil.
+  - **Por juego y por sistema** (ligado a la biblioteca del bloque 3 y a los perfiles del 6): cada perfil de frontend dice qué huecos usa y con qué forma. Por ejemplo, ES-DE: `covers`, `marquees` (logo), `fanart` (fondo), `screenshots` y `titlescreens`. Las portátiles usan portada o cuadrada. La biblioteca guarda todos los tipos disponibles y Organizar escribe solo los que pide el perfil.
   - **Para ajustar en Ajustes:** tipos activos, estilos preferidos, animadas sí/no, y los filtros que ya existen (NSFW, humor, epilepsia).
   - **En la interfaz:** galería para elegir entre las opciones de cada tipo, como hace Decky; el logo sobre el fondo en Detalles; la portada ancha en la vista de lista o filas.
   - Respetar los límites de la API y la caché local. La clave de API la sigue poniendo el usuario.
