@@ -581,13 +581,28 @@ describe('SystemGroups — extract rows keep warnings in sight', () => {
       const labels = screen.getAllByText('Sin emulador');
       expect(labels).toHaveLength(1);
       // Secondary caption text, no badge; the dot between is not read.
-      expect(labels[0]).toHaveClass('text-caption', 'text-cr-text-secondary');
+      expect(labels[0]!.parentElement).toHaveClass(
+        'text-caption',
+        'text-cr-text-secondary',
+      );
       const dot = labels[0]!.previousElementSibling!;
       expect(dot).toHaveTextContent('·');
       expect(dot).toHaveAttribute('aria-hidden', 'true');
       // Never on a row.
       for (const row of screen.getAllByRole('listitem'))
         expect(row).not.toHaveTextContent('Sin emulador');
+    });
+
+    it('keeps «Sin emulador» in one line with the system name at 390 px', () => {
+      renderIn('es', SYSTEMS);
+      const label = screen.getByText('Sin emulador');
+      // Never broken inside («Sin / emulador»), and set in the same text
+      // run as the system name, so a narrow window wraps the phrase as a
+      // sentence instead of stacking each part as its own flex column.
+      expect(label).toHaveClass('whitespace-nowrap');
+      expect(label.parentElement).toHaveTextContent(
+        'Microsoft Xbox Series X|S · Sin emulador',
+      );
     });
 
     it('reads «No emulator» in English and nothing without the catalogue', () => {

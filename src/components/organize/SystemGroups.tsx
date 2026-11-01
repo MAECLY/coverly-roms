@@ -127,24 +127,22 @@ function Group({
           {/* The spaces keep the parts apart in the accessible name; a
               flex row drops them from the layout. */}
           <SystemIcon systemId={group.systemId} size={16} />
+          {/* Name and «Sin emulador» are one text run: a narrow window
+              wraps them as a phrase, not as separate flex columns. */}
           <span className="text-caption font-normal text-cr-text-secondary">
             {row.systemName(group.systemId)}
+            {noEmulator && (
+              // A fact about the world, not a fault: no box, no warning
+              // colour; read as part of the group's name (spec §9.1).
+              <>
+                {' '}
+                <span aria-hidden>·</span>{' '}
+                <span className="whitespace-nowrap">
+                  {t('systems.noEmulator')}
+                </span>
+              </>
+            )}
           </span>
-          {noEmulator && (
-            // A fact about the world, not a fault: no box, no warning
-            // colour; read as part of the group's name (spec §9.1).
-            <>
-              <span
-                aria-hidden
-                className="text-caption font-normal text-cr-text-secondary"
-              >
-                ·
-              </span>{' '}
-              <span className="text-caption font-normal text-cr-text-secondary">
-                {t('systems.noEmulator')}
-              </span>
-            </>
-          )}
           <NewCount count={fresh} />
         </Button>
       </CollapsibleTrigger>
