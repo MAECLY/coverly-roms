@@ -15,14 +15,23 @@
 //! error or status echoes catalogue content.
 //!
 //! Identification never calls into the network: callers run
-//! [`SwitchCatalog::ensure`] before a plan or scan (plan P-2) and hand the
-//! catalogue to identification as a [`TitleNames`] (plan P-1).
+//! [`SwitchCatalog::ensure`] (and, with the fallback on,
+//! [`SwitchCatalog::ensure_nlib`]) before a plan or scan (plan P-2) and
+//! hand the catalogue to identification as a [`TitleNames`] (plan P-1).
+//! Lookups then read the index first and the cached nlib answers second.
+//!
+//! Icons (D8) are fetched one at a time by [`SwitchCatalog::icon`] when a
+//! screen shows them, only while `catalogs.switch.icons` is on, into the
+//! `art/eshop-icons` folder beside the database.
 
+pub mod icons;
 mod ncas;
+mod nlib;
 mod store;
 mod titledb;
 
 use std::cell::Cell;
+use std::collections::HashSet;
 use std::fmt;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -37,7 +46,8 @@ use crate::consoles::TitleSource;
 use crate::net::hosts::TITLEDB_BASE;
 use crate::net::{Http, HttpRequest, HttpResponse, NetError};
 use crate::settings::SwitchCatalogSettings;
-use store::{Meta, MetaState, Table};
+pub use icons::IconError;
+use store::{Meta, MetaState, NlibRow, Table};
 
 /// The catalogue's database, beside the cache in the data folder.
 pub const CATALOG_FILE: &str = "catalog.sqlite";
@@ -77,6 +87,18 @@ pub trait TitleNames: Send + Sync {
         let _ = tid;
         None
     }
+}
+
+/// What one [`SwitchCatalog::ensure_nlib`] run did.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NlibOutcome {
+    /// Requests sent.
+    pub asked: usize,
+    /// Of those, answers with a usable name.
+    pub found: usize,
+    /// A rate limit or lost connection stopped the run; the ids not asked
+    /// keep their file-name title until the next run.
+    pub paused: Option<NetError>,
 }
 
 /// What the Sources group shows about the catalogue (spec §7, §10).
@@ -119,6 +141,8 @@ pub enum CatalogError {
 /// The Switch catalogue over its own `catalog.sqlite`.
 pub struct SwitchCatalog {
     path: PathBuf,
+    /// Cached icons (D8): `art/eshop-icons` beside the database.
+    icon_dir: PathBuf,
     /// Lookups only (`query_only`); imports open their own connection, so
     /// reads see the old rows until the swap commits.
     reader: Mutex<Connection>,
@@ -148,6 +172,7 @@ impl SwitchCatalog {
         };
         conn.pragma_update(None, "query_only", true)?;
         Ok(SwitchCatalog {
+            icon_dir: data_dir.join("art").join(icons::ICON_DIR),
             path,
             reader: Mutex::new(conn),
             ensure_lock: Mutex::new(()),
@@ -184,6 +209,9 @@ impl SwitchCatalog {
         if !s.enabled {
             return CatalogStatus::Off;
         }
+        // Icons or the fallback turned off since the last run: forget them
+        // first, so a later "on" starts clean (D4, D8).
+        let _ = self.apply_settings(s);
         let _one = lock(&self.ensure_lock);
         let Ok(prev) = self.meta(Table::Titledb) else {
             return CatalogStatus::FailedNone;
@@ -248,6 +276,153 @@ impl SwitchCatalog {
         self.run_with(http, &job, &[NCAS_FILE], &prev)
     }
 
+    /// Asks the nlib fallback (D9) about `tids` the index does not
+    /// resolve, one request per id, never while the catalogue or the
+    /// fallback is off. A hit is cached 30 days, a miss (404, or an answer
+    /// with no usable name) 7 days; other failures are not cached. A rate
+    /// limit or a lost connection stops the run (`paused`), and so do
+    /// `cancel` and `deadline`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ensure_nlib(
+        &self,
+        http: &dyn Http,
+        s: &SwitchCatalogSettings,
+        locale: &str,
+        tids: &[u64],
+        now: SystemTime,
+        cancel: &AtomicBool,
+        deadline: Option<Instant>,
+    ) -> NlibOutcome {
+        let mut out = NlibOutcome::default();
+        if !s.fallback_on() {
+            return out;
+        }
+        let lang = nlib::lang(locale);
+        let now_s = unix_secs(now);
+        let _one = lock(&self.ensure_lock);
+        let Ok(writer) = store::open(&self.path) else {
+            return out;
+        };
+        let mut done = HashSet::new();
+        for &tid in tids {
+            if !done.insert(tid) {
+                continue;
+            }
+            if cancel.load(Ordering::Relaxed) || deadline.is_some_and(|d| Instant::now() >= d) {
+                break;
+            }
+            if self.titledb_title(tid).is_some() {
+                continue;
+            }
+            if let Ok(Some(row)) = store::read_nlib(&writer, tid) {
+                if nlib::is_fresh(&row, now_s) {
+                    continue;
+                }
+            }
+            let Some(url) = nlib::url(&s.fallback_url, tid, lang) else {
+                return out;
+            };
+            out.asked += 1;
+            let req = HttpRequest::get(url).max_bytes(nlib::MAX_NLIB_BYTES);
+            let miss = NlibRow {
+                name: None,
+                publisher: None,
+                release: None,
+                fetched_at: now_s,
+                miss: true,
+            };
+            let row = match http.get(&req) {
+                Ok(resp) if (200..300).contains(&resp.status) => match nlib::parse(&resp.body) {
+                    Some((name, publisher, release)) => {
+                        out.found += 1;
+                        NlibRow {
+                            name: Some(name),
+                            publisher,
+                            release,
+                            fetched_at: now_s,
+                            miss: false,
+                        }
+                    }
+                    None => miss,
+                },
+                Ok(resp) if matches!(resp.status, 404 | 410) => miss,
+                Ok(resp) if resp.status == 429 => {
+                    out.paused = Some(NetError::RateLimited {
+                        host: crate::net::host_of(&req.url),
+                        status: 429,
+                    });
+                    break;
+                }
+                // A server fault: asked again next run.
+                Ok(_) => continue,
+                Err(e) if e.pauses() => {
+                    out.paused = Some(e);
+                    break;
+                }
+                Err(NetError::TooLarge { .. }) => miss,
+                Err(_) => continue,
+            };
+            let _ = store::write_nlib(&writer, tid, &row);
+        }
+        out
+    }
+
+    /// Forgets what a setting turned off allowed (D8, D9): with icons off,
+    /// the cached icons and every stored `iconUrl`; with the fallback off,
+    /// every nlib answer. Called by the settings change and at the start
+    /// of [`ensure`](Self::ensure).
+    pub fn apply_settings(&self, s: &SwitchCatalogSettings) -> Result<(), CatalogError> {
+        let _one = lock(&self.ensure_lock);
+        if !s.icons_on() {
+            icons::remove_all(&self.icon_dir)?;
+            let stored: bool = lock(&self.reader).query_row(
+                "SELECT EXISTS (SELECT 1 FROM titledb WHERE icon_url IS NOT NULL)
+                     OR EXISTS (SELECT 1 FROM catalog_meta WHERE name = 'titledb' AND icons = 1)",
+                [],
+                |r| r.get(0),
+            )?;
+            if stored {
+                store::clear_icon_urls(&store::open(&self.path)?)?;
+            }
+        }
+        if !s.fallback_on() {
+            let stored: bool =
+                lock(&self.reader)
+                    .query_row("SELECT EXISTS (SELECT 1 FROM nlib)", [], |r| r.get(0))?;
+            if stored {
+                store::clear_nlib(&store::open(&self.path)?)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The cached icon of `tid`, fetched now when it is not cached yet
+    /// (D8). `Ok(None)` while icons are off, when the catalogue has no
+    /// eShop icon for the title, or when the eShop answers 404.
+    pub fn icon(
+        &self,
+        http: &dyn Http,
+        s: &SwitchCatalogSettings,
+        tid: u64,
+    ) -> Result<Option<PathBuf>, IconError> {
+        if !s.icons_on() {
+            return Ok(None);
+        }
+        let cached = self.icon_dir.join(icons::file_name(tid));
+        if cached.is_file() {
+            return Ok(Some(cached));
+        }
+        let Some(url) = self.icon_url(tid).filter(|u| titledb::is_eshop_icon(u)) else {
+            return Ok(None);
+        };
+        icons::fetch(http, &url, &self.icon_dir, tid)
+    }
+
+    /// Where the cached icons live.
+    pub fn icon_dir(&self) -> &Path {
+        &self.icon_dir
+    }
+
     /// The titles catalogue's state, without any request.
     pub fn status(&self, s: &SwitchCatalogSettings) -> CatalogStatus {
         if !s.enabled {
@@ -272,9 +447,46 @@ impl SwitchCatalog {
     /// only user). Another process holding the file makes it fail: the
     /// caller shows `RemoveFailed`.
     pub fn remove(self, data_dir: &Path) -> Result<(), CatalogError> {
+        let icon_dir = self.icon_dir.clone();
         drop(self);
         delete_files(&data_dir.join(CATALOG_FILE))?;
+        icons::remove_all(&icon_dir)?;
         Ok(())
+    }
+
+    fn titledb_title(&self, tid: u64) -> Option<CatalogTitle> {
+        let conn = lock(&self.reader);
+        let mut stmt = conn
+            .prepare_cached("SELECT name, publisher, release, region FROM titledb WHERE id = ?1")
+            .ok()?;
+        stmt.query_row(params![store::tid_to_sql(tid)], |r| {
+            Ok(CatalogTitle {
+                name: r.get(0)?,
+                publisher: r.get(1)?,
+                release: r.get(2)?,
+                region: r.get(3)?,
+                source: TitleSource::Titledb,
+            })
+        })
+        .optional()
+        .ok()
+        .flatten()
+    }
+
+    /// A cached nlib hit, whatever its age (a stale name beats the file
+    /// name; `ensure_nlib` refreshes it).
+    fn nlib_title(&self, tid: u64) -> Option<CatalogTitle> {
+        let row = store::read_nlib(&lock(&self.reader), tid).ok()??;
+        if row.miss {
+            return None;
+        }
+        Some(CatalogTitle {
+            name: row.name?,
+            publisher: row.publisher,
+            release: row.release,
+            region: None,
+            source: TitleSource::Nlib,
+        })
     }
 
     fn meta(&self, table: Table) -> rusqlite::Result<Meta> {
@@ -473,23 +685,10 @@ impl SwitchCatalog {
 }
 
 impl TitleNames for SwitchCatalog {
+    /// The index first, then a cached nlib answer (D7, D9). The nlib rows
+    /// exist only while the fallback is on ([`SwitchCatalog::apply_settings`]).
     fn title(&self, tid: u64) -> Option<CatalogTitle> {
-        let conn = lock(&self.reader);
-        let mut stmt = conn
-            .prepare_cached("SELECT name, publisher, release, region FROM titledb WHERE id = ?1")
-            .ok()?;
-        stmt.query_row(params![store::tid_to_sql(tid)], |r| {
-            Ok(CatalogTitle {
-                name: r.get(0)?,
-                publisher: r.get(1)?,
-                release: r.get(2)?,
-                region: r.get(3)?,
-                source: TitleSource::Titledb,
-            })
-        })
-        .optional()
-        .ok()
-        .flatten()
+        self.titledb_title(tid).or_else(|| self.nlib_title(tid))
     }
 
     fn by_nca(&self, nca: &[u8; 16]) -> Option<(u64, u8)> {

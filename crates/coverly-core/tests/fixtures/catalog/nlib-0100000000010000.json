@@ -1,0 +1,26 @@
+{
+  "description": "Synthetic description, never stored.",
+  "id": "0100000000010000",
+  "name": "Synthetic Odyssey‮\u0007",
+  "publisher": "Example Works",
+  "releaseDate": "2017-10-27",
+  "version": 0,
+  "category": ["Platformer", "Action"],
+  "developer": null,
+  "intro": "Synthetic intro, never stored.",
+  "isDemo": false,
+  "languages": ["ja", "en", "es"],
+  "nsuId": "70010000009999",
+  "numberOfPlayers": 2,
+  "ratingContent": ["Cartoon Violence"],
+  "region": null,
+  "rightsId": "01000000000100000000000000000000",
+  "console": "nx",
+  "type": "base",
+  "icon": "http://api.nlib.cc/nx/0100000000010000/icon",
+  "banner": "http://api.nlib.cc/nx/0100000000010000/banner",
+  "screens": {
+    "count": 1,
+    "screenshots": ["http://api.nlib.cc/nx/0100000000010000/screen/1"]
+  }
+}

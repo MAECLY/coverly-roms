@@ -368,7 +368,7 @@ pub(crate) fn iso_date(n: u64) -> Option<String> {
 }
 
 /// An eShop icon URL on the one allowed host, with no spaces or controls.
-fn is_eshop_icon(url: &str) -> bool {
+pub(crate) fn is_eshop_icon(url: &str) -> bool {
     url.starts_with(ESHOP_ICONS)
         && url.len() <= 512
         && !url

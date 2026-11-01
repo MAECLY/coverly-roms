@@ -200,6 +200,56 @@ fn loopback_does_not_follow_redirects() {
 }
 
 #[test]
+fn same_host_redirects_follow_only_to_the_same_host() {
+    let server = MockServer::start();
+    server.mock("/from", MockResponse::status(302).header("Location", "/to"));
+    server.mock("/to", MockResponse::ok("moved"));
+    let resp = client()
+        .get(&HttpRequest::get(server.url("/from")).same_host_redirects())
+        .unwrap();
+    assert_eq!(resp.status, 200);
+    assert_eq!(resp.body, b"moved");
+    assert_eq!(server.hits("/to"), 1);
+
+    // `localhost` is another host than `127.0.0.1`: refused before contact.
+    let other = server.url("/away").replace("127.0.0.1", "localhost");
+    server.mock(
+        "/bounce",
+        MockResponse::status(301).header("Location", &other),
+    );
+    server.mock("/away", MockResponse::ok("elsewhere"));
+    let err = client()
+        .get(&HttpRequest::get(server.url("/bounce")).same_host_redirects())
+        .unwrap_err();
+    assert!(matches!(err, NetError::Unregistered(_)), "{err:?}");
+    assert_eq!(server.hits("/away"), 0);
+
+    // A relative path or a missing header is refused as well.
+    server.mock("/rel", MockResponse::status(302).header("Location", "to"));
+    let err = client()
+        .get(&HttpRequest::get(server.url("/rel")).same_host_redirects())
+        .unwrap_err();
+    assert!(matches!(err, NetError::Unregistered(_)), "{err:?}");
+}
+
+#[test]
+fn same_host_redirects_stop_after_five_hops() {
+    let server = MockServer::start();
+    for i in 0..10 {
+        let next = format!("/hop{}", i + 1);
+        server.mock(
+            &format!("/hop{i}"),
+            MockResponse::status(307).header("Location", &next),
+        );
+    }
+    let err = client()
+        .get(&HttpRequest::get(server.url("/hop0")).same_host_redirects())
+        .unwrap_err();
+    assert!(matches!(err, NetError::Invalid(_)), "{err:?}");
+    assert_eq!(server.hits("/hop7"), 0);
+}
+
+#[test]
 fn a_closed_port_is_offline() {
     let port = TcpListener::bind("127.0.0.1:0")
         .unwrap()

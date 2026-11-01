@@ -41,7 +41,13 @@ pub struct HttpRequest {
     /// A 403 pauses the phase (libretro/GitHub rate limit, spec §10)
     /// unless an API source answers 403 for a bad key: then `false`.
     pub forbidden_pauses: bool,
+    /// Follow a redirect only to the request's own host (eShop icons, spec
+    /// D8): any other target is refused before it is contacted.
+    pub same_host_redirects: bool,
 }
+
+/// Most redirects followed by a [`HttpRequest::same_host_redirects`] request.
+const MAX_SAME_HOST_REDIRECTS: usize = 5;
 
 /// Any HTTP response, including error statuses such as 404 or 304.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -156,7 +162,13 @@ impl HttpRequest {
             max_bytes: DEFAULT_MAX_BYTES,
             bearer: None,
             forbidden_pauses: true,
+            same_host_redirects: false,
         }
+    }
+    /// Redirects are followed only to the same host (spec D8).
+    pub fn same_host_redirects(mut self) -> HttpRequest {
+        self.same_host_redirects = true;
+        self
     }
     pub fn max_bytes(mut self, n: u64) -> HttpRequest {
         self.max_bytes = n;
@@ -301,6 +313,10 @@ fn url_kind(url: &str) -> UrlKind {
 
 pub struct UreqHttp {
     secure: ureq::Agent,
+    /// Like `secure` but never follows a redirect itself: requests with
+    /// [`HttpRequest::same_host_redirects`] follow them one checked hop at a
+    /// time.
+    manual: ureq::Agent,
     loopback: ureq::Agent,
     /// Set when a manual proxy was given but cannot be used: HTTPS requests
     /// then fail instead of silently going direct.
@@ -336,6 +352,7 @@ impl UreqHttp {
                 .into()
         };
         UreqHttp {
+            manual: build(true, 0, proxy.clone()),
             secure: build(true, 5, proxy),
             loopback: build(false, 0, None),
             proxy_error,
@@ -355,7 +372,7 @@ impl UreqHttp {
     /// is not HTTPS (or loopback HTTP) or not in the registry. Loopback HTTP
     /// stays open: it never leaves the machine and never follows redirects
     /// (tests and the CLI's hidden base-URL flags point at local mocks).
-    fn agent_for(&self, url: &str) -> Result<&ureq::Agent, NetError> {
+    fn agent_for(&self, url: &str, manual: bool) -> Result<&ureq::Agent, NetError> {
         match url_kind(url) {
             UrlKind::Https => {
                 let user: Vec<&str> = self.user_urls.iter().map(String::as_str).collect();
@@ -367,6 +384,7 @@ impl UreqHttp {
                 }
                 match &self.proxy_error {
                     Some(e) => Err(NetError::Offline(e.clone())),
+                    None if manual => Ok(&self.manual),
                     None => Ok(&self.secure),
                 }
             }
@@ -376,13 +394,43 @@ impl UreqHttp {
     }
 
     /// Sends `req` and returns the live response with its head parsed
-    /// (`body` still empty).
+    /// (`body` still empty). A [`HttpRequest::same_host_redirects`] request
+    /// follows each redirect itself, only to the same host and scheme, and
+    /// checks every hop against the registry before contacting it.
     fn send(
         &self,
         req: &HttpRequest,
     ) -> Result<(ureq::http::Response<ureq::Body>, HttpResponse), NetError> {
-        let agent = self.agent_for(&req.url)?;
-        let mut builder = agent.get(&req.url);
+        if !req.same_host_redirects {
+            return self.send_to(req, &req.url, false);
+        }
+        let mut url = req.url.clone();
+        for _ in 0..=MAX_SAME_HOST_REDIRECTS {
+            let (resp, head) = self.send_to(req, &url, true)?;
+            if !matches!(head.status, 301 | 302 | 303 | 307 | 308) {
+                return Ok((resp, head));
+            }
+            let location = resp
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default();
+            url = same_host_redirect(&url, location).ok_or_else(|| {
+                let public = location.split(['?', '#']).next().unwrap_or_default();
+                NetError::Unregistered(public.to_string())
+            })?;
+        }
+        Err(NetError::Invalid("too many redirects".into()))
+    }
+
+    fn send_to(
+        &self,
+        req: &HttpRequest,
+        url: &str,
+        manual: bool,
+    ) -> Result<(ureq::http::Response<ureq::Body>, HttpResponse), NetError> {
+        let agent = self.agent_for(url, manual)?;
+        let mut builder = agent.get(url);
         if let Some(tag) = &req.if_none_match {
             builder = builder.header("If-None-Match", tag);
         }
@@ -491,6 +539,27 @@ impl<R: std::io::Read> std::io::Read for CappedReader<R> {
             }
         }
     }
+}
+
+/// The target of a redirect from `from` to `location` when it stays on the
+/// same scheme and host (port included): an absolute URL or an
+/// absolute path. Anything else (another host, a scheme change, a relative
+/// path or an empty header) is `None`.
+fn same_host_redirect(from: &str, location: &str) -> Option<String> {
+    let location = location.trim();
+    let (scheme, rest) = from.split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let next = if location.starts_with('/') && !location.starts_with("//") {
+        format!("{scheme}://{authority}{location}")
+    } else {
+        location.to_string()
+    };
+    let (next_scheme, next_rest) = next.split_once("://")?;
+    let next_authority = next_rest.split(['/', '?', '#']).next().unwrap_or("");
+    (next_scheme.eq_ignore_ascii_case(scheme)
+        && next_authority.eq_ignore_ascii_case(authority)
+        && plain_authority(&next))
+    .then_some(next)
 }
 
 /// `Retry-After` as delta-seconds or as an HTTP-date relative to `now`

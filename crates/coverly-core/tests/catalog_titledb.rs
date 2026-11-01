@@ -9,7 +9,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use coverly_core::cache::Cache;
-use coverly_core::catalog::{CatalogStatus, SwitchCatalog, TitleNames, CATALOG_FILE};
+use coverly_core::catalog::{
+    CatalogStatus, CatalogTitle, NlibOutcome, SwitchCatalog, TitleNames, CATALOG_FILE,
+};
 use coverly_core::consoles::TitleSource;
 use coverly_core::net::{Http, HttpRequest, HttpResponse, NetError};
 use coverly_core::settings::SwitchCatalogSettings;
@@ -835,4 +837,338 @@ fn a_refresh_cut_short_keeps_reporting_the_old_rows() {
     let status = cat.ensure(&http, &on(), "en", day(8), &cancel, None, &|_, _| {});
     assert_eq!(status, first, "pending is only for a first download");
     assert!(cat.title(QUEST).is_some());
+}
+
+// ---- nlib fallback (D9) and eShop icons (D8) ----
+
+const NLIB_BODY: &str = include_str!("fixtures/catalog/nlib-0100000000010000.json");
+const ODYSSEY: u64 = 0x0100_0000_0001_0000;
+const NLIB_EN: &str = "https://api.nlib.cc/nx/0100000000010000?lang=en";
+const NLIB_ES: &str = "https://api.nlib.cc/nx/0100000000010000?lang=es";
+const QUEST_ICON: &str = "https://img-eshop.cdn.nintendo.net/i/0000000000000000000000000000000000000000000000000000000000000001.jpg";
+
+fn fallback() -> SwitchCatalogSettings {
+    SwitchCatalogSettings {
+        fallback: true,
+        ..on()
+    }
+}
+
+fn with_icons() -> SwitchCatalogSettings {
+    SwitchCatalogSettings {
+        icons: true,
+        ..on()
+    }
+}
+
+fn ask(
+    cat: &SwitchCatalog,
+    http: &dyn Http,
+    s: &SwitchCatalogSettings,
+    locale: &str,
+    tids: &[u64],
+    now: SystemTime,
+) -> NlibOutcome {
+    cat.ensure_nlib(http, s, locale, tids, now, &AtomicBool::new(false), None)
+}
+
+#[test]
+fn nlib_asks_the_upper_case_id_and_caches_a_hit_for_30_days() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = open(dir.path());
+    let http = Fake::new();
+    http.serve(NLIB_EN, NLIB_BODY);
+    let out = ask(&cat, &http, &fallback(), "en", &[ODYSSEY], day(0));
+    assert_eq!((out.asked, out.found), (1, 1));
+    assert!(out.paused.is_none());
+    let seen = http.seen();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].url, NLIB_EN);
+    assert_eq!(seen[0].max_bytes, 64 * 1024);
+    assert_eq!(
+        cat.title(ODYSSEY),
+        Some(CatalogTitle {
+            name: "Synthetic Odyssey".into(),
+            publisher: Some("Example Works".into()),
+            release: Some("2017-10-27".into()),
+            region: None,
+            source: TitleSource::Nlib,
+        })
+    );
+    http.clear();
+    ask(&cat, &http, &fallback(), "en", &[ODYSSEY], day(29));
+    assert!(http.seen().is_empty(), "a hit is fresh for 30 days");
+    ask(&cat, &http, &fallback(), "en", &[ODYSSEY], day(30));
+    assert_eq!(http.seen().len(), 1, "asked again after 30 days");
+}
+
+#[test]
+fn nlib_asks_in_spanish_for_a_spanish_ui_and_never_twice_per_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = open(dir.path());
+    let http = Fake::new();
+    http.serve(NLIB_ES, NLIB_BODY);
+    let out = ask(
+        &cat,
+        &http,
+        &fallback(),
+        "es-ES",
+        &[ODYSSEY, ODYSSEY],
+        day(0),
+    );
+    assert_eq!((out.asked, out.found), (1, 1));
+    assert_eq!(http.seen().len(), 1);
+    assert_eq!(http.seen()[0].url, NLIB_ES);
+}
+
+#[test]
+fn nlib_misses_are_cached_for_7_days() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = open(dir.path());
+    let http = Fake::new();
+    http.route(NLIB_EN, |_| {
+        Ok(HttpResponse {
+            body: br#"{"success":false,"error":"Game not found"}"#.to_vec(),
+            ..answer(404)
+        })
+    });
+    let out = ask(&cat, &http, &fallback(), "en", &[ODYSSEY], day(0));
+    assert_eq!((out.asked, out.found), (1, 0));
+    assert_eq!(cat.title(ODYSSEY), None);
+    http.clear();
+    ask(&cat, &http, &fallback(), "en", &[ODYSSEY], day(6));
+    assert!(http.seen().is_empty(), "a miss is remembered for 7 days");
+    ask(&cat, &http, &fallback(), "en", &[ODYSSEY], day(7));
+    assert_eq!(http.seen().len(), 1);
+}
+
+#[test]
+fn nlib_body_without_a_name_is_a_miss_and_unknown_fields_are_never_stored() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = open(dir.path());
+    let http = Fake::new();
+    http.serve(NLIB_EN, NLIB_BODY);
+    let other = "https://api.nlib.cc/nx/0100000000020000?lang=en";
+    http.serve(
+        other,
+        r#"{"id":"0100000000020000","name":"  ","rightsId":"x"}"#,
+    );
+    let out = ask(
+        &cat,
+        &http,
+        &fallback(),
+        "en",
+        &[ODYSSEY, 0x0100_0000_0002_0000],
+        day(0),
+    );
+    assert_eq!((out.asked, out.found), (2, 1));
+    assert_eq!(cat.title(0x0100_0000_0002_0000), None);
+    drop(cat);
+    let mut raw = Vec::new();
+    for suffix in ["", "-wal"] {
+        if let Ok(b) = std::fs::read(dir.path().join(format!("{CATALOG_FILE}{suffix}"))) {
+            raw.extend(b);
+        }
+    }
+    let text = String::from_utf8_lossy(&raw);
+    for never in [
+        "01000000000100000000000000000000",
+        "Synthetic description",
+        "Synthetic intro",
+        "70010000009999",
+    ] {
+        assert!(!text.contains(never), "{never} stored");
+    }
+}
+
+#[test]
+fn nlib_is_never_asked_while_off_or_for_a_title_the_index_knows() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = open(dir.path());
+    let http = Fake::new();
+    http.serve(US, TITLEDB);
+    http.serve(NLIB_EN, NLIB_BODY);
+    ensure(&cat, &http, &on(), "en", day(0));
+    http.clear();
+    // Fallback off.
+    let out = ask(&cat, &http, &on(), "en", &[ODYSSEY], day(0));
+    assert_eq!(out.asked, 0);
+    // Catalogue off, fallback on: the fallback never runs alone.
+    let alone = SwitchCatalogSettings {
+        enabled: false,
+        fallback: true,
+        ..SwitchCatalogSettings::default()
+    };
+    assert_eq!(ask(&cat, &http, &alone, "en", &[ODYSSEY], day(0)).asked, 0);
+    // A title the index resolves.
+    assert_eq!(
+        ask(&cat, &http, &fallback(), "en", &[QUEST], day(0)).asked,
+        0
+    );
+    // A non-HTTPS URL (validation already refuses it) is never used.
+    let plain = SwitchCatalogSettings {
+        fallback_url: "http://api.nlib.cc".into(),
+        ..fallback()
+    };
+    assert_eq!(ask(&cat, &http, &plain, "en", &[ODYSSEY], day(0)).asked, 0);
+    assert!(http.seen().is_empty());
+}
+
+#[test]
+fn nlib_uses_the_user_url_which_the_registry_admits() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = open(dir.path());
+    let http = Fake::new();
+    let url = "https://mirror.example/api/nx/0100000000010000?lang=en";
+    http.serve(url, NLIB_BODY);
+    let s = SwitchCatalogSettings {
+        fallback_url: "https://mirror.example/api/".into(),
+        ..fallback()
+    };
+    let out = ask(&cat, &http, &s, "en", &[ODYSSEY], day(0));
+    assert_eq!(out.found, 1);
+    assert_eq!(http.seen()[0].url, url);
+    assert!(coverly_core::net::hosts::allowed(
+        url,
+        &["https://mirror.example/api"]
+    ));
+    assert!(!coverly_core::net::hosts::allowed(url, &[]));
+}
+
+#[test]
+fn nlib_rate_limit_pauses_and_caches_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = open(dir.path());
+    let http = Fake::new();
+    http.route(NLIB_EN, |_| {
+        Err(NetError::RateLimited {
+            host: "api.nlib.cc".into(),
+            status: 429,
+        })
+    });
+    let out = ask(
+        &cat,
+        &http,
+        &fallback(),
+        "en",
+        &[ODYSSEY, 0x0100_0000_0002_0000],
+        day(0),
+    );
+    assert!(out.paused.is_some());
+    assert_eq!(http.seen().len(), 1, "the rest waits for the next run");
+    http.clear();
+    ask(&cat, &http, &fallback(), "en", &[ODYSSEY], day(0));
+    assert_eq!(http.seen().len(), 1, "nothing was cached");
+}
+
+#[test]
+fn turning_the_fallback_off_forgets_its_answers() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = open(dir.path());
+    let http = Fake::new();
+    http.serve(NLIB_EN, NLIB_BODY);
+    ask(&cat, &http, &fallback(), "en", &[ODYSSEY], day(0));
+    assert!(cat.title(ODYSSEY).is_some());
+    cat.apply_settings(&on()).unwrap();
+    assert_eq!(cat.title(ODYSSEY), None);
+}
+
+/// A synthetic JPEG of `w`×`h` pixels.
+fn jpeg(w: u32, h: u32) -> Vec<u8> {
+    let img = image::RgbImage::from_pixel(w, h, image::Rgb([200, 40, 40]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Jpeg).unwrap();
+    out.into_inner()
+}
+
+fn icons_ready(dir: &Path, http: &Fake) -> SwitchCatalog {
+    let cat = open(dir);
+    http.serve(US, TITLEDB);
+    ensure(&cat, http, &with_icons(), "en", day(0));
+    http.clear();
+    cat
+}
+
+#[test]
+fn an_icon_is_fetched_once_and_cached_as_a_256_px_png() {
+    let dir = tempfile::tempdir().unwrap();
+    let http = Fake::new();
+    let cat = icons_ready(dir.path(), &http);
+    let body = jpeg(512, 300);
+    http.route(QUEST_ICON, move |_| Ok(ok(body.clone())));
+    let path = cat
+        .icon(&http, &with_icons(), QUEST)
+        .expect("icon")
+        .expect("cached");
+    let seen = http.seen();
+    assert_eq!(seen.len(), 1);
+    assert!(
+        seen[0].same_host_redirects,
+        "redirects stay on the eShop host"
+    );
+    assert_eq!(seen[0].max_bytes, 1024 * 1024);
+    assert_eq!(path.parent().unwrap(), cat.icon_dir());
+    assert_eq!(path.file_name().unwrap(), "0100000000AA0000.png");
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(&bytes[..4], b"\x89PNG");
+    let png = image::load_from_memory(&bytes).unwrap();
+    assert_eq!((png.width(), png.height()), (256, 150));
+    http.clear();
+    let again = cat.icon(&http, &with_icons(), QUEST).unwrap();
+    assert_eq!(again.as_deref(), Some(path.as_path()));
+    assert!(http.seen().is_empty(), "served from the cache");
+}
+
+#[test]
+fn icons_off_never_fetch_and_turning_them_off_deletes_the_cache() {
+    let dir = tempfile::tempdir().unwrap();
+    let http = Fake::new();
+    let cat = icons_ready(dir.path(), &http);
+    let body = jpeg(64, 64);
+    http.route(QUEST_ICON, move |_| Ok(ok(body.clone())));
+    let path = cat.icon(&http, &with_icons(), QUEST).unwrap().unwrap();
+    http.clear();
+    assert_eq!(cat.icon(&http, &on(), QUEST).unwrap(), None);
+    assert!(http.seen().is_empty());
+
+    cat.apply_settings(&on()).unwrap();
+    assert!(!path.exists(), "cached icon deleted");
+    assert!(!cat.icon_dir().exists());
+    assert_eq!(cat.icon_url(QUEST), None, "icon_url cleared");
+    // Turning them on again refetches the list once, unconditionally.
+    ensure(&cat, &http, &with_icons(), "en", day(1));
+    let seen = http.seen();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].if_none_match, None);
+    assert_eq!(cat.icon_url(QUEST).as_deref(), Some(QUEST_ICON));
+}
+
+#[test]
+fn an_icon_that_is_not_a_small_jpeg_or_png_is_never_cached() {
+    let dir = tempfile::tempdir().unwrap();
+    let http = Fake::new();
+    let cat = icons_ready(dir.path(), &http);
+    let cases: Vec<(&str, Vec<u8>)> = vec![
+        ("html", b"<!doctype html><title>x</title>".to_vec()),
+        ("gif", b"GIF89a\x01\x00\x01\x00\x00\x00\x00;".to_vec()),
+        ("huge", {
+            let mut b = jpeg(8, 8);
+            b.resize(1024 * 1024 + 1, 0);
+            b
+        }),
+    ];
+    for (what, body) in cases {
+        http.route(QUEST_ICON, move |_| Ok(ok(body.clone())));
+        assert!(cat.icon(&http, &with_icons(), QUEST).is_err(), "{what}");
+        assert!(
+            !cat.icon_dir().join("0100000000AA0000.png").exists(),
+            "{what}"
+        );
+    }
+    http.route(QUEST_ICON, |_| Ok(answer(404)));
+    assert_eq!(cat.icon(&http, &with_icons(), QUEST).unwrap(), None);
+    // No stored URL (another host was dropped at import): no request.
+    http.clear();
+    assert_eq!(cat.icon(&http, &with_icons(), BIDI).unwrap(), None);
+    assert!(http.seen().is_empty());
 }

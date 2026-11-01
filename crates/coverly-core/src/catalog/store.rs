@@ -247,6 +247,70 @@ pub(crate) fn write_meta(conn: &Connection, table: Table, m: &Meta) -> rusqlite:
     Ok(())
 }
 
+/// One cached answer of the nlib fallback (D9): a hit with its name, or a
+/// miss. Nothing else of the response is ever stored.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct NlibRow {
+    pub name: Option<String>,
+    pub publisher: Option<String>,
+    pub release: Option<String>,
+    /// Unix seconds of the answer.
+    pub fetched_at: i64,
+    pub miss: bool,
+}
+
+pub(crate) fn read_nlib(conn: &Connection, tid: u64) -> rusqlite::Result<Option<NlibRow>> {
+    conn.prepare_cached(
+        "SELECT name, publisher, release, fetched_at, miss FROM nlib WHERE tid = ?1",
+    )?
+    .query_row(params![tid_to_sql(tid)], |r| {
+        Ok(NlibRow {
+            name: r.get(0)?,
+            publisher: r.get(1)?,
+            release: r.get(2)?,
+            fetched_at: r.get(3)?,
+            miss: r.get::<_, i64>(4)? != 0,
+        })
+    })
+    .optional()
+}
+
+pub(crate) fn write_nlib(conn: &Connection, tid: u64, row: &NlibRow) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO nlib (tid, name, publisher, release, fetched_at, miss)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            tid_to_sql(tid),
+            row.name,
+            row.publisher,
+            row.release,
+            row.fetched_at,
+            i64::from(row.miss),
+        ],
+    )?;
+    Ok(())
+}
+
+/// Forgets every nlib answer (the fallback was turned off).
+pub(crate) fn clear_nlib(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM nlib", [])?;
+    Ok(())
+}
+
+/// Forgets every stored `iconUrl` and marks the rows as imported without
+/// icons, so turning icons on again refetches the list once (D4, D8).
+pub(crate) fn clear_icon_urls(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE titledb SET icon_url = NULL WHERE icon_url IS NOT NULL",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE catalog_meta SET icons = 0 WHERE name = ?1",
+        params![Table::Titledb.meta_name()],
+    )?;
+    Ok(())
+}
+
 /// A title id as stored: the `u64` bit pattern in SQLite's `i64`.
 pub(crate) fn tid_to_sql(tid: u64) -> i64 {
     i64::from_ne_bytes(tid.to_ne_bytes())
@@ -299,5 +363,24 @@ mod tests {
         drop(conn);
         let err = open(&path).unwrap_err();
         assert!(is_unusable(&err));
+    }
+
+    #[test]
+    fn nlib_rows_round_trip_and_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("c.sqlite")).unwrap();
+        let tid = 0x0100_0000_0001_0000;
+        assert_eq!(read_nlib(&conn, tid).unwrap(), None);
+        let row = NlibRow {
+            name: Some("n".into()),
+            publisher: None,
+            release: Some("2017-10-27".into()),
+            fetched_at: 5,
+            miss: false,
+        };
+        write_nlib(&conn, tid, &row).unwrap();
+        assert_eq!(read_nlib(&conn, tid).unwrap(), Some(row));
+        clear_nlib(&conn).unwrap();
+        assert_eq!(read_nlib(&conn, tid).unwrap(), None);
     }
 }
