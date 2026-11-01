@@ -3494,3 +3494,164 @@ fn a_macos_installer_pkg_is_left_as_not_a_rom() {
         })
     );
 }
+
+/// The modern pile of systems batch 2 (spec §9.3): synthetic heads, real
+/// names, every mtime pinned in the past. Disc and card images are their
+/// heads only (the file ends after the last header), so a far offset
+/// reads as end of file; the Redump XGD1 offset is covered by the
+/// `SparseAt` tests of `systems_batch2.rs`, here the Xbox image is an
+/// XISO at offset 0.
+fn modern_pile(dir: &Path) {
+    use coverly_core::consoles::testing as ct;
+    let disc = |id6: &str, wii: bool, number: u8| {
+        let mut h = ct::gc_header(id6, wii);
+        h[6] = number;
+        h
+    };
+    put(
+        &dir.join("Metroid Prime (USA).rvz"),
+        &ct::wia(&disc("GM8E01", false, 0), true, 1).head_bytes(),
+    );
+    put(
+        &dir.join("Resident Evil 4 (USA) (Disc 1).rvz"),
+        &ct::wia(&disc("G4BE08", false, 0), true, 1).head_bytes(),
+    );
+    put(
+        &dir.join("Resident Evil 4 (USA) (Disc 2).rvz"),
+        &ct::wia(&disc("G4BE08", false, 1), true, 1).head_bytes(),
+    );
+    put(
+        &dir.join("Super Mario Galaxy (Europe).wbfs"),
+        &ct::wbfs(&disc("RMGP01", true, 0)).head_bytes(),
+    );
+    put(&dir.join("Super Mario Galaxy (Europe).wbf1"), &[0u8; 1024]);
+    put(
+        &dir.join("Excitebike - World Rally (Europe) (WiiWare).wad"),
+        &ct::wii_wad(0x0001_0001_5741_4150).head_bytes(),
+    );
+    ct::wiiu_folder(
+        &dir.join("Super Mario 3D World [0005000010145D00]"),
+        "0005000010145D00",
+        "WUP-P-ARDP",
+        "Super Mario 3D World",
+    );
+    put(
+        &dir.join("Mario Kart 7 (Europe).3ds"),
+        &ct::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, true).head_bytes(),
+    );
+    put(
+        &dir.join("Pokemon Y (Europe).cia"),
+        &ct::cia(0x0004_0000_0005_5E00, true, false).head_bytes(),
+    );
+    put(&dir.join("model.3ds"), &[0x4D, 0x4D, 0x10, 0, 0, 0, 2, 0]);
+    put(
+        &dir.join("Super Mario Odyssey [0100000000010000][v0].nsp"),
+        &ct::nsp(&[("01000000000100000000000000000000.tik", &[0; 64])]).bytes(),
+    );
+    put(
+        &dir.join("Super Mario Odyssey [0100000000010800][v393216].nsp"),
+        &ct::nsp(&[]).bytes(),
+    );
+    put(
+        &dir.join("Zelda BotW.xci"),
+        &ct::xci(&["secure"]).head_bytes(),
+    );
+    ct::vita_app(&dir.join("PCSE00844"), "PCSE00844");
+    ct::vpk(&dir.join("Persona 4 Golden.vpk"), "PCSB00245");
+    ct::ps3_jb(&dir.join("Demon's Souls (BLUS-30443)"), "BLUS30443", "DG");
+    put(
+        &dir.join("NPUB30024.pkg"),
+        &ct::pkg(1, "UP0001-NPUB30024_00-0000000000000000").head_bytes(),
+    );
+    put(
+        &dir.join("Halo (USA).xiso"),
+        &ct::xiso_at(0, &[("default.xbe", ct::xbe(0x4D53_0004, "Halo"))]).bytes(),
+    );
+    put(&dir.join("Halo 3 (USA).xex"), &ct::xex2(0x4D53_07E6));
+    ct::god_folder(dir, 0x5841_0889, 0x000D_0000, b"LIVE");
+    for k in ["prod.keys", "title.keys", "NPUB30024.rap"] {
+        put(&dir.join(k), &[9u8; 128]);
+    }
+    put(
+        &dir.join("ux0")
+            .join("app")
+            .join("PCSB00245")
+            .join("eboot.bin"),
+        &[1u8; 64],
+    );
+    put(&dir.join("Foo.pkg"), b"xar!\0\x1c\0\x01");
+    for path in files_below(dir) {
+        pin_mtime(&path, 1);
+    }
+}
+
+#[test]
+fn systems_batch_2_pile_plans() {
+    use coverly_core::organize::{ItemKind, ItemNote};
+    // Spec §9.3 / §14: the modern pile of systems batch 2 under the three
+    // layouts whose folder stories differ most (ES-DE and Batocera name
+    // every folder and rename folder games to `.ps3`, muOS lacks some).
+    for layout in ["esde", "batocera", "muos"] {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        modern_pile(s.path());
+        let p = plan(
+            &world,
+            s.path(),
+            OrganizeOptions {
+                offline: true,
+                target: Some(t.path().to_path_buf()),
+                ..defaults(layout)
+            },
+        );
+        // Asserts that hold whatever the snapshot says.
+        for key in ["prod.keys", "title.keys", "NPUB30024.rap"] {
+            assert_eq!(
+                left_reason(&p, key),
+                Some(LeftReason::KeyMaterial),
+                "{layout} {key}"
+            );
+        }
+        assert_eq!(
+            left_reason(&p, "ux0"),
+            Some(LeftReason::EmulatorData {
+                folder: "ux0".into()
+            }),
+            "{layout}"
+        );
+        for name in ["model.3ds", "Foo.pkg"] {
+            assert!(
+                matches!(left_reason(&p, name), Some(LeftReason::NotARom { .. })),
+                "{layout} {name}: {:?}",
+                by_name(&p, name).action
+            );
+        }
+        let souls = by_name(&p, "Demon's Souls (BLUS-30443)");
+        assert_eq!(souls.kind, ItemKind::Folder, "{layout}");
+        assert_eq!(souls.sources.len(), 1, "{layout}");
+        assert_eq!(souls.system_id.as_deref(), Some("ps3"), "{layout}");
+        if layout != "muos" {
+            assert!(souls.moves_in(), "{layout}: {:?}", souls.action);
+            let target = souls.target.as_ref().unwrap();
+            assert_eq!(
+                target.file_name().unwrap(),
+                "Demon's Souls (BLUS-30443).ps3",
+                "{layout}"
+            );
+        }
+        let names: Vec<String> = p.items.iter().map(|i| file_name(&i.sources[0])).collect();
+        let at = |n: &str| names.iter().position(|x| x == n).unwrap();
+        let base = "Super Mario Odyssey [0100000000010000][v0].nsp";
+        let update = "Super Mario Odyssey [0100000000010800][v393216].nsp";
+        assert_eq!(at(update), at(base) + 1, "{layout}: {names:?}");
+        assert!(
+            by_name(&p, update)
+                .notes
+                .iter()
+                .any(|n| matches!(n, ItemNote::Update { .. })),
+            "{layout}: {:?}",
+            by_name(&p, update).notes
+        );
+        insta::assert_json_snapshot!(format!("systems_batch_2__{layout}"), redact(&p));
+    }
+}

@@ -67,6 +67,29 @@ impl SparseAt {
         assert_eq!(n, len);
         out
     }
+
+    /// The bytes up to the end of the last part, for a small on-disk
+    /// fixture whose declared length is huge (a WIA head, an NCSD card):
+    /// the file ends there, so a far offset reads as end of file.
+    /// Panics above 2 MiB: only heads are written this way.
+    pub fn head_bytes(&self) -> Vec<u8> {
+        let end = self
+            .parts
+            .iter()
+            .map(|(&at, part)| at.saturating_add(part.len() as u64))
+            .max()
+            .unwrap_or(0)
+            .min(self.len);
+        let len = usize::try_from(end)
+            .ok()
+            .filter(|&l| l <= 2 << 20)
+            .expect("only a small head is flattened");
+        let mut out = vec![0u8; len];
+        let mut copy = self.clone();
+        let n = copy.read_at(0, &mut out).expect("in memory");
+        assert_eq!(n, len);
+        out
+    }
 }
 
 impl ReadAt for SparseAt {
