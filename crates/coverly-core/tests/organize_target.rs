@@ -42,6 +42,7 @@ fn item(id: usize, sources: &[&str], system: &str, kind: ItemKind, size: u64) ->
         transfer: Default::default(),
         disc: None,
         action: OrganizeAction::Auto,
+        title_id: None,
     }
 }
 

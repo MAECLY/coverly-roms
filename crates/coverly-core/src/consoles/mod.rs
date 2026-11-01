@@ -95,6 +95,25 @@ pub enum IdSource {
     Header,
 }
 
+/// A title id and where it came from, as a plan row shows it (spec §10:
+/// «Title ID … en PARAM.SFO», «… en el nombre del ticket», «… tomado del
+/// nombre del archivo»).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TitleIdRef {
+    pub id: String,
+    pub source: IdSource,
+}
+
+impl TitleIdRef {
+    /// The title id of `c` with its source, when the reader recorded both.
+    pub fn of(c: &ConsoleId) -> Option<TitleIdRef> {
+        Some(TitleIdRef {
+            id: c.title_id.clone()?,
+            source: c.id_source?,
+        })
+    }
+}
+
 /// What a console header reader found (spec §8.0).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ConsoleId {

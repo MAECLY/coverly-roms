@@ -1685,5 +1685,100 @@
     },
     { "id": "mame", "name": "MAME", "family": "arcade" },
     { "id": "wasm4", "name": "WASM-4", "family": "engine" }
-  ]
+  ],
+  "organize_folder_item": {
+    "id": 7,
+    "sources": ["Demon's Souls (BLUS-30443)"],
+    "kind": "folder",
+    "size": 23410000000,
+    "fps": [
+      {
+        "size": 23410000000,
+        "mtime_ns": 1700000000000000000
+      }
+    ],
+    "target": "ps3/Demon's Souls (BLUS-30443).ps3",
+    "set_targets": [],
+    "system_id": "ps3",
+    "folder": "ps3",
+    "confidence": 0.95,
+    "method": "header",
+    "why": [
+      {
+        "kind": "header",
+        "system": "ps3",
+        "weight": 0.95,
+        "detail": "PARAM.SFO"
+      }
+    ],
+    "alternatives": [],
+    "rename": null,
+    "notes": [
+      {
+        "kind": "folder-suffix",
+        "name": "Demon's Souls (BLUS-30443).ps3",
+        "layout": "ES-DE"
+      },
+      {
+        "kind": "update",
+        "of": "Demon's Souls"
+      },
+      {
+        "kind": "dlc",
+        "of": "Demon's Souls"
+      },
+      {
+        "kind": "encrypted-content",
+        "emulator": "Azahar"
+      },
+      {
+        "kind": "install-first",
+        "emulator": "RPCS3"
+      }
+    ],
+    "companions": [],
+    "catalogue_name": null,
+    "transfer": {
+      "kind": "as-is"
+    },
+    "disc": null,
+    "title_id": {
+      "id": "BLUS30443",
+      "source": "param-sfo"
+    },
+    "action": "auto"
+  },
+  "organize_id_sources": [
+    "param-sfo",
+    "meta-xml",
+    "app-xml",
+    "default-xbe",
+    "default-xex",
+    "cnmt-xml",
+    "ticket-name",
+    "file-name",
+    "header"
+  ],
+  "organize_batch2_reasons": [
+    {
+      "kind": "key-material"
+    },
+    {
+      "kind": "emulator-data",
+      "folder": "ux0"
+    },
+    {
+      "kind": "not-a-rom",
+      "what": "installer"
+    },
+    {
+      "kind": "not-a-rom",
+      "what": "model3d"
+    },
+    {
+      "kind": "not-a-rom",
+      "what": "pc-game-data"
+    }
+  ],
+  "organize_plan_updates": 2
 }

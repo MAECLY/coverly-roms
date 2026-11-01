@@ -475,6 +475,10 @@ pub struct OrganizeItem {
     /// The disc's serials and fingerprint, for the UI and dedupe level 3.
     #[serde(default)]
     pub disc: Option<DiscId>,
+    /// A console title id and where it was read (systems batch 2 §10),
+    /// for the row's «why» line; left out of the JSON when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_id: Option<crate::consoles::TitleIdRef>,
     #[serde(flatten)]
     pub action: OrganizeAction,
 }
@@ -1964,6 +1968,7 @@ pub fn plan_from_survey(
             action: OrganizeAction::Left {
                 reason: LeftReason::Unknown,
             },
+            title_id: None,
         };
         let mut key = None;
         match (&entry.left, &entry.identification) {
@@ -1995,6 +2000,13 @@ pub fn plan_from_survey(
                 if found.left.is_none() {
                     item.system_id = c.system.clone();
                 }
+                // The header's title id, for the «why» line (spec §10),
+                // when the header names the system the item goes to.
+                item.title_id = entry
+                    .console
+                    .as_ref()
+                    .filter(|con| c.system.as_deref() == Some(con.system.as_str()))
+                    .and_then(crate::consoles::TitleIdRef::of);
             }
             (None, None) => {}
         }
@@ -2182,6 +2194,7 @@ pub fn plan_from_survey(
             transfer: Transfer::AsIs,
             disc: None,
             action: OrganizeAction::Left { reason },
+            title_id: None,
         });
     }
 

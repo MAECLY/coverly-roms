@@ -50,6 +50,10 @@ expression: redact(&p)
       ],
       "system_id": "xbox360",
       "target": "ROMS/xbox360/58410889",
+      "title_id": {
+        "id": "58410889",
+        "source": "header"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -93,6 +97,10 @@ expression: redact(&p)
       ],
       "system_id": "ps3",
       "target": "ROMS/ps3/Demon's Souls (BLUS-30443)",
+      "title_id": {
+        "id": "BLUS30443",
+        "source": "param-sfo"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -146,6 +154,10 @@ expression: redact(&p)
       ],
       "system_id": "wii",
       "target": "ROMS/wii/Excitebike - World Rally (Europe) (WiiWare).wad",
+      "title_id": {
+        "id": "0001000157414150",
+        "source": "header"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -230,6 +242,10 @@ expression: redact(&p)
       ],
       "system_id": "xbox",
       "target": "ROMS/xbox/Halo (USA).xiso",
+      "title_id": {
+        "id": "4D530004",
+        "source": "default-xbe"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -289,6 +305,10 @@ expression: redact(&p)
       ],
       "system_id": "xbox360",
       "target": "ROMS/xbox360/Halo 3 (USA).xex",
+      "title_id": {
+        "id": "4D5307E6",
+        "source": "header"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -333,6 +353,10 @@ expression: redact(&p)
       ],
       "system_id": "3ds",
       "target": "ROMS/3ds/Mario Kart 7 (Europe).3ds",
+      "title_id": {
+        "id": "0004000000030800",
+        "source": "header"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -387,6 +411,10 @@ expression: redact(&p)
       ],
       "system_id": "gamecube",
       "target": "ROMS/gamecube/Metroid Prime (USA).rvz",
+      "title_id": {
+        "id": "GM8E01",
+        "source": "header"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -440,6 +468,10 @@ expression: redact(&p)
       ],
       "system_id": "ps3",
       "target": "ROMS/ps3/NPUB30024.pkg",
+      "title_id": {
+        "id": "NPUB30024",
+        "source": "header"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -523,6 +555,10 @@ expression: redact(&p)
       ],
       "system_id": "psvita",
       "target": "ROMS/psvita/PCSE00844",
+      "title_id": {
+        "id": "PCSE00844",
+        "source": "param-sfo"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -566,6 +602,10 @@ expression: redact(&p)
       ],
       "system_id": "psvita",
       "target": "ROMS/psvita/Persona 4 Golden.vpk",
+      "title_id": {
+        "id": "PCSB00245",
+        "source": "param-sfo"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -615,6 +655,10 @@ expression: redact(&p)
       ],
       "system_id": "3ds",
       "target": "ROMS/3ds/Pokemon Y (Europe).cia",
+      "title_id": {
+        "id": "0004000000055E00",
+        "source": "header"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -669,6 +713,10 @@ expression: redact(&p)
       ],
       "system_id": "gamecube",
       "target": "ROMS/gamecube/Resident Evil 4 (USA) (Disc 1).rvz",
+      "title_id": {
+        "id": "G4BE08",
+        "source": "header"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -723,6 +771,10 @@ expression: redact(&p)
       ],
       "system_id": "gamecube",
       "target": "ROMS/gamecube/Resident Evil 4 (USA) (Disc 2).rvz",
+      "title_id": {
+        "id": "G4BE08",
+        "source": "header"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -772,6 +824,10 @@ expression: redact(&p)
       ],
       "system_id": "wiiu",
       "target": "ROMS/wiiu/Super Mario 3D World [0005000010145D00]",
+      "title_id": {
+        "id": "0005000010145D00",
+        "source": "meta-xml"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -820,6 +876,10 @@ expression: redact(&p)
       ],
       "system_id": "wii",
       "target": "ROMS/wii/Super Mario Galaxy (Europe).wbfs",
+      "title_id": {
+        "id": "RMGP01",
+        "source": "header"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -869,6 +929,10 @@ expression: redact(&p)
       ],
       "system_id": "switch",
       "target": "ROMS/switch/Super Mario Odyssey [0100000000010000][v0].nsp",
+      "title_id": {
+        "id": "0100000000010000",
+        "source": "ticket-name"
+      },
       "transfer": {
         "kind": "as-is"
       },
@@ -922,6 +986,10 @@ expression: redact(&p)
       ],
       "system_id": "switch",
       "target": "ROMS/switch/Super Mario Odyssey [0100000000010800][v393216].nsp",
+      "title_id": {
+        "id": "0100000000010800",
+        "source": "file-name"
+      },
       "transfer": {
         "kind": "as-is"
       },

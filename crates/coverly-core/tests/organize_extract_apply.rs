@@ -832,6 +832,7 @@ mod apply_phases {
             },
             disc: None,
             action: OrganizeAction::Auto,
+            title_id: None,
         }
     }
 

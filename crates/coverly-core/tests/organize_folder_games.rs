@@ -1347,6 +1347,15 @@ mod wiiu {
             "{:?}",
             item.why
         );
+        // The row's «why» line names the title id and its file (§10).
+        let tid = item.title_id.as_ref().expect("title id on the item");
+        assert_eq!(
+            (tid.id.as_str(), tid.source),
+            (
+                "0005000010145D00",
+                coverly_core::consoles::IdSource::MetaXml
+            )
+        );
         let t = item.target.as_ref().unwrap();
         assert_eq!(last(t), SM3DW);
         assert_eq!(t.parent().map(last).as_deref(), Some("wiiu"));
