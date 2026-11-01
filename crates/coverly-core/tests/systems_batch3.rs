@@ -202,6 +202,32 @@ fn libretro_names_exist_on_the_thumbnail_server() {
     }
 }
 
+/// (id, libretro folder, ScreenScraper id): the cover lookup of spec D21.
+/// Every system of the batch reads its own icon first (`embedded`).
+const COVERS: &[(&str, Option<&str>, Option<u32>)] = &[
+    ("ps4", Some("Sony - PlayStation 4"), Some(60)),
+    ("ps5", None, Some(284)),
+    ("xboxone", None, Some(34)),
+    // No ScreenScraper id found (spec §13): SteamGridDB by name only.
+    ("xboxseries", None, None),
+];
+
+#[test]
+fn cover_lookup_matches_the_research_table() {
+    use coverly_core::sources::embedded;
+    let db = SystemDb::builtin();
+    for (id, libretro, ss) in COVERS {
+        let s = db.get(id).unwrap();
+        assert_eq!(
+            (s.libretro.as_deref(), s.screenscraper),
+            (*libretro, *ss),
+            "{id}"
+        );
+        assert!(embedded::SYSTEMS.contains(id), "{id} has no embedded icon");
+        assert!(s.embedded_first, "{id}");
+    }
+}
+
 #[test]
 fn every_alias_resolves_to_its_system() {
     let db = SystemDb::builtin();

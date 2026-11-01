@@ -349,6 +349,9 @@ pub fn build_plan(
         let Some(system) = systems.get(&t.system_id) else {
             continue;
         };
+        // Systems batch 3 D21: the icon inside the game first where the
+        // system asks for it (plan P-5).
+        let sources = crate::fill::source_order(&opts.sources, system);
         for &media in &t.media {
             let target = target_path(
                 root,
@@ -386,7 +389,9 @@ pub fn build_plan(
                     let ctx = RankContext {
                         rom_regions: &g.identity.parsed.regions,
                         regions: &opts.regions,
-                        sources: &opts.sources,
+                        sources: &sources,
+                        embedded_first: system.embedded_first
+                            && sources.iter().any(|s| s == crate::sources::embedded::ID),
                     };
                     let mut order = strategy.rank(&ctx, cands);
                     prefer_languages(&mut order, cands, &opts.languages);

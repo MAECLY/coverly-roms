@@ -1,7 +1,10 @@
 //! Embedded covers (systems batch 2, spec D17, §8.7): the plaintext icon
 //! some games carry (PS3 `ICON0.PNG`, PS Vita `sce_sys/icon0.png`, Wii U
 //! `meta/iconTex.tga`, the Xbox 360 STFS thumbnail, the 3DS SMDH large
-//! icon) as a last-resort cover.
+//! icon) as a last-resort cover; for the current generation (systems
+//! batch 3 D21: PS4/PS5 `sce_sys/icon0.png`, the PS4 PKG entry `0x1200`,
+//! the GDK and ERA manifest logos) as the first cover tried, where the
+//! system has `embedded_first`.
 //!
 //! Nothing is remembered between the candidate and the fetch: both re-run
 //! the budgeted console readers (`consoles`, headers only, D24) on the
@@ -36,7 +39,17 @@ pub const MAX_SIDE: u32 = 1024;
 pub const MAX_ALLOC: u64 = 16 << 20;
 /// The systems whose readers can give an icon locator; any other ROM is
 /// never opened by this source.
-pub const SYSTEMS: [&str; 5] = ["3ds", "ps3", "psvita", "wiiu", "xbox360"];
+pub const SYSTEMS: [&str; 9] = [
+    "3ds",
+    "ps3",
+    "ps4",
+    "ps5",
+    "psvita",
+    "wiiu",
+    "xbox360",
+    "xboxone",
+    "xboxseries",
+];
 /// Most names listed at the root of a folder game.
 const MAX_ROOT_NAMES: usize = 4096;
 /// The scheme of a candidate URL (never fetched over the network).
