@@ -43,6 +43,7 @@ fn mine(id: &str, template: &str) -> ProfileFile {
         container_overrides: coverly_core::profiles::default_container_overrides(),
         folder_game_suffix: Default::default(),
         folder_stem_keeps_suffix: false,
+        dlc_folder: BTreeMap::new(),
     }
 }
 

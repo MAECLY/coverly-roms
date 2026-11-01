@@ -465,6 +465,13 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
         "xbox360",
         [Some("xbox360"), Some("xbox360"), None, None, None],
     ),
+    // Systems batch 3 (spec §6): ES-DE `es_systems.xml` at ef267ae6,
+    // Batocera `es_systems.yml` at cc793b75 (Knulli shares the profile).
+    // No frontend has a PS5 or Xbox Series system; Batocera has no Xbox One.
+    ("ps4", [Some("ps4"), Some("ps4"), None, None, None]),
+    ("ps5", [None, None, None, None, None]),
+    ("xboxone", [Some("xboxone"), None, None, None, None]),
+    ("xboxseries", [None, None, None, None, None]),
 ];
 
 /// Folder-game suffixes of ES-DE and Batocera (spec D13): both show a
@@ -473,6 +480,22 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
 /// with .ps3»; ES-DE `es_systems.xml` lists `.ps3` and `.ps3dir`).
 fn ps3_folder_suffix() -> BTreeMap<String, String> {
     BTreeMap::from([("ps3".to_string(), ".ps3".to_string())])
+}
+
+/// Batocera `es_systems.yml` (`ps4`): «rename game folder to end with .ps4»
+/// (systems batch 3 D16). ES-DE's PS4 entries are `.ps4` serial files,
+/// never folders, so it keeps the PS3 suffix only.
+fn batocera_folder_suffix() -> BTreeMap<String, String> {
+    let mut m = ps3_folder_suffix();
+    m.insert("ps4".into(), ".ps4".into());
+    m
+}
+
+/// Batocera's shadPS4 launcher sets `addon_install_dir` to `roms/ps4/DLC`
+/// (`batocera_launch/emulators/shadps4.py` at cc793b75) and the emulator
+/// reads `<dir>/<TITLE_ID>/<content>/` (systems batch 3 D16).
+fn batocera_dlc_folder() -> BTreeMap<String, String> {
+    BTreeMap::from([("ps4".to_string(), "DLC/{title_id}".to_string())])
 }
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks
@@ -610,7 +633,8 @@ pub fn builtin_profiles() -> Vec<Profile> {
         },
         Profile {
             folders: folders(Some(BATOCERA)),
-            folder_game_suffix: ps3_folder_suffix(),
+            folder_game_suffix: batocera_folder_suffix(),
+            dlc_folder: batocera_dlc_folder(),
             gamelist: true,
             disc_layout: FLAT_M3U,
             ..profile(
@@ -721,6 +745,7 @@ fn profile(
         folders: BTreeMap::new(),
         folder_game_suffix: BTreeMap::new(),
         folder_stem_keeps_suffix: false,
+        dlc_folder: BTreeMap::new(),
     }
 }
 

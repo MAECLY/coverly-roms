@@ -767,6 +767,7 @@
           "plus4": "plus4",
           "ps2": "ps2",
           "ps3": "ps3",
+          "ps4": "ps4",
           "psvita": "psvita",
           "quake": "quake",
           "satellaview": "satellaview",
@@ -791,6 +792,7 @@
           "x68000": "x68000",
           "xbox": "xbox",
           "xbox360": "xbox360",
+          "xboxone": "xboxone",
           "zx81": "zx81",
           "zxspectrum": "zxspectrum"
         },
@@ -826,7 +828,8 @@
     {
       "profile": {
         "id": "batocera",
-        "folder_game_suffix": { "ps3": ".ps3" },
+        "folder_game_suffix": { "ps3": ".ps3", "ps4": ".ps4" },
+        "dlc_folder": { "ps4": "DLC/{title_id}" },
         "disc_layout": { "kind": "flat", "m3u_for_multi": true },
         "folder_names": {
           "3do": "3do",
@@ -873,6 +876,7 @@
           "plus4": "cplus4",
           "ps2": "ps2",
           "ps3": "ps3",
+          "ps4": "ps4",
           "psvita": "psvita",
           "quake": "quake",
           "satellaview": "satellaview",

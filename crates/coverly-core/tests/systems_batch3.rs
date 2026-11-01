@@ -37,7 +37,20 @@ const NAMES: &[(&str, &str, Option<u32>)] = &[
     ("xboxseries", "Microsoft Xbox Series X|S", None),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.
-const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[];
+const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
+    ("esde", "ps4", "ps4", None),
+    ("batocera", "ps4", "ps4", None),
+    ("esde", "xboxone", "xboxone", None),
+    ("batocera", "xboxone", "xboxone", Some(false)),
+    ("esde", "ps5", "ps5", Some(false)),
+    ("batocera", "xboxseries", "xboxseries", Some(false)),
+    ("muos", "ps4", "ps4", Some(false)),
+    ("onion", "ps5", "PS5", Some(false)),
+    ("minui", "xboxone", "XBOXONE", Some(false)),
+];
+/// (profile, id): the `Named` cells of spec §6; every other built-in ×
+/// new system cell is Absent.
+const NAMED: &[(&str, &str)] = &[("esde", "ps4"), ("batocera", "ps4"), ("esde", "xboxone")];
 /// Builds a sparse file whose far offsets matter.
 type Sparse = fn() -> coverly_core::consoles::testing::SparseAt;
 /// (id, ext, sparse file, expected system, expected serial): one
@@ -175,6 +188,48 @@ fn organise_targets_match_the_research_table() {
             (*folder, *on_device),
             "{profile} {id}"
         );
+    }
+}
+
+/// Spec §6: every built-in × every new system is `Named` exactly where the
+/// research table has a name; everywhere else the frontend has no folder
+/// (`on_device == Some(false)`), except RetroArch, which lists none.
+#[test]
+fn every_builtin_names_only_the_researched_folders() {
+    use coverly_core::profiles::ProfileFolder;
+    let db = SystemDb::builtin();
+    let none = BTreeMap::new();
+    for p in builtin_profiles() {
+        for (id, _, _) in SYSTEMS {
+            let named = NAMED.contains(&(p.id.as_str(), *id));
+            let c = system_folder(&p, db.get(id).unwrap(), &db, &none);
+            if p.id == "retroarch" {
+                assert!(!p.folders.contains_key(*id), "retroarch {id}");
+                assert_eq!(
+                    (c.folder.as_str(), c.on_device),
+                    (*id, None),
+                    "retroarch {id}"
+                );
+                continue;
+            }
+            if named {
+                assert_eq!(
+                    p.folders.get(*id),
+                    Some(&ProfileFolder::Named(id.to_string())),
+                    "{} {id}",
+                    p.id
+                );
+                assert_eq!(c.on_device, None, "{} {id}", p.id);
+            } else {
+                assert_eq!(
+                    p.folders.get(*id),
+                    Some(&ProfileFolder::Absent),
+                    "{} {id}",
+                    p.id
+                );
+                assert_eq!(c.on_device, Some(false), "{} {id}", p.id);
+            }
+        }
     }
 }
 
