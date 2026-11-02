@@ -110,6 +110,10 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 - Empty files no longer hold back PS4, PS5, Xbox One and Xbox Series
   folder games.
 - `.cik` files are treated as key material and left untouched.
+- The third-party notices name every source and component whose licence
+  asks for a credit, drop an art source Coverly never used, and point to
+  the full licence list generated from the lock files. The README's
+  acknowledgements are generated from the same credits list as the app.
 
 ### Fixed
 

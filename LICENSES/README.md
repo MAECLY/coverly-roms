@@ -1,11 +1,20 @@
 # Licence texts
 
 This folder holds the full texts of the third-party licences that Coverly ROMs
-must carry with its source and its binaries (for example `Apache-2.0.txt` or
-`OFL-1.1.txt`; today `CC-BY-4.0.txt` for the system icons and
-`ISC-lucide-react.txt` for the interface icons). A text is added here when the
-first dependency that needs it is added; `THIRD-PARTY-NOTICES.md` says which
-component each one applies to.
+must carry with its source and its binaries. `THIRD-PARTY-NOTICES.md` says
+which component each one applies to. The whole folder is bundled into every
+build as `LICENSES/`.
+
+- `CC-BY-4.0.txt`: the system icons (RetroArch Assets).
+- `ISC-lucide-react.txt`: the interface icons (lucide-react, with Feather's
+  MIT notice).
+- `generated/`: `rust.txt` and `js.txt`, one block per Rust crate and npm
+  package in the build with its full licence text, generated from `Cargo.lock`
+  and `pnpm-lock.yaml` by `pnpm notices` (checked by `pnpm notices:check`; do
+  not edit by hand). The app shows them in Settings → Credits.
+- `fonts/` (in the bundle only): the SIL Open Font License 1.1 of each
+  typeface, copied at build time from `src/assets/fonts/OFL-*.txt`, where they
+  sit next to the font files.
 
 Coverly ROMs' own licence, the GNU Affero General Public License v3.0, is in
 [`LICENSE`](../LICENSE) at the repository root.

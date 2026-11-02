@@ -2,13 +2,18 @@
 
 Coverly ROMs is licensed under the GNU Affero General Public License v3.0 (see
 `LICENSE`). It links third-party code into its binaries and its webview. Their
-licences require their notices to travel with the program, so this file will
-ship inside every application bundle, together with `LICENSE` and the licence
-texts in `LICENSES/`, not only in the repository.
+licences require their notices to travel with the program, so this file ships
+inside every application bundle, together with `LICENSE`, the licence texts in
+`LICENSES/` and the font licences in `LICENSES/fonts/`, not only in the
+repository.
 
-The notices for Rust crates and npm packages are added here as dependencies are
-added, and will be generated from `Cargo.lock` and `pnpm-lock.yaml` before the
-first release. `docs/09-legal/license.md` explains the project's own licence.
+The complete notices, one block per Rust crate and npm package with its full
+licence text, are generated from `Cargo.lock` and `pnpm-lock.yaml` into
+`LICENSES/generated/rust.txt` and `LICENSES/generated/js.txt` (`pnpm notices`;
+`pnpm notices:check` fails when a lock file changed and they were not
+regenerated). The app shows them in Settings → Credits → View third-party
+licences. This file names the components whose licences ask for something more
+than keeping that text.
 
 ## Fonts
 
@@ -35,7 +40,7 @@ Mono wght 400-600), they are subset to Latin, Latin-1 Supplement and Latin
 Extended-A, hinting is removed, and they are converted to WOFF2. They keep
 their original family names, which the OFL allows because none of these
 fonts declares a Reserved Font Name. Each licence file sits next to the font
-files.
+files in the repository and is bundled as `LICENSES/fonts/OFL-*.txt`.
 
 ## System icons
 
@@ -78,6 +83,9 @@ The 89 files, named by system id: `3do`, `3ds`, `a2600`, `a5200`, `a7800`,
   (https://github.com/lucide-icons/lucide). Licence: ISC; some icons derive
   from Feather, Copyright (c) 2013-present Cole Bemis, under the MIT License.
   Both texts are in `LICENSES/ISC-lucide-react.txt`.
+- **shadcn/ui** (https://github.com/shadcn-ui/ui), Copyright (c) 2023 shadcn.
+  The primitives in `src/components/ui/` start from its component code, adapted
+  to Coverly's tokens. Licence: MIT.
 
 ## Archive and compression crates
 
@@ -123,13 +131,69 @@ External archive programs (`unrar`, 7-Zip's `7zz`/`7z`, `bsdtar`) are not
 part of Coverly ROMs: they are found on the user's computer, run as separate
 processes and never linked or bundled.
 
-## Art and metadata sources
+## Other Rust crates with specific terms
 
-Art sources are fetched at the user's request and are not distributed with
-Coverly ROMs: libretro-thumbnails (`thumbnails.libretro.com`), and, when the
-user enables them, ScreenScraper, SteamGridDB and TheGamesDB. Name and
-identification data from libretro-database is likewise downloaded at runtime,
-not bundled. Coverly ROMs ships no ROMs, no BIOS files and no game art. The
-game art belongs to each game's developers and publishers; each source's own
-terms apply to what the user downloads from it. `docs/09-legal/` documents
-those terms.
+All of these are in `LICENSES/generated/rust.txt` with their full texts; they
+are listed here because their licences ask for more than a copy of the text, or
+because they are the larger parts of the app.
+
+- **wry** 0.57.0 (https://github.com/tauri-apps/wry), the webview layer of
+  Tauri. Apache-2.0 OR MIT.
+- **reqwest** 0.13.5 (https://github.com/seanmonstar/reqwest), used by Tauri for
+  its HTTP and updater code. MIT OR Apache-2.0.
+- **brotli** 9.0.0 and **brotli-decompressor** 6.0.1
+  (https://github.com/dropbox/rust-brotli,
+  https://github.com/dropbox/rust-brotli-decompressor), used by Tauri to
+  compress the web assets embedded in the app. BSD-3-Clause AND MIT.
+- **option-ext** 0.2.0, used through `directories` for the user folders.
+  MPL-2.0. Its source code, unmodified, is available at
+  https://github.com/soc/option-ext.
+- **selectors** 0.38.0, used through Tauri's HTML handling.
+  MPL-2.0. Its source code, unmodified, is available at
+  https://github.com/servo/stylo.
+- **webpki-roots** 1.0.9 (https://github.com/rustls/webpki-roots), the Mozilla
+  root certificates used to check HTTPS connections. CDLA-Permissive-2.0.
+- **ring** 0.17.14 (https://github.com/briansmith/ring), the cryptography under
+  rustls. Apache-2.0 AND ISC; part of its code comes from BoringSSL, whose
+  notices are included in the generated file.
+- **ICU4X** crates (`icu_collections`, `icu_normalizer`, `icu_properties` and
+  their data crates, 2.3.0, https://github.com/unicode-org/icu4x), used for
+  Unicode handling of internationalised domain names. Unicode-3.0.
+
+## Art, metadata and catalogue sources
+
+Nothing in this section is distributed with Coverly ROMs: each source is
+contacted at the user's request and what it returns stays on the user's
+computer. Coverly ROMs ships no ROMs, no BIOS files, no console keys and no game
+art. The game art belongs to each game's developers and publishers; each
+source's own terms apply to what the user downloads from it.
+
+- **libretro-thumbnails** (`thumbnails.libretro.com`,
+  https://github.com/libretro-thumbnails/libretro-thumbnails): the default art
+  source. No licence is published for the art.
+- **ScreenScraper** (https://www.screenscraper.fr/), when the user enables it
+  with their own account. Data and media from ScreenScraper (screenscraper.fr),
+  CC BY-NC-SA 4.0.
+- **SteamGridDB** (https://www.steamgriddb.com/), when the user enables it
+  with their own API key.
+- **libretro-database** (https://github.com/libretro/libretro-database),
+  downloaded to the user's cache for identification. Identification data:
+  libretro-database, © libretro contributors, CC BY-SA 4.0
+  (https://creativecommons.org/licenses/by-sa/4.0/).
+- **GameTDB** (https://www.gametdb.com/): the GameCube, Wii, Wii U and PS3 IDs
+  that libretro-database carries come from it. Game data from GameTDB
+  (https://www.gametdb.com/), where you can add new game entries and artwork.
+- **titledb** (https://github.com/blawar/titledb), an optional download the
+  user turns on for Switch names. MIT License, Copyright (c) 2019 Blake Warner.
+  Coverly keeps only the title ID, name, publisher, release date and region of
+  the downloaded file; game names and artwork are © their respective owners.
+- **api.nlib.cc** (nlib-api, https://github.com/ghost-land/nlib-api), a
+  GPL-3.0 service contacted only when the user turns on the online fallback for
+  Switch names. Nothing of its code is shipped with Coverly ROMs.
+- **Nintendo eShop icons** (`img-eshop.cdn.nintendo.net`), © Nintendo, fetched
+  only when the user turns Switch icons on, kept in the user's local cache and
+  never redistributed.
+
+The full list, with what each source and reference is used for and the exact
+credit each asks for, is in `credits/credits.json`, shown in the app under
+Settings → Credits and in the README.

@@ -40,7 +40,7 @@ You agree to it by opening a pull request. A CLA rather than a DCO sign-off keep
 
 ## Art and metadata are not ours
 
-Coverly ROMs does not bundle or redistribute ROMs, BIOS files, game art or game databases. At the user's request it downloads art from third-party sources — libretro-thumbnails by default, and optionally ScreenScraper, SteamGridDB or TheGamesDB — and identification data from libretro-database, and writes them into the user's own library.
+Coverly ROMs does not bundle or redistribute ROMs, BIOS files, console keys, game art or game databases. At the user's request it downloads art from third-party sources — libretro-thumbnails by default, and optionally ScreenScraper or SteamGridDB — and identification data from libretro-database, and writes them into the user's own library. The Switch name catalogue (blawar/titledb, MIT) is an optional download too: it is off by default, fetched only when the user turns it on, kept in the user's own data folder and never shipped in the repository or the installer; the same goes for the optional online fallback (api.nlib.cc) and the Switch icons.
 
 - The AGPL-3.0 on Coverly ROMs does **not** apply to that art or data, and the program's output (images placed in your library, `gamelist.xml` entries, audit reports) is not a derivative of the program.
 - The art belongs to each game's developers and publishers. libretro-thumbnails states that its art "originates from the work of each respective game's developers and publishers" and publishes no licence for it. Each source's own terms apply to what you download from it; for example, ScreenScraper's API may only be used in fully free, distributed applications.
@@ -60,7 +60,7 @@ The SPDX id is `AGPL-3.0-only`, in every `Cargo.toml` and in `package.json`. A f
 
 ## How to comply if you redistribute
 
-- [ ] Include `LICENSE`, `THIRD-PARTY-NOTICES.md` and the texts in `LICENSES/`.
+- [ ] Include `LICENSE`, `THIRD-PARTY-NOTICES.md` and the texts in `LICENSES/` (with `LICENSES/generated/` and the font licences).
 - [ ] Keep the existing copyright and licence notices.
 - [ ] Make the corresponding source available.
 - [ ] If you modified it and offer it over a network, offer those users the source.
