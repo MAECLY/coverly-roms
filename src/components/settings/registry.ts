@@ -416,6 +416,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     id: 'setting-credits-search',
     section: 'credits',
     label: 'settings.credits.search',
+    keywords: 'settings.keywords.credits',
   },
   // One entry per credit, generated: a new credit needs no hand edit here.
   ...CREDITS.map((c): SettingEntry => ({

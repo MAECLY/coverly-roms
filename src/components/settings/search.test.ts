@@ -117,3 +117,16 @@ describe('credit entries', () => {
     );
   });
 });
+
+describe('the Credits tab', () => {
+  it.each([
+    ['licencias', 'es'],
+    ['créditos', 'es'],
+    ['licenses', 'en'],
+    ['attribution', 'en'],
+  ] as const)('is found by «%s» (%s)', (query, locale) => {
+    expect(searchSettings(query, locale).map((e) => e.id)).toContain(
+      'setting-credits-search',
+    );
+  });
+});
