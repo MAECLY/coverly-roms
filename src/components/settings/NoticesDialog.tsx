@@ -124,10 +124,13 @@ function NoticeArticle({
 
 function NoticesList({
   notices,
+  label,
   matches,
   current,
 }: {
   notices: Notices;
+  /** The tab's name: the scrollable text is a named, focusable region. */
+  label: string;
   matches: readonly NoticeMatch[];
   current: NoticeMatch | undefined;
 }) {
@@ -165,7 +168,16 @@ function NoticesList({
   }, [current, virtualizer]);
   const items = virtualizer.getVirtualItems();
   return (
-    <div ref={scroller} className="notices__scroll">
+    // Focusable so the keyboard can scroll the text (no other control
+    // inside it takes focus).
+    <div
+      ref={scroller}
+      role="region"
+      aria-label={label}
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- scrollable region, scrolled with the arrow keys
+      tabIndex={0}
+      className="notices__scroll"
+    >
       <div
         className="relative w-full"
         style={{ height: virtualizer.getTotalSize() }}
@@ -316,6 +328,7 @@ function NoticesBody() {
           {notices && k === kind ? (
             <NoticesList
               notices={notices}
+              label={t(TAB_KEY[k], { count: notices.packageCount })}
               matches={matches}
               current={current}
             />

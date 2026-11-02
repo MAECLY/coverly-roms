@@ -123,6 +123,20 @@ describe('NoticesDialog', () => {
     expect(status(dialog)).toHaveTextContent('1 de 5');
   });
 
+  it('lets the keyboard reach and scroll the licence text', async () => {
+    const { dialog } = await open();
+    const text = within(dialog).getByRole('region', { name: 'Rust (4)' });
+    expect(text).toHaveClass('notices__scroll');
+    expect(text).toHaveAttribute('tabindex', '0');
+    // Reading order: find, previous, next, then the text.
+    await userEvent.type(within(dialog).getByRole('searchbox'), 'serde');
+    await waitFor(() => expect(status(dialog)).toHaveTextContent('1 de 5'));
+    await userEvent.tab();
+    await userEvent.tab();
+    await userEvent.tab();
+    expect(text).toHaveFocus();
+  });
+
   it('says when nothing matches', async () => {
     const { dialog } = await open();
     await userEvent.type(within(dialog).getByRole('searchbox'), 'zzzz');

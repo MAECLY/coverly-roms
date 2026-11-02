@@ -2095,6 +2095,11 @@ time {
   border-top: var(--cr-border-width-hairline) solid var(--cr-border);
 }
 
+.notices__scroll:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--cr-accent);
+}
+
 .notices__loading {
   padding-top: var(--cr-space-3);
   color: var(--cr-text-secondary);

@@ -182,7 +182,11 @@ describe('notices:check', () => {
       const text = readFileSync(join(REPO, entry.file), 'utf8');
       expect(declaredHash(text)).toMatch(/^[0-9a-f]{64}$/);
     }
-    expect(run(REPO).status).toBe(0);
+    const result = run(REPO);
+    expect(result.status).toBe(0);
+    // The check really ran (a script that skipped its entry point would
+    // also exit 0).
+    expect(result.stdout).toContain('notices: up to date');
   });
 
   it('fails with «run pnpm notices» when a lock changed', () => {
