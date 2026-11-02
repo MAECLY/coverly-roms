@@ -38,13 +38,16 @@ pub const MAX_SIDE: u32 = 1024;
 /// Most bytes the decoder may allocate for one icon.
 pub const MAX_ALLOC: u64 = 16 << 20;
 /// The systems whose readers can give an icon locator; any other ROM is
-/// never opened by this source.
-pub const SYSTEMS: [&str; 9] = [
+/// never opened by this source. On Switch only a homebrew NRO has one
+/// (its plaintext asset section; adjustments §8.2): a cartridge or an
+/// eShop dump gives none, and its NCAs are never read.
+pub const SYSTEMS: [&str; 10] = [
     "3ds",
     "ps3",
     "ps4",
     "ps5",
     "psvita",
+    "switch",
     "wiiu",
     "xbox360",
     "xboxone",
