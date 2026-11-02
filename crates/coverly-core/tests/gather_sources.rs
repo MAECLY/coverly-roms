@@ -96,6 +96,16 @@ fn three_roms() -> tempfile::TempDir {
 }
 
 fn run(sources: &[&dyn ArtSource], consensus: bool) -> coverly_core::gather::Gathered {
+    run_on(sources, consensus, &Cache::in_memory().unwrap(), true)
+}
+
+/// One gather over three fresh ROMs with `cache` (shared between runs).
+fn run_on(
+    sources: &[&dyn ArtSource],
+    consensus: bool,
+    cache: &Cache,
+    refresh: bool,
+) -> coverly_core::gather::Gathered {
     let lib = three_roms();
     let server = MockServer::start();
     let cfg = NetConfig {
@@ -103,10 +113,9 @@ fn run(sources: &[&dyn ArtSource], consensus: bool) -> coverly_core::gather::Gat
         ..NetConfig::default()
     };
     let http = PoliteHttp::new(UreqHttp::new(&cfg), &cfg);
-    let cache = Cache::in_memory().unwrap();
-    let dats = DatStore::new(&http, &cache, server.base());
+    let dats = DatStore::new(&http, cache, server.base());
     let identifier = Identifier::new(
-        &cache,
+        cache,
         &dats,
         IdentifyOptions {
             method: MatchMethod::NameOnly,
@@ -128,7 +137,7 @@ fn run(sources: &[&dyn ArtSource], consensus: bool) -> coverly_core::gather::Gat
     );
     let opts = GatherOptions {
         consensus,
-        refresh: true,
+        refresh,
         ..GatherOptions::default()
     };
     gather(
@@ -136,7 +145,7 @@ fn run(sources: &[&dyn ArtSource], consensus: bool) -> coverly_core::gather::Gat
         &db,
         sources,
         &identifier,
-        &cache,
+        cache,
         &opts,
         &NoProgress,
         &AtomicBool::new(false),
@@ -327,4 +336,22 @@ fn a_run_without_troubles_serialises_as_before() {
     assert!(g.troubles.is_empty() && g.answered.is_empty());
     let json = serde_json::to_value(&g).unwrap();
     assert!(json.get("troubles").is_none() && json.get("answered").is_none());
+}
+
+#[test]
+fn a_run_served_from_the_cache_marks_no_source_as_answered() {
+    let lib = Fake::ok(
+        "steamgriddb",
+        vec![cand("steamgriddb", "Golden Sun", &[], "https://s/1")],
+    );
+    let cache = Cache::in_memory().unwrap();
+    let first = run_on(&[&lib], false, &cache, false);
+    assert_eq!(lib.calls.load(Ordering::SeqCst), 3);
+    assert!(first.answered.contains("steamgriddb"));
+    // Every list is cached now: the source is never asked, so the run
+    // says nothing about whether it still answers (spec D29).
+    let again = run_on(&[&lib], false, &cache, false);
+    assert_eq!(lib.calls.load(Ordering::SeqCst), 3, "served from the cache");
+    assert!(again.answered.is_empty(), "{:?}", again.answered);
+    assert!(!again.items.is_empty());
 }

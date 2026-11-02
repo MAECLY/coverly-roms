@@ -175,7 +175,8 @@ pub struct Gathered {
     /// in the order of `warnings`: the same news as data.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub troubles: Vec<SourceTrouble>,
-    /// The sources that answered at least once (an empty list counts).
+    /// The sources asked this run that answered at least once (an empty
+    /// list counts; a list served from the gather cache does not).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub answered: BTreeSet<String>,
 }
@@ -252,8 +253,12 @@ pub fn gather(
                     continue;
                 }
                 match source_candidates(src, system, media, &item.identity, t, cache, opts) {
-                    Ok(found) => {
-                        out.answered.insert(src.id().to_string());
+                    Ok((found, asked)) => {
+                        // A list from the cache says nothing about the
+                        // source today: only a real answer counts (D29).
+                        if asked {
+                            out.answered.insert(src.id().to_string());
+                        }
                         all.extend(found);
                     }
                     Err(SourceError::Net(e)) if e.pauses() => {
@@ -344,7 +349,7 @@ pub fn merge_candidates(all: &mut Vec<Candidate>, consensus: bool) {
 }
 
 /// The candidates of one source for one ROM and media: from the cache when
-/// fresh, else asked and stored.
+/// fresh, else asked and stored. The flag says whether the source was asked.
 fn source_candidates(
     src: &dyn ArtSource,
     system: &System,
@@ -353,7 +358,7 @@ fn source_candidates(
     t: &GatherTarget,
     cache: &Cache,
     opts: &GatherOptions,
-) -> Result<Vec<Candidate>, SourceError> {
+) -> Result<(Vec<Candidate>, bool), SourceError> {
     let key = cache_key(src.id(), system, media, identity, &t.rom.stem, opts);
     // The embedded source reads the ROM itself (its path, not its name,
     // decides), and costs a few local reads: never cached by name.
@@ -362,7 +367,7 @@ fn source_candidates(
         // An unreadable cached value is a miss.
         if let Ok(Some(s)) = cache.get_json::<Vec<Candidate>>(NS, &key) {
             if now_unix() - s.fetched_at < opts.ttl_secs {
-                return Ok(s.value);
+                return Ok((s.value, false));
             }
         }
     }
@@ -394,7 +399,7 @@ fn source_candidates(
     if cacheable {
         let _ = cache.put_json(NS, &key, &found, None);
     }
-    Ok(found)
+    Ok((found, true))
 }
 
 /// Every option that changes the candidate list or its fields is part of
