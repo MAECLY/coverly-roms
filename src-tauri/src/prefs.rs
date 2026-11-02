@@ -1,9 +1,13 @@
-//! Settings on the wire, and the fixed links the About screen may open.
+//! Settings on the wire, the fixed links the About screen may open and
+//! the credit links of «Agradecimientos».
 
 use coverly_core::archive::external::FoundTool;
 use coverly_core::archive::Tool;
+use coverly_core::credits::CreditLink;
 use coverly_core::settings::{FieldError, LoadNotice, LoadReport, Settings};
 use serde::{Deserialize, Serialize};
+
+use crate::error::IpcError;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SettingsView {
@@ -92,6 +96,18 @@ pub fn link_url(id: LinkId) -> &'static str {
         LinkId::Releases => "https://github.com/MAECLY/coverly-roms/releases",
         LinkId::Issues => "https://github.com/MAECLY/coverly-roms/issues",
     }
+}
+
+/// The link `which` of credit entry `id`, from the compiled-in
+/// `credits/credits.json` (adjustments D27): the webview names an id,
+/// never a URL. An unknown id, or an entry without that link (emulator
+/// sources carry none), is a bad request.
+pub fn credit_url(id: &str, which: CreditLink) -> Result<&'static str, IpcError> {
+    let Some(credit) = coverly_core::credits::credit(id) else {
+        return Err(IpcError::BadRequest(format!("unknown credit `{id}`")));
+    };
+    coverly_core::credits::link(&credit.id, which)
+        .ok_or_else(|| IpcError::BadRequest(format!("credit `{id}` has no {which:?} link")))
 }
 
 #[cfg(test)]

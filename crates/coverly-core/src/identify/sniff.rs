@@ -212,6 +212,11 @@ pub struct Sniff {
     /// title id, kind, embedded-art locators. Memoised with the facts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub console: Option<crate::consoles::ConsoleId>,
+    /// Disc number and count of a Saturn `CD-n/m` or Dreamcast
+    /// `GD-ROMn/m` device field (adjustments D24): what confirms a loose
+    /// multi-disc set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disc: Option<(u8, u8)>,
     /// Bytes of prefix actually read (0 = unreadable or empty).
     pub read: usize,
 }
@@ -225,10 +230,13 @@ impl Sniff {
     /// Records the verdicts of `consoles::identify_all`: one header hit
     /// per verdict (an XVC header gives two of equal weight, systems batch
     /// 3 D19), the first verdict as [`Sniff::console`]. A console's own
-    /// XVD (`xbox::XVD_SYSTEM_DETAIL`) is no ROM and no hit.
+    /// XVD (`xbox::XVD_SYSTEM_DETAIL`) or title metadata
+    /// (`wiiu::TMD_SYSTEM_DETAIL`, adjustments D14) is no ROM and no hit.
     pub fn add_console(&mut self, ids: Vec<crate::consoles::ConsoleId>) {
         if let [only] = ids.as_slice() {
-            if only.detail == crate::consoles::xbox::XVD_SYSTEM_DETAIL {
+            if only.detail == crate::consoles::xbox::XVD_SYSTEM_DETAIL
+                || only.detail == crate::consoles::wiiu::TMD_SYSTEM_DETAIL
+            {
                 self.not_a_rom = Some(NotARom::ConsoleSystem);
                 return;
             }
@@ -266,6 +274,9 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
 /// readers may use (Switch title-id tokens, spec D10); `""` when unknown.
 pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sniff {
     let ext = ext.to_ascii_lowercase();
+    if let Some(s) = sniff_by_name(&ext) {
+        return s;
+    }
     if let Some(s) = sniff_switch_first(src, len, &ext, name) {
         return s;
     }
@@ -332,6 +343,15 @@ pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sni
         cartridges(src, &head, len, &ext, &mut s);
     }
     s
+}
+
+/// A file told by its extension alone and never read (adjustments §8.2:
+/// a Vita content-manager backup); `ext` is lower-case.
+pub fn sniff_by_name(ext: &str) -> Option<Sniff> {
+    let id = crate::consoles::loose::by_name(ext)?;
+    let mut s = Sniff::default();
+    s.add_console(vec![id]);
+    Some(s)
 }
 
 /// A Switch dump, recognised before any generic head read (spec D4): the
@@ -450,6 +470,7 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sniff) 
         if starts(head, 0, magic) || starts(head, 0x10, magic) {
             s.hit(system, 0.90, detail);
             s.serial = ip_bin_serial(head);
+            s.disc = crate::disc::sega::ip_bin_in_head(head).and_then(|ip| ip.disc);
             return;
         }
     }

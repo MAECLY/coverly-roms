@@ -293,6 +293,12 @@ pub fn ip_bin(magic: &[u8], fields: &[(usize, &[u8])]) -> Vec<u8> {
 /// A Saturn track 01 (raw Mode 1): `IP.BIN` with `product` at 0x20 and
 /// `CD-1/1` at 0x38, over an ISO 9660 volume.
 pub fn saturn_track(product: &str) -> Vec<u8> {
+    saturn_track_disc(product, "1/1")
+}
+
+/// [`saturn_track`] with `disc` (`2/3`) after `CD-` in the device field.
+pub fn saturn_track_disc(product: &str, disc: &str) -> Vec<u8> {
+    let device = format!("CD-{disc:<5}");
     let ip = ip_bin(
         b"SEGA SEGASATURN ",
         &[
@@ -300,7 +306,7 @@ pub fn saturn_track(product: &str) -> Vec<u8> {
             (0x20, product.as_bytes()),
             (0x2A, b"V1.000"),
             (0x30, b"19961122"),
-            (0x38, b"CD-1/1  "),
+            (0x38, device.as_bytes()),
         ],
     );
     IsoBuilder::new("SEGA SEGASATURN")

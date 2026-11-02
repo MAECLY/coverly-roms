@@ -19,6 +19,7 @@ import {
 
 import { DupGroup } from '@/components/dedupe/DupGroup';
 import { ApplyProgress } from '@/components/organize/ApplyProgress';
+import { HugeItemDialog } from '@/components/organize/HugeItemDialog';
 import { LargeTransferDialog } from '@/components/organize/LargeTransferDialog';
 import { LeftInPlace } from '@/components/organize/LeftInPlace';
 import type { IsNew } from '@/components/organize/NewMarks';
@@ -42,6 +43,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import { Spinner } from '@/components/ui/spinner';
+import { toast } from '@/components/ui/toaster';
 import { SimpleTooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { LocaleContext } from '@/i18n/core';
 import { useRichT, type RichTFunction } from '@/i18n/rich';
@@ -61,6 +63,7 @@ import type {
   SystemInfo,
 } from '@/ipc/types';
 import { formatDecimalSize } from '@/lib/format';
+import { restDetail } from '@/lib/largeTransfer';
 import { isTyping, modKeyLabel } from '@/lib/keyboard';
 import {
   duplicateCounts,
@@ -198,6 +201,9 @@ export function OrganizeScreen() {
   const refreshing = useOrganizeStore((s) => s.refreshing);
   const stamp = useOrganizeStore((s) => s.settingsStamp);
   const pendingLarge = useOrganizeStore((s) => s.pendingLarge);
+  const hugeCursor = useOrganizeStore((s) => s.hugeCursor);
+  const hugeAccepted = useOrganizeStore((s) => s.hugeAccepted);
+  const hugeDeclined = useOrganizeStore((s) => s.hugeDeclined);
   const submitting = useOrganizeStore((s) => s.submitting);
   const settings = useSettingsStore((s) => s.settings);
   const { profiles, systems, duplicates: defaultDuplicates } = useCatalogues();
@@ -490,6 +496,7 @@ export function OrganizeScreen() {
             plan={plan}
             undo={undo}
             error={error}
+            declined={hugeDeclined}
             onOpen={() => void useOrganizeStore.getState().openResult()}
             onUndo={(all) => void useOrganizeStore.getState().undoJob(all)}
             onResume={() => void useOrganizeStore.getState().resume()}
@@ -527,9 +534,25 @@ export function OrganizeScreen() {
             onCancel={back}
           />
         )}
-        {pendingLarge && (
-          <LargeTransferDialog
+        {pendingLarge && hugeCursor < pendingLarge.huge.length && (
+          <HugeItemDialog
             detail={pendingLarge}
+            cursor={hugeCursor}
+            accepted={hugeAccepted}
+            returnFocus={applyButton}
+            onAnswer={(a) =>
+              void useOrganizeStore
+                .getState()
+                .answerHuge(a)
+                .then((r) => {
+                  if (r === 'nothing') toast.info(t('organize.huge.nothing'));
+                })
+            }
+          />
+        )}
+        {pendingLarge && hugeCursor >= pendingLarge.huge.length && (
+          <LargeTransferDialog
+            detail={restDetail(pendingLarge)}
             returnFocus={applyButton}
             onCancel={() => useOrganizeStore.getState().dismissLarge()}
             onConfirm={(bytes) =>

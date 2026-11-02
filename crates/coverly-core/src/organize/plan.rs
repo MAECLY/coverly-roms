@@ -18,7 +18,7 @@ use walkdir::WalkDir;
 use crate::archive::names::UnsafeWhy;
 use crate::archive::{ContainerKind, Limits, Tool, ToolsOnDemand};
 use crate::cache::Cache;
-use crate::consoles::{base_title_id, TitleKind};
+use crate::consoles::{base_title_id, PartKind, TitleKind};
 use crate::dedupe::archive::ArchiveEntryListing;
 use crate::dedupe::disc::ReaderDiscProbe;
 use crate::dedupe::source::DiscId;
@@ -35,14 +35,15 @@ use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::HeaderRule;
 use crate::identify::sniff::{NotARom, Sniff};
 use crate::organize::apply::{cluster_size, large_transfer, user_available};
+use crate::organize::discsets::{self, HeaderDisc, SetEvidence};
 use crate::organize::evidence::Combined;
 use crate::organize::evidence::{
     identify_candidate, DatCatalogue, Facts, Identification, LadderEnv, OnlineLookup, Thresholds,
     Verdict, MAX_DAT_DOWNLOADS,
 };
 use crate::organize::inspect::{
-    inspect_file_with, inspect_set_primary, is_metadata_entry, ArchiveIssue, Container, Inspection,
-    Payload, ZipEntryInfo, NOTE_TOOL_FAILED,
+    inspect_file_with, inspect_set_primary, is_metadata_entry, ArchiveGame, ArchiveIssue,
+    Container, Inspection, Payload, ZipEntryInfo, NOTE_TOOL_FAILED,
 };
 use crate::organize::target::{
     assign_targets_in, attach_set_aside_companions, default_companion_exts, dlc_target,
@@ -232,6 +233,17 @@ pub enum LeftReason {
     GameOverlay {
         of: String,
     },
+    /// A piece of a game that cannot play alone (spec D13): an ExeFS
+    /// file, a loose NCA, a library, title metadata, a module or a
+    /// backup. `title_id` is the game's, when the piece or its path says.
+    GamePart {
+        part: PartKind,
+        system: String,
+        #[serde(default)]
+        title_id: Option<String>,
+    },
+    /// A huge item the user said «No» to (spec D16): it stays where it is.
+    NotConfirmed,
 }
 
 /// The reason an inspection issue leaves an item in place (archives spec
@@ -330,6 +342,27 @@ pub enum ItemNote {
     /// name), where it looks for downloadable content (systems batch 3
     /// D16).
     DlcFolder { layout: String },
+    /// Homebrew: goes to the system folder like any ROM (spec D13, §13 Q6).
+    Homebrew,
+    /// A Vita game kept in a 7z: Vita3K only installs `.zip`, `.vpk` or
+    /// `.vci` (spec D23).
+    Vita7z,
+    /// Disc `n` of a multi-disc set is not in the pile (spec D24).
+    MissingDisc { n: u8 },
+    /// Loose discs whose names alone say they are one game (spec D24):
+    /// grouped for review, never moved together automatically.
+    DiscSet,
+    /// The title could not be read without keys and the catalogue did not
+    /// name it: shown as «Cifrado» (spec D11).
+    EncryptedName,
+    /// The archive holds the folders of `count` games (spec D21): review.
+    ArchiveGames { count: usize },
+    /// An `sce_sys/param.sfo` game whose SFO was not read within budget:
+    /// PS4 and Vita share the structure (spec D22), so review.
+    Ps4OrVita,
+    /// Two names in the archive differ only in case: extracting them
+    /// collides on macOS and Windows (spec D20), so review.
+    ArchiveCaseCollision,
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -351,6 +384,11 @@ pub enum Transfer {
         sheet_check: SheetCheck,
         #[serde(default)]
         m3u: Option<PathBuf>,
+        /// A folder game extracted out of an archive (adjustments spec
+        /// D23): always asked one by one before apply (D15). Plans from
+        /// before the adjustments have none.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        folder_game: bool,
     },
 }
 
@@ -463,6 +501,17 @@ pub enum OrganizeAction {
     },
 }
 
+/// A `.m3u` written for a loose multi-disc set (adjustments spec D24):
+/// a new file, never over an existing one, journaled and undone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Playlist {
+    /// Relative to the target root.
+    pub path: PathBuf,
+    /// Each disc's sheet or image, relative to the target root, in disc
+    /// order: the playlist's lines.
+    pub discs: Vec<PathBuf>,
+}
+
 /// One game of the plan: a file, an archive or a disc set.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OrganizeItem {
@@ -504,6 +553,16 @@ pub struct OrganizeItem {
     /// the JSON when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_id: Option<String>,
+    /// The playlist a loose multi-disc set gets (spec D24); left out of
+    /// the JSON when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playlist: Option<Playlist>,
+    /// Set only when the optional Switch catalogue named the title
+    /// (`titledb` or `nlib`, spec D7), for the row's «why» line; a
+    /// header or file-name title says so through its own lines, so it is
+    /// left out of the JSON then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<crate::consoles::TitleSource>,
     #[serde(flatten)]
     pub action: OrganizeAction,
 }
@@ -532,6 +591,7 @@ impl OrganizeItem {
         self.companions.clear();
         self.rename = None;
         self.transfer = Transfer::AsIs;
+        self.playlist = None;
     }
 }
 
@@ -686,6 +746,10 @@ pub struct OrganizeEnv<'a> {
     pub dats: Option<&'a DatStore<'a>>,
     pub probe: &'a dyn MetaProbe,
     pub online: Option<&'a dyn OnlineLookup>,
+    /// The optional Switch name catalogue (adjustments plan P-1): local,
+    /// synchronous lookups only. `None` = no catalogue (tests, `--offline`,
+    /// setting off); callers download it beforehand (P-2).
+    pub titles: Option<&'a dyn crate::catalog::TitleNames>,
     pub now: SystemTime,
 }
 
@@ -766,6 +830,9 @@ pub enum Choice {
     Assign { system: String },
     /// Keep it where it is.
     Leave,
+    /// «No» to a huge item (spec D16): kept where it is with
+    /// [`LeftReason::NotConfirmed`]; never remembered by content.
+    Decline,
 }
 
 /// Totals of a plan.
@@ -883,6 +950,21 @@ pub struct SurveyEntry {
     /// What a console header reader found (systems batch 2 §8): title id
     /// and kind group updates and DLC with their base (D11).
     pub console: Option<crate::consoles::ConsoleId>,
+    /// Loose discs grouped into one game (adjustments D24): the entry is
+    /// their `Set`, sources in disc order.
+    pub disc_set: Option<LooseDiscSet>,
+}
+
+/// A loose multi-disc game the survey grouped (adjustments spec D24).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LooseDiscSet {
+    /// The game's name without its disc tag: folder and playlist name.
+    pub title: String,
+    pub evidence: SetEvidence,
+    /// Each disc's primary file (sheet or image), absolute, in disc order.
+    pub discs: Vec<PathBuf>,
+    /// Disc numbers that are not in the pile.
+    pub missing: Vec<u8>,
 }
 
 /// What a pile holds and what each candidate is: everything a plan needs
@@ -898,6 +980,54 @@ pub struct Survey {
     pub entries: Vec<SurveyEntry>,
     /// The walk's lists (candidates were turned into `entries`).
     pub walked: Walked,
+}
+
+/// Extensions of Switch files (the catalogue is only worth fetching for a
+/// pile that has one; plan P-2).
+const SWITCH_EXTS: [&str; 8] = ["xci", "xcz", "nsp", "nsz", "nro", "nso", "nca", "ncz"];
+
+impl Survey {
+    /// Whether an entry is a Switch title, by its header or its
+    /// extension: callers fetch the optional catalogue only then (plan
+    /// P-2, spec D10).
+    pub fn has_switch(&self) -> bool {
+        self.entries.iter().any(|e| {
+            e.console.as_ref().is_some_and(|c| c.system == "switch")
+                || e.sources
+                    .first()
+                    .and_then(|p| p.extension())
+                    .is_some_and(|x| {
+                        SWITCH_EXTS
+                            .iter()
+                            .any(|s| x.to_string_lossy().eq_ignore_ascii_case(s))
+                    })
+        })
+    }
+
+    /// Whether a Switch entry has NCA ids but no title id: only then is
+    /// the catalogue's `ncas.json` fetched (spec D6).
+    pub fn wants_ncas(&self) -> bool {
+        self.entries.iter().any(|e| {
+            e.console.as_ref().is_some_and(|c| {
+                c.system == "switch" && c.title_id.is_none() && !c.nca_ids.is_empty()
+            })
+        })
+    }
+
+    /// The Switch title ids the readers found, sorted and without
+    /// repeats: what the optional nlib fallback may be asked about (D9).
+    pub fn switch_title_ids(&self) -> Vec<u64> {
+        let mut ids: Vec<u64> = self
+            .entries
+            .iter()
+            .filter_map(|e| e.console.as_ref())
+            .filter(|c| c.system == "switch")
+            .filter_map(|c| u64::from_str_radix(c.title_id.as_deref()?, 16).ok())
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
 }
 
 /// What a quick, name-only look at a folder found.
@@ -1139,6 +1269,7 @@ pub fn survey(
                 facts: None,
                 tree: None,
                 console: None,
+                disc_set: None,
             },
             candidate: None,
             set_sniff: None,
@@ -1310,7 +1441,13 @@ pub fn survey(
                     .find_map(|p| p.sniff.console.clone())
             });
         }
+        dol_of_an_extracted_disc(entry);
+        leave_game_part(entry);
+        review_xbe_with_siblings(entry);
     }
+    // Loose discs of one game become one set (adjustments D24), before
+    // the duplicates step sees them.
+    let entries = group_loose_discs(entries, env.db);
     let entries = updates_after_bases(entries);
 
     Ok(Survey {
@@ -1321,6 +1458,148 @@ pub fn survey(
         walked,
     })
 }
+
+/// What a disc's header says about its place in a set (spec D24): the
+/// GameCube/Wii ID6 and disc byte, an Xbox title id and disc number, or a
+/// Sega `n/m` device field.
+fn header_disc(entry: &SurveyEntry) -> Option<HeaderDisc> {
+    if let Some(c) = &entry.console {
+        match c.system.as_str() {
+            "gamecube" | "wii" => {
+                return Some(HeaderDisc::Nintendo {
+                    id: c.title_id.clone()?,
+                    n: c.disc_no?,
+                })
+            }
+            "xbox" | "xbox360" => {
+                return Some(HeaderDisc::Xbox {
+                    id: c.title_id.clone()?,
+                    n: c.disc_no?,
+                    m: c.disc_count,
+                })
+            }
+            _ => {}
+        }
+    }
+    let sniff = &entry.facts.as_ref()?.inspection.payloads.first()?.sniff;
+    sniff.disc.map(|(n, m)| HeaderDisc::Sega { n, m })
+}
+
+/// Whether an entry may be one disc of a loose set: an identified file or
+/// sheet set (never a pile `.m3u`, an archive or a folder game) of a disc
+/// system (`multi_file`; floppy disks of computers are left as they are)
+/// that is a game, not an update, DLC or part.
+fn disc_candidate<'e>(entry: &'e SurveyEntry, db: &SystemDb) -> Option<&'e str> {
+    if entry.left.is_some() || entry.disc_set.is_some() {
+        return None;
+    }
+    let primary = entry.sources.first()?;
+    match entry.kind {
+        ItemKind::File => {}
+        ItemKind::Set if extension(primary) != "m3u" => {}
+        _ => return None,
+    }
+    if entry
+        .console
+        .as_ref()
+        .is_some_and(|c| c.part.is_some() || matches!(c.kind, TitleKind::Update | TitleKind::Dlc))
+    {
+        return None;
+    }
+    let id = entry.identification.as_ref()?;
+    if id.left.is_some() || id.combined.verdict == Verdict::Unknown {
+        return None;
+    }
+    id.combined
+        .system
+        .as_deref()
+        .filter(|s| db.get(s).is_some_and(|s| s.multi_file))
+}
+
+/// Merges loose discs of one game into one `Set` entry (spec D24): the
+/// first disc's identification stands for the set, its sources are every
+/// disc's files in disc order, missing discs are noted and a set the names
+/// alone group is reviewed. Each merged entry takes the place of its first
+/// disc.
+fn group_loose_discs(entries: Vec<SurveyEntry>, db: &SystemDb) -> Vec<SurveyEntry> {
+    let (sets, at): (Vec<discsets::DiscSet>, Vec<usize>) = {
+        let mut at = Vec::new();
+        let mut candidates = Vec::new();
+        for (i, entry) in entries.iter().enumerate() {
+            let Some(system) = disc_candidate(entry, db) else {
+                continue;
+            };
+            let id = entry.identification.as_ref();
+            let dat_name = id
+                .filter(|id| id.combined.method == Some(IdLevel::Hash))
+                .and_then(|id| id.catalogue_name.as_deref());
+            candidates.push(discsets::Candidate {
+                path: &entry.sources[0],
+                system,
+                header: header_disc(entry),
+                dat_name,
+                region: entry.console.as_ref().and_then(|c| c.region),
+            });
+            at.push(i);
+        }
+        (discsets::group(&candidates), at)
+    };
+    if sets.is_empty() {
+        return entries;
+    }
+    let mut slots: Vec<Option<SurveyEntry>> = entries.into_iter().map(Some).collect();
+    for set in sets {
+        let members: Vec<usize> = set.members.iter().map(|&m| at[m]).collect();
+        let Some(first) = members.iter().copied().min() else {
+            continue;
+        };
+        if members.iter().any(|&i| slots[i].is_none()) {
+            continue;
+        }
+        let mut discs: Vec<SurveyEntry> = members.iter().filter_map(|&i| slots[i].take()).collect();
+        let mut merged = discs.remove(0);
+        let mut primaries = vec![merged.sources[0].clone()];
+        let mut review = matches!(
+            merged.identification.as_ref().map(|id| id.combined.verdict),
+            Some(Verdict::Review)
+        );
+        for disc in discs {
+            primaries.push(disc.sources[0].clone());
+            review |= matches!(
+                disc.identification.as_ref().map(|id| id.combined.verdict),
+                Some(Verdict::Review)
+            );
+            merged.size = merged.size.saturating_add(disc.size);
+            merged.sources.extend(disc.sources);
+            merged.fps.extend(disc.fps);
+        }
+        merged.kind = ItemKind::Set;
+        merged.inspection = None;
+        if let Some(id) = merged.identification.as_mut() {
+            if set.evidence == SetEvidence::NameOnly {
+                review = true;
+                id.notes.push(ItemNote::DiscSet);
+            }
+            if review && id.combined.verdict == Verdict::Auto {
+                id.combined.verdict = Verdict::Review;
+            }
+            id.notes
+                .extend(set.missing.iter().map(|&n| ItemNote::MissingDisc { n }));
+        }
+        merged.disc_set = Some(LooseDiscSet {
+            title: set.title,
+            evidence: set.evidence,
+            discs: primaries,
+            missing: set.missing,
+        });
+        slots[first] = Some(merged);
+    }
+    slots.into_iter().flatten().collect()
+}
+
+/// Systems whose loose disc sets get no `.m3u` (adjustments D24): their
+/// emulators swap discs another way.
+const NO_PLAYLIST: [&str; 3] = ["ps2", "xbox", "xbox360"];
 
 /// The base title id and kind of an entry's console header (D11).
 fn title_group(entry: &SurveyEntry) -> Option<((String, String), TitleKind)> {
@@ -1364,6 +1643,175 @@ fn updates_after_bases(entries: Vec<SurveyEntry>) -> Vec<SurveyEntry> {
         }
     }
     out
+}
+
+/// A title the optional Switch catalogue gave (titledb or nlib, D7).
+fn catalogue_title(c: &crate::consoles::ConsoleId) -> Option<String> {
+    use crate::consoles::TitleSource;
+    matches!(
+        c.title_source,
+        Some(TitleSource::Titledb | TitleSource::Nlib)
+    )
+    .then(|| c.title.clone())
+    .flatten()
+}
+
+/// A piece of a game that cannot play alone (adjustments D13: an ExeFS
+/// file, a loose NCA, a library, title metadata, a module, a Vita
+/// backup) is left with [`LeftReason::GamePart`], whatever else named
+/// it. The title id is the piece's own, or for a backup the nearest
+/// folder of its path named like a Sony title id (`PCSE00123`). Folder
+/// games and sets are never parts.
+fn leave_game_part(entry: &mut SurveyEntry) {
+    let (Some(c), Some(id)) = (entry.console.as_ref(), entry.identification.as_mut()) else {
+        return;
+    };
+    let Some(part) = c.part else {
+        return;
+    };
+    if matches!(entry.kind, ItemKind::Folder | ItemKind::Set) || id.left.is_some() {
+        return;
+    }
+    let title_id = if part == PartKind::Backup {
+        entry.sources.first().and_then(|p| backup_title_id(p))
+    } else {
+        c.title_id.clone()
+    };
+    id.left = Some(LeftReason::GamePart {
+        part,
+        system: c.system.clone(),
+        title_id,
+    });
+}
+
+/// The nearest folder above `path` named like a Sony title id (four
+/// letters, five digits): a Vita backup's only title id (psvimgtools,
+/// `PS Vita/PGAME/<account>/NPJH00053/game/game.psvimg`).
+fn backup_title_id(path: &Path) -> Option<String> {
+    path.ancestors().skip(1).find_map(|dir| {
+        let name = dir.file_name()?.to_str()?;
+        let b = name.as_bytes();
+        (b.len() == 9
+            && b[..4].iter().all(u8::is_ascii_uppercase)
+            && b[4..].iter().all(u8::is_ascii_digit))
+        .then(|| name.to_owned())
+    })
+}
+
+/// Files that sit beside `main.dol` in the `sys/` folder of a disc a
+/// tool extracted (Dolphin «Extract Entire Disc», wiibrew «Wii disc»):
+/// the apploader, or the disc header pair.
+const EXTRACTED_DISC_SYS: [&str; 3] = ["apploader.img", "boot.bin", "bi2.bin"];
+
+/// A DOL beside an extracted disc's system files (adjustments D13,
+/// research §11) is the game's executable, not homebrew: it becomes part
+/// `ExeFs` so [`leave_game_part`] leaves it where it is. Moving it alone
+/// would break the extracted game.
+fn dol_of_an_extracted_disc(entry: &mut SurveyEntry) {
+    let Some(c) = entry.console.as_mut() else {
+        return;
+    };
+    if entry.kind != ItemKind::File
+        || !matches!(c.system.as_str(), "gamecube" | "wii")
+        || c.kind != TitleKind::Homebrew
+        || c.part.is_some()
+    {
+        return;
+    }
+    let Some(path) = entry.sources.first() else {
+        return;
+    };
+    if !path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("dol"))
+    {
+        return;
+    }
+    let disc = path
+        .parent()
+        .and_then(super::walk::list_dir)
+        .is_some_and(|listed| {
+            let has = |want: &str| {
+                listed
+                    .iter()
+                    .any(|(name, _, _)| name.eq_ignore_ascii_case(want))
+            };
+            has(EXTRACTED_DISC_SYS[0]) || (has(EXTRACTED_DISC_SYS[1]) && has(EXTRACTED_DISC_SYS[2]))
+        });
+    if disc {
+        c.part = Some(PartKind::ExeFs);
+        c.kind = TitleKind::Unknown;
+    }
+}
+
+/// A loose retail XBE beside other files (adjustments §8.2) is the
+/// executable of a game folder no probe matched (no `default.xbe`): it
+/// becomes part `ExeFs` and is asked about, never moved alone. A lone
+/// one, homebrew and a user's choice are left as they are.
+fn review_xbe_with_siblings(entry: &mut SurveyEntry) {
+    let Some(c) = entry.console.as_mut() else {
+        return;
+    };
+    let user_chose = entry
+        .identification
+        .as_ref()
+        .is_some_and(|id| id.combined.method == Some(IdLevel::User));
+    if user_chose
+        || entry.kind != ItemKind::File
+        || c.system != "xbox"
+        || c.id_source != Some(crate::consoles::IdSource::Xbe)
+        || c.kind != TitleKind::Base
+        || c.part.is_some()
+    {
+        return;
+    }
+    let Some(path) = entry.sources.first() else {
+        return;
+    };
+    let own = path.file_name();
+    let siblings = path
+        .parent()
+        .and_then(super::walk::list_dir)
+        .is_some_and(|listed| {
+            listed
+                .iter()
+                .any(|(name, _, _)| Some(std::ffi::OsStr::new(name)) != own)
+        });
+    if !siblings {
+        return;
+    }
+    c.part = Some(PartKind::ExeFs);
+    if let Some(id) = entry.identification.as_mut() {
+        if id.combined.verdict == Verdict::Auto {
+            id.combined.verdict = Verdict::Review;
+        }
+    }
+}
+
+/// The survey with every Switch header verdict completed from the
+/// catalogue, or from the file name without one (adjustments D7); `None`
+/// when no entry is a Switch title, so other piles are never copied.
+fn with_switch_names(
+    survey: &Survey,
+    titles: Option<&dyn crate::catalog::TitleNames>,
+) -> Option<Survey> {
+    let is_switch = |e: &SurveyEntry| e.console.as_ref().is_some_and(|c| c.system == "switch");
+    if !survey.entries.iter().any(is_switch) {
+        return None;
+    }
+    let mut named = survey.clone();
+    for entry in named.entries.iter_mut() {
+        let name = entry
+            .sources
+            .first()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if let Some(c) = entry.console.as_mut() {
+            super::evidence::resolve_switch_title(c, titles, &name);
+        }
+    }
+    Some(named)
 }
 
 /// The title of the base game an update or DLC belongs to, for its note:
@@ -1465,13 +1913,19 @@ fn note_updates(items: &mut [OrganizeItem], entries: &[SurveyEntry]) -> usize {
         let base = bases
             .get(&(system.clone(), base_id.clone()))
             .and_then(|&b| Some((entries.get(b)?, items.get(b)?)));
+        // With no base in the pile, the catalogue's base name (D7) before
+        // the bare title id.
+        let of = match base {
+            Some(_) => base_title(base, &base_id),
+            None => entry
+                .console
+                .as_ref()
+                .and_then(catalogue_title)
+                .unwrap_or_else(|| base_id.clone()),
+        };
         let note = match kind {
-            TitleKind::Update => ItemNote::Update {
-                of: base_title(base, &base_id),
-            },
-            TitleKind::Dlc => ItemNote::Dlc {
-                of: base_title(base, &base_id),
-            },
+            TitleKind::Update => ItemNote::Update { of },
+            TitleKind::Dlc => ItemNote::Dlc { of },
             _ => continue,
         };
         notes.push((i, note));
@@ -1540,6 +1994,7 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
             facts: None,
             tree: Some(tree),
             console,
+            disc_set: None,
         }
     };
     let mut out = Vec::new();
@@ -1680,6 +2135,7 @@ fn build_entries(
             facts: None,
             tree: None,
             console: None,
+            disc_set: None,
         };
         if !is_list {
             if candidate.ext == "zip" || candidate.ext == "7z" {
@@ -1898,7 +2354,9 @@ fn identify_one(
 /// Studio models are no ROMs (systems batch 2 D23, D7).
 /// 8: content ids, regions and Xbox product ids on `Sniff.console`
 /// (systems batch 3 D28).
-const FACTS_VERSION: u32 = 8;
+/// 9: game parts, title sources, homebrew, NCA ids, archive folder games
+/// and disc counts (adjustments D33).
+const FACTS_VERSION: u32 = 9;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -1972,6 +2430,7 @@ fn name_only_facts(c: &WalkCandidate) -> Facts {
             decoded: 0,
             tool: None,
             volume_parts: Vec::new(),
+            folder_game: None,
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -2013,6 +2472,7 @@ fn set_facts(c: &WalkCandidate, entry: &SurveyEntry, sniff: Option<Sniff>) -> Fa
             decoded: 0,
             tool: None,
             volume_parts: Vec::new(),
+            folder_game: None,
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -2044,6 +2504,10 @@ pub fn plan_from_survey(
     let roms_dir = roms_dir_of(&target_root, &profile, opts.flat);
     let src = &survey.source_root;
 
+    // Switch names from the optional catalogue (adjustments D7, plan P-1).
+    let named = with_switch_names(survey, env.titles);
+    let survey = named.as_ref().unwrap_or(survey);
+
     // Items from the survey.
     let mut items: Vec<OrganizeItem> = Vec::with_capacity(survey.entries.len());
     let mut keys: Vec<Option<(String, u64)>> = Vec::with_capacity(survey.entries.len());
@@ -2073,6 +2537,8 @@ pub fn plan_from_survey(
             },
             title_id: None,
             content_id: None,
+            playlist: None,
+            title_source: None,
         };
         let mut key = None;
         match (&entry.left, &entry.identification) {
@@ -2111,8 +2577,48 @@ pub fn plan_from_survey(
                     .as_ref()
                     .filter(|con| c.system.as_deref() == Some(con.system.as_str()));
                 item.title_id = header.and_then(crate::consoles::TitleIdRef::of);
+                item.title_source = header.and_then(|con| con.title_source).filter(|s| {
+                    matches!(
+                        s,
+                        crate::consoles::TitleSource::Titledb | crate::consoles::TitleSource::Nlib
+                    )
+                });
+                // «Cifrado» once the catalogue and the DATs had their say
+                // (D11); a DAT game name is a resolved name.
+                if let Some(con) = header {
+                    super::evidence::note_encrypted_name(
+                        &mut item.notes,
+                        con,
+                        item.catalogue_name.as_deref(),
+                    );
+                }
+                // A base game's catalogue name stands for a DAT name (D7);
+                // the target-name sanitiser cleans it like any other.
+                if item.catalogue_name.is_none() {
+                    item.catalogue_name = header
+                        .filter(|con| con.kind == TitleKind::Base && con.part.is_none())
+                        .and_then(catalogue_title);
+                }
                 // The content id the same header read (systems batch 3 §10).
                 item.content_id = header.and_then(|con| con.content_id.clone());
+                // Homebrew goes to its system folder with a note (D13).
+                if !item.is_left()
+                    && header.is_some_and(|con| con.kind == TitleKind::Homebrew)
+                    && !item.notes.contains(&ItemNote::Homebrew)
+                {
+                    item.notes.push(ItemNote::Homebrew);
+                }
+                // A part's title id, once the catalogue had its say (D6).
+                if let OrganizeAction::Left {
+                    reason:
+                        LeftReason::GamePart {
+                            title_id: title_id @ None,
+                            ..
+                        },
+                } = &mut item.action
+                {
+                    *title_id = entry.console.as_ref().and_then(|con| con.title_id.clone());
+                }
             }
             (None, None) => {}
         }
@@ -2161,18 +2667,45 @@ pub fn plan_from_survey(
                 }
             }
             Choice::Leave => item.leave(LeftReason::Unknown),
+            Choice::Decline => item.leave(LeftReason::NotConfirmed),
         }
     }
 
     // shadPS4 overlays follow their base's action, decisions included
     // (systems batch 3 D11 e, plan P-4).
-    let pairs = overlay_pairs(&items, &|i| {
-        survey
-            .entries
-            .get(i)
-            .and_then(|e| e.console.as_ref())
-            .is_some_and(|c| c.system == "ps4" && c.kind == TitleKind::Update)
-    });
+    let pairs = overlay_pairs(
+        &items,
+        &|i| {
+            survey
+                .entries
+                .get(i)
+                .and_then(|e| e.console.as_ref())
+                .is_some_and(|c| c.system == "ps4" && c.kind == TitleKind::Update)
+        },
+        &|i| {
+            // A PS4 folder game extracted out of an archive (adjustments
+            // spec D23) is known by its root folder's name, else the
+            // archive stem.
+            let entry = survey.entries.get(i)?;
+            let Some(ArchiveGame::One { root, system, .. }) =
+                entry.inspection.as_ref()?.folder_game.as_ref()
+            else {
+                return None;
+            };
+            if system != "ps4" {
+                return None;
+            }
+            match root.rsplit('/').next().filter(|r| !r.is_empty()) {
+                Some(last) => Some(last.to_string()),
+                None => items
+                    .get(i)?
+                    .sources
+                    .first()?
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned()),
+            }
+        },
+    );
     let titles: HashMap<usize, String> = pairs
         .iter()
         .map(|pair| {
@@ -2229,6 +2762,29 @@ pub fn plan_from_survey(
             Err(reason) => item.leave(reason),
         }
     }
+    // Loose multi-disc sets are laid out like an extracted multi-disc
+    // archive (adjustments D24); PS2, Xbox and Xbox 360 get no playlist.
+    for item in items
+        .iter()
+        .filter(|i| i.moves_in() && i.kind == ItemKind::Set)
+    {
+        let Some(set) = survey
+            .entries
+            .get(item.id)
+            .and_then(|e| e.disc_set.as_ref())
+        else {
+            continue;
+        };
+        let playlist = !item
+            .system_id
+            .as_deref()
+            .is_some_and(|s| NO_PLAYLIST.contains(&s));
+        shapes[item.id] = Some(ExtractShape::LooseDiscs {
+            discs: set.discs.iter().map(|d| rel(src, d)).collect(),
+            title: set.title.clone(),
+            playlist,
+        });
+    }
     let fat32 = file_system_is_fat32(&target_root);
     let layout = TargetLayout {
         target_root: target_root.clone(),
@@ -2268,11 +2824,15 @@ pub fn plan_from_survey(
                     .first()
                     .and_then(|p| p.extension())
                     .is_some_and(|e| e.eq_ignore_ascii_case("zar"));
-            let placeable = item.kind == ItemKind::Folder || zar;
+            // A folder game extracted out of an archive lands as a folder
+            // too (adjustments spec D23).
+            let extracted = matches!(shapes.get(item.id), Some(Some(ExtractShape::Folder { .. })))
+                && matches!(item.transfer, Transfer::Extract { .. });
+            let placeable = item.kind == ItemKind::Folder || zar || extracted;
             if c.kind != TitleKind::Dlc
                 || !placeable
                 || item.system_id.as_deref() != Some(c.system.as_str())
-                || !matches!(item.transfer, Transfer::AsIs)
+                || !(matches!(item.transfer, Transfer::AsIs) || extracted)
             {
                 return None;
             }
@@ -2356,6 +2916,8 @@ pub fn plan_from_survey(
             action: OrganizeAction::Left { reason },
             title_id: None,
             content_id: None,
+            playlist: None,
+            title_source: None,
         });
     }
 
@@ -2440,8 +3002,12 @@ pub fn plan_from_survey(
         duplicates: dups.groups,
         updates,
     };
-    // Informational: the gate runs on the decided plan at apply time.
-    if let Some(t) = large_transfer(&plan) {
+    // Informational: the gate runs on the decided plan at apply time; a
+    // folder game extraction under the threshold is asked then, with no
+    // warning (adjustments spec D15).
+    if let Some(t) =
+        large_transfer(&plan).filter(|t| t.bytes >= super::apply::large_transfer_threshold())
+    {
         plan.warnings.push(PlanWarning::LargeTransfer {
             bytes: t.bytes,
             items: t.items,
@@ -2507,8 +3073,8 @@ fn duplicates_step(
         }
         match (entry.kind, &entry.facts) {
             (ItemKind::Set, _) => sets.push((entry.sources.clone(), system.clone())),
-            // A folder game is a unit too (D28): only its title id can
-            // match it, and its group is reported, never set aside.
+            // A folder game is a unit too (D28): its title id or its tree
+            // matches it, and it is set aside whole (adjustments D19).
             (ItemKind::Folder, _) => folders.push((
                 primary.clone(),
                 system.clone(),
@@ -2533,6 +3099,28 @@ fn duplicates_step(
     let mut units = units_from_facts(&facts, &|i| fact_systems.get(i).cloned()).units;
     units.extend(units_from_sets(&sets).units);
     units.extend(units_from_folders(&folders).units);
+    // Folder trees the survey measured (spec D19): a folder game's from
+    // its metadata walk, an archive folder game's from its listing.
+    for u in &mut units {
+        let Some(entry) = by_primary
+            .get(&u.primary)
+            .and_then(|&id| survey.entries.get(id))
+        else {
+            continue;
+        };
+        u.tree_digest = match (&entry.tree, &entry.facts) {
+            (Some(tree), _) => tree.digest.clone(),
+            (None, Some(f)) => crate::organize::inspect::archive_tree_digest(&f.inspection),
+            _ => None,
+        };
+        // An archive folder game: the title its listing's probe read.
+        if u.kind != crate::dedupe::UnitKind::Folder && u.tree_digest.is_some() {
+            u.tree_title = entry
+                .console
+                .as_ref()
+                .and_then(|c| crate::dedupe::keys::title_key_string(c, &u.system));
+        }
+    }
     // What the survey's readers found stands for level 1's title keys: a
     // header or folder probe is opened once (systems batch 3 D24).
     for u in &units {
@@ -2898,6 +3486,10 @@ pub fn space_needed(items: &[OrganizeItem], source_root: &Path, copies: bool, cl
                 .fold(0u64, u64::saturating_add),
             Transfer::AsIs => 0,
         };
+        // A loose set's playlist is a few lines too.
+        if item.playlist.is_some() {
+            add = add.saturating_add(round(1));
+        }
         if copies {
             for c in &item.companions {
                 let size = fs::metadata(source_root.join(&c.source)).map_or(0, |m| m.len());
@@ -2952,6 +3544,10 @@ fn plan_transfer(
     if !insp.listing_complete {
         return Ok(None);
     }
+    // A folder game inside the archive (adjustments spec D23).
+    if let Some(root) = insp.folder_game.as_ref().and_then(ArchiveGame::root) {
+        return plan_folder_extract(item, insp, root, system, mode);
+    }
     let by_name = |name: &str| insp.entries.iter().find(|e| e.name == name);
     let (chosen, shape, sheet_check): (Vec<&ZipEntryInfo>, ExtractShape, SheetCheck) =
         match &insp.disc_set {
@@ -2996,8 +3592,81 @@ fn plan_transfer(
                 (chosen, ExtractShape::Roms, SheetCheck::Read)
             }
         };
+    set_extract(item, insp, &chosen, sheet_check, mode)?;
+    Ok(Some(shape))
+}
+
+/// How a folder game found inside an archive at `root` reaches `system`'s
+/// folder (adjustments spec D23): a PS3 disc (JB), PS4 or Wii U game
+/// extracts the root's subtree into a folder named like a disk folder
+/// game of that system (entries outside the root are leftovers); a Vita
+/// game, a PS3 HDD/PSN title, an Xbox, Xbox 360 or PS5 game, or a game
+/// the user filed under another system moves as it is.
+fn plan_folder_extract(
+    item: &mut OrganizeItem,
+    insp: &Inspection,
+    root: &str,
+    system: &System,
+    mode: TransferMode,
+) -> Result<Option<ExtractShape>, LeftReason> {
+    let extracts = match insp.folder_game.as_ref() {
+        Some(ArchiveGame::One {
+            system: found,
+            probe,
+            ..
+        }) if *found == system.id => match found.as_str() {
+            "ps3" => super::evidence::is_ps3_disc_probe(probe),
+            "ps4" | "wiiu" => true,
+            _ => false,
+        },
+        Some(ArchiveGame::Ps4OrVita { .. }) => system.id == "ps4",
+        _ => false,
+    };
+    if !extracts {
+        return Ok(None);
+    }
+    let prefix = format!("{}/", root.to_lowercase());
+    let chosen: Vec<&ZipEntryInfo> = insp
+        .entries
+        .iter()
+        .filter(|e| root.is_empty() || e.name.to_lowercase().starts_with(&prefix))
+        .filter(|e| e.unsafe_why.is_some() || !is_metadata_entry(&e.name))
+        .collect();
+    if chosen.is_empty() {
+        return Ok(None);
+    }
+    let name = match root.rsplit_once('/') {
+        Some((_, last)) => last.to_string(),
+        None if !root.is_empty() => root.to_string(),
+        None => item
+            .sources
+            .first()
+            .and_then(|p| p.file_stem())
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    };
+    set_extract(item, insp, &chosen, SheetCheck::Read, mode)?;
+    if let Transfer::Extract { folder_game, .. } = &mut item.transfer {
+        *folder_game = true;
+    }
+    Ok(Some(ExtractShape::Folder {
+        root: root.to_string(),
+        name,
+    }))
+}
+
+/// Sets `item.transfer` to the extraction of `chosen` (targets assigned
+/// later): the archive goes to the Trash in move mode only when nothing
+/// else is left in it.
+fn set_extract(
+    item: &mut OrganizeItem,
+    insp: &Inspection,
+    chosen: &[&ZipEntryInfo],
+    sheet_check: SheetCheck,
+    mode: TransferMode,
+) -> Result<(), LeftReason> {
     let mut entries = Vec::with_capacity(chosen.len());
-    for e in &chosen {
+    for e in chosen {
         if let Some(why) = e.unsafe_why {
             return Err(LeftReason::UnsafeArchiveEntry {
                 name: e.name.clone(),
@@ -3060,8 +3729,9 @@ fn plan_transfer(
         },
         sheet_check,
         m3u: None,
+        folder_game: false,
     };
-    Ok(Some(shape))
+    Ok(())
 }
 
 /// Whether the user may settle this item: it moves, or nothing placed it.
@@ -3474,6 +4144,94 @@ mod tests {
     }
 
     #[test]
+    fn adjustment_variants_serde() {
+        use serde_json::{json, to_value};
+        for (reason, wire) in [
+            (
+                LeftReason::GamePart {
+                    part: PartKind::ExeFs,
+                    system: "switch".into(),
+                    title_id: None,
+                },
+                json!({"kind": "game-part", "part": "exe-fs", "system": "switch", "title_id": null}),
+            ),
+            (
+                LeftReason::GamePart {
+                    part: PartKind::Backup,
+                    system: "psvita".into(),
+                    title_id: Some("PCSE00120".into()),
+                },
+                json!({"kind": "game-part", "part": "backup", "system": "psvita", "title_id": "PCSE00120"}),
+            ),
+            (LeftReason::NotConfirmed, json!({"kind": "not-confirmed"})),
+        ] {
+            assert_eq!(to_value(&reason).unwrap(), wire);
+            assert_eq!(serde_json::from_value::<LeftReason>(wire).unwrap(), reason);
+        }
+        // A game part written without its title id still loads.
+        assert_eq!(
+            serde_json::from_value::<LeftReason>(
+                json!({"kind": "game-part", "part": "nca", "system": "switch"})
+            )
+            .unwrap(),
+            LeftReason::GamePart {
+                part: PartKind::Nca,
+                system: "switch".into(),
+                title_id: None
+            }
+        );
+        for (note, wire) in [
+            (ItemNote::Homebrew, json!({"kind": "homebrew"})),
+            (ItemNote::Vita7z, json!({"kind": "vita7z"})),
+            (
+                ItemNote::MissingDisc { n: 2 },
+                json!({"kind": "missing-disc", "n": 2}),
+            ),
+            (ItemNote::EncryptedName, json!({"kind": "encrypted-name"})),
+        ] {
+            assert_eq!(to_value(&note).unwrap(), wire);
+            assert_eq!(serde_json::from_value::<ItemNote>(wire).unwrap(), note);
+        }
+        let d = Decision {
+            item: 4,
+            choice: Choice::Decline,
+        };
+        assert_eq!(
+            to_value(&d).unwrap(),
+            json!({"item": 4, "choice": "decline"})
+        );
+        let back: Decision =
+            serde_json::from_value(json!({"item": 4, "choice": "decline"})).unwrap();
+        assert_eq!(back.choice, Choice::Decline);
+    }
+
+    #[test]
+    fn facts_of_an_older_version_are_discarded() {
+        let cache = Cache::in_memory().unwrap();
+        let c = WalkCandidate {
+            path: PathBuf::from("/pile/Game.zip"),
+            ext: "zip".into(),
+            size: 10,
+            mtime_ns: 1_700_000_000_000_000_000,
+            cloud_only: false,
+        };
+        let f = facts(Inspection::new(Container::Zip));
+        remember_facts(&cache, &c, &f);
+        assert!(memoised_facts(&cache, &c).is_some());
+        let mut old = serde_json::to_value(StoredFacts {
+            v: FACTS_VERSION,
+            facts: f,
+        })
+        .unwrap();
+        assert_eq!(FACTS_VERSION, 9);
+        old["v"] = 8.into();
+        cache
+            .put_organize_facts(&c.path, c.size, c.mtime_ns, &old.to_string())
+            .unwrap();
+        assert!(memoised_facts(&cache, &c).is_none());
+    }
+
+    #[test]
     fn organize_item_content_id_is_optional() {
         let mut item = OrganizeItem {
             id: 0,
@@ -3497,6 +4255,8 @@ mod tests {
             disc: None,
             title_id: None,
             content_id: None,
+            playlist: None,
+            title_source: None,
             action: OrganizeAction::Auto,
         };
         let bare = serde_json::to_value(&item).unwrap();

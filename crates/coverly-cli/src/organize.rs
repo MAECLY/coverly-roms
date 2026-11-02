@@ -13,6 +13,8 @@ use std::time::{Duration, Instant, SystemTime};
 use clap::{Args, ValueEnum};
 use coverly_core::archive::{FoundTool, Tool};
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::catalog::{SwitchCatalog, TitleNames};
+use coverly_core::consoles::PartKind;
 use coverly_core::credentials::SourceKeys;
 use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
 use coverly_core::identify::evidence::{Evidence, IdLevel};
@@ -20,11 +22,12 @@ use coverly_core::identify::sniff::NotARom;
 use coverly_core::net::{PoliteHttp, UreqHttp};
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
-    apply_organize, large_transfer, load_plan, plan_from_survey, resume_organize, survey, ApplyEnv,
-    ApplyError, Choice, Decision, ItemKind, ItemNote, ItemOutcome, ItemStatus, LargeTransfer,
-    LeftReason, NameMode, OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem,
-    OrganizeOptions, OrganizePhase, OrganizePlan, OrganizeProgress, OrganizeReport, OsMetaProbe,
-    PlanWarning, RenameReason, SkipReason, Survey, Transfer, TransferMode,
+    apply_organize, gate, large_transfer, large_transfer_threshold, load_plan, plan_from_survey,
+    resume_organize, survey, ApplyEnv, ApplyError, Choice, Decision, HugeItem, ItemKind, ItemNote,
+    ItemOutcome, ItemStatus, LargeConfirm, LargeTransfer, LeftReason, NameMode, OrganizeAction,
+    OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan,
+    OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason, SkipReason, Survey,
+    Transfer, TransferMode,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
@@ -34,6 +37,7 @@ use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig, SCREEN
 use coverly_core::systems::SystemDb;
 use coverly_core::write::trash::process_trash;
 
+use crate::catalog::{catalog_http, ui_locale};
 use crate::dedupe::{reason_text, relation_text};
 use crate::fill::write_file;
 use crate::profile::{check_folder, profile_ids};
@@ -109,6 +113,11 @@ pub struct OrganizeArgs {
     /// before writing anything.
     #[arg(long, requires = "apply")]
     yes_large: bool,
+    /// Leave every item that writes 10 GB or more on its own (or extracts
+    /// a folder game) where it is, without asking; the rest still needs
+    /// confirming when it reaches 10 GB.
+    #[arg(long, requires = "apply", conflicts_with = "yes_large")]
+    skip_large: bool,
     /// Output format.
     #[arg(long, value_enum, default_value_t = ReportArg::Table)]
     report: ReportArg,
@@ -126,6 +135,8 @@ pub struct OrganizeArgs {
     database_url: Option<String>,
     #[arg(long, hide = true)]
     screenscraper_url: Option<String>,
+    #[arg(long, hide = true)]
+    titledb_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -224,6 +235,356 @@ fn large_failure(t: &LargeTransfer) -> Failure {
         "would write {} bytes (≥ 10 GB) to {}; re-run with --yes-large to confirm; nothing was written",
         t.bytes, t.volume
     ))
+}
+
+/// An answer to a per-item question (adjustments spec D18).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Answer {
+    Yes,
+    All,
+    No,
+}
+
+impl Answer {
+    /// `y`/`yes`, `a`/`all`, `n`/`no`, any case; anything else is asked
+    /// again.
+    fn parse(line: &str) -> Option<Answer> {
+        match line.trim().to_ascii_lowercase().as_str() {
+            "y" | "yes" => Some(Answer::Yes),
+            "a" | "all" => Some(Answer::All),
+            "n" | "no" => Some(Answer::No),
+            _ => None,
+        }
+    }
+}
+
+/// Where the per-item questions are asked (injected, so tests script the
+/// answers on every OS without a pty).
+pub trait Prompt {
+    /// Writes `question` to stderr and reads the answer; `None` on EOF or
+    /// Ctrl-C. An answer that is not one of the choices is asked again.
+    fn ask(&mut self, question: &str) -> Option<Answer>;
+}
+
+/// The terminal: the question on stderr (stdout keeps the report), the
+/// answer from stdin.
+struct TtyPrompt;
+
+impl Prompt for TtyPrompt {
+    fn ask(&mut self, question: &str) -> Option<Answer> {
+        use std::io::{BufRead, Write};
+        loop {
+            {
+                let mut err = io::stderr().lock();
+                let _ = write!(err, "{} ", table::terminal_safe(question));
+                let _ = err.flush();
+            }
+            let mut line = String::new();
+            match io::stdin().lock().read_line(&mut line) {
+                Ok(0) | Err(_) => {
+                    eprintln!();
+                    return None;
+                }
+                Ok(_) => {
+                    if let Some(a) = Answer::parse(&line) {
+                        return Some(a);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Test builds only: `y,a,n…` answers the questions in order (then EOF);
+/// the questions still go to stderr.
+const TEST_PROMPT_ENV: &str = "COVERLY_TEST_PROMPT";
+
+struct ScriptedPrompt {
+    answers: std::collections::VecDeque<String>,
+}
+
+impl Prompt for ScriptedPrompt {
+    fn ask(&mut self, question: &str) -> Option<Answer> {
+        loop {
+            eprintln!("{}", table::terminal_safe(question));
+            if let Some(a) = Answer::parse(&self.answers.pop_front()?) {
+                return Some(a);
+            }
+        }
+    }
+}
+
+/// The prompt of this run: only when stdin and stderr are both terminals
+/// (spec D18), else `None` (scripts keep today's refusal).
+fn terminal_prompt() -> Option<Box<dyn Prompt>> {
+    if let Some(script) = coverly_core::test_hook(TEST_PROMPT_ENV) {
+        let answers = script
+            .split(',')
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .map(String::from)
+            .collect();
+        return Some(Box::new(ScriptedPrompt { answers }));
+    }
+    (io::stdin().is_terminal() && io::stderr().is_terminal())
+        .then(|| Box::new(TtyPrompt) as Box<dyn Prompt>)
+}
+
+/// What `sum` more bytes leave free on a target with `free` bytes, with
+/// the apply's 1 % margin: `Ok(left)` or `Err(missing)`.
+fn room_after(free: u64, sum: u64) -> Result<u64, u64> {
+    let needed = sum.saturating_add(sum.div_ceil(100));
+    free.checked_sub(needed).ok_or_else(|| needed - free)
+}
+
+/// The question for one huge item (spec D18).
+fn item_question(t: &LargeTransfer, h: &HugeItem, used: u64) -> (String, bool) {
+    let verb = if h.extract {
+        "Extract"
+    } else if t.copies {
+        "Copy"
+    } else {
+        "Move"
+    };
+    let name = table::one_line(&h.name);
+    let size = table::human_bytes(h.bytes);
+    let volume = table::one_line(&t.volume);
+    match t.free.map(|f| room_after(f, used.saturating_add(h.bytes))) {
+        Some(Ok(left)) => (
+            format!(
+                "{verb} \"{name}\" ({size}; {} free on {volume} after this)? [y]es / [a]ll / [n]o:",
+                table::human_bytes(left)
+            ),
+            true,
+        ),
+        Some(Err(missing)) => (
+            format!(
+                "{verb} \"{name}\" ({size}; does not fit on {volume}: {} short)? [n]o:",
+                table::human_bytes(missing)
+            ),
+            false,
+        ),
+        None => (
+            format!("{verb} \"{name}\" ({size})? [y]es / [a]ll / [n]o:"),
+            true,
+        ),
+    }
+}
+
+/// The aggregate question for what the non-huge items write (D16b).
+fn rest_question(t: &LargeTransfer, used: u64) -> String {
+    let what = if t.huge.is_empty() {
+        format!(
+            "Write {} to {}",
+            table::human_bytes(t.rest),
+            table::one_line(&t.volume)
+        )
+    } else {
+        format!(
+            "Write {} more to {}",
+            table::human_bytes(t.rest),
+            table::one_line(&t.volume)
+        )
+    };
+    match t.free.map(|f| room_after(f, used.saturating_add(t.rest))) {
+        Some(Ok(left)) => format!(
+            "{what} ({} free after this)? [y]es / [n]o:",
+            table::human_bytes(left)
+        ),
+        Some(Err(missing)) => format!(
+            "{what} (does not fit: {} short)? [y]es / [n]o:",
+            table::human_bytes(missing)
+        ),
+        None => format!("{what}? [y]es / [n]o:"),
+    }
+}
+
+/// Confirms what `plan` writes past the threshold (spec D16, D16b, D18):
+/// each huge item is asked on its own (`answer_all` answers them all:
+/// `All` for `--yes-large`, `No` for `--skip-large`), declined ones are
+/// left through [`Choice::Decline`] and the plan is made again with
+/// `replan` (an item that became huge through it is asked in turn); then,
+/// only when what the other items write reaches the threshold, one
+/// question for that rest. Without a prompt, anything still
+/// unconfirmed is refused exactly as before (`--yes-large` hint); EOF at a
+/// question refuses too. Returns the plan to apply, which the shared gate
+/// accepts.
+fn confirm_large(
+    plan: OrganizePlan,
+    t: LargeTransfer,
+    answer_all: Option<Answer>,
+    mut prompt: Option<Box<dyn Prompt>>,
+    replan: &dyn Fn(&[Decision]) -> Result<OrganizePlan, Failure>,
+) -> Result<OrganizePlan, Failure> {
+    if answer_all == Some(Answer::All) {
+        return Ok(plan);
+    }
+    // A run that cannot ask and was told nothing: today's refusal.
+    if answer_all.is_none() && prompt.is_none() {
+        return Err(large_failure(&t));
+    }
+    // Declining an item can make another one huge (the copy a duplicate
+    // set aside becomes the keeper): the plan is made again and every item
+    // not answered yet is asked, until no answer declines anything new.
+    let mut answers = Answers::default();
+    let mut plan = plan;
+    let mut left = Some(t);
+    while let Some(t) = &left {
+        let Some(round) = answer_items(t, answer_all, &mut prompt, &answers) else {
+            return Err(large_failure(t));
+        };
+        answers.all |= round.all;
+        answers.accepted.extend(round.accepted);
+        if round.declined.is_empty() {
+            break;
+        }
+        answers.declined.extend(round.declined);
+        plan = replan(&answers.declined)?;
+        left = large_transfer(&plan);
+    }
+    let Answers {
+        accepted,
+        declined: _,
+        all,
+    } = answers;
+    let Some(left) = left else {
+        return Ok(plan);
+    };
+    if !all && left.rest >= large_transfer_threshold() {
+        let used: u64 = left
+            .huge
+            .iter()
+            .map(|h| h.bytes)
+            .fold(0, u64::saturating_add);
+        let Some(p) = prompt.as_deref_mut() else {
+            return Err(rest_failure(&left));
+        };
+        match p.ask(&rest_question(&left, used)) {
+            Some(Answer::Yes | Answer::All) => {}
+            None | Some(Answer::No) => return Err(large_failure(&left)),
+        }
+    }
+    let confirm = LargeConfirm {
+        bytes: left.bytes,
+        items: accepted,
+    };
+    gate(&plan, Some(&confirm)).map_err(|t| large_failure(&t))?;
+    Ok(plan)
+}
+
+/// The answers to the per-item questions of [`confirm_large`].
+#[derive(Debug, Default)]
+struct Answers {
+    /// Item ids accepted.
+    accepted: Vec<usize>,
+    /// One [`Choice::Decline`] per item declined.
+    declined: Vec<Decision>,
+    /// «All» was answered: the rest needs no question.
+    all: bool,
+}
+
+/// Asks each huge item of `t` not in `before` (the answers of earlier
+/// rounds) in turn, or answers them all with `answer_all` (or with
+/// «yes» once «all» was answered); an item that does not fit takes only
+/// «no». `None` when the prompt ends (EOF) or there is none to ask.
+fn answer_items(
+    t: &LargeTransfer,
+    answer_all: Option<Answer>,
+    prompt: &mut Option<Box<dyn Prompt>>,
+    before: &Answers,
+) -> Option<Answers> {
+    let mut out = Answers::default();
+    // Bytes already counted against the free space: the rest, then each
+    // item accepted (in an earlier round too).
+    let mut used = t
+        .huge
+        .iter()
+        .filter(|h| before.accepted.contains(&h.item))
+        .map(|h| h.bytes)
+        .fold(t.rest, u64::saturating_add);
+    let answered = |item: usize| {
+        before.accepted.contains(&item) || before.declined.iter().any(|d| d.item == item)
+    };
+    for h in t.huge.iter().filter(|h| !answered(h.item)) {
+        let answer = match (answer_all, out.all || before.all) {
+            (Some(a), _) => a,
+            (None, true) => Answer::Yes,
+            (None, false) => {
+                let (question, fits) = item_question(t, h, used);
+                let p = prompt.as_deref_mut()?;
+                loop {
+                    match p.ask(&question) {
+                        None => return None,
+                        Some(Answer::No) => break Answer::No,
+                        Some(_) if !fits => continue,
+                        Some(a) => break a,
+                    }
+                }
+            }
+        };
+        match answer {
+            Answer::No => out.declined.push(Decision {
+                item: h.item,
+                choice: Choice::Decline,
+            }),
+            Answer::All => {
+                out.all = true;
+                out.accepted.push(h.item);
+                used = used.saturating_add(h.bytes);
+            }
+            Answer::Yes => {
+                out.accepted.push(h.item);
+                used = used.saturating_add(h.bytes);
+            }
+        }
+    }
+    Some(out)
+}
+
+/// `--skip-large` without a terminal when the rest alone still reaches
+/// the threshold: nothing confirms it.
+fn rest_failure(t: &LargeTransfer) -> Failure {
+    fail(format!(
+        "the other items would still write {} bytes (≥ 10 GB) to {}; run in a terminal to confirm, or use --yes-large instead of --skip-large; nothing was written",
+        t.rest, t.volume
+    ))
+}
+
+/// The Switch catalogue this run uses (plan P-1, P-2): `None` while the
+/// setting is off, under `--offline` and for a pile without a Switch
+/// item. Otherwise it is downloaded or refreshed when due (a first
+/// download is capped at 30 s, after which the plan goes on without it),
+/// with `ncas.json` only when an item has NCA ids but no title id, and the
+/// nlib fallback asked only when it is on.
+fn switch_catalog(
+    args: &OrganizeArgs,
+    s: &Settings,
+    found: &Survey,
+    data: &Path,
+    cancel: &AtomicBool,
+) -> Option<SwitchCatalog> {
+    let sw = &s.catalogs.switch;
+    if args.offline || !sw.enabled || !found.has_switch() {
+        return None;
+    }
+    let mut catalog = SwitchCatalog::open(data).ok()?;
+    if let Some(base) = &args.titledb_url {
+        catalog = catalog.with_base(base.clone());
+    }
+    let http = catalog_http(s);
+    let now = SystemTime::now();
+    let deadline = Some(Instant::now() + Duration::from_secs(30));
+    let locale = ui_locale(s);
+    let quiet = |_: u64, _: Option<u64>| {};
+    catalog.ensure(&http, sw, locale, now, cancel, deadline, &quiet);
+    if found.wants_ncas() {
+        catalog.ensure_ncas(&http, sw, now, cancel, deadline, &quiet);
+    }
+    if sw.fallback_on() {
+        let ids = found.switch_title_ids();
+        catalog.ensure_nlib(&http, sw, locale, &ids, now, cancel, deadline);
+    }
+    Some(catalog)
 }
 
 /// `FILE=SYSTEM_ID` split on the last `=` (names may contain `=`); a
@@ -479,10 +840,18 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         online: lookup
             .as_ref()
             .map(|l| l as &dyn coverly_core::organize::evidence::OnlineLookup),
+        titles: None,
         now: SystemTime::now(),
     };
 
     let found = survey(&source, &opts, &env, &progress, &cancel).map_err(organize_failure)?;
+    // The optional Switch catalogue (plan P-2): fetched or refreshed only
+    // when it is on, the run is online and the pile has a Switch item.
+    let catalog = switch_catalog(args, s, &found, &dirs.data, &cancel);
+    let env = OrganizeEnv {
+        titles: catalog.as_ref().map(|c| c as &dyn TitleNames),
+        ..env
+    };
     let mut decisions = assign_decisions(&found, &assigned)?;
     let mut plan = plan_from_survey(&found, &opts, &decisions, &env).map_err(organize_failure)?;
     if args.include_review {
@@ -506,10 +875,24 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
     if !apply {
         return emit(args, Mode::DryRun, &plan, None, &db, &opts);
     }
-    if !args.yes_large {
-        if let Some(t) = large_transfer(&plan) {
-            return Err(large_failure(&t));
-        }
+    if let Some(t) = large_transfer(&plan) {
+        let replan = |extra: &[Decision]| {
+            let mut all: Vec<Decision> = decisions
+                .iter()
+                .filter(|d| !extra.iter().any(|e| e.item == d.item))
+                .cloned()
+                .collect();
+            all.extend_from_slice(extra);
+            plan_from_survey(&found, &opts, &all, &env).map_err(organize_failure)
+        };
+        let answer_all = if args.yes_large {
+            Some(Answer::All)
+        } else if args.skip_large {
+            Some(Answer::No)
+        } else {
+            None
+        };
+        plan = confirm_large(plan, t, answer_all, terminal_prompt(), &replan)?;
     }
     std::fs::create_dir_all(&dirs.data).map_err(|e| {
         fail(format!(
@@ -822,6 +1205,12 @@ fn left_reason_text(reason: &LeftReason) -> String {
         LeftReason::GameOverlay { of } => {
             format!("mods or patch folder of {of}: left where it is")
         }
+        LeftReason::GamePart {
+            part: PartKind::Backup,
+            ..
+        } => "encrypted Vita backup; not moved on its own".into(),
+        LeftReason::GamePart { .. } => "part of a game; not moved on its own".into(),
+        LeftReason::NotConfirmed => "not confirmed; left where it is".into(),
     }
 }
 
@@ -894,6 +1283,18 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::ProEnhanced => "enhanced for PS5 Pro".into(),
         ItemNote::DlcFolder { layout } => {
             format!("goes to the DLC folder, where {layout} looks for downloadable content")
+        }
+        ItemNote::Homebrew => "homebrew".into(),
+        ItemNote::Vita7z => "Vita3K only installs .zip, .vpk or .vci".into(),
+        ItemNote::MissingDisc { n } => format!("disc {n} is missing"),
+        ItemNote::DiscSet => "looks like a multi-disc game".into(),
+        ItemNote::EncryptedName => {
+            "encrypted; the name cannot be read without decrypting it".into()
+        }
+        ItemNote::ArchiveGames { count } => format!("the archive holds {count} games"),
+        ItemNote::Ps4OrVita => "param.sfo must be read to tell PS4 from Vita".into(),
+        ItemNote::ArchiveCaseCollision => {
+            "two names in the archive differ only in case; extracting them would collide".into()
         }
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
@@ -1350,6 +1751,153 @@ fn render_table(
 mod tests {
     use super::*;
 
+    fn transfer(free: Option<u64>, huge: Vec<HugeItem>, rest: u64) -> LargeTransfer {
+        LargeTransfer {
+            bytes: rest + huge.iter().map(|h| h.bytes).sum::<u64>(),
+            items: huge.len() + 1,
+            copies: true,
+            free,
+            volume: "TinyExt".into(),
+            huge,
+            rest,
+        }
+    }
+
+    fn huge(item: usize, name: &str, bytes: u64, extract: bool) -> HugeItem {
+        HugeItem {
+            item,
+            name: name.into(),
+            system: "ps4".into(),
+            bytes,
+            extract,
+            followers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn answers_parse_short_and_long_forms_only() {
+        assert_eq!(Answer::parse(" Y\n"), Some(Answer::Yes));
+        assert_eq!(Answer::parse("all"), Some(Answer::All));
+        assert_eq!(Answer::parse("No"), Some(Answer::No));
+        assert_eq!(Answer::parse("si"), None);
+        assert_eq!(Answer::parse(""), None);
+    }
+
+    #[test]
+    fn item_questions_show_size_and_what_is_left() {
+        let h = huge(3, "Bloodborne.zip", 40_000_000_000, true);
+        let t = transfer(Some(100_000_000_000), vec![h.clone()], 0);
+        let (q, fits) = item_question(&t, &h, 20_000_000_000);
+        assert!(fits);
+        // 60 GB + 1 % margin out of 100 GB.
+        assert_eq!(
+            q,
+            "Extract \"Bloodborne.zip\" (40.0 GB; 39.4 GB free on TinyExt after this)? [y]es / [a]ll / [n]o:"
+        );
+        let (q, fits) = item_question(&t, &h, 70_000_000_000);
+        assert!(!fits);
+        assert_eq!(
+            q,
+            "Extract \"Bloodborne.zip\" (40.0 GB; does not fit on TinyExt: 11.1 GB short)? [n]o:"
+        );
+        let copy = huge(4, "Game\nX.iso", 12_000_000_000, false);
+        let t = transfer(None, vec![copy.clone()], 0);
+        assert_eq!(
+            item_question(&t, &copy, 0).0,
+            "Copy \"Game\u{FFFD}X.iso\" (12.0 GB)? [y]es / [a]ll / [n]o:"
+        );
+    }
+
+    /// Answers in order, `None` once they run out (EOF).
+    struct Script(Vec<Answer>, Vec<String>);
+
+    impl Prompt for Script {
+        fn ask(&mut self, question: &str) -> Option<Answer> {
+            self.1.push(question.to_string());
+            (!self.0.is_empty()).then(|| self.0.remove(0))
+        }
+    }
+
+    #[test]
+    fn an_item_that_does_not_fit_accepts_only_no() {
+        let t = transfer(Some(10), vec![huge(7, "Big.iso", 50, false)], 0);
+        // «Yes» and «all» are asked again; then EOF.
+        let mut p: Option<Box<dyn Prompt>> =
+            Some(Box::new(Script(vec![Answer::Yes, Answer::All], Vec::new())));
+        assert!(answer_items(&t, None, &mut p, &Answers::default()).is_none());
+        let mut p: Option<Box<dyn Prompt>> =
+            Some(Box::new(Script(vec![Answer::Yes, Answer::No], Vec::new())));
+        let got = answer_items(&t, None, &mut p, &Answers::default()).unwrap();
+        assert!(got.accepted.is_empty());
+        assert_eq!(got.declined.len(), 1);
+        assert_eq!(got.declined[0].item, 7);
+        assert_eq!(got.declined[0].choice, Choice::Decline);
+    }
+
+    #[test]
+    fn yes_to_all_answers_the_later_items_without_asking() {
+        let t = transfer(
+            None,
+            vec![
+                huge(1, "A", 9, false),
+                huge(2, "B", 9, false),
+                huge(3, "C", 9, false),
+            ],
+            0,
+        );
+        let mut p: Option<Box<dyn Prompt>> =
+            Some(Box::new(Script(vec![Answer::No, Answer::All], Vec::new())));
+        let got = answer_items(&t, None, &mut p, &Answers::default()).unwrap();
+        assert_eq!(got.accepted, vec![2, 3]);
+        assert!(got.all);
+        // `--skip-large` asks nothing, even without a prompt.
+        let got = answer_items(&t, Some(Answer::No), &mut None, &Answers::default()).unwrap();
+        assert_eq!(got.declined.len(), 3);
+        assert!(answer_items(&t, None, &mut None, &Answers::default()).is_none());
+    }
+
+    #[test]
+    fn a_later_round_asks_only_the_items_not_answered_yet() {
+        let t = transfer(
+            Some(100),
+            vec![
+                huge(1, "A", 30, false),
+                huge(2, "B", 30, false),
+                huge(3, "C", 30, false),
+            ],
+            0,
+        );
+        let before = Answers {
+            accepted: vec![1],
+            declined: vec![Decision {
+                item: 2,
+                choice: Choice::Decline,
+            }],
+            all: false,
+        };
+        // One answer only: a second question would read EOF (`None`).
+        let mut p: Option<Box<dyn Prompt>> = Some(Box::new(Script(vec![Answer::Yes], Vec::new())));
+        let got = answer_items(&t, None, &mut p, &before).unwrap();
+        assert_eq!(got.accepted, vec![3]);
+        assert!(got.declined.is_empty());
+        // C is weighed after A: 60 B + 1 % of 100 B leaves 39 B; with B
+        // too it would not fit and take only «no».
+        let c = &t.huge[2];
+        assert!(
+            item_question(&t, c, 30).0.contains("39 B free"),
+            "{}",
+            item_question(&t, c, 30).0
+        );
+        let mut p: Option<Box<dyn Prompt>> = None;
+        // «All» in an earlier round answers the new items without asking.
+        let before = Answers {
+            all: true,
+            ..before
+        };
+        let got = answer_items(&t, None, &mut p, &before).unwrap();
+        assert_eq!(got.accepted, vec![3]);
+    }
+
     #[test]
     fn names_from_archives_and_paths_stay_on_one_line() {
         use coverly_core::archive::names::UnsafeWhy;
@@ -1747,6 +2295,43 @@ mod tests {
             ),
         ];
         for (note, text) in cases {
+            assert_eq!(note_text(&note).as_deref(), Some(text));
+        }
+    }
+
+    #[test]
+    fn adjustment_texts() {
+        for (reason, text) in [
+            (
+                LeftReason::GamePart {
+                    part: PartKind::ExeFs,
+                    system: "switch".into(),
+                    title_id: None,
+                },
+                "part of a game; not moved on its own",
+            ),
+            (
+                LeftReason::GamePart {
+                    part: PartKind::Backup,
+                    system: "psvita".into(),
+                    title_id: Some("PCSE00120".into()),
+                },
+                "encrypted Vita backup; not moved on its own",
+            ),
+            (LeftReason::NotConfirmed, "not confirmed; left where it is"),
+        ] {
+            assert_eq!(left_text(&reason), text);
+        }
+        for (note, text) in [
+            (ItemNote::Homebrew, "homebrew"),
+            (ItemNote::Vita7z, "Vita3K only installs .zip, .vpk or .vci"),
+            (ItemNote::MissingDisc { n: 2 }, "disc 2 is missing"),
+            (ItemNote::DiscSet, "looks like a multi-disc game"),
+            (
+                ItemNote::EncryptedName,
+                "encrypted; the name cannot be read without decrypting it",
+            ),
+        ] {
             assert_eq!(note_text(&note).as_deref(), Some(text));
         }
     }

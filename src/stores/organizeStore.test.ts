@@ -4,7 +4,10 @@ import { waitFor } from '@testing-library/react';
 import { setBackend, type Backend } from '@/ipc/backend';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
+import { MOCK_HUGE } from '@/ipc/mock/adjustFixture';
+import { BackendError } from '@/ipc/errors';
 import {
+  MOCK_CURRENT,
   MOCK_DOWNLOADS,
   MOCK_MIXED,
   MOCK_MODERN,
@@ -545,10 +548,18 @@ describe('organise store', () => {
   });
 
   describe('size confirmation (systems batch 3 D23)', () => {
-    /** The modern pile copied: its PS3 folder alone is over 10 GB. */
+    /** The modern pile copied without the two items that are over
+     * 10 GB alone (left by the user): the rest, 28,75 GB, is asked as a
+     * whole and nothing one by one (batch 3 D23 unchanged). */
     async function largeCopy() {
       useNavStore.getState().openOrganize(MOCK_MODERN);
       await store().start(MOCK_MODERN, { mode: 'copy', layout: 'esde' });
+      expect(store().status).toBe('ready');
+      const big = store()
+        .plan!.items.filter((i) => i.action === 'auto' && i.size >= 1e10)
+        .map((i) => i.id);
+      expect(big).toHaveLength(2);
+      await store().decide(big, 'leave');
       expect(store().status).toBe('ready');
     }
 
@@ -587,7 +598,11 @@ describe('organise store', () => {
       expect(store().pendingLarge).toBeNull();
       await Promise.all([first, second]);
       expect(apply).toHaveBeenCalledTimes(2);
-      expect(apply).toHaveBeenLastCalledWith(planId, [], bytes);
+      expect(apply).toHaveBeenLastCalledWith(
+        planId,
+        Object.values(store().decisions),
+        { bytes, items: [] },
+      );
       await waitFor(() => expect(store().status).toBe('done'));
       expect(store().job?.state).toBe('done');
     });
@@ -637,6 +652,188 @@ describe('organise store', () => {
       expect(store().status).toBe('ready');
       expect(store().pendingLarge?.bytes).toBe(bytes);
       expect(store().job).toBeNull();
+    });
+  });
+  describe('per-item confirmation (adjustments D15–D17)', () => {
+    /** The huge pile: Bloodborne 52,4 GB, Demon's Souls (zip, extracted)
+     * 7,41 GB, Ghost of Tsushima 61,2 GB, The Last of Us Part II 38,3 GB;
+     * 6,92 GB of PS2 discs as the rest; 120 GB free on «Juegos». */
+    async function hugeCopy() {
+      useNavStore.getState().openOrganize(MOCK_HUGE);
+      await store().start(MOCK_HUGE, { layout: 'esde' });
+      expect(store().status).toBe('ready');
+      const apply = vi.spyOn(b, 'organizeApply');
+      await store().apply();
+      expect(store().pendingLarge?.huge).toHaveLength(4);
+      return apply;
+    }
+    const huge = () => store().pendingLarge!.huge;
+
+    it('asks the huge items in plan order, one at a time', async () => {
+      await hugeCopy();
+      expect(huge().map((h) => h.name)).toEqual([
+        'Bloodborne',
+        "Demon's Souls (BLUS-30443).zip",
+        'Ghost of Tsushima',
+        'The Last of Us Part II',
+      ]);
+      expect(store().hugeCursor).toBe(0);
+      await store().answerHuge('yes');
+      expect(store().hugeCursor).toBe(1);
+      expect(store().hugeAccepted).toEqual([huge()[0]!.item]);
+      await store().answerHuge('no');
+      expect(store().hugeCursor).toBe(2);
+      expect(store().hugeDeclined).toEqual([huge()[1]!.item]);
+    });
+
+    it('«No», «Sí», «Sí a todo»: declines one and confirms the rest from the numbers', async () => {
+      const apply = await hugeCopy();
+      const d = store().pendingLarge!;
+      const [blood, demons, ghost, tlou] = d.huge;
+      const planId = store().planId;
+      await store().answerHuge('no');
+      await store().answerHuge('yes');
+      expect(apply).toHaveBeenCalledTimes(1);
+      // The current item and every later one, and no question for the rest.
+      await store().answerHuge('all');
+      expect(apply).toHaveBeenCalledTimes(2);
+      expect(apply).toHaveBeenLastCalledWith(
+        planId,
+        [{ item: blood!.item, choice: 'decline' }],
+        {
+          bytes: d.rest + demons!.bytes + ghost!.bytes + tlou!.bytes,
+          items: [demons!.item, ghost!.item, tlou!.item],
+        },
+      );
+      await waitFor(() => expect(store().status).toBe('done'));
+      expect(store().pendingLarge).toBeNull();
+      const left = store().job?.report?.items.find(
+        (o) => o.item === blood!.item,
+      );
+      expect(left).toBeUndefined();
+    });
+
+    it('an item that does not fit takes only «No»', async () => {
+      const apply = await hugeCopy();
+      await store().answerHuge('yes');
+      await store().answerHuge('yes');
+      // 6,92 + 52,4 + 7,41 + 61,2 GB (+1 %) is over the 120 GB free.
+      expect(store().hugeCursor).toBe(2);
+      await store().answerHuge('yes');
+      await store().answerHuge('all');
+      expect(store().hugeCursor).toBe(2);
+      expect(apply).toHaveBeenCalledTimes(1);
+      await store().answerHuge('no');
+      expect(store().hugeCursor).toBe(3);
+    });
+
+    it('asks the rest as a whole after the huge items when it reaches 10 GB', async () => {
+      useNavStore.getState().openOrganize(MOCK_CURRENT);
+      await store().start(MOCK_CURRENT, { layout: 'esde' });
+      const apply = vi.spyOn(b, 'organizeApply');
+      await store().apply();
+      const d = store().pendingLarge!;
+      expect(d.huge).toHaveLength(2);
+      expect(d.rest).toBe(14_100_000_000);
+      await store().answerHuge('yes');
+      await store().answerHuge('yes');
+      // Every item answered; the aggregate dialog is up, nothing sent yet.
+      expect(store().hugeCursor).toBe(2);
+      expect(store().pendingLarge).not.toBeNull();
+      expect(apply).toHaveBeenCalledTimes(1);
+      await store().confirmApply(d.rest);
+      expect(apply).toHaveBeenLastCalledWith(store().planId, [], {
+        bytes: d.bytes,
+        items: d.huge.map((h) => h.item),
+      });
+      await waitFor(() => expect(store().status).toBe('done'));
+    });
+
+    it('«No» to a PS4 base takes the overlays that follow it', async () => {
+      useNavStore.getState().openOrganize(MOCK_CURRENT);
+      await store().start(MOCK_CURRENT, { layout: 'esde' });
+      await store().apply();
+      const [base] = store().pendingLarge!.huge;
+      expect(base!.followers).toHaveLength(1);
+      await store().answerHuge('no');
+      expect(store().hugeDeclined).toEqual([base!.item, ...base!.followers]);
+    });
+
+    it('«Sí a todo» also answers the question for the rest', async () => {
+      useNavStore.getState().openOrganize(MOCK_CURRENT);
+      await store().start(MOCK_CURRENT, { layout: 'esde' });
+      const apply = vi.spyOn(b, 'organizeApply');
+      await store().apply();
+      await store().answerHuge('all');
+      expect(apply).toHaveBeenCalledTimes(2);
+      await waitFor(() => expect(store().status).toBe('done'));
+    });
+
+    it('every item declined and nothing else to move: nothing is sent', async () => {
+      useNavStore.getState().openOrganize(MOCK_HUGE);
+      await store().start(MOCK_HUGE, { layout: 'esde' });
+      const discs = store()
+        .plan!.items.filter((i) => i.system_id === 'ps2')
+        .map((i) => i.id);
+      await store().decide(discs, 'leave');
+      const apply = vi.spyOn(b, 'organizeApply');
+      await store().apply();
+      await store().answerHuge('no');
+      await store().answerHuge('no');
+      await store().answerHuge('no');
+      expect(await store().answerHuge('no')).toBe('nothing');
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(store()).toMatchObject({
+        status: 'ready',
+        pendingLarge: null,
+        hugeDeclined: [],
+        job: null,
+      });
+    });
+
+    it('dismissing or a new plan forgets the answers', async () => {
+      await hugeCopy();
+      await store().answerHuge('no');
+      store().dismissLarge();
+      expect(store()).toMatchObject({
+        pendingLarge: null,
+        hugeCursor: 0,
+        hugeDeclined: [],
+      });
+      await store().apply();
+      await store().answerHuge('yes');
+      await store().setOption({ names: 'catalogue' });
+      expect(store()).toMatchObject({
+        pendingLarge: null,
+        hugeCursor: 0,
+        hugeAccepted: [],
+      });
+    });
+
+    it('an apply that failed starts the questions afresh: a «Sí» then is not sent as declined', async () => {
+      const apply = await hugeCopy();
+      const [blood] = huge();
+      await store().answerHuge('no');
+      // The apply goes out and fails for another reason (the target filled up).
+      apply.mockRejectedValueOnce(new BackendError('no-space', '1/2'));
+      await store().answerHuge('all');
+      expect(store()).toMatchObject({ status: 'ready', pendingLarge: null });
+      expect(store().error?.code).toBe('no-space');
+      // Applied again: every huge item is asked again, Bloodborne too.
+      await store().apply();
+      expect(huge()[0]!.item).toBe(blood!.item);
+      expect(store().hugeDeclined).toEqual([]);
+      await store().answerHuge('yes');
+      await store().answerHuge('no');
+      await store().answerHuge('no');
+      await store().answerHuge('no');
+      const [, decisions, confirm] = apply.mock.lastCall!;
+      expect(decisions).not.toContainEqual({
+        item: blood!.item,
+        choice: 'decline',
+      });
+      expect(confirm?.items).toEqual([blood!.item]);
+      await waitFor(() => expect(store().status).toBe('done'));
     });
   });
 });

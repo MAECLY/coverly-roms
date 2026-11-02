@@ -4,6 +4,14 @@ import { SETTINGS_INDEX, type SettingEntry } from './registry';
 
 const LOCALES: readonly Locale[] = ['es', 'en'];
 
+/** An entry's label in `locale`: a key translated, or its own text. */
+export function entryLabel(
+  locale: Locale,
+  label: SettingEntry['label'],
+): string {
+  return typeof label === 'string' ? translate(locale, label) : label[locale];
+}
+
 /** Accent- and case-insensitive text, placeholders removed (D8). */
 export function foldText(s: string): string {
   return s
@@ -33,7 +41,7 @@ function folded(locale: Locale, e: SettingEntry): Folded {
   let f = byEntry.get(e);
   if (!f) {
     f = {
-      label: foldText(translate(locale, e.label)),
+      label: foldText(entryLabel(locale, e.label)),
       hint: e.hint ? foldText(translate(locale, e.hint)) : '',
       keywords: e.keywords
         ? translate(locale, e.keywords)

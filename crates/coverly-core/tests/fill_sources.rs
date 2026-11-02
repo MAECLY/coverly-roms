@@ -461,6 +461,31 @@ mod embedded {
         assert_eq!((img.width(), img.height()), (48, 48));
     }
 
+    /// A homebrew NRO's asset-section JPEG icon is a last-resort cover
+    /// (adjustments §8.2); a cartridge image has no locator and no candidate.
+    #[test]
+    fn embedded_jpeg_from_nro_becomes_png() {
+        let dir = TempDir::new().unwrap();
+        let img = image::RgbImage::from_pixel(256, 256, image::Rgb([200, 40, 40]));
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut jpeg, image::ImageFormat::Jpeg).unwrap();
+        let path = dir.path().join("Checkpoint.nro");
+        let bytes =
+            coverly_core::consoles::testing::nro("Checkpoint", "3.8.0", jpeg.get_ref()).bytes();
+        std::fs::write(&path, bytes).unwrap();
+        coverly_core::dedupe::testing::pin_mtime(&path, 1);
+        let found = query_candidates("switch", Media::Cover, &path);
+        assert_eq!(found.len(), 1, "{found:?}");
+        let out = decode(&EmbeddedSource.fetch(&found[0]).unwrap());
+        assert_eq!((out.width(), out.height()), (256, 256));
+
+        let xci = dir.path().join("Game [0100000000010000].xci");
+        let bytes = coverly_core::consoles::testing::xci(&["secure"]).bytes();
+        std::fs::write(&xci, bytes).unwrap();
+        coverly_core::dedupe::testing::pin_mtime(&xci, 1);
+        assert!(query_candidates("switch", Media::Cover, &xci).is_empty());
+    }
+
     #[test]
     fn embedded_answers_cover_only() {
         let dir = TempDir::new().unwrap();

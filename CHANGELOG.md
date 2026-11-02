@@ -71,9 +71,47 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   carries first, then the other sources.
 - Organise asks for confirmation, with the exact size, before writing
   10 GB or more.
+- Optional Switch name catalogue from blawar/titledb (MIT), off until you
+  turn it on in Settings → Sources. It downloads one region and language
+  (by the app language, with a US English fallback), keeps only the title
+  id, name, publisher, release date and region, refreshes at most once a
+  week and is never shipped with the app. A file without `[0100…]` in its
+  name is named from its NCA ids. Switch icons from the catalogue are
+  opt-in and kept in a local cache; a second online source can be set as a
+  fallback; with no network the file name is used.
+- A Switch or 3DS game whose name cannot be read without console keys is
+  labelled «Encrypted» instead of guessed. Coverly never reads, asks for,
+  downloads or ships console keys.
+- Loose executables and title metadata are classified from their plain
+  headers (Switch `.nro`/`.nso`/`main.npdm`/`.nca`, GameCube and Wii
+  `.dol`, Xbox `.xbe`, Xbox 360 `.xex`, Wii U `.rpx`/`.rpl`/`.tmd`,
+  PS Vita, PS3 and PSP executables and backups, 3DS `.3dsx`): homebrew,
+  game, update, DLC, or «part of a game» that is never moved on its own.
+- Each item that writes 10 GB or more asks «Yes / Yes to all / No», with
+  its size and the free space left on the target, in the app and in
+  `coverly organize`; `--skip-large` leaves those items where they are
+  without asking.
+- Folder games inside zip and 7z archives (PS Vita, PS3, PS4, Wii U and
+  others) are recognised from the archive listing, without extracting.
+  PS Vita archives stay compressed; the others are extracted after you
+  confirm, and PS4 is told apart from PS Vita.
+- Loose multi-disc games are grouped into one set with an `.m3u` when the
+  disc headers or the DAT hashes agree, with a note when a disc is missing.
+- «Credits» settings tab: every cover and metadata source, database,
+  technical reference, library and font Coverly uses, with its licence,
+  link and the credit it asks for, searchable, and the full third-party
+  licence texts viewable in the app.
+- `coverly catalog switch status|update|remove`.
 
 ### Changed
 
+- Duplicates of the same game by title id and version, or by the same
+  folder, proven by their content, are set aside or sent to the Trash (as
+  the duplicates setting says) and can be undone, instead of only being
+  reported.
+- Extracting a folder game from an archive always asks first.
+- Extractions to the same drive check the free space before writing.
+- The app bundle ships the `LICENSES/` texts and the font licences.
 - Release files are named by system and processor
   (`Coverly-ROMs_<version>_mac_arm.dmg`, `coverly_<version>_linux_x64`, …);
   macOS ships one download per chip instead of a universal one. Installed
@@ -110,6 +148,10 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 - Empty files no longer hold back PS4, PS5, Xbox One and Xbox Series
   folder games.
 - `.cik` files are treated as key material and left untouched.
+- The third-party notices name every source and component whose licence
+  asks for a credit, drop an art source Coverly never used, and point to
+  the full licence list generated from the lock files. The README's
+  acknowledgements are generated from the same credits list as the app.
 
 ### Fixed
 

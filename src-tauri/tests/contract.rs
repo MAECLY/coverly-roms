@@ -410,6 +410,8 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         disc: None,
         title_id: None,
         content_id: None,
+        playlist: None,
+        title_source: None,
         action,
     };
     let auto = OrganizeItem {
@@ -553,6 +555,7 @@ fn organize_extract_item_sample() -> coverly_core::organize::OrganizeItem {
             source: ExtractSource::Builtin,
             sheet_check: SheetCheck::Read,
             m3u: None,
+            folder_game: false,
         },
         disc: Some(DiscId {
             serials: vec!["SLUS-00862".into()],
@@ -562,6 +565,8 @@ fn organize_extract_item_sample() -> coverly_core::organize::OrganizeItem {
         }),
         title_id: None,
         content_id: None,
+        playlist: None,
+        title_source: None,
         action: OrganizeAction::Auto,
     }
 }
@@ -742,6 +747,15 @@ fn organise_views_match_the_shared_sample() {
                 copies: true,
                 free: Some(412_100_000_000),
                 volume: "TinyExt".into(),
+                huge: vec![coverly_core::organize::apply::HugeItem {
+                    item: 4,
+                    name: "CUSA00900".into(),
+                    system: "ps4".into(),
+                    bytes: 61_000_000_000,
+                    extract: false,
+                    followers: vec![5],
+                }],
+                rest: 126_420_000_000,
             },
         ],
     });
@@ -783,6 +797,24 @@ fn rust_reads_the_shared_organise_requests() {
     assert!(
         !bare.rescan,
         "a request reuses the kept survey unless asked"
+    );
+    let confirm: coverly_core::organize::apply::LargeConfirm =
+        serde_json::from_value(req["organize_confirm"].clone()).unwrap();
+    assert_eq!(
+        confirm,
+        coverly_core::organize::apply::LargeConfirm {
+            bytes: 126_420_000_000,
+            items: vec![4, 7],
+        }
+    );
+    let links: Vec<coverly_core::credits::CreditLink> =
+        serde_json::from_value(req["credit_links"].clone()).unwrap();
+    assert_eq!(
+        links,
+        [
+            coverly_core::credits::CreditLink::Site,
+            coverly_core::credits::CreditLink::License
+        ]
     );
     let decisions: Vec<OrganizeDecision> =
         serde_json::from_value(req["organize_decisions"].clone()).unwrap();
@@ -903,6 +935,7 @@ fn dedupe_plan_sample() -> coverly_core::dedupe::DedupePlan {
             action: GroupAction::Act,
             tie: false,
             choice_dropped: false,
+            basis: None,
         }],
         totals: Totals {
             groups: 1,
@@ -1103,6 +1136,8 @@ fn organise_set_aside_views_match_the_shared_sample() {
         disc: None,
         title_id: None,
         content_id: None,
+        playlist: None,
+        title_source: None,
         action: OrganizeAction::SetAside {
             keeper: "ROMS/GB/Tetris (World) (Rev 1).gb".into(),
             relation: Relation::Exact,
@@ -1240,6 +1275,8 @@ fn systems_batch_2_items_match_the_shared_sample() {
             source: IdSource::ParamSfo,
         }),
         content_id: None,
+        playlist: None,
+        title_source: None,
         action: OrganizeAction::Auto,
     };
     let sources: Vec<IdSource> = vec![
@@ -1255,6 +1292,13 @@ fn systems_batch_2_items_match_the_shared_sample() {
         IdSource::ParamJson,
         IdSource::MicrosoftGameConfig,
         IdSource::AppxManifest,
+        IdSource::NcaCatalog,
+        IdSource::Tmd,
+        IdSource::Npdm,
+        IdSource::Xbe,
+        IdSource::Xex,
+        IdSource::SelfHeader,
+        IdSource::Pbp,
     ];
     let mut plan = organize_plan_sample();
     plan.updates = 2;
@@ -1333,6 +1377,8 @@ fn systems_batch_3_items_match_the_shared_sample() {
             source: IdSource::ParamSfo,
         }),
         content_id: Some("UP9000-CUSA00900_00-BLOODBORNE000000".into()),
+        playlist: None,
+        title_source: None,
         action: OrganizeAction::Auto,
     };
     let folder: Value = serde_json::from_str(&serde_json::to_string(&folder).unwrap()).unwrap();
@@ -1344,6 +1390,170 @@ fn systems_batch_3_items_match_the_shared_sample() {
         ],
         "organize_batch3_warnings": [
             PlanWarning::LargeTransfer { bytes: 12_000_000_000, items: 2 },
+        ],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+/// Adjustments (spec §10): game parts, declined items, the new notes and
+/// the console kinds, parts and title sources.
+#[test]
+fn adjustment_values_match_the_shared_sample() {
+    use coverly_core::consoles::{IdSource, PartKind, TitleIdRef, TitleKind, TitleSource};
+    use coverly_core::identify::evidence::{Evidence, IdLevel};
+    use coverly_core::organize::{
+        Choice, Decision, ItemKind, ItemNote, LeftReason, OrganizeAction, OrganizeItem, Playlist,
+        SourceFp, Transfer,
+    };
+
+    // A cartridge the optional catalogue named through its NCA ids (D6, D7).
+    let cartridge = OrganizeItem {
+        id: 1,
+        sources: vec!["Cartridge.xci".into()],
+        kind: ItemKind::File,
+        size: 5_600_000_000,
+        fps: vec![SourceFp {
+            size: 5_600_000_000,
+            mtime_ns: 1_700_000_000_000_000_000,
+        }],
+        target: Some("switch/Cartridge.xci".into()),
+        set_targets: vec![],
+        system_id: Some("switch".into()),
+        folder: Some("switch".into()),
+        confidence: 0.95,
+        method: Some(IdLevel::Header),
+        why: vec![Evidence::new(IdLevel::Header, "switch", 0.95, "HEAD")],
+        alternatives: vec![],
+        rename: None,
+        notes: vec![],
+        companions: vec![],
+        catalogue_name: Some("Super Mario Odyssey".into()),
+        transfer: Transfer::AsIs,
+        disc: None,
+        title_id: Some(TitleIdRef {
+            id: "0100000000010000".into(),
+            source: IdSource::NcaCatalog,
+        }),
+        content_id: None,
+        playlist: None,
+        title_source: Some(TitleSource::Titledb),
+        action: OrganizeAction::Auto,
+    };
+    let cartridge: Value =
+        serde_json::from_str(&serde_json::to_string(&cartridge).unwrap()).unwrap();
+
+    let actual = json!({
+        "adjustments_catalogue_item": cartridge,
+        "adjustments_reasons": [
+            LeftReason::GamePart {
+                part: PartKind::ExeFs,
+                system: "switch".into(),
+                title_id: None,
+            },
+            LeftReason::GamePart {
+                part: PartKind::Backup,
+                system: "psvita".into(),
+                title_id: Some("PCSE00120".into()),
+            },
+            LeftReason::NotConfirmed,
+        ],
+        "adjustments_notes": [
+            ItemNote::Homebrew,
+            ItemNote::Vita7z,
+            ItemNote::MissingDisc { n: 2 },
+            ItemNote::EncryptedName,
+            ItemNote::ArchiveGames { count: 2 },
+            ItemNote::Ps4OrVita,
+            ItemNote::ArchiveCaseCollision,
+            ItemNote::DiscSet,
+        ],
+        "adjustments_playlist": Playlist {
+            path: "ROMS/Saturn/Grandia (Japan).m3u".into(),
+            discs: vec![
+                "ROMS/Saturn/Grandia (Japan) (Disc 1).cue".into(),
+                "ROMS/Saturn/Grandia (Japan) (Disc 2).cue".into(),
+            ],
+        },
+        "adjustments_decisions": [Decision {
+            item: 4,
+            choice: Choice::Decline,
+        }],
+        "adjustments_part_kinds": [
+            PartKind::ExeFs,
+            PartKind::Nca,
+            PartKind::Library,
+            PartKind::TitleMeta,
+            PartKind::Module,
+            PartKind::Backup,
+        ],
+        "adjustments_title_kinds": [
+            TitleKind::Base,
+            TitleKind::Update,
+            TitleKind::Dlc,
+            TitleKind::Demo,
+            TitleKind::Homebrew,
+            TitleKind::Unknown,
+        ],
+        "adjustments_title_sources": [
+            TitleSource::Header,
+            TitleSource::Titledb,
+            TitleSource::Nlib,
+            TitleSource::FileName,
+        ],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+#[test]
+fn catalogue_statuses_match_the_shared_sample() {
+    use coverly_core::catalog::CatalogStatus;
+
+    let actual = json!({
+        "catalog_statuses": [
+            CatalogStatus::Off,
+            CatalogStatus::Pending,
+            CatalogStatus::Downloading {
+                done: 12_582_912,
+                total: Some(91_750_400),
+            },
+            CatalogStatus::Downloading {
+                done: 1_048_576,
+                total: None,
+            },
+            CatalogStatus::Ready {
+                count: 17_342,
+                updated: "2026-10-30".into(),
+                fallback: false,
+            },
+            CatalogStatus::Ready {
+                count: 16_904,
+                updated: "2026-10-30".into(),
+                fallback: true,
+            },
+            CatalogStatus::FailedOld {
+                updated: "2026-10-23".into(),
+            },
+            CatalogStatus::FailedNone,
+            CatalogStatus::Rejected,
+            CatalogStatus::RemoveFailed,
         ],
     });
     let expected: Value =

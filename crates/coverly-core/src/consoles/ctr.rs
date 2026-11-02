@@ -24,7 +24,9 @@
 
 use std::io::Read;
 
-use super::{kind_3ds, ArtFormat, ArtLocator, Budgeted, ConsoleId, IdSource, MAX_DECODED};
+use super::{
+    kind_3ds, ArtFormat, ArtLocator, Budgeted, ConsoleId, IdSource, TitleKind, MAX_DECODED,
+};
 use crate::identify::sniff::{ReadAt, SliceAt};
 
 /// NCSD partition offsets and NCCH region offsets are in media units.
@@ -260,9 +262,11 @@ fn cia(b: &mut Budgeted, head: &[u8]) -> Option<ConsoleId> {
 }
 
 /// 3DSX homebrew: the SMDH of the extended header (title and icon); no
-/// serial, no DAT. Magic plus a title is 0.90.
+/// serial, no DAT. Magic plus a title is 0.90. Always homebrew
+/// (adjustments §8.2), never encrypted.
 fn dsx(b: &mut Budgeted, head: &[u8]) -> Option<ConsoleId> {
     let mut id = ConsoleId::magic("3ds", "3DSX header");
+    id.kind = TitleKind::Homebrew;
     if le16(head, 4).is_some_and(|hs| hs > 0x20) {
         let (off, size) = (le32(head, 0x20), le32(head, 0x24));
         if let (Some(off), Some(size)) = (off, size) {
@@ -465,7 +469,7 @@ pub fn rgb565(v: u16) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::super::testing::{self as t, RangeLog, SparseAt};
-    use super::super::{TitleKind, MAX_READ, MAX_SEEKS};
+    use super::super::{MAX_READ, MAX_SEEKS};
     use super::*;
 
     fn run(src: &mut SparseAt, ext: &str) -> Option<ConsoleId> {
@@ -617,6 +621,37 @@ mod tests {
         bare.put(4, &0x20u16.to_le_bytes());
         let id = run(&mut bare, "3dsx").unwrap();
         assert_eq!((id.title, id.art.len()), (None, 0));
+    }
+
+    #[test]
+    fn dsx_is_homebrew_and_never_encrypted() {
+        // Adjustments §8.2: a 3DSX is always homebrew, with or without
+        // its SMDH, and in a `Z3DS` wrapper too.
+        let id = run(&mut t::dsx_with_smdh("FTPD"), "3dsx").unwrap();
+        assert_eq!((id.kind, id.encrypted), (TitleKind::Homebrew, None));
+        let mut bare = t::dsx_with_smdh("x");
+        bare.put(4, &0x20u16.to_le_bytes());
+        assert_eq!(run(&mut bare, "3dsx").unwrap().kind, TitleKind::Homebrew);
+        let inner = t::dsx_with_smdh("Tool");
+        let id = run(&mut t::z3ds(b"3DSX", &inner), "z3dsx").unwrap();
+        assert_eq!(id.kind, TitleKind::Homebrew);
+    }
+
+    #[test]
+    fn an_encrypted_ncch_exefs_is_never_read() {
+        // Adjustments §8.1 regression: the same card as the NoCrypto one,
+        // its ExeFS table and SMDH in place, but without the NoCrypto
+        // flag. Its ExeFS is encrypted: not a byte of it is read, so it
+        // has no title and no art.
+        let mut src = t::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, true);
+        src.put(t::NCSD_P0 + 0x188 + 7, &[0]);
+        let len = src.len;
+        let mut log = RangeLog::new(&mut src);
+        let id = identify(&mut Budgeted::new(&mut log, len), "3ds").unwrap();
+        assert_eq!(id.encrypted, Some(true));
+        assert_eq!((id.title, id.art.len()), (None, 0));
+        assert_eq!(id.serial.as_deref(), Some("CTR-P-AMKP"));
+        assert!(!log.touched(t::NCSD_P0 + t::EXEFS_AT, 0x200 + 0x200 + SMDH_LEN as u64));
     }
 
     #[test]

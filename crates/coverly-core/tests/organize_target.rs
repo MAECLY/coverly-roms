@@ -44,6 +44,8 @@ fn item(id: usize, sources: &[&str], system: &str, kind: ItemKind, size: u64) ->
         action: OrganizeAction::Auto,
         title_id: None,
         content_id: None,
+        playlist: None,
+        title_source: None,
     }
 }
 
@@ -579,6 +581,7 @@ mod extract {
             source: Default::default(),
             sheet_check: SheetCheck::Read,
             m3u: None,
+            folder_game: false,
         };
         it
     }

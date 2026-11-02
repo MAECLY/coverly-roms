@@ -126,6 +126,7 @@ impl World {
             dats: None,
             probe: &Probe,
             online: None,
+            titles: None,
             now: SystemTime::now(),
         }
     }
@@ -356,9 +357,11 @@ fn folder_suffix_is_appended_once() {
     esde.folder_game_suffix
         .insert("gb".to_string(), ".gbdir".to_string());
     let layout = esde.name.clone();
+    // Other sizes: other trees, so neither is a copy of the other
+    // (adjustments spec D19).
     put_tree(
         pile.path(),
-        &[("Zelda/GAME.PROBE", 16), ("Mario.GBDIR/GAME.PROBE", 16)],
+        &[("Zelda/GAME.PROBE", 16), ("Mario.GBDIR/GAME.PROBE", 17)],
     );
     let p = plan(&world, pile.path(), target.path(), "esde");
     let all = folders(&p);
@@ -420,8 +423,8 @@ fn taken_target_folder_gets_a_number_never_a_merge() {
     put_tree(pile.path(), &[("Zelda/GAME.PROBE", 16)]);
     let first = plan(&world, pile.path(), target.path(), "esde");
     let t = only_folder(&first).target.clone().unwrap();
-    // The same game already there: still a number, never «already present».
-    put_tree(&target.path().join(&t), &[("GAME.PROBE", 16)]);
+    // Another game under the name: a number, never a merge.
+    put_tree(&target.path().join(&t), &[("GAME.PROBE", 17)]);
     let p = plan(&world, pile.path(), target.path(), "esde");
     let item = only_folder(&p);
     assert_eq!(item.action, OrganizeAction::Auto);
@@ -434,6 +437,15 @@ fn taken_target_folder_gets_a_number_never_a_merge() {
             name: "Zelda".into()
         })
     );
+
+    // The same tree already there is a copy of it (adjustments spec
+    // D19): set aside through the duplicates step, still never merged.
+    fs::remove_dir_all(target.path().join(&t)).unwrap();
+    put_tree(&target.path().join(&t), &[("GAME.PROBE", 16)]);
+    let p = plan(&world, pile.path(), target.path(), "esde");
+    let item = only_folder(&p);
+    assert!(item.is_set_aside(), "{:?}", item.action);
+    assert_eq!(p.counts.in_library, 1);
 }
 
 #[test]

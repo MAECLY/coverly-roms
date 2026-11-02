@@ -74,6 +74,7 @@ impl World {
             dats: None,
             probe: &NoCloud,
             online: None,
+            titles: None,
             now: now(),
         };
         let opts = OrganizeOptions {
@@ -402,11 +403,25 @@ fn an_update_and_a_patch_both_follow() {
     let pile = TempDir::new().unwrap();
     let target = TempDir::new().unwrap();
     base_and_update(pile.path(), "-UPDATE");
-    ps4_app(
-        &pile.path().join("CUSA00900-patch"),
-        "CUSA00900",
-        "gp",
-        BLOODBORNE,
+    let patch = pile.path().join("CUSA00900-patch");
+    ps4_app(&patch, "CUSA00900", "gp", BLOODBORNE);
+    // A later patch, not a copy of the update (adjustments spec D19).
+    let later = param_sfo_with(
+        &[
+            ("APP_VER", "01.10"),
+            ("CATEGORY", "gp"),
+            ("CONTENT_ID", BLOODBORNE),
+            ("TITLE", "Test Game"),
+            ("TITLE_ID", "CUSA00900"),
+            ("VERSION", "01.00"),
+        ],
+        &[("APP_TYPE", 1), ("PUBTOOLVER", 0x0289_0000)],
+    );
+    put_file(&patch, "sce_sys/param.sfo", &later);
+    put_file(
+        &patch,
+        "sce_sys/changeinfo/changeinfo.xml",
+        b"<changeinfo/>",
     );
 
     let p = world.plan(pile.path(), target.path(), "batocera");

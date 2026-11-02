@@ -17,7 +17,7 @@ use std::time::{Duration, SystemTime};
 use serde::Serialize;
 use walkdir::WalkDir;
 
-use crate::consoles::{identify_dir, DirListing};
+use crate::consoles::identify_dir_on_disk;
 use crate::organize::target::strip_suffix_ignoring_case;
 use crate::organize::walk::{list_dir, tree_summary, OsMetaProbe, WalkOptions, MAX_DEPTH};
 use crate::profiles::Profile;
@@ -408,7 +408,7 @@ fn is_console_folder(dir: &Path) -> bool {
     };
     let names: Vec<String> = listed.into_iter().map(|(n, _, _)| n).collect();
     matches!(
-        identify_dir(&DirListing { dir, names: &names }),
+        identify_dir_on_disk(dir, &names),
         Ok(Some(found)) if found.leave.is_none()
     )
 }

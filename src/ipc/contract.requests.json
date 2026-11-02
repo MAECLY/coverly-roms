@@ -85,6 +85,11 @@
       "choice": "leave"
     }
   ],
+  "organize_confirm": {
+    "bytes": 126420000000,
+    "items": [4, 7]
+  },
+  "credit_links": ["site", "license"],
   "dedupe_request": {
     "profile": "anbernic-stock",
     "levels": ["exact", "format"],

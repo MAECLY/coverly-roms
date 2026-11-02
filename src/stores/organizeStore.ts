@@ -18,6 +18,12 @@ import type {
   OrganizeRequest,
   OrganizeUndoView,
 } from '@/ipc/types';
+import {
+  acceptedBytes,
+  asksRest,
+  roomForItem,
+  stillMoves,
+} from '@/lib/largeTransfer';
 import { itemKey } from '@/lib/organize';
 
 import { useLibraryStore } from './libraryStore';
@@ -34,6 +40,9 @@ export interface OrganizeRefresh {
   /** Decisions dropped because their file is gone. */
   dropped: number;
 }
+
+/** An answer to one huge item (adjustments D16): «Sí», «Sí a todo», «No». */
+export type HugeAnswer = 'yes' | 'all' | 'no';
 
 export type OrganizeStatus =
   'idle' | 'planning' | 'ready' | 'applying' | 'done' | 'paused' | 'error';
@@ -62,6 +71,15 @@ interface OrganizeState {
   /** The backend refused the apply until its size is confirmed (spec
    * D23): the decided plan's numbers, shown in the dialog. */
   pendingLarge: LargeTransferDetail | null;
+  /** The huge item of `pendingLarge` being asked (adjustments D16);
+   * `huge.length` once every one is answered (the aggregate question for
+   * `rest` may follow, D16b). */
+  hugeCursor: number;
+  /** Ids of the huge items answered «Sí» in this sequence. */
+  hugeAccepted: number[];
+  /** Ids of the items answered «No» since the plan on screen was made:
+   * sent as `decline` decisions, kept if the backend asks again. */
+  hugeDeclined: number[];
   /** An apply call of the plan on screen has not answered yet (the
    * backend re-plans first): the apply button shows it is busy. */
   submitting: boolean;
@@ -78,6 +96,12 @@ interface OrganizeState {
   /** Applies again with the size the dialog showed; one call however
    * often it is clicked. No-op without a pending confirmation. */
   confirmApply(bytes: number): Promise<void>;
+  /** Answers the huge item being asked. Once the last one is answered
+   * (or on «Sí a todo») the apply goes out with the declined items and
+   * the confirmed numbers, unless the rest still has to be asked.
+   * Resolves `'nothing'` when every item was declined and nothing else
+   * would move (no apply call is made). */
+  answerHuge(answer: HugeAnswer): Promise<'nothing' | void>;
   /** Closes the size confirmation without applying. */
   dismissLarge(): void;
   /** False when the backend refused or failed the cancel request. */
@@ -110,6 +134,9 @@ const initial = {
   refreshing: false,
   settingsStamp: null as string | null,
   pendingLarge: null as LargeTransferDetail | null,
+  hugeCursor: 0,
+  hugeAccepted: [] as number[],
+  hugeDeclined: [] as number[],
   submitting: false,
 };
 
@@ -168,6 +195,9 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       refreshing,
       settingsStamp: null,
       pendingLarge: null,
+      hugeCursor: 0,
+      hugeAccepted: [],
+      hugeDeclined: [],
     });
     return { mine, previous };
   }
@@ -382,9 +412,13 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       // The plan (or the paused job) is still there to retry from; a size
       // refusal waits for the user's answer instead (spec D23).
       if (err.code === 'large-transfer' && err.largeTransfer) {
+        // Asked again from the first huge item with the fresh numbers;
+        // the items declined so far stay declined.
         set({
           status: before,
           pendingLarge: err.largeTransfer,
+          hugeCursor: 0,
+          hugeAccepted: [],
           progress: null,
         });
       } else {
@@ -404,6 +438,40 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       job === null &&
       (status === 'ready' || status === 'planning' || status === 'error')
     );
+  }
+
+  /** The apply once every question was answered (D16): the declined
+   * items as `decline` decisions, and `rest + Σ accepted` with the
+   * accepted ids, all from the numbers the refusal carried. */
+  async function submitLarge(): Promise<'nothing' | void> {
+    const { planId, plan, decisions, pendingLarge: d } = get();
+    const { hugeAccepted, hugeDeclined } = get();
+    if (confirming || !d || planId === null || !plan) return;
+    if (hugeAccepted.length === 0 && !stillMoves(plan, d, hugeDeclined)) {
+      set({
+        pendingLarge: null,
+        hugeCursor: 0,
+        hugeAccepted: [],
+        hugeDeclined: [],
+      });
+      return 'nothing';
+    }
+    const sent: Record<number, OrganizeDecision> = { ...decisions };
+    for (const item of hugeDeclined) sent[item] = { item, choice: 'decline' };
+    const confirm = {
+      bytes: d.rest + acceptedBytes(d, hugeAccepted),
+      items: [...hugeAccepted],
+    };
+    confirming = true;
+    set({ pendingLarge: null });
+    try {
+      await run(
+        (b) => b.organizeApply(planId, Object.values(sent), confirm),
+        planId,
+      );
+    } finally {
+      confirming = false;
+    }
   }
 
   return {
@@ -454,31 +522,78 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
     },
     refresh,
     async apply() {
-      const { planId, decisions, status } = get();
+      const { planId, decisions, status, hugeDeclined } = get();
       // Only the plan on screen, made with the options on screen.
       if (planId === null || status !== 'ready') return;
+      // A new apply sends no `decline`, so the backend asks every huge
+      // item again: earlier «No» answers (an apply that then failed)
+      // must not override this sequence's «Sí».
+      if (hugeDeclined.length > 0)
+        set({ hugeCursor: 0, hugeAccepted: [], hugeDeclined: [] });
       await run(
         (b) => b.organizeApply(planId, Object.values(decisions)),
         planId,
       );
     },
     async confirmApply(bytes) {
-      const { planId, decisions, status, pendingLarge } = get();
+      const { planId, status, pendingLarge, hugeCursor } = get();
       if (confirming || !pendingLarge || planId === null || status !== 'ready')
         return;
+      // With huge items, the aggregate dialog only follows their answers
+      // and confirms the rest with them.
+      if (pendingLarge.huge.length > 0) {
+        if (hugeCursor < pendingLarge.huge.length) return;
+        await submitLarge();
+        return;
+      }
       confirming = true;
       set({ pendingLarge: null });
       try {
         await run(
-          (b) => b.organizeApply(planId, Object.values(decisions), bytes),
+          (b) =>
+            b.organizeApply(planId, Object.values(get().decisions), {
+              bytes,
+              items: [],
+            }),
           planId,
         );
       } finally {
         confirming = false;
       }
     },
+    async answerHuge(answer) {
+      const { pendingLarge: d, hugeCursor, status } = get();
+      if (confirming || !d || status !== 'ready') return;
+      const h = d.huge[hugeCursor];
+      if (!h) return;
+      const { hugeAccepted, hugeDeclined } = get();
+      if (answer === 'no') {
+        // Its overlays stay with it (they follow the base's answer).
+        set({
+          hugeCursor: hugeCursor + 1,
+          hugeDeclined: [...hugeDeclined, h.item, ...h.followers],
+        });
+      } else {
+        // An item that does not fit takes only «No» (D17).
+        if (roomForItem(d, hugeAccepted, h)?.fits === false) return;
+        const now = answer === 'all' ? d.huge.slice(hugeCursor) : [h];
+        set({
+          hugeCursor: answer === 'all' ? d.huge.length : hugeCursor + 1,
+          hugeAccepted: [...hugeAccepted, ...now.map((x) => x.item)],
+        });
+        // «Sí a todo» also answers the question for the rest (D16b).
+        if (answer === 'all') return submitLarge();
+      }
+      if (get().hugeCursor < d.huge.length || asksRest(d)) return;
+      return submitLarge();
+    },
     dismissLarge() {
-      set({ pendingLarge: null });
+      set({
+        pendingLarge: null,
+        hugeCursor: 0,
+        hugeAccepted: [],
+        hugeDeclined: [],
+      });
     },
     async cancel() {
       const { status } = get();

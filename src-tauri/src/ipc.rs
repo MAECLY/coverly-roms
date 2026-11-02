@@ -5,7 +5,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use coverly_core::catalog::CatalogStatus;
 use coverly_core::credentials::CredentialStatus;
+use coverly_core::credits::CreditLink;
+use coverly_core::organize::LargeConfirm;
 use coverly_core::profiles::custom::{PreviewExample, ProfileFile};
 use coverly_core::profiles::Media;
 use coverly_core::sources::KeyCheck;
@@ -34,7 +37,7 @@ use crate::organize::view::{
     OrganizeUndoView, ORGANIZE_CHANGED_EVENT, ORGANIZE_PROGRESS_EVENT,
 };
 use crate::organize::OrganizeEvents;
-use crate::prefs::{link_url, LinkId, SettingsUpdateView, SettingsView};
+use crate::prefs::{credit_url, link_url, LinkId, SettingsUpdateView, SettingsView};
 use crate::profiles::{ProfileInfoView, ProfilePreviewView, ProfileSaveView};
 use crate::sources::SourceInfoView;
 use crate::state::AppState;
@@ -57,6 +60,9 @@ pub const ENTRIES_UPDATED_EVENT: &str = "library-entries-updated";
 pub const SETTINGS_CHANGED_EVENT: &str = "settings-changed";
 /// Event carrying `UpdateProgressEvent` while an update downloads (throttled).
 pub const UPDATE_PROGRESS_EVENT: &str = "update-progress";
+/// Event carrying a `downloading` `CatalogStatus` while the Switch
+/// catalogue downloads (throttled).
+pub const CATALOG_PROGRESS_EVENT: &str = "catalog-progress";
 
 /// Name and versions of the app and of the core library it is built on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -557,6 +563,81 @@ pub fn open_link(app: AppHandle, link: LinkId) -> Result<(), IpcError> {
         .map_err(|e| IpcError::Io(e.to_string()))
 }
 
+/// Opens the site (`which = "site"`) or licence (`"license"`) of credit
+/// entry `id` in the browser. The URL comes from the compiled-in
+/// `credits/credits.json`, never from the webview (adjustments D27).
+#[tauri::command]
+pub fn open_credit(app: AppHandle, id: String, which: CreditLink) -> Result<(), IpcError> {
+    let url = credit_url(&id, which)?;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| IpcError::Io(e.to_string()))
+}
+
+// The optional Switch name catalogue (adjustments D2–D10).
+
+/// The catalogue's state, without any request. `locale` is the language
+/// the webview shows (used while the language setting is automatic).
+#[tauri::command]
+pub async fn catalog_status(
+    app: AppHandle,
+    locale: Option<String>,
+) -> Result<CatalogStatus, IpcError> {
+    blocking(move || Ok(app.state::<AppState>().catalog_status(locale.as_deref()))).await
+}
+
+/// Downloads the catalogue now, or refreshes it when due; progress
+/// arrives as `catalog-progress` (a `downloading` status, at most every
+/// quarter second). `bad-request` while the setting is off.
+#[tauri::command]
+pub async fn catalog_update(
+    app: AppHandle,
+    locale: Option<String>,
+) -> Result<CatalogStatus, IpcError> {
+    blocking(move || {
+        let last = std::sync::Mutex::new(None::<std::time::Instant>);
+        let emit = |status: coverly_core::catalog::CatalogStatus| {
+            let mut last = last
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if last.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(250)) {
+                return;
+            }
+            *last = Some(std::time::Instant::now());
+            let _ = app.emit(CATALOG_PROGRESS_EVENT, status);
+        };
+        app.state::<AppState>()
+            .catalog_update(locale.as_deref(), &emit)
+    })
+    .await
+}
+
+/// Stops a running catalogue download (nothing of it is kept).
+#[tauri::command]
+pub fn catalog_cancel(state: State<'_, AppState>) {
+    state.catalog_cancel();
+}
+
+/// «Borrar catálogo»: deletes the catalogue and its cached icons; the
+/// status after it (`remove-failed` when another process holds the file).
+#[tauri::command]
+pub async fn catalog_remove(app: AppHandle) -> Result<CatalogStatus, IpcError> {
+    blocking(move || app.state::<AppState>().catalog_remove()).await
+}
+
+/// The cached eShop icon of title `tid` (16 hex digits) as PNG bytes,
+/// fetched on demand while «Iconos de Switch» is on; `art-missing`
+/// otherwise. The webview never gets a remote URL (D8).
+#[tauri::command]
+pub async fn catalog_icon(app: AppHandle, tid: String) -> Result<tauri::ipc::Response, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .catalog_icon(&tid)
+            .map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
 /// Bytes used by the cache.
 #[tauri::command]
 pub async fn cache_usage(app: AppHandle) -> Result<u64, IpcError> {
@@ -815,20 +896,22 @@ pub async fn organize_export_plan(
 
 /// Applies plan `plan_id` with `decisions` (the backend re-plans from its
 /// own survey); progress arrives as `organize-progress`, the end as
-/// `organize-changed`. A decided plan writing 10 GB or more needs
-/// `confirmed_bytes` at least its bytes, else `large-transfer` (systems
-/// batch 3 D23).
+/// `organize-changed`. A decided plan writing 10 GB or more, or with huge
+/// items, needs `confirm` naming every huge item and at least its bytes,
+/// else `large-transfer` with `huge` and `rest` (systems batch 3 D23,
+/// adjustments D16). A declined huge item travels as a `decline`
+/// decision.
 #[tauri::command]
 pub async fn organize_apply(
     app: AppHandle,
     plan_id: u64,
     decisions: Vec<coverly_core::organize::Decision>,
-    confirmed_bytes: Option<u64>,
+    confirm: Option<LargeConfirm>,
 ) -> Result<OrganizeJobView, IpcError> {
     blocking(move || {
         let events: Arc<dyn OrganizeEvents> = Arc::new(TauriOrganizeEvents(app.clone()));
         app.state::<AppState>()
-            .organize_apply(plan_id, &decisions, confirmed_bytes, events)
+            .organize_apply(plan_id, &decisions, confirm.as_ref(), events)
     })
     .await
 }

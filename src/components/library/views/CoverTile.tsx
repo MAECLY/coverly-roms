@@ -86,6 +86,7 @@ export function CoverTile({
           generation={generation}
           entry={entry}
           media={art}
+          systemId={system?.system_id}
           // An empty slot with no name below shows the name.
           placeholder={
             metrics.nameLines === 0

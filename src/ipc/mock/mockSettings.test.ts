@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from '@/lib/settingsRules';
 import { MemoryStorage } from '@/test/storage';
 
 import { BackendError } from '../errors';
+import type { CatalogStatus } from '../types';
 import { FIXTURE_NOW } from './fixture';
 import { createMockBackend } from './mockBackend';
 
@@ -329,5 +330,203 @@ describe('mock settings', () => {
         'screenscraper-user'
       ],
     ).toBe(false);
+  });
+  describe('Switch name catalogue (catalogs.switch)', () => {
+    it('is off by default with the core defaults', async () => {
+      const { settings } = await make().getSettings();
+      expect(settings.catalogs).toEqual({
+        switch: {
+          enabled: false,
+          icons: false,
+          refresh_days: 7,
+          fallback: false,
+          fallback_url: 'https://api.nlib.cc',
+        },
+      });
+    });
+
+    it('loads stored settings without the group, and keeps good leaves of a bad one', async () => {
+      const storage = new MemoryStorage();
+      storage.setItem(
+        'coverly.mock.settings',
+        JSON.stringify({ version: 3, general: { theme: 'dark' } }),
+      );
+      expect((await make(storage).getSettings()).settings.catalogs).toEqual(
+        DEFAULT_SETTINGS.catalogs,
+      );
+      storage.setItem(
+        'coverly.mock.settings',
+        JSON.stringify({
+          version: 3,
+          catalogs: {
+            other: { enabled: true },
+            switch: {
+              enabled: true,
+              refresh_days: 1,
+              fallback: 'yes',
+              fallback_url: 'http://x',
+            },
+          },
+        }),
+      );
+      const view = await make(storage).getSettings();
+      expect(view.settings.catalogs.switch).toEqual({
+        ...DEFAULT_SETTINGS.catalogs.switch,
+        enabled: true,
+      });
+      expect(view.fixed).toEqual(
+        expect.arrayContaining([
+          'catalogs.switch.refresh_days',
+          'catalogs.switch.fallback',
+          'catalogs.switch.fallback_url',
+        ]),
+      );
+      expect(Object.keys(view.settings.catalogs)).toEqual(['switch']);
+    });
+
+    it('validates refresh_days and the fallback URL like the core', async () => {
+      const m = make();
+      const errs = async (patch: unknown) =>
+        (await m.updateSettings(patch as never)).errors.map(
+          (e) => `${e.field}:${e.code}`,
+        );
+      expect(await errs({ catalogs: { switch: { refresh_days: 3 } } })).toEqual(
+        ['catalogs.switch.refresh_days:range'],
+      );
+      expect(
+        await errs({ catalogs: { switch: { refresh_days: 200 } } }),
+      ).toEqual(['catalogs.switch.refresh_days:range']);
+      for (const url of [
+        'http://x',
+        'https://',
+        'https://a b',
+        'https://a?x=1',
+        'https://u:p@a',
+        // Refused by the core's network allowlist too (`is_user_base`).
+        'https://api_nlib.cc',
+        'https://api.nlib.cc:99999',
+        'https://ñ.example',
+        'https://api.nlib.cc/a/../b',
+        'https://api.nlib.cc/%2e%2e/x',
+        'https://api.nlib.cc/a%2Fb',
+        'https://api.nlib.cc/a%5cb',
+        'https://api.nlib.cc/\u007f',
+      ])
+        expect(
+          await errs({ catalogs: { switch: { fallback_url: url } } }),
+        ).toEqual(['catalogs.switch.fallback_url:invalid']);
+      for (const url of [
+        'https://api.nlib.cc',
+        'https://mirror.example.org/titles',
+        'https://127.0.0.1:8443',
+        'https://[::1]:8443/v1',
+      ])
+        expect(
+          await errs({ catalogs: { switch: { fallback_url: url } } }),
+        ).toEqual([]);
+      expect(
+        await errs({ catalogs: { switch: { fallback_url: ' ' } } }),
+      ).toEqual(['catalogs.switch.fallback_url:required']);
+      expect(await errs({ catalogs: { switch: { enabled: 'yes' } } })).toEqual([
+        'catalogs.switch.enabled:invalid',
+      ]);
+      expect(await errs({ catalogs: { switch: 5 } })).toEqual([
+        'catalogs.switch:invalid',
+      ]);
+    });
+
+    it('round-trips a patch, trims the URL and keeps icons and fallback off without the catalogue', async () => {
+      const storage = new MemoryStorage();
+      const m = make(storage);
+      const alone = await m.updateSettings({
+        catalogs: { switch: { icons: true, fallback: true } },
+      });
+      expect(alone.errors).toEqual([]);
+      expect(alone.settings.catalogs.switch.icons).toBe(false);
+      expect(alone.settings.catalogs.switch.fallback).toBe(false);
+      const on = await m.updateSettings({
+        catalogs: {
+          switch: {
+            enabled: true,
+            icons: true,
+            fallback: true,
+            refresh_days: 30,
+            fallback_url: ' https://mirror.example.org/ ',
+          },
+        },
+      });
+      expect(on.errors).toEqual([]);
+      expect(on.reopen).toBe(false);
+      expect(
+        (await make(storage).getSettings()).settings.catalogs.switch,
+      ).toEqual({
+        enabled: true,
+        icons: true,
+        refresh_days: 30,
+        fallback: true,
+        fallback_url: 'https://mirror.example.org',
+      });
+      const off = await m.updateSettings({
+        catalogs: { switch: { enabled: false } },
+      });
+      expect(off.settings.catalogs.switch).toMatchObject({
+        enabled: false,
+        icons: false,
+        fallback: false,
+        refresh_days: 30,
+      });
+      const reset = await m.updateSettings({ catalogs: null } as never);
+      expect(reset.settings.catalogs).toEqual(DEFAULT_SETTINGS.catalogs);
+    });
+  });
+
+  it('opens credit links by id and keeps the Switch catalogue behind its setting', async () => {
+    const m = make();
+    await m.openCredit('screenscraper', 'license');
+    expect(m.opened).toEqual(['credit:screenscraper:license']);
+    // Emulator sources carry no link; unknown ids neither (like Rust).
+    await expect(m.openCredit('dolphin', 'site')).rejects.toMatchObject({
+      code: 'bad-request',
+    });
+    await expect(m.openCredit('nope', 'site')).rejects.toMatchObject({
+      code: 'bad-request',
+    });
+
+    expect(await m.catalogStatus('es-ES')).toEqual({ state: 'off' });
+    await expect(m.catalogUpdate()).rejects.toMatchObject({
+      code: 'bad-request',
+    });
+    await m.updateSettings({ catalogs: { switch: { enabled: true } } });
+    expect(await m.catalogStatus()).toEqual({ state: 'pending' });
+    expect((await m.catalogUpdate()).state).toBe('ready');
+    expect((await m.catalogRemove()).state).toBe('pending');
+    await expect(m.catalogIcon('0100000000AA0000')).rejects.toMatchObject({
+      code: 'art-missing',
+    });
+  });
+
+  it('simulates the catalogue download with progress, and keeps nothing when it is turned off meanwhile', async () => {
+    const m = make();
+    await m.updateSettings({ catalogs: { switch: { enabled: true } } });
+    const seen: CatalogStatus[] = [];
+    const stop = await m.onCatalogProgress((s) => seen.push(s));
+    const done = await m.catalogUpdate('en');
+    stop();
+    expect(done).toMatchObject({ state: 'ready', count: 17_342 });
+    expect(seen.length).toBeGreaterThan(1);
+    expect(seen.every((s) => s.state === 'downloading')).toBe(true);
+    const bytes = seen.map((s) => (s.state === 'downloading' ? s.done : -1));
+    expect(bytes).toEqual([...bytes].sort((a, b) => a - b));
+    expect(seen[0]).toMatchObject({ done: 0, total: 92_400_000 });
+
+    // Off deletes it; on again, a download stopped half way keeps nothing.
+    await m.updateSettings({ catalogs: { switch: { enabled: false } } });
+    expect(await m.catalogStatus()).toEqual({ state: 'off' });
+    await m.updateSettings({ catalogs: { switch: { enabled: true } } });
+    expect(await m.catalogStatus()).toEqual({ state: 'pending' });
+    const running = m.catalogUpdate();
+    expect((await m.catalogStatus()).state).toBe('downloading');
+    await m.catalogCancel();
+    expect((await running).state).toBe('pending');
   });
 });

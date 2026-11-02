@@ -25,6 +25,7 @@ import {
   extractSummary,
   groupBySystem,
   itemKey,
+  encryptedName,
   itemNotes,
   layoutNote,
   leftItems,
@@ -33,11 +34,13 @@ import {
   lostTrashedCopies,
   noteKey,
   organizeDupGroups,
+  playlistKey,
   reviewBuckets,
   ROWS_PER_GROUP,
   rowNotes,
   targetDir,
   titleIdKey,
+  titleSourceKey,
   updatesSummaryKey,
   updatesUnderBases,
   whyKey,
@@ -1248,5 +1251,193 @@ describe('systems batch 3 copy (spec §10)', () => {
     expect(
       contentIdKey(autoItem(2, 'g', 'xboxone', 'xboxone', { content_id: '' })),
     ).toBeNull();
+  });
+});
+
+describe('adjustments copy (spec §10)', () => {
+  const t = (key: string, vars?: TranslateVars) =>
+    translate('es', key, vars ?? {});
+  const tEn = (key: string, vars?: TranslateVars) =>
+    translate('en', key, vars ?? {});
+  const text = (k: { key: string; vars: TranslateVars }) => [
+    t(k.key, k.vars),
+    tEn(k.key, k.vars),
+  ];
+
+  it('a game part and a Vita backup say why they stay', () => {
+    const part: LeftReason = {
+      kind: 'game-part',
+      part: 'exe-fs',
+      system: 'switch',
+      title_id: null,
+    };
+    expect(text(leftReasonKey(part))).toEqual([
+      'Parte de un juego; no se mueve suelta',
+      'Part of a game; not moved on its own',
+    ]);
+    for (const p of ['nca', 'library', 'title-meta', 'module'] as const)
+      expect(leftReasonKey({ ...part, part: p }).key).toBe(
+        'organize.left.gamePart',
+      );
+    const backup: LeftReason = {
+      kind: 'game-part',
+      part: 'backup',
+      system: 'psvita',
+      title_id: 'PCSE00120',
+    };
+    expect(text(leftReasonKey(backup))).toEqual([
+      'Copia de seguridad cifrada de Vita',
+      'Encrypted Vita backup',
+    ]);
+    expect(text(leftReasonKey({ kind: 'not-confirmed' }))).toEqual([
+      'No confirmado; se queda donde está',
+      'Not confirmed; stays where it is',
+    ]);
+  });
+
+  it('every new note and review reason has its exact sentence', () => {
+    const cases: [ItemNote, string, string][] = [
+      [{ kind: 'homebrew' }, 'Homebrew', 'Homebrew'],
+      [
+        { kind: 'vita7z' },
+        'Vita3K solo instala .zip, .vpk o .vci',
+        'Vita3K only installs .zip, .vpk or .vci',
+      ],
+      [{ kind: 'missing-disc', n: 2 }, 'Falta el disco 2', 'Disc 2 is missing'],
+      [
+        { kind: 'archive-games', count: 3 },
+        'El comprimido contiene 3 juegos',
+        'The archive holds 3 games',
+      ],
+      [
+        { kind: 'ps4-or-vita' },
+        'Hay que leer param.sfo para saber si es de PS4 o de Vita',
+        'param.sfo must be read to tell PS4 from Vita',
+      ],
+      [
+        { kind: 'disc-set' },
+        'Parece un juego de varios discos',
+        'Looks like a multi-disc game',
+      ],
+      [
+        { kind: 'archive-case-collision' },
+        'Dos nombres del comprimido solo cambian en mayúsculas',
+        'Two names in the archive differ only in case',
+      ],
+    ];
+    for (const [note, esText, enText] of cases) {
+      expect(text(noteKey(note)!), note.kind).toEqual([esText, enText]);
+      const row = autoItem(0, 'x', 'switch', 'switch', { notes: [note] });
+      expect(itemNotes(t, row, 'Anbernic', (id) => id)).toEqual([esText]);
+    }
+  });
+
+  it('«Cifrado» is a label, never a note line, and never said twice', () => {
+    const row = autoItem(0, '0100F2C0115B6000.xci', 'switch', 'switch', {
+      notes: [{ kind: 'encrypted-name' }, { kind: 'encrypted' }],
+    });
+    expect(encryptedName(row)).toBe(true);
+    expect(noteKey({ kind: 'encrypted-name' })).toBeNull();
+    // The label replaces the generic «Cifrado; …» line.
+    expect(itemNotes(t, row, 'Anbernic', (id) => id)).toEqual([]);
+    expect(t('organize.encryptedLabel')).toBe('Cifrado');
+    expect(tEn('organize.encryptedLabel')).toBe('Encrypted');
+    expect(t('organize.encryptedUnresolved')).toBe(
+      'No se puede leer el nombre sin descifrarlo',
+    );
+    expect(tEn('organize.encryptedUnresolved')).toBe(
+      'The name cannot be read without decrypting it',
+    );
+    // A resolved encrypted 3DS game keeps only its existing note.
+    const resolved = autoItem(1, 'Pokemon Y.3ds', '3ds', '3ds', {
+      notes: [{ kind: 'encrypted-content', emulator: 'Azahar' }],
+    });
+    expect(encryptedName(resolved)).toBe(false);
+    expect(itemNotes(t, resolved, 'Anbernic', (id) => id)).toEqual([
+      'Copia cifrada: Azahar solo abre copias descifradas',
+    ]);
+  });
+
+  it('a catalogue name and an NCA title id say where they came from', () => {
+    const named = autoItem(0, 'Cartridge.xci', 'switch', 'switch', {
+      catalogue_name: 'Super Mario Odyssey',
+      title_id: { id: '0100000000010000', source: 'nca-catalog' },
+      title_source: 'titledb',
+    });
+    // The name itself: with «Conservar los nombres» the row shows only the
+    // file name, so a line about a name it never shows would dangle.
+    expect(text(titleSourceKey(named)!)).toEqual([
+      'Nombre del catálogo de blawar/titledb: Super Mario Odyssey',
+      'Name from the blawar/titledb catalogue: Super Mario Odyssey',
+    ]);
+    expect(text(titleIdKey(named.title_id!)!)).toEqual([
+      'Title ID por el id del NCA en el catálogo',
+      'Title ID from the NCA id in the catalogue',
+    ]);
+    expect(
+      text(titleSourceKey({ ...named, title_source: 'nlib' } as OrganizeItem)!),
+    ).toEqual([
+      'Nombre del respaldo en línea: Super Mario Odyssey',
+      'Name from the online fallback: Super Mario Odyssey',
+    ]);
+    // A source with no name to show says nothing.
+    expect(titleSourceKey({ ...named, catalogue_name: null })).toBeNull();
+    expect(titleSourceKey(autoItem(1, 'x.nsp', 'switch', 'switch'))).toBeNull();
+  });
+
+  it('a loose disc set names the playlist it gets', () => {
+    const set = autoItem(
+      0,
+      'Grandia (Japan) (Disc 1).cue',
+      'saturn',
+      'Saturn',
+      {
+        kind: 'set',
+        playlist: {
+          path: 'ROMS/Saturn/Grandia (Japan).m3u',
+          discs: [
+            'ROMS/Saturn/Grandia (Japan) (Disc 1).cue',
+            'ROMS/Saturn/Grandia (Japan) (Disc 2).cue',
+          ],
+        },
+      },
+    );
+    expect(text(playlistKey(set)!)).toEqual([
+      'Se crea Grandia (Japan).m3u para cambiar de disco',
+      'Grandia (Japan).m3u is created for disc swapping',
+    ]);
+    const win = {
+      ...set,
+      playlist: { path: 'ROMS\\Saturn\\Grandia (Japan).m3u', discs: [] },
+    } as OrganizeItem;
+    expect(playlistKey(win)!.vars).toEqual({ name: 'Grandia (Japan).m3u' });
+    expect(playlistKey(autoItem(1, 'x.cue', 'saturn', 'Saturn'))).toBeNull();
+  });
+
+  it('the adjustments copy exists in both locales with the same placeholders', () => {
+    for (const key of [
+      'organize.encryptedLabel',
+      'organize.encryptedUnresolved',
+      'organize.note.homebrew',
+      'organize.note.vita7z',
+      'organize.note.missingDisc',
+      'organize.left.gamePart',
+      'organize.left.backup',
+      'organize.left.notConfirmed',
+      'organize.review.archiveGames',
+      'organize.review.ps4OrVita',
+      'organize.review.discSet',
+      'organize.review.caseCollision',
+      'organize.why.titledb',
+      'organize.why.nlib',
+      'organize.why.ncaCatalog',
+    ]) {
+      expect(has(es, key) && has(en, key), key).toBe(true);
+      expect(placeholders(lookup(en, key)), key).toEqual(
+        placeholders(lookup(es, key)),
+      );
+    }
+    // `organize.encrypted` (the older note) is still its own string.
+    expect(has(es, 'organize.encrypted')).toBe(true);
   });
 });

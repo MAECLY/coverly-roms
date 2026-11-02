@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ReviewBuckets } from '@/components/organize/ReviewBuckets';
 import { I18nProvider } from '@/i18n/I18nProvider';
+import type { OrganizeItem } from '@/ipc/types';
 import { reviewBuckets } from '@/lib/organize';
 import { planOf, reviewItem } from '@/test/organizeFixtures';
 
@@ -199,5 +200,50 @@ describe('ReviewBuckets', () => {
       within(bucket).getByRole('button', { name: 'Show 250 more' }),
     );
     expect(within(bucket).getAllByRole('listitem')).toHaveLength(400);
+  });
+});
+
+describe('ReviewBuckets (adjustments)', () => {
+  it('says why an archive of games, a PS4-or-Vita folder or a disc set is asked', async () => {
+    const withNote = (
+      id: number,
+      name: string,
+      note: OrganizeItem['notes'][number],
+    ) => ({
+      ...reviewItem(id, name, [
+        ['ps4', 0.6],
+        ['psvita', 0.4],
+      ]),
+      notes: [note],
+    });
+    render(
+      <I18nProvider locale="es">
+        <ReviewBuckets
+          buckets={reviewBuckets(
+            planOf([
+              withNote(0, 'Two games.zip', { kind: 'archive-games', count: 2 }),
+              withNote(1, 'CUSA00900.7z', { kind: 'ps4-or-vita' }),
+              withNote(2, 'Lunar (Disc 1).chd', { kind: 'disc-set' }),
+            ]),
+          )}
+          systemName={systemName}
+          onDecide={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+    for (const toggle of screen.getAllByRole('button', { name: /^Archivos: / }))
+      await userEvent.click(toggle);
+    const count = screen.getByText('El comprimido contiene', { exact: false });
+    expect(count).toHaveTextContent('El comprimido contiene 2 juegos');
+    // The count is a number in mono (§10).
+    expect(within(count).getByText('2').closest('.mono')).not.toBeNull();
+    expect(
+      screen.getByText(
+        'Hay que leer param.sfo para saber si es de PS4 o de Vita',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Parece un juego de varios discos'),
+    ).toBeInTheDocument();
   });
 });

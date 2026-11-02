@@ -17,7 +17,7 @@ use walkdir::WalkDir;
 
 use super::plan::LeftReason;
 use crate::archive::detect::multi_volume_part;
-use crate::consoles::{identify_dir, is_key_material, ConsoleId, DirListing, FolderLeave};
+use crate::consoles::{identify_dir_on_disk, is_key_material, ConsoleId, FolderLeave};
 use crate::identify::sniff::is_doom_wad;
 use crate::organize::inspect::names_an_archive;
 use crate::profiles::naming::system_folder;
@@ -161,20 +161,71 @@ pub struct TreeSummary {
     pub recent: bool,
     /// A cloud placeholder inside.
     pub cloud_only: bool,
+    /// [`folder_tree_digest`](crate::dedupe::keys::folder_tree_digest) of
+    /// the files counted (duplicates by folder, adjustments spec D19);
+    /// `None` for a truncated tree, a tree with a link or an unreadable
+    /// folder or entry, or no files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
 }
 
 /// Measures the tree below `dir` with `read_dir` and `symlink_metadata`
 /// only (never a file's content), without following links, within
 /// [`TREE_MAX_ENTRIES`] and [`TREE_MAX_DEPTH`] (spec D27).
 pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
+    let mut listed: Vec<(String, u64)> = Vec::new();
+    let mut unreadable = false;
+    let mut out = tree_walk(dir, opts, &mut listed, &mut unreadable);
+    // A folder or entry that could not be read hides files: the digest of
+    // what was seen could match a copy without them (spec D19).
+    if !out.truncated && !out.symlink && !unreadable && !listed.is_empty() {
+        out.digest = Some(crate::dedupe::keys::folder_tree_digest(&mut listed));
+    }
+    out
+}
+
+/// The tree digest of the folder game `dir`, measured from metadata only
+/// as [`tree_summary`] does.
+pub fn tree_digest(dir: &Path) -> Option<String> {
+    tree_now(dir).digest
+}
+
+/// [`tree_summary`] of the folder game `dir` with the defaults a scan
+/// uses (no recent window): what a plan measured, measured again.
+pub fn tree_now(dir: &Path) -> TreeSummary {
+    let opts = WalkOptions {
+        skip_dirs: Vec::new(),
+        roms_root: None,
+        art_dirs: &[],
+        ignored_dirs: &[],
+        now: UNIX_EPOCH,
+        recent: Duration::ZERO,
+        probe: &OsMetaProbe,
+        max_depth: MAX_DEPTH,
+        profile: None,
+    };
+    tree_summary(dir, &opts)
+}
+
+fn tree_walk(
+    dir: &Path,
+    opts: &WalkOptions,
+    listed: &mut Vec<(String, u64)>,
+    unreadable: &mut bool,
+) -> TreeSummary {
     let mut out = TreeSummary::default();
     let mut seen = 0usize;
     let mut stack: Vec<(PathBuf, usize)> = vec![(dir.to_path_buf(), 0)];
     while let Some((folder, depth)) = stack.pop() {
         let Ok(entries) = fs::read_dir(&folder) else {
+            *unreadable = true;
             continue;
         };
-        for entry in entries.flatten() {
+        for entry in entries {
+            let Ok(entry) = entry else {
+                *unreadable = true;
+                continue;
+            };
             seen += 1;
             if seen > TREE_MAX_ENTRIES {
                 out.truncated = true;
@@ -183,6 +234,7 @@ pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
             let Ok(meta) = fs::symlink_metadata(&path) else {
+                *unreadable = true;
                 continue;
             };
             // A link is a link whatever its name: a `._x` or `Thumbs.db`
@@ -211,6 +263,13 @@ pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
                 continue;
             }
             let len = opts.probe.file_len(&path, &meta);
+            if let Ok(rel) = path.strip_prefix(dir) {
+                let parts: Vec<String> = rel
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect();
+                listed.push((parts.join("/"), len));
+            }
             out.files += 1;
             out.bytes = out.bytes.saturating_add(len);
             out.largest_file = out.largest_file.max(len);
@@ -349,11 +408,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 return false;
             }
             let names: Vec<String> = listed.iter().map(|(n, _, _)| n.clone()).collect();
-            let listing = DirListing {
-                dir: entry.path(),
-                names: &names,
-            };
-            match identify_dir(&listing) {
+            match identify_dir_on_disk(entry.path(), &names) {
                 Ok(Some(found)) => {
                     if let Some(leave) = found.leave {
                         let reason = match leave {
@@ -952,6 +1007,35 @@ mod tests {
             max_depth: MAX_DEPTH,
             profile: None,
         }
+    }
+
+    /// A folder the walk cannot list hides its files: the digest of what
+    /// was seen would match a copy without them (adjustments spec D19),
+    /// so a tree with an unreadable folder has none.
+    #[cfg(unix)]
+    #[test]
+    fn a_tree_with_an_unreadable_folder_has_no_digest() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let full = tmp.path().join("Full");
+        let bare = tmp.path().join("Bare");
+        for root in [&full, &bare] {
+            fs::create_dir_all(root.join("sce_sys")).unwrap();
+            fs::write(root.join("sce_sys").join("param.sfo"), b"sfo").unwrap();
+        }
+        let locked = full.join("dlc");
+        fs::create_dir_all(&locked).unwrap();
+        fs::write(locked.join("extra.pkg"), b"extra").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        // Root reads any folder: nothing to prove there.
+        let unreadable = fs::read_dir(&locked).is_err();
+        let digest = tree_digest(&full);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        if !unreadable {
+            return;
+        }
+        assert!(tree_digest(&bare).is_some());
+        assert_eq!(digest, None);
     }
 
     #[test]

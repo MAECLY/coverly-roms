@@ -459,7 +459,7 @@ fn era_windows(dir: &std::path::Path) {
 
 #[test]
 fn folder_probes() {
-    use coverly_core::consoles::{identify_dir, DirListing};
+    use coverly_core::consoles::identify_dir_on_disk;
     let tmp = tempfile::TempDir::new().unwrap();
     for (name, build, want) in FOLDERS {
         let dir = tmp.path().join(name);
@@ -469,10 +469,7 @@ fn folder_probes() {
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         names.sort();
-        let got: Vec<String> = match identify_dir(&DirListing {
-            dir: &dir,
-            names: &names,
-        }) {
+        let got: Vec<String> = match identify_dir_on_disk(&dir, &names) {
             Ok(Some(m)) => vec![m.id.system],
             Ok(None) => Vec::new(),
             Err(conflict) => conflict.systems,

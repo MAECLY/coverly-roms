@@ -485,6 +485,25 @@ export interface Settings {
   };
   advanced: { log_level: LogLevel; custom_dir: string | null };
   organize: OrganizeSettings;
+  /** Optional, downloaded name catalogues (adjustments D2). */
+  catalogs: CatalogSettings;
+}
+
+/** Mirror of `coverly_core::settings::SwitchCatalogSettings`: the optional
+ * `blawar/titledb` name catalogue, off by default. `icons` and `fallback`
+ * count only while `enabled` (the core turns them off with it). */
+export interface SwitchCatalogSettings {
+  enabled: boolean;
+  icons: boolean;
+  /** 7–90. */
+  refresh_days: number;
+  fallback: boolean;
+  /** HTTPS base URL, no query or credentials. */
+  fallback_url: string;
+}
+
+export interface CatalogSettings {
+  switch: SwitchCatalogSettings;
 }
 
 export type SettingsGroup = Exclude<keyof Settings, 'version'>;
@@ -496,7 +515,9 @@ export type SettingsPatch = {
     ? Partial<Omit<Settings['art'], 'max_size'>> & {
         max_size?: Record<string, MaxSize | null>;
       }
-    : Partial<Settings[G]>;
+    : G extends 'catalogs'
+      ? { switch?: Partial<SwitchCatalogSettings> | null }
+      : Partial<Settings[G]>;
 };
 
 export type FieldErrorCode =
@@ -545,6 +566,23 @@ export interface SettingsUpdate {
 
 export type LinkId =
   'repo' | 'license' | 'notices' | 'trademarks' | 'releases' | 'issues';
+
+/** Which link of a credit entry `open_credit` opens (adjustments D27). */
+export type CreditLink = 'site' | 'license';
+
+/** Mirror of `coverly_core::catalog::CatalogStatus`: the optional Switch
+ * name catalogue as the Sources group shows it (spec §7, §10). `updated`
+ * is an ISO date; `fallback` = the United States list instead of the UI
+ * language's. */
+export type CatalogStatus =
+  | { state: 'off' }
+  | { state: 'pending' }
+  | { state: 'downloading'; done: number; total: number | null }
+  | { state: 'ready'; count: number; updated: string; fallback: boolean }
+  | { state: 'failed-old'; updated: string }
+  | { state: 'failed-none' }
+  | { state: 'rejected' }
+  | { state: 'remove-failed' };
 
 export type CredentialKey =
   'steamgriddb-api-key' | 'screenscraper-user' | 'screenscraper-password';
@@ -819,7 +857,29 @@ export type LeftReason =
   | { kind: 'emulator-data'; folder: string }
   /** A mods or patch folder beside its base that cannot move alone; `of`
    * is the base's title (its folder name when the base is not an item). */
-  | { kind: 'game-overlay'; of: string };
+  | { kind: 'game-overlay'; of: string }
+  /** A piece of a game that cannot play alone (an ExeFS file, a loose NCA,
+   * a library, title metadata, a module or a backup); `title_id` is the
+   * game's when the piece or its path says. */
+  | {
+      kind: 'game-part';
+      part: PartKind;
+      system: string;
+      title_id: string | null;
+    }
+  /** A huge item the user said «No» to: it stays where it is. */
+  | { kind: 'not-confirmed' };
+
+/** A piece of a game that cannot play alone (Rust `PartKind`). */
+export type PartKind =
+  'exe-fs' | 'nca' | 'library' | 'title-meta' | 'module' | 'backup';
+
+/** What a console title is (Rust `TitleKind`). */
+export type TitleKind =
+  'base' | 'update' | 'dlc' | 'demo' | 'homebrew' | 'unknown';
+
+/** Where a console title's name came from (Rust `TitleSource`). */
+export type TitleSource = 'header' | 'titledb' | 'nlib' | 'file-name';
 
 /** Something worth telling about an item that still moves. */
 export type ItemNote =
@@ -862,7 +922,23 @@ export type ItemNote =
   /** Enhanced for PS5 Pro (`attribute3` bit 22). */
   | { kind: 'pro-enhanced' }
   /** Goes to the DLC folder where `layout` looks for downloadable content. */
-  | { kind: 'dlc-folder'; layout: string };
+  | { kind: 'dlc-folder'; layout: string }
+  /** Homebrew: goes to the system folder like any ROM. */
+  | { kind: 'homebrew' }
+  /** A Vita game kept in a 7z: Vita3K only installs .zip, .vpk or .vci. */
+  | { kind: 'vita7z' }
+  /** Disc `n` of a multi-disc set is not in the pile. */
+  | { kind: 'missing-disc'; n: number }
+  /** The title cannot be read without decrypting it («Cifrado»). */
+  | { kind: 'encrypted-name' }
+  /** The archive holds the folders of `count` games: review. */
+  | { kind: 'archive-games'; count: number }
+  /** PS4 and Vita share the structure; param.sfo was not read: review. */
+  | { kind: 'ps4-or-vita' }
+  /** Two names in the archive differ only in case: review. */
+  | { kind: 'archive-case-collision' }
+  /** Loose discs whose names alone say they are one game: review. */
+  | { kind: 'disc-set' };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =
@@ -912,7 +988,14 @@ export type IdSource =
   | 'header'
   | 'param-json'
   | 'microsoft-game-config'
-  | 'appx-manifest';
+  | 'appx-manifest'
+  | 'nca-catalog'
+  | 'tmd'
+  | 'npdm'
+  | 'xbe'
+  | 'xex'
+  | 'self-header'
+  | 'pbp';
 
 /** A console title id and where it came from. */
 export interface TitleIdRef {
@@ -963,6 +1046,9 @@ export type Transfer =
       sheet_check: SheetCheck;
       /** A generated playlist, relative to the target root. */
       m3u: string | null;
+      /** A folder game extracted out of an archive (adjustments D23):
+       * always asked on its own before apply. Absent when false. */
+      folder_game?: boolean;
     };
 
 /** The ISO 9660 descriptor and boot-file hash of a disc. */
@@ -1021,7 +1107,21 @@ export type OrganizeItem = OrganizeAction & {
   /** The console content id (PKG header, `param.sfo`, `param.json`, XVC);
    * Rust leaves it out when absent. */
   content_id?: string;
+  /** The `.m3u` a loose multi-disc set gets (Rust leaves it out when
+   * absent). */
+  playlist?: Playlist;
+  /** Set only when the optional Switch catalogue named the title
+   * (`titledb` or `nlib`, adjustments D7); Rust leaves it out otherwise. */
+  title_source?: TitleSource;
 };
+
+/** A playlist written for a loose multi-disc set: a new file, never over
+ * an existing one, removed by undo. Paths relative to the target root. */
+export interface Playlist {
+  path: string;
+  /** Each disc's sheet or image, in disc order: the playlist's lines. */
+  discs: string[];
+}
 
 export interface OrganizeCounts {
   /** Items that move (automatically or once reviewed). */
@@ -1098,6 +1198,8 @@ export type OrganizeDecision = { item: number } & (
   | { choice: 'accept' }
   | { choice: 'assign'; system: string }
   | { choice: 'leave' }
+  /** «No» to a huge item: left as not confirmed, never remembered. */
+  | { choice: 'decline' }
 );
 
 /** A quick, name-only look at a folder no layout was detected in. */
@@ -1216,6 +1318,37 @@ export interface LargeTransferDetail {
   free: number | null;
   /** The target volume's name, else the target folder's. */
   volume: string;
+  /** Items asked one by one, in plan order (adjustments D15). */
+  huge: HugeItem[];
+  /** Bytes of every other item (D16b: asked as a whole only when they
+   * alone reach the threshold). */
+  rest: number;
+}
+
+/** One item asked on its own before apply (adjustments D15): it alone,
+ * with the shadPS4 overlays that follow it, writes 10 GB or more, or it
+ * extracts a folder game out of an archive. */
+export interface HugeItem {
+  /** `OrganizeItem.id`. */
+  item: number;
+  /** File or folder name in the pile. */
+  name: string;
+  system: string;
+  /** Bytes it writes, its followers included. */
+  bytes: number;
+  /** Extracted out of an archive. */
+  extract: boolean;
+  /** Items left with it when it is declined. */
+  followers: number[];
+}
+
+/** What `organize_apply` gets once the questions are answered (D16):
+ * every accepted huge item, and `rest + Σ accepted bytes` from the
+ * numbers the error carried. A declined item travels as a `decline`
+ * decision instead. */
+export interface LargeConfirm {
+  bytes: number;
+  items: number[];
 }
 
 /** An IPC error as data (inside a view). */

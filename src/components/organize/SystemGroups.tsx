@@ -25,6 +25,7 @@ import {
   actionOf,
   confidenceKey,
   extractDetail,
+  playlistKey,
   rowNotes,
   targetDir,
   whyKey,
@@ -201,6 +202,8 @@ function Row({
   );
   const serials = item.disc?.serials.join(', ') ?? '';
   const notes = rowNotes(t, item, layoutName, systemName);
+  // A loose multi-disc set's new playlist (D24), under its notes.
+  const playlist = playlistKey(item);
   return (
     <li className={fresh ? `${fileRow} ${newRow}` : fileRow}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -259,6 +262,7 @@ function Row({
           {line}
         </p>
       ))}
+      {playlist && <p className={hintText}>{t(playlist.key, playlist.vars)}</p>}
       {/* An extract row folds the archive's own facts into its detail. */}
       <ExtractDetail
         item={item}

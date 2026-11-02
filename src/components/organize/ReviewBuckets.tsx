@@ -11,9 +11,15 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { NativeSelect } from '@/components/ui/select';
 import { SlotMark } from '@/components/ui/slot-mark';
+import { useRichT } from '@/i18n/rich';
 import { useT } from '@/i18n/useT';
 import type { OrganizeItem } from '@/ipc/types';
-import { ROWS_PER_GROUP, whyKey, type ReviewBucket } from '@/lib/organize';
+import {
+  ROWS_PER_GROUP,
+  noteKey,
+  whyKey,
+  type ReviewBucket,
+} from '@/lib/organize';
 
 import { ItemName, TitleIdLine } from './ItemName';
 import { NewBadge, NewCount, newRow, type IsNew } from './NewMarks';
@@ -254,6 +260,7 @@ function ReviewRow({
   fresh: boolean;
 }) {
   const t = useT();
+  const tr = useRichT();
   const name = item.sources[0] ?? '';
   return (
     <li className={fresh ? `${fileRow} ${newRow}` : fileRow}>
@@ -283,6 +290,16 @@ function ReviewRow({
         );
       })}
       <TitleIdLine item={item} />
+      {/* Why it is asked (an archive of several games, PS4 or Vita, a
+          disc set by name only) and the item's own data notes. */}
+      {item.notes.map((n, i) => {
+        const keyed = noteKey(n);
+        return keyed ? (
+          <p key={`n${i}`} className={hintText}>
+            {tr(keyed.key, keyed.vars)}
+          </p>
+        ) : null;
+      })}
     </li>
   );
 }

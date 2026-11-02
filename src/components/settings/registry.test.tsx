@@ -18,12 +18,15 @@ import { MemoryStorage } from '@/test/storage';
 
 import en from '../../../locales/en/ui.json';
 import es from '../../../locales/es/ui.json';
+import { CREDITS } from '@/lib/credits';
+
 import { foldCount, SETTINGS_INDEX, type SettingsFold } from './registry';
 
 const FOLDS: readonly SettingsFold[] = [
   'library-advanced',
   'organize-advanced',
   'duplicates-advanced',
+  'sources-advanced',
 ];
 
 /** Ids that belong to a control but are not one (its help, hint, error,
@@ -64,6 +67,14 @@ describe('settings registry', () => {
     setBackend(null);
   });
 
+  it('has one credit- entry per credits.json entry, in the Credits tab', () => {
+    const credits = SETTINGS_INDEX.filter((e) => e.id.startsWith('credit-'));
+    expect(credits.map((e) => e.id)).toEqual(
+      CREDITS.map((c) => `credit-${c.id}`),
+    );
+    expect(credits.every((e) => e.section === 'credits')).toBe(true);
+  });
+
   it('ids are unique', () => {
     const ids = SETTINGS_INDEX.map((e) => e.id);
     expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]);
@@ -72,7 +83,7 @@ describe('settings registry', () => {
   it('every label, hint and keywords key exists in both locales', () => {
     const missing = SETTINGS_INDEX.flatMap((e) =>
       [e.label, e.hint, e.keywords]
-        .filter((k): k is string => k !== undefined)
+        .filter((k): k is string => typeof k === 'string')
         .flatMap((k) =>
           (
             [
@@ -100,6 +111,7 @@ describe('settings registry', () => {
   it('counts the entries of each fold', () => {
     expect(foldCount('library-advanced')).toBe(2);
     expect(foldCount('organize-advanced')).toBe(1);
+    expect(foldCount('sources-advanced')).toBe(2);
     expect(
       FOLDS.every((f) => foldCount(f) > 0),
       'every fold holds at least one setting',

@@ -1,8 +1,12 @@
 import { DEDUPE_LEVELS } from '@/ipc/types';
+import { CREDITS, type LocalText } from '@/lib/credits';
 import type { SettingsSection } from '@/stores/navStore';
 
 export type SettingsFold =
-  'library-advanced' | 'organize-advanced' | 'duplicates-advanced';
+  | 'library-advanced'
+  | 'organize-advanced'
+  | 'duplicates-advanced'
+  | 'sources-advanced';
 
 export interface SettingEntry {
   /** DOM id to focus: settingId(path) of the control, or a list anchor (SP-1). */
@@ -10,8 +14,9 @@ export interface SettingEntry {
   section: SettingsSection;
   /** The AdvancedFold id that holds it, if any. */
   fold?: SettingsFold;
+  /** An i18n key, or the text itself in both languages (a credit's name). */
+  label: string | LocalText;
   /** i18n keys. */
-  label: string;
   hint?: string;
   keywords?: string;
   /** The id is a prefix: dynamic rows (container order per profile/kind). */
@@ -291,6 +296,32 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     section: 'matching',
     label: 'settings.matching.maxHash',
   },
+  // Fuentes: the optional Switch name catalogue (adjustments §9.2)
+  {
+    id: 'setting-sources-switch-catalog',
+    section: 'sources',
+    label: 'settings.sources.switchCatalog.label',
+    keywords: 'settings.keywords.switchCatalog',
+  },
+  {
+    id: 'setting-sources-switch-catalog-icons',
+    section: 'sources',
+    label: 'settings.sources.switchCatalog.icons',
+    hint: 'settings.sources.switchCatalog.iconsHint',
+  },
+  {
+    id: 'setting-sources-switch-catalog-fallback',
+    section: 'sources',
+    fold: 'sources-advanced',
+    label: 'settings.sources.switchCatalog.fallback',
+    hint: 'settings.sources.switchCatalog.fallbackHint',
+  },
+  {
+    id: 'setting-sources-switch-catalog-fallback-url',
+    section: 'sources',
+    fold: 'sources-advanced',
+    label: 'settings.sources.switchCatalog.fallbackUrl',
+  },
   // Red
   {
     id: 'setting-network-concurrency',
@@ -380,6 +411,25 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     label: 'settings.advanced.customDir',
     hint: 'settings.advanced.customDirHint',
   },
+  // Agradecimientos
+  {
+    id: 'setting-credits-search',
+    section: 'credits',
+    label: 'settings.credits.search',
+    keywords: 'settings.keywords.credits',
+  },
+  {
+    id: 'setting-credits-notices',
+    section: 'credits',
+    label: 'settings.credits.notices',
+    keywords: 'settings.keywords.credits',
+  },
+  // One entry per credit, generated: a new credit needs no hand edit here.
+  ...CREDITS.map((c): SettingEntry => ({
+    id: `credit-${c.id}`,
+    section: 'credits',
+    label: typeof c.name === 'string' ? { es: c.name, en: c.name } : c.name,
+  })),
 ];
 
 /** Entries inside a fold (the trigger's count). */

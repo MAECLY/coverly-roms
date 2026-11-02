@@ -371,7 +371,7 @@ describe('Tauri backend', () => {
     await b.organizePlan({ source: '/x' }, decisions);
     await b.organizeCancel(3);
     await b.organizeApply(3, decisions);
-    await b.organizeApply(3, [], 187_420_000_000);
+    await b.organizeApply(3, [], { bytes: 187_420_000_000, items: [4] });
     await b.organizeResume('j');
     await b.organizeCancelApply();
     await b.organizeUndo('j', true);
@@ -383,10 +383,14 @@ describe('Tauri backend', () => {
       ['organize_plan', { request, decisions: null }],
       ['organize_plan', { request: { source: '/x' }, decisions }],
       ['organize_cancel', { planId: 3 }],
-      ['organize_apply', { planId: 3, decisions, confirmedBytes: null }],
+      ['organize_apply', { planId: 3, decisions, confirm: null }],
       [
         'organize_apply',
-        { planId: 3, decisions: [], confirmedBytes: 187_420_000_000 },
+        {
+          planId: 3,
+          decisions: [],
+          confirm: { bytes: 187_420_000_000, items: [4] },
+        },
       ],
       ['organize_resume', { job: 'j' }],
       ['organize_cancel_apply', {}],

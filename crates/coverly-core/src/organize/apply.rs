@@ -21,8 +21,9 @@ use crate::disc::sheets::SheetKind;
 use crate::identify::overrides::{Overrides, OVERRIDES_FILE};
 use crate::jobs::ItemErrorKind;
 use crate::organize::extract::{
-    archive_unchanged, decode_total, dispose_archive, extract_and_commit, m3u_text, Adopted,
-    ArchiveFate, CommitRequest, ExtractError, ExtractRequest, ExtractTick,
+    archive_unchanged, decode_total, dispose_archive, extract_and_commit, m3u_text,
+    m3u_text_in_order, Adopted, ArchiveFate, CommitRequest, ExtractError, ExtractRequest,
+    ExtractTick,
 };
 use crate::organize::plan::{
     ArchiveAfter, ExtractEntry, ExtractSource, ItemKind, OrganizeAction, OrganizeItem,
@@ -341,7 +342,7 @@ pub fn apply_organize(plan: &OrganizePlan, env: &ApplyEnv) -> Result<OrganizeRep
         pause(&mut report, reason, &pending);
         return Ok(report);
     }
-    check_space(plan, &pending)?;
+    check_space(plan, &pending, 0)?;
     let writer = Writer::begin_with(
         &plan.target_root,
         env.data_dir,
@@ -369,6 +370,9 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
     let applicable: Vec<&OrganizeItem> = plan.items.iter().filter(|i| applicable(i)).collect();
     let mut pending = Vec::new();
     let mut started = HashMap::new();
+    // Bytes of the entries earlier runs already extracted: they take no
+    // more room (adjustments spec D17 checks extractions up front).
+    let mut in_place: u64 = 0;
     for item in &applicable {
         if item.is_set_aside() {
             match set_aside_done(&plan, item, &records, &steps) {
@@ -385,9 +389,13 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
             continue;
         }
         if matches!(item.transfer, Transfer::Extract { .. }) {
-            match ExtractJournal::of(&plan, item, &records, &steps).done(&plan, item) {
+            let journal = ExtractJournal::of(&plan, item, &records, &steps);
+            match journal.done(&plan, item) {
                 Some((status, targets)) => record_outcome(&mut report, item.id, status, targets),
-                None => pending.push(*item),
+                None => {
+                    in_place = in_place.saturating_add(journal.completed_bytes(item));
+                    pending.push(*item);
+                }
             }
             continue;
         }
@@ -418,7 +426,7 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
         pause(&mut report, reason, &pending);
         return Ok(report);
     }
-    check_space(&plan, &pending)?;
+    check_space(&plan, &pending, in_place)?;
     let writer = Writer::resume(&plan.target_root, env.data_dir, job)?;
     writer.clean_temps(&target_dirs(&plan, &applicable));
     let mut run = Run::new(&plan, env, writer, true, records);
@@ -512,6 +520,39 @@ pub struct LargeTransfer {
     /// [`crate::volumes::mounted_volumes`]), else the target folder's own
     /// name.
     pub volume: String,
+    /// The items asked one by one (adjustments spec D15), in plan order.
+    pub huge: Vec<HugeItem>,
+    /// Bytes of every non-huge item (D16b: the aggregate question asks for
+    /// these only when they alone reach [`LARGE_TRANSFER`]).
+    pub rest: u64,
+}
+
+/// One item asked on its own before apply (adjustments spec D15): it
+/// alone, with the overlays that follow it, writes [`LARGE_TRANSFER`] or
+/// more to the target, or it extracts a folder game out of an archive.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct HugeItem {
+    /// [`OrganizeItem::id`].
+    pub item: usize,
+    /// The item's file or folder name in the pile.
+    pub name: String,
+    pub system: String,
+    /// Bytes this item writes, its followers included (shadPS4 overlays,
+    /// systems batch 3 D11 e).
+    pub bytes: u64,
+    /// The item is extracted out of an archive.
+    pub extract: bool,
+    /// The items that follow it (they are left with it when it is
+    /// declined), in plan order.
+    pub followers: Vec<usize>,
+}
+
+/// What the user confirmed (adjustments spec D16): every huge item they
+/// accepted and the bytes they were shown for the decided plan.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct LargeConfirm {
+    pub bytes: u64,
+    pub items: Vec<usize>,
 }
 
 #[cfg(feature = "test-util")]
@@ -533,7 +574,9 @@ pub fn set_large_transfer_override(bytes: Option<u64>) {
     LARGE_TRANSFER_AT.with(|c| c.set(bytes));
 }
 
-fn large_transfer_threshold() -> u64 {
+/// The bytes from which an item is asked on its own, or a plan as a whole
+/// ([`LARGE_TRANSFER`], or a test build's override).
+pub fn large_transfer_threshold() -> u64 {
     #[cfg(feature = "test-util")]
     {
         if let Some(bytes) = LARGE_TRANSFER_AT.with(std::cell::Cell::get) {
@@ -549,39 +592,166 @@ fn large_transfer_threshold() -> u64 {
     LARGE_TRANSFER
 }
 
+/// The bytes `item` of `plan` writes to its target, `None` when it writes
+/// nothing there (systems batch 3 D23, [`check_space`]'s rule): the
+/// items apply writes (automatic, with a target; an undecided review item
+/// is skipped, a duplicate set aside stays on the pile's volume), as they
+/// are in copy mode or across volumes, plus the bytes extractions write
+/// in any mode. A same-volume move is a rename and counts nothing.
+fn written_bytes(item: &OrganizeItem, crosses: bool) -> Option<u64> {
+    if item.action != OrganizeAction::Auto || item.target.is_none() {
+        return None;
+    }
+    match &item.transfer {
+        Transfer::Extract { bytes, .. } => Some(*bytes),
+        Transfer::AsIs if crosses => Some(item.size),
+        Transfer::AsIs => None,
+    }
+}
+
+/// Whether `plan` copies (copy mode, or a move across volumes).
+fn crosses_volumes(plan: &OrganizePlan) -> bool {
+    plan.mode == TransferMode::Copy || !same_volume(&plan.source_root, &plan.target_root)
+}
+
+/// For each item of `plan` that moves in, the shadPS4 overlays that
+/// follow it (systems batch 3 D11): a PS4 item whose target sits beside
+/// the base's, named like it plus an update suffix (what
+/// `sibling_targets` gave it). Keyed by item position.
+fn overlay_followers(plan: &OrganizePlan) -> HashMap<usize, Vec<usize>> {
+    let ps4 = |i: &OrganizeItem| i.system_id.as_deref() == Some("ps4") && i.moves_in();
+    let mut by_target: HashMap<(PathBuf, String), usize> = HashMap::new();
+    for (pos, item) in plan.items.iter().enumerate().filter(|(_, i)| ps4(i)) {
+        if let Some(t) = &item.target {
+            let name = t
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            let dir = t.parent().map(Path::to_path_buf).unwrap_or_default();
+            by_target.insert((dir, name), pos);
+        }
+    }
+    let mut followers: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (pos, item) in plan.items.iter().enumerate().filter(|(_, i)| ps4(i)) {
+        let Some(t) = &item.target else { continue };
+        let Some(name) = t.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let dir = t.parent().map(Path::to_path_buf).unwrap_or_default();
+        let base = crate::consoles::sony::UPDATE_SUFFIXES.iter().find_map(|s| {
+            let stem = crate::organize::target::strip_suffix_ignoring_case(&name, s)?;
+            by_target
+                .get(&(dir.clone(), stem.to_lowercase()))
+                .copied()
+                .filter(|&b| b != pos)
+        });
+        if let Some(base) = base {
+            followers.entry(base).or_default().push(pos);
+        }
+    }
+    followers
+}
+
 /// What `plan` writes to its target, when that reaches
-/// [`LARGE_TRANSFER`] (systems batch 3 D23, [`check_space`]'s rule): the
-/// items apply writes (automatic, with a target; an undecided review
-/// item is skipped, a duplicate set aside stays on the pile's volume), in
-/// copy mode or across volumes, plus the bytes extractions write in any
-/// mode. A same-volume move is a rename and counts nothing.
+/// [`LARGE_TRANSFER`] or when an item has to be asked on its own
+/// (systems batch 3 D23, adjustments spec D15): the items apply writes
+/// (automatic, with a target; an undecided review item is skipped, a
+/// duplicate set aside stays on the pile's volume), in copy mode or
+/// across volumes, plus the bytes extractions write in any mode. A
+/// same-volume move is a rename and counts nothing. An item is huge when
+/// it alone, with the overlays that follow it, writes the threshold or
+/// more, or when it extracts a folder game out of an archive (any size);
+/// `rest` is what every other item writes.
 pub fn large_transfer(plan: &OrganizePlan) -> Option<LargeTransfer> {
-    let crosses =
-        plan.mode == TransferMode::Copy || !same_volume(&plan.source_root, &plan.target_root);
+    let crosses = crosses_volumes(plan);
+    let threshold = large_transfer_threshold();
+    // An overlay follows only a base apply writes: under a base still to
+    // review (skipped), it is weighed on its own.
+    let mut followers = overlay_followers(plan);
+    followers.retain(|&base, _| {
+        plan.items
+            .get(base)
+            .is_some_and(|b| written_bytes(b, crosses).is_some())
+    });
+    let following: std::collections::HashSet<usize> =
+        followers.values().flatten().copied().collect();
     let mut bytes: u64 = 0;
     let mut items = 0usize;
-    for item in plan
-        .items
-        .iter()
-        .filter(|i| i.action == OrganizeAction::Auto && i.target.is_some())
-    {
-        let add = match &item.transfer {
-            Transfer::Extract { bytes, .. } => Some(*bytes),
-            Transfer::AsIs if crosses => Some(item.size),
-            Transfer::AsIs => None,
-        };
-        if let Some(add) = add {
+    let mut huge = Vec::new();
+    let mut huge_bytes: u64 = 0;
+    for (pos, item) in plan.items.iter().enumerate() {
+        if let Some(add) = written_bytes(item, crosses) {
             bytes = bytes.saturating_add(add);
             items += 1;
         }
+        if following.contains(&pos) || !item.moves_in() {
+            continue;
+        }
+        let Some(own) = written_bytes(item, crosses) else {
+            continue;
+        };
+        let follow: Vec<usize> = followers.get(&pos).cloned().unwrap_or_default();
+        let with_followers = follow
+            .iter()
+            .filter_map(|&f| plan.items.get(f))
+            .filter_map(|f| written_bytes(f, crosses))
+            .fold(own, u64::saturating_add);
+        let extract = matches!(item.transfer, Transfer::Extract { .. });
+        let folder_game = matches!(
+            item.transfer,
+            Transfer::Extract {
+                folder_game: true,
+                ..
+            }
+        );
+        if with_followers >= threshold || folder_game {
+            huge_bytes = huge_bytes.saturating_add(with_followers);
+            huge.push(HugeItem {
+                item: item.id,
+                name: item
+                    .sources
+                    .first()
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                system: item.system_id.clone().unwrap_or_default(),
+                bytes: with_followers,
+                extract,
+                followers: follow
+                    .iter()
+                    .filter_map(|&f| plan.items.get(f))
+                    .map(|f| f.id)
+                    .collect(),
+            });
+        }
     }
-    (bytes >= large_transfer_threshold()).then(|| LargeTransfer {
+    (bytes >= threshold || !huge.is_empty()).then(|| LargeTransfer {
         bytes,
         items,
         copies: plan.mode == TransferMode::Copy,
         free: user_available(&plan.target_root),
         volume: volume_name(&plan.target_root),
+        rest: bytes.saturating_sub(huge_bytes),
+        huge,
     })
+}
+
+/// The apply gate shared by the app and the CLI (adjustments spec D16):
+/// `plan` (the decided plan) may start when it writes nothing to confirm,
+/// or when `confirm` names every huge item and at least the bytes the
+/// plan writes. Otherwise the numbers to confirm. Declined items are
+/// already left in the decided plan, so they are not asked again.
+pub fn gate(plan: &OrganizePlan, confirm: Option<&LargeConfirm>) -> Result<(), LargeTransfer> {
+    let Some(t) = large_transfer(plan) else {
+        return Ok(());
+    };
+    let ok = confirm
+        .is_some_and(|c| t.huge.iter().all(|h| c.items.contains(&h.item)) && c.bytes >= t.bytes);
+    if ok {
+        Ok(())
+    } else {
+        Err(t)
+    }
 }
 
 /// The name of the mounted volume holding `target` (the longest mount
@@ -596,20 +766,31 @@ fn volume_name(target: &Path) -> String {
         .unwrap_or_else(|| target.display().to_string())
 }
 
-/// A copy, or a move across volumes, needs the items' bytes plus 1 %
-/// free on the target volume. Unknown free space is not checked.
-fn check_space(plan: &OrganizePlan, items: &[&OrganizeItem]) -> Result<(), ApplyError> {
-    let copies =
-        plan.mode == TransferMode::Copy || !same_volume(&plan.source_root, &plan.target_root);
-    if !copies || items.is_empty() {
-        return Ok(());
-    }
-    // A duplicate set aside stays on the pile's volume.
+/// What the items write to the target (what [`large_transfer`] counts:
+/// extraction bytes in every mode, the item's size when copying or
+/// crossing volumes; a duplicate set aside stays on the pile's volume)
+/// needs that plus 1 % free on the target volume (adjustments spec D17).
+/// `in_place` is what a resumed job already wrote of them (extracted
+/// entries journaled complete). Unknown free space is not checked.
+fn check_space(
+    plan: &OrganizePlan,
+    items: &[&OrganizeItem],
+    in_place: u64,
+) -> Result<(), ApplyError> {
+    let crosses = crosses_volumes(plan);
     let sum: u64 = items
         .iter()
         .filter(|i| !i.is_set_aside())
-        .map(|i| i.size)
-        .sum();
+        .filter_map(|i| match &i.transfer {
+            Transfer::Extract { bytes, .. } => Some(*bytes),
+            Transfer::AsIs if crosses => Some(i.size),
+            Transfer::AsIs => None,
+        })
+        .fold(0u64, u64::saturating_add)
+        .saturating_sub(in_place);
+    if sum == 0 {
+        return Ok(());
+    }
     let needed = sum.saturating_add(sum.div_ceil(100));
     match free_space(&plan.target_root) {
         Some(free) if free < needed => Err(ApplyError::NoSpace { needed, free }),
@@ -700,6 +881,11 @@ fn set_aside_done(
     let paths = set_aside_paths(plan, item);
     if paths.is_empty() {
         return None;
+    }
+    if item.kind == ItemKind::Folder {
+        // A folder game is set aside whole, never trashed (spec D19).
+        let record = record_of(records, item.id, &paths[0].0)?;
+        return Some((ItemStatus::Quarantined, vec![record.target.clone()]));
     }
     let mut targets = Vec::with_capacity(paths.len());
     for (from, _) in &paths {
@@ -818,11 +1004,16 @@ fn record_of<'r>(
 fn has_leftovers(plan: &OrganizePlan, item: &OrganizeItem, records: &[TransferRecord]) -> bool {
     let members = item.sources.iter().skip(1);
     let companions = item.companions.iter().map(|c| &c.source);
-    members.chain(companions).any(|rel| {
-        let from = plan.source_root.join(rel);
-        fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file())
-            && record_of(records, item.id, &from).is_none()
-    })
+    let unwritten = item
+        .playlist
+        .as_ref()
+        .is_some_and(|p| fs::symlink_metadata(plan.target_root.join(&p.path)).is_err());
+    unwritten
+        || members.chain(companions).any(|rel| {
+            let from = plan.source_root.join(rel);
+            fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file())
+                && record_of(records, item.id, &from).is_none()
+        })
 }
 
 /// Where a finished item's files are by the journal: primary, members,
@@ -930,6 +1121,19 @@ impl ExtractJournal {
         ExtractJournal { entries, archive }
     }
 
+    /// Bytes of the item's entries an earlier run journaled complete.
+    fn completed_bytes(&self, item: &OrganizeItem) -> u64 {
+        let Transfer::Extract { entries, .. } = &item.transfer else {
+            return 0;
+        };
+        entries
+            .iter()
+            .zip(&self.entries)
+            .filter(|(_, log)| matches!(log, EntryLog::Completed { .. }))
+            .map(|(e, _)| e.size)
+            .fold(0u64, u64::saturating_add)
+    }
+
     /// An earlier run left something of the item behind.
     fn started(&self) -> bool {
         self.archive.is_some() || self.entries.iter().any(|e| *e != EntryLog::None)
@@ -998,6 +1202,7 @@ fn target_dirs(plan: &OrganizePlan, items: &[&OrganizeItem]) -> Vec<PathBuf> {
             .iter()
             .chain(&item.set_targets)
             .chain(item.companions.iter().map(|c| &c.target))
+            .chain(item.playlist.as_ref().map(|p| &p.path))
             .chain(extracted);
         for target in targets {
             if let Some(dir) = plan.target_root.join(target).parent() {
@@ -1434,6 +1639,9 @@ impl<'a> Run<'a> {
         if let Some(pause) = self.move_companions(item, &mut targets) {
             return pause;
         }
+        if let Some(pause) = self.write_playlist(item, &mut targets) {
+            return pause;
+        }
         Step::Done(status, targets)
     }
 
@@ -1516,6 +1724,9 @@ impl<'a> Run<'a> {
                 return step;
             }
         }
+        if item.kind == ItemKind::Folder {
+            return self.set_aside_folder(item, &paths);
+        }
         if self.plan.set_aside_trash {
             return self.trash_set_aside(item, &paths);
         }
@@ -1573,6 +1784,31 @@ impl<'a> Run<'a> {
             return pause;
         }
         Step::Done(ItemStatus::Quarantined, targets)
+    }
+
+    /// Sets a folder game aside whole in the pile's quarantine (spec D19),
+    /// one journaled rename, in a Trash plan too: the Trash takes files
+    /// only, and undo puts the folder back either way.
+    fn set_aside_folder(&mut self, item: &OrganizeItem, paths: &[(PathBuf, PathBuf)]) -> Step {
+        let Some((from, to)) = paths.first() else {
+            return skipped(SkipReason::NotDecided);
+        };
+        if let Some(record) = record_of(&self.records, item.id, from) {
+            return Step::Done(ItemStatus::Quarantined, vec![record.target.clone()]);
+        }
+        match self
+            .writer
+            .set_aside_dir(from, to, Collision::Rename, Some(item.id))
+        {
+            Ok(DirOutcome::Moved { to, .. } | DirOutcome::Copied { to, .. }) => {
+                Step::Done(ItemStatus::Quarantined, vec![to])
+            }
+            Ok(DirOutcome::CopiedNotRemoved { to, .. }) => {
+                Step::Done(ItemStatus::CopiedNotRemoved, vec![to])
+            }
+            Ok(DirOutcome::SkippedExists { .. }) => skipped(SkipReason::CollisionSet),
+            Err(e) => self.on_error(&e),
+        }
     }
 
     /// The companions of a set-aside item follow it below the quarantine
@@ -1725,6 +1961,9 @@ impl<'a> Run<'a> {
             }
         }
         if let Some(pause) = self.move_companions(item, &mut targets) {
+            return pause;
+        }
+        if let Some(pause) = self.write_playlist(item, &mut targets) {
             return pause;
         }
         Step::Done(status, targets)
@@ -2135,6 +2374,35 @@ impl<'a> Run<'a> {
             self.extract_need = self.extract_need.saturating_sub(in_place);
         }
         self.apply_extract(item, &adopted)
+    }
+
+    /// The playlist of a loose multi-disc set (adjustments spec D24),
+    /// once its discs are in place: a new file, journaled so undo removes
+    /// it, in copy mode too. A file already at its name (the user's, or
+    /// this job's own on a resume) is kept as it is. `Some` is a pause.
+    fn write_playlist(&mut self, item: &OrganizeItem, targets: &mut Vec<PathBuf>) -> Option<Step> {
+        let playlist = item.playlist.as_ref()?;
+        let root = &self.plan.target_root;
+        let m3u = root.join(&playlist.path);
+        let discs: Vec<PathBuf> = playlist.discs.iter().map(|d| root.join(d)).collect();
+        let refs: Vec<&Path> = discs.iter().map(PathBuf::as_path).collect();
+        let text = m3u_text_in_order(&refs, &m3u)?;
+        if fs::symlink_metadata(&m3u).is_ok() {
+            return None;
+        }
+        match self
+            .writer
+            .create_new_file(&m3u, text.as_bytes(), Some(item.id))
+        {
+            Ok(()) => targets.push(m3u),
+            Err(WriteError::Io(e)) if e.kind() == ErrorKind::AlreadyExists => {}
+            Err(e) => {
+                if let Step::Pause(reason) = self.on_error(&e) {
+                    return Some(Step::Pause(reason));
+                }
+            }
+        }
+        None
     }
 
     /// The generated playlist of a resumed item whose entries are all in

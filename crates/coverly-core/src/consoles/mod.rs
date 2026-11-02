@@ -23,6 +23,8 @@ use crate::identify::names::Region;
 use crate::identify::sniff::{NotARom, ReadAt};
 
 pub mod ctr;
+mod listing;
+pub mod loose;
 pub mod nintendo_disc;
 pub mod nx;
 pub mod orbis;
@@ -34,6 +36,9 @@ pub mod wad;
 pub mod wiiu;
 pub mod xbox;
 pub mod zarchive;
+
+pub(crate) use listing::MAX_CHILD_ENTRIES;
+pub use listing::{identify_dir_on_disk, on_disk, DirListing, DiskFs, EntryMeta, ListingFs};
 
 /// Most bytes read from one item (D24).
 pub const MAX_READ: u64 = 4 << 20;
@@ -52,8 +57,45 @@ pub enum TitleKind {
     Update,
     Dlc,
     Demo,
+    /// Made outside the console maker's programme (NRO, `.3dsx`, a loose
+    /// `.rpx`, a Vita homebrew SELF; spec D12).
+    Homebrew,
     #[default]
     Unknown,
+}
+
+/// A piece of a game that cannot play alone (spec D12, D13): left where
+/// it is with `LeftReason::GamePart`, never moved on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PartKind {
+    /// An executable of an unpacked game (`main`, `.nso`, `eboot.bin`).
+    ExeFs,
+    /// One content archive of a Switch title (`<32 hex>.nca`/`.ncz`).
+    Nca,
+    /// A shared library (`.rpl`).
+    Library,
+    /// Title metadata (`.tmd`).
+    TitleMeta,
+    /// A loadable module (`.xex` DLL, PSP `.prx`).
+    Module,
+    /// A content-manager backup (`.psvimg`).
+    Backup,
+}
+
+/// Where the shown title came from, for the «why» line (spec D7, plan
+/// P-4); [`IdSource`] says where the id came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TitleSource {
+    /// A plaintext header or metadata file (`cnmt.xml`, NRO NACP).
+    Header,
+    /// The optional `blawar/titledb` catalogue.
+    Titledb,
+    /// The optional `api.nlib.cc` fallback.
+    Nlib,
+    /// The file's own name.
+    FileName,
 }
 
 /// The encoding of an embedded icon.
@@ -64,6 +106,8 @@ pub enum ArtFormat {
     Tga,
     /// A 3DS SMDH block (48×48 RGB565 tiles).
     Smdh,
+    /// A Switch NRO's asset-section icon.
+    Jpeg,
 }
 
 /// Where an embedded icon is; never the bytes (spec D17).
@@ -78,7 +122,8 @@ pub enum ArtLocator {
     },
     /// A zip entry (VPK `sce_sys/icon0.png`).
     ZipEntry { name: String, format: ArtFormat },
-    /// A file inside a folder game, relative to the folder.
+    /// A file inside a folder game, relative to its listing's file
+    /// system root (the folder itself on disk, D20).
     File { rel: PathBuf, format: ArtFormat },
 }
 
@@ -101,6 +146,20 @@ pub enum IdSource {
     MicrosoftGameConfig,
     /// Xbox ERA `AppxManifest.xml` (systems batch 3 §8.3).
     AppxManifest,
+    /// A Switch NCA id looked up in the catalogue's `ncas.json` (spec D6).
+    NcaCatalog,
+    /// A title metadata file (`.tmd`, spec D14).
+    Tmd,
+    /// A Switch `main.npdm`.
+    Npdm,
+    /// A loose `.xbe` certificate.
+    Xbe,
+    /// A loose `.xex` execution info.
+    Xex,
+    /// A PS3/Vita SELF header (`SCE\0`); the spec's `Self_` (plan P-4).
+    SelfHeader,
+    /// A PSP `EBOOT.PBP`'s `PARAM.SFO`.
+    Pbp,
 }
 
 /// A title id and where it came from, as a plan row shows it (spec §10:
@@ -166,6 +225,20 @@ pub struct ConsoleId {
     /// GDK DLC: its single AllowedProduct (systems batch 3 D15).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
+    /// A piece that cannot play alone (spec D12).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part: Option<PartKind>,
+    /// Where `title` came from (spec D7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<TitleSource>,
+    /// Lower-case 32-hex NCA ids seen by name (loose, PFS0 table, XCI
+    /// secure HFS0; spec D6).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nca_ids: Vec<String>,
+    /// The `m` of a disc `n/m` (Saturn, Dreamcast, XEX), when the header
+    /// says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disc_count: Option<u8>,
     /// Fixed vocabulary («RVZ disc header», «PFS0 ticket name»…).
     pub detail: String,
 }
@@ -188,6 +261,10 @@ impl ConsoleId {
             region: None,
             product_id: None,
             parent_id: None,
+            part: None,
+            title_source: None,
+            nca_ids: Vec::new(),
+            disc_count: None,
             detail: detail.to_owned(),
         }
     }
@@ -416,7 +493,8 @@ pub fn take_open_log() -> Vec<PathBuf> {
 /// title-id tokens, spec D10); `""` when unknown.
 ///
 /// The readers join this list, in this order, as their systems land:
-/// `nx`, `nintendo_disc`, `wad`, `ctr`, `wiiu`, `sony`, `xbox`. Each is
+/// `nx`, `nintendo_disc`, `wad`, `ctr`, `wiiu`, `sony`, `loose`
+/// (adjustments D12), `orbis`, `xbox`. Each is
 /// called only when its magic or extension can apply.
 ///
 /// `nx` goes first and reads only 0x10 bytes before it knows: the other
@@ -448,6 +526,10 @@ pub fn identify_all(src: &mut Budgeted, ext: &str, name: &str) -> Vec<ConsoleId>
 }
 
 fn identify_one(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
+    // A Vita backup is told by its name and never read (adjustments §8.2).
+    if let Some(id) = loose::by_name(ext) {
+        return Some(id);
+    }
     if let Some(id) = nx::identify(src, ext, name) {
         return Some(id);
     }
@@ -459,21 +541,15 @@ fn identify_one(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> 
         .or_else(|| ctr::identify(src, ext))
         .or_else(|| wiiu::identify(src, ext))
         .or_else(|| sony::identify(src, ext))
+        .or_else(|| loose::identify(src, ext, name))
         .or_else(|| orbis::identify(src, ext, name))
         .or_else(|| xbox::identify(src, ext))
 }
 
-/// The names the walk already listed for one directory (spec D12): every
-/// entry, files and folders, AppleDouble twins and OS junk left out.
-pub struct DirListing<'a> {
-    pub dir: &'a Path,
-    pub names: &'a [String],
-}
-
-/// A folder probe (spec D12): looks only at `names`, may
-/// `symlink_metadata` named sub-paths, may `read_dir` one named child
-/// (at most 256 entries) and read one probe file (at most
-/// [`MAX_META_FILE`]) through [`Budgeted`].
+/// A folder probe (spec D12, adjustments D20): looks only at `names`,
+/// and through the listing's [`ListingFs`] may look at named sub-paths,
+/// list one named child (at most 256 entries) and read one probe file
+/// (at most [`MAX_META_FILE`]) through [`Budgeted`].
 pub type DirProbe = fn(&DirListing) -> Option<FolderMatch>;
 
 /// Why a probe that recognised a folder leaves it in place (systems
@@ -523,7 +599,8 @@ enum ProbeFn {
 /// probe), Wii U loadiine then NUS, then Xbox (`default.xbe`), Xbox 360
 /// (`default.xex`, GOD/XBLA), Xbox One and Series (GDK
 /// `MicrosoftGame.config`, ERA `AppxManifest.xml`), then split Switch
-/// files.
+/// files, then a Wii Homebrew Channel `apps/<name>/boot.dol` (adjustments
+/// D13).
 const DIR_PROBES: &[ProbeFn] = &[
     ProbeFn::One(sony::probe_ps3_jb),
     ProbeFn::One(sony::probe_ps3_hdd),
@@ -536,6 +613,7 @@ const DIR_PROBES: &[ProbeFn] = &[
     ProbeFn::Many(xbox::probe_gdk),
     ProbeFn::One(xbox::probe_era),
     ProbeFn::One(nx::probe_split),
+    ProbeFn::One(loose::probe_apps),
 ];
 
 #[cfg(any(test, feature = "test-util"))]
@@ -956,26 +1034,28 @@ mod tests {
     fn identify_dir_first_match_wins_and_systems_conflict() {
         let dir = Path::new("x");
         let names = ["A".to_string(), "B".to_string()];
-        let listing = DirListing { dir, names: &names };
         set_extra_probe(None);
-        assert_eq!(identify_dir(&listing), Ok(None));
+        assert_eq!(identify_dir_on_disk(dir, &names), Ok(None));
         set_extra_probe(Some(probe_gb));
         add_extra_probe(probe_gb_too);
-        let found = identify_dir(&listing).unwrap().unwrap();
+        let found = identify_dir_on_disk(dir, &names).unwrap().unwrap();
         assert_eq!((found.id.detail.as_str(), found.probe), ("a", "A".into()));
         add_extra_probe(probe_gba);
         assert_eq!(
-            identify_dir(&listing),
+            identify_dir_on_disk(dir, &names),
             Err(DirConflict {
                 systems: vec!["gb".into(), "gba".into()]
             })
         );
         let only_a = ["A".to_string()];
-        let listing = DirListing {
-            dir,
-            names: &only_a,
-        };
-        assert_eq!(identify_dir(&listing).unwrap().unwrap().id.system, "gb");
+        assert_eq!(
+            identify_dir_on_disk(dir, &only_a)
+                .unwrap()
+                .unwrap()
+                .id
+                .system,
+            "gb"
+        );
         set_extra_probe(None);
     }
 
@@ -1065,6 +1145,85 @@ mod tests {
         ] {
             assert_eq!(serde_json::to_string(&src).unwrap(), text);
         }
+    }
+
+    #[test]
+    fn adjustment_types_serde() {
+        use serde_json::{from_str, to_string};
+        assert_eq!(to_string(&TitleKind::Homebrew).unwrap(), "\"homebrew\"");
+        assert_eq!(
+            from_str::<TitleKind>("\"homebrew\"").unwrap(),
+            TitleKind::Homebrew
+        );
+        for (part, text) in [
+            (PartKind::ExeFs, "\"exe-fs\""),
+            (PartKind::Nca, "\"nca\""),
+            (PartKind::Library, "\"library\""),
+            (PartKind::TitleMeta, "\"title-meta\""),
+            (PartKind::Module, "\"module\""),
+            (PartKind::Backup, "\"backup\""),
+        ] {
+            assert_eq!(to_string(&part).unwrap(), text);
+            assert_eq!(from_str::<PartKind>(text).unwrap(), part);
+        }
+        for (src, text) in [
+            (TitleSource::Header, "\"header\""),
+            (TitleSource::Titledb, "\"titledb\""),
+            (TitleSource::Nlib, "\"nlib\""),
+            (TitleSource::FileName, "\"file-name\""),
+        ] {
+            assert_eq!(to_string(&src).unwrap(), text);
+            assert_eq!(from_str::<TitleSource>(text).unwrap(), src);
+        }
+        for (src, text) in [
+            (IdSource::NcaCatalog, "\"nca-catalog\""),
+            (IdSource::Tmd, "\"tmd\""),
+            (IdSource::Npdm, "\"npdm\""),
+            (IdSource::Xbe, "\"xbe\""),
+            (IdSource::Xex, "\"xex\""),
+            (IdSource::SelfHeader, "\"self-header\""),
+            (IdSource::Pbp, "\"pbp\""),
+        ] {
+            assert_eq!(to_string(&src).unwrap(), text);
+            assert_eq!(from_str::<IdSource>(text).unwrap(), src);
+        }
+    }
+
+    #[test]
+    fn console_id_adjustment_fields() {
+        // Absent fields stay out of the JSON and default on read, so facts
+        // and plans written before them still load.
+        let bare = ConsoleId::proven("switch", "NRO header");
+        assert_eq!(
+            (
+                bare.part,
+                bare.title_source,
+                bare.nca_ids.len(),
+                bare.disc_count
+            ),
+            (None, None, 0, None)
+        );
+        assert_eq!(
+            serde_json::to_string(&bare).unwrap(),
+            r#"{"system":"switch","confidence":0.95,"kind":"unknown","detail":"NRO header"}"#
+        );
+        let mut full = bare.clone();
+        full.kind = TitleKind::Homebrew;
+        full.part = Some(PartKind::ExeFs);
+        full.title_source = Some(TitleSource::Titledb);
+        full.nca_ids = vec!["0123456789abcdef0123456789abcdef".into()];
+        full.disc_count = Some(2);
+        let json = serde_json::to_string(&full).unwrap();
+        for piece in [
+            r#""kind":"homebrew""#,
+            r#""part":"exe-fs""#,
+            r#""title_source":"titledb""#,
+            r#""nca_ids":["0123456789abcdef0123456789abcdef"]"#,
+            r#""disc_count":2"#,
+        ] {
+            assert!(json.contains(piece), "{piece} in {json}");
+        }
+        assert_eq!(serde_json::from_str::<ConsoleId>(&json).unwrap(), full);
     }
 
     #[test]

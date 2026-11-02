@@ -21,7 +21,7 @@ use crate::net::{host_of, plain_authority, Http, HttpRequest, NetError};
 use crate::profiles::Media;
 use crate::systems::System;
 
-pub const STEAMGRIDDB_BASE: &str = "https://www.steamgriddb.com/api/v2";
+pub const STEAMGRIDDB_BASE: &str = crate::net::hosts::STEAMGRIDDB_BASE;
 pub const SOURCE_ID: &str = "steamgriddb";
 pub const COVER_DIMENSIONS: [&str; 2] = ["600x900", "342x482"];
 /// Score of an exact title that several games share (review, D35).
@@ -321,7 +321,9 @@ impl<'a> SteamGridDbSource<'a> {
         Ok(grids)
     }
 
-    /// Image URLs only on steamgriddb.com over HTTPS. A base that is not
+    /// Image URLs only on steamgriddb.com over HTTPS, under a registered
+    /// endpoint prefix (`net::hosts`, so the client never refuses a kept
+    /// candidate). A base that is not
     /// HTTPS can only be a loopback mock (the client refuses anything else),
     /// so only then are images on the base's own host accepted (tests).
     /// The authority must be a plain `host[:port]` ([`plain_authority`]):
@@ -336,7 +338,7 @@ impl<'a> SteamGridDbSource<'a> {
         plain_authority(url)
             && !host.is_empty()
             && !url.chars().any(unsafe_url_char)
-            && ((https && sgdb) || mock_base)
+            && ((https && sgdb && crate::net::hosts::allowed(url, &[])) || mock_base)
     }
 
     fn grid_candidate(

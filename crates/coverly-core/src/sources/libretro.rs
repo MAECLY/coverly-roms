@@ -20,8 +20,8 @@ use crate::net::{Http, HttpRequest, NetError};
 use crate::profiles::Media;
 use crate::systems::System;
 
-pub const LIBRETRO_BASE: &str = "https://thumbnails.libretro.com";
-pub const LIBRETRO_RAW_BASE: &str = "https://raw.githubusercontent.com/libretro-thumbnails";
+pub const LIBRETRO_BASE: &str = crate::net::hosts::LIBRETRO_BASE;
+pub const LIBRETRO_RAW_BASE: &str = crate::net::hosts::LIBRETRO_RAW_BASE;
 pub const INDEX_TTL_SECS: i64 = 2 * 24 * 3600;
 pub const MAX_INDEX_BYTES: u64 = 16 * 1024 * 1024;
 pub const MAX_IMAGE_BYTES: u64 = 16 * 1024 * 1024;

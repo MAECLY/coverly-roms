@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use crate::organize::plan::{
     Companion, ExtractEntry, ItemKind, ItemNote, LeftReason, NameMode, OrganizeAction,
-    OrganizeItem, RenameReason, Transfer,
+    OrganizeItem, Playlist, RenameReason, Transfer,
 };
 use crate::profiles::naming::{system_folder, FolderChoice};
 use crate::profiles::Profile;
@@ -167,6 +167,25 @@ pub enum ExtractShape {
         /// playlist name).
         title: String,
         multi_disc: bool,
+    },
+    /// A folder game inside an archive (adjustments spec D23): the
+    /// entries below `root` land in one folder of the system folder,
+    /// named from `name` (the root folder's name, else the archive stem)
+    /// like a folder game on disk.
+    Folder { root: String, name: String },
+    /// Loose discs of one game moved as one set (adjustments spec D24),
+    /// laid out like [`ExtractShape::Disc`]: the profile's
+    /// [`DiscLayout`] puts them in the system folder or in `<title>/`, the
+    /// members keep their names (relative to their common folder), and
+    /// `playlist` asks for a `<title>.m3u` listing `discs` (each disc's
+    /// sheet or image, relative to the source root) when the profile
+    /// wants one and none is at the target.
+    ///
+    /// [`DiscLayout`]: crate::profiles::DiscLayout
+    LooseDiscs {
+        discs: Vec<PathBuf>,
+        title: String,
+        playlist: bool,
     },
 }
 
@@ -335,6 +354,7 @@ pub fn assign_targets_in(
         item.set_targets.clear();
         item.companions.clear();
         item.rename = None;
+        item.playlist = None;
         item.folder = system_dir
             .file_name()
             .map(|f| f.to_string_lossy().into_owned())
@@ -354,8 +374,29 @@ pub fn assign_targets_in(
         let comps: Vec<&Comp> = attached[pos].iter().collect();
         let shape = shapes.get(pos).and_then(Option::as_ref);
         let outcome = match (shape, &item.transfer) {
+            (Some(ExtractShape::Folder { root, name }), Transfer::Extract { .. }) => {
+                extract_folder(
+                    item,
+                    (root, name),
+                    dir,
+                    layout,
+                    subdir.is_none(),
+                    &comps,
+                    index,
+                )
+            }
             (Some(shape), Transfer::Extract { .. }) => {
                 assign_extract_targets(item, shape, dir, layout, &comps, index)
+            }
+            (
+                Some(ExtractShape::LooseDiscs {
+                    discs,
+                    title,
+                    playlist,
+                }),
+                Transfer::AsIs,
+            ) if item.kind == ItemKind::Set => {
+                place_loose_discs(item, (discs, title, *playlist), dir, layout, &comps, index)
             }
             _ => match item.kind {
                 ItemKind::Set => plan_set(item, dir, &comps, index, same_content),
@@ -389,6 +430,11 @@ pub fn assign_targets_in(
                         entry.target = rel(target);
                     }
                     *m3u = placed.m3u.as_deref().map(rel);
+                } else if let Some(m3u) = &placed.m3u {
+                    item.playlist = Some(Playlist {
+                        path: rel(m3u),
+                        discs: placed.playlist_discs.iter().map(|p| rel(p)).collect(),
+                    });
                 }
                 item.companions = placed
                     .companions
@@ -664,6 +710,8 @@ struct Placed {
     entry_targets: Vec<PathBuf>,
     /// A generated playlist.
     m3u: Option<PathBuf>,
+    /// The targets a loose set's playlist lists, in disc order.
+    playlist_discs: Vec<PathBuf>,
 }
 
 /// One search for a free name from a base stem.
@@ -766,6 +814,7 @@ fn plan_single(
                 claims,
                 entry_targets: Vec::new(),
                 m3u: None,
+                playlist_discs: Vec::new(),
             })
         }
     }
@@ -925,7 +974,32 @@ fn plan_folder(
     index: &mut DirIndex,
 ) -> Planned {
     let original = file_name(&item.sources[0]);
-    let safe = safe_file_name(&original).unwrap_or_else(|_| original.clone());
+    let (name, rename) = folder_game_name(item, &original, dir, layout, with_suffix, index);
+    Planned::Placed(Placed {
+        target: dir.join(&name),
+        set_targets: Vec::new(),
+        rename,
+        companions: Vec::new(),
+        claims: vec![(dir.to_path_buf(), name)],
+        entry_targets: Vec::new(),
+        m3u: None,
+        playlist_discs: Vec::new(),
+    })
+}
+
+/// The name a folder game called `original` takes in `dir`: FAT-safe,
+/// with the layout's suffix for its system when it lacks it (noted
+/// [`ItemNote::FolderSuffix`]), and the next free ` (n)` before the
+/// suffix when the name is taken.
+fn folder_game_name(
+    item: &mut OrganizeItem,
+    original: &str,
+    dir: &Path,
+    layout: &TargetLayout,
+    with_suffix: bool,
+    index: &mut DirIndex,
+) -> (String, Option<RenameReason>) {
+    let safe = safe_file_name(original).unwrap_or_else(|_| original.to_string());
     let suffix = item
         .system_id
         .as_deref()
@@ -955,7 +1029,9 @@ fn plan_folder(
             name: wanted.clone(),
         })
     } else if safe != original {
-        Some(RenameReason::SafeName { from: original })
+        Some(RenameReason::SafeName {
+            from: original.to_string(),
+        })
     } else {
         None
     };
@@ -967,14 +1043,61 @@ fn plan_folder(
             layout: layout.profile.name.clone(),
         });
     }
-    Planned::Placed(Placed {
-        target: dir.join(&name),
-        set_targets: Vec::new(),
-        rename,
-        companions: Vec::new(),
-        claims: vec![(dir.to_path_buf(), name)],
-        entry_targets: Vec::new(),
-        m3u: None,
+    (name, rename)
+}
+
+/// A folder game out of an archive (adjustments spec D23): the folder is
+/// named as [`plan_folder`] names one on disk, and every entry below
+/// `root` lands at its path below the root inside it; `with_suffix` as
+/// for [`plan_folder`] (no suffix in a DLC folder). Each component
+/// must be stored unchanged and fit; the folder's name is claimed in
+/// `dir`, so no later item shares it.
+#[allow(clippy::too_many_arguments)]
+fn extract_folder(
+    item: &mut OrganizeItem,
+    (root, name): (&str, &str),
+    dir: &Path,
+    layout: &TargetLayout,
+    with_suffix: bool,
+    comps: &[&Comp],
+    index: &mut DirIndex,
+) -> Planned {
+    let Transfer::Extract { entries, .. } = &item.transfer else {
+        return Planned::Left(LeftReason::Unknown);
+    };
+    let entries = entries.clone();
+    if name.trim().is_empty() {
+        return Planned::Left(LeftReason::SetUnsafeName {
+            name: name.to_string(),
+        });
+    }
+    let (folder_name, rename) = folder_game_name(item, name, dir, layout, with_suffix, index);
+    let folder = dir.join(&folder_name);
+    let skip = if root.is_empty() {
+        0
+    } else {
+        root.split('/').count()
+    };
+    let mut targets = Vec::with_capacity(entries.len());
+    for e in &entries {
+        let mut target = folder.clone();
+        for part in e.name.split('/').filter(|p| !p.is_empty()).skip(skip) {
+            if name_too_long(part) {
+                return Planned::Left(LeftReason::PathTooLong);
+            }
+            if safe_file_name(part).ok().as_deref() != Some(part) {
+                return Planned::Left(LeftReason::SetUnsafeName {
+                    name: e.name.clone(),
+                });
+            }
+            target.push(part);
+        }
+        targets.push(target);
+    }
+    place_extracted(targets, None, dir, &folder, layout, comps, index).map_placed(|p| {
+        p.target = folder.clone();
+        p.rename = rename;
+        p.claims.push((dir.to_path_buf(), folder_name));
     })
 }
 
@@ -1023,29 +1146,46 @@ pub struct OverlayPair {
 }
 
 /// Every [`OverlayPair`] of `items`; `is_update(i)` says whether item `i`
-/// is a PS4 update by its header (the plan's survey knows). The base is
-/// the folder item beside the sibling named exactly like the sibling
-/// without its suffix, else one whose name differs only in ASCII case (a
-/// case-insensitive volume, where shadPS4 finds it the same way).
+/// is a PS4 update by its header (the plan's survey knows), and
+/// `archive_folder(i)` names the folder game item `i` extracts out of an
+/// archive (adjustments spec D23), which pairs like a folder of that
+/// name. The base is the folder item beside the sibling named exactly
+/// like the sibling without its suffix, else one whose name differs only
+/// in ASCII case (a case-insensitive volume, where shadPS4 finds it the
+/// same way).
 pub fn overlay_pairs(
     items: &[OrganizeItem],
     is_update: &dyn Fn(usize) -> bool,
+    archive_folder: &dyn Fn(usize) -> Option<String>,
 ) -> Vec<OverlayPair> {
-    let folder = |item: &OrganizeItem| item.kind == ItemKind::Folder && !item.sources.is_empty();
-    let mut by_name: HashMap<(PathBuf, String), Vec<usize>> = HashMap::new();
-    for (pos, item) in items.iter().enumerate().filter(|(_, i)| folder(i)) {
-        let name = file_name(&item.sources[0]).to_ascii_lowercase();
+    let folder_name = |pos: usize, item: &OrganizeItem| -> Option<String> {
+        if item.sources.is_empty() {
+            return None;
+        }
+        match item.kind {
+            ItemKind::Folder => Some(file_name(&item.sources[0])),
+            ItemKind::Archive => archive_folder(pos),
+            _ => None,
+        }
+    };
+    let mut by_name: HashMap<(PathBuf, String), Vec<(usize, String)>> = HashMap::new();
+    for (pos, item) in items.iter().enumerate() {
+        let Some(name) = folder_name(pos, item) else {
+            continue;
+        };
         by_name
-            .entry((parent(&item.sources[0]), name))
+            .entry((parent(&item.sources[0]), name.to_ascii_lowercase()))
             .or_default()
-            .push(pos);
+            .push((pos, name));
     }
     let mut pairs = Vec::new();
     for (pos, item) in items.iter().enumerate() {
-        if !folder(item) || !is_update(pos) {
+        if !is_update(pos) {
             continue;
         }
-        let name = file_name(&item.sources[0]);
+        let Some(name) = folder_name(pos, item) else {
+            continue;
+        };
         let Some((stem, suffix)) = crate::consoles::sony::UPDATE_SUFFIXES.iter().find_map(|s| {
             strip_suffix_ignoring_case(&name, s).map(|stem| (stem, &name[stem.len()..]))
         }) else {
@@ -1055,12 +1195,9 @@ pub fn overlay_pairs(
         let Some(found) = by_name.get(&key) else {
             continue;
         };
-        let candidates: Vec<usize> = found.iter().copied().filter(|&b| b != pos).collect();
-        let exact = candidates
-            .iter()
-            .copied()
-            .find(|&b| file_name(&items[b].sources[0]) == stem);
-        if let Some(base) = exact.or_else(|| candidates.first().copied()) {
+        let candidates: Vec<&(usize, String)> = found.iter().filter(|(b, _)| *b != pos).collect();
+        let exact = candidates.iter().find(|(_, n)| n == stem).map(|(b, _)| *b);
+        if let Some(base) = exact.or_else(|| candidates.first().map(|(b, _)| *b)) {
             pairs.push(OverlayPair {
                 base,
                 sibling: pos,
@@ -1186,7 +1323,18 @@ pub fn sibling_targets(items: &mut [OrganizeItem], pairs: &[OverlayPair], layout
                 }
                 _ => None,
             };
-            item.target = Some(dir.join(&name));
+            let folder = dir.join(&name);
+            // A folder extracted out of an archive takes its entries along.
+            if let (Some(before), Transfer::Extract { entries, .. }) =
+                (item.target.clone(), &mut item.transfer)
+            {
+                for e in entries.iter_mut() {
+                    if let Ok(rel) = e.target.strip_prefix(&before) {
+                        e.target = folder.join(rel);
+                    }
+                }
+            }
+            item.target = Some(folder);
             item.folder = base_folder.clone();
             // Only the base is listed by the frontend: the sibling's own
             // suffix note no longer applies.
@@ -1259,6 +1407,7 @@ fn plan_set(
         claims,
         entry_targets: Vec::new(),
         m3u: None,
+        playlist_discs: Vec::new(),
     })
 }
 
@@ -1296,6 +1445,9 @@ fn assign_extract_targets(
         return Planned::Left(LeftReason::Unknown);
     }
     match shape {
+        ExtractShape::Folder { .. } | ExtractShape::LooseDiscs { .. } => {
+            Planned::Left(LeftReason::Unknown)
+        }
         ExtractShape::Roms if entries.len() == 1 => {
             extract_one_rom(item, &entries[0], dir, layout, comps, index)
         }
@@ -1444,6 +1596,104 @@ fn extract_disc(
     })
 }
 
+/// Loose discs of one game (adjustments spec D24), placed as
+/// [`extract_disc`] places an extracted multi-disc archive: in `dir`
+/// (flat) or in `<title>/` (game folder), every member under its own name
+/// relative to the members' common folder, any collision leaving the whole
+/// set (`CollisionSet`). With `playlist` and a profile that asks for one,
+/// `<title>.m3u` is planned unless a file of that name is already there or
+/// claimed: that one is kept and the set gets none (no-clobber).
+fn place_loose_discs(
+    item: &OrganizeItem,
+    (discs, title, playlist): (&[PathBuf], &str, bool),
+    dir: &Path,
+    layout: &TargetLayout,
+    comps: &[&Comp],
+    index: &mut DirIndex,
+) -> Planned {
+    let disc_layout = layout.profile.disc_layout;
+    let title = title.trim();
+    let safe = safe_file_name(title).ok().filter(|t| !t.is_empty());
+    let unsafe_title = || {
+        Planned::Left(LeftReason::SetUnsafeName {
+            name: title.to_string(),
+        })
+    };
+    let folder = if disc_layout.is_game_folder() {
+        let Some(safe) = &safe else {
+            return unsafe_title();
+        };
+        match game_folder(dir, safe, index) {
+            Some(folder) => folder,
+            None => return Planned::Left(LeftReason::CollisionSet),
+        }
+    } else {
+        dir.to_path_buf()
+    };
+    let base = common_parent(&item.sources);
+    let mut targets = Vec::with_capacity(item.sources.len());
+    for source in &item.sources {
+        let inner = source.strip_prefix(&base).unwrap_or(source);
+        let mut target = folder.clone();
+        for part in inner.components() {
+            let part = part.as_os_str().to_string_lossy();
+            if name_too_long(&part) {
+                return Planned::Left(LeftReason::PathTooLong);
+            }
+            if safe_file_name(&part).ok().as_deref() != Some(&*part) {
+                return Planned::Left(LeftReason::SetUnsafeName {
+                    name: source.to_string_lossy().into_owned(),
+                });
+            }
+            target.push(&*part);
+        }
+        targets.push(target);
+    }
+    let playlist_discs: Vec<PathBuf> = discs
+        .iter()
+        .filter_map(|d| item.sources.iter().position(|s| s == d))
+        .map(|i| targets[i].clone())
+        .collect();
+    let m3u = match (&safe, playlist && disc_layout.m3u_for_multi()) {
+        (Some(safe), true) => {
+            let name = format!("{safe}.m3u");
+            let kept = index.existing(&folder, &name).is_some() || index.claimed(&folder, &name);
+            (!kept).then(|| folder.join(name))
+        }
+        (None, true) => return unsafe_title(),
+        _ => None,
+    };
+    place_extracted(targets, m3u, dir, &folder, layout, comps, index).map_placed(|p| {
+        p.set_targets = p.entry_targets.split_off(1);
+        p.target = p.entry_targets.remove(0);
+        p.playlist_discs = playlist_discs;
+        if folder != dir {
+            p.claims.push((dir.to_path_buf(), file_name(&folder)));
+        }
+    })
+}
+
+/// The deepest folder every path of `paths` is below (relative paths).
+fn common_parent(paths: &[PathBuf]) -> PathBuf {
+    let mut common: Vec<std::path::Component> = match paths.first().and_then(|p| p.parent()) {
+        Some(parent) => parent.components().collect(),
+        None => return PathBuf::new(),
+    };
+    for path in &paths[1..] {
+        let parent: Vec<std::path::Component> = path
+            .parent()
+            .map(|p| p.components().collect())
+            .unwrap_or_default();
+        let same = common
+            .iter()
+            .zip(&parent)
+            .take_while(|(a, b)| a == b)
+            .count();
+        common.truncate(same);
+    }
+    common.iter().collect()
+}
+
 /// The folder `stem` in `dir` a game-folder extraction writes into: an
 /// existing real folder of that name in any case is reused under its own
 /// spelling; one an earlier item claimed, or a file or link in its place,
@@ -1516,6 +1766,7 @@ fn place_extracted(
         claims,
         entry_targets: targets,
         m3u,
+        playlist_discs: Vec::new(),
     })
 }
 
@@ -1683,7 +1934,12 @@ fn written_paths(item: &OrganizeItem, target_root: &Path) -> Vec<PathBuf> {
         Transfer::Extract { entries, m3u, .. } => {
             entries.iter().map(|e| &e.target).chain(m3u).collect()
         }
-        Transfer::AsIs => item.target.iter().chain(&item.set_targets).collect(),
+        Transfer::AsIs => item
+            .target
+            .iter()
+            .chain(&item.set_targets)
+            .chain(item.playlist.as_ref().map(|p| &p.path))
+            .collect(),
     };
     rel.extend(item.companions.iter().map(|c| &c.target));
     rel.into_iter().map(|p| target_root.join(p)).collect()

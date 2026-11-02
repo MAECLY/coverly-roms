@@ -18,7 +18,9 @@ use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::{hash_rom, HashOutcome, HeaderRule, DEFAULT_HASH_MAX_BYTES};
 use crate::identify::names::{parse_name, score, strip_numbering_prefix};
 use crate::identify::sniff::{Sniff, DECISIVE};
-use crate::organize::inspect::{Container, DiscSetInfo, FoundSystem, Inspection, NOTE_ENCRYPTED};
+use crate::organize::inspect::{
+    ArchiveGame, Container, DiscSetInfo, FoundSystem, Inspection, NOTE_ENCRYPTED,
+};
 use crate::organize::plan::SheetCheck;
 use crate::organize::plan::{ItemNote, LeftReason};
 use crate::systems::{ExtClass, SystemDb};
@@ -526,6 +528,151 @@ fn is_set_archive(rom_name: &str) -> bool {
     rom_name
         .rsplit_once('.')
         .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("zip") || ext.eq_ignore_ascii_case("7z"))
+}
+
+// --- Switch names (adjustments spec §6, D6, D7) ---
+
+/// `contentType` of a meta NCA in `ncas.json` (the NCA header's content
+/// type: 0 program, 1 meta, 2 control…; switchbrew «NCA»).
+const NCA_META: u8 = 1;
+
+/// The title id an NCA id list gives through the catalogue (spec §6 step
+/// 2): the first id with a hit, a meta NCA's preferred. A base game's id
+/// is preferred over any other: a cartridge's secure partition often
+/// carries a bundled update (or DLC) whose NCAs must not make the whole
+/// cartridge that update.
+fn title_by_nca(ids: &[String], names: &dyn crate::catalog::TitleNames) -> Option<u64> {
+    use crate::consoles::{kind_switch, TitleKind};
+    let mut best: Option<((bool, bool), u64)> = None;
+    for id in ids {
+        let Some(bytes) = nca_bytes(id) else { continue };
+        let Some((tid, content)) = names.by_nca(&bytes) else {
+            continue;
+        };
+        let rank = (kind_switch(tid) == TitleKind::Base, content == NCA_META);
+        if best.is_none_or(|(r, _)| rank > r) {
+            best = Some((rank, tid));
+        }
+    }
+    best.map(|(_, tid)| tid)
+}
+
+/// `0123…ef` (32 hex) → 16 bytes.
+fn nca_bytes(id: &str) -> Option<[u8; 16]> {
+    let b = id.as_bytes();
+    if b.len() != 32 {
+        return None;
+    }
+    let mut out = [0u8; 16];
+    for (i, o) in out.iter_mut().enumerate() {
+        let pair = std::str::from_utf8(b.get(2 * i..2 * i + 2)?).ok()?;
+        *o = u8::from_str_radix(pair, 16).ok()?;
+    }
+    Some(out)
+}
+
+/// Completes a Switch header verdict from the optional catalogue (spec
+/// §6, D6, D7, plan P-1); any other system is left as it is.
+///
+/// - No title id but NCA ids: the catalogue's `ncas` table gives it
+///   ([`IdSource::NcaCatalog`](crate::consoles::IdSource::NcaCatalog)),
+///   and the kind follows from the id.
+/// - Title: a header title (`cnmt.xml`, NRO NACP) stays
+///   ([`TitleSource::Header`]); else the catalogue's name, looked up by
+///   the base id (`& 0xFFFF_FFFF_FFFF_E000`) for an update or DLC, so its
+///   note reads «Actualización de {name}» / «DLC de {name}»; else the
+///   file name's title ([`TitleSource::FileName`]).
+///
+/// Local lookups only: nothing here reads a file or the network, and the
+/// names are kept as the catalogue cleaned them (the target-name
+/// sanitiser applies when one reaches a file name).
+pub fn resolve_switch_title(
+    c: &mut crate::consoles::ConsoleId,
+    names: Option<&dyn crate::catalog::TitleNames>,
+    file_name: &str,
+) {
+    use crate::consoles::{kind_switch, switch_base, IdSource, TitleKind, TitleSource};
+    if c.system != "switch" {
+        return;
+    }
+    if c.title_id.is_none() && !c.nca_ids.is_empty() {
+        if let Some(tid) = names.and_then(|n| title_by_nca(&c.nca_ids, n)) {
+            c.title_id = Some(format!("{tid:016X}"));
+            c.id_source = Some(IdSource::NcaCatalog);
+            c.kind = kind_switch(tid);
+        }
+    }
+    // A title an earlier pass derived is derived again (the catalogue may
+    // have arrived since): only a reader's own title is kept.
+    if matches!(
+        c.title_source,
+        Some(TitleSource::Titledb | TitleSource::Nlib | TitleSource::FileName)
+    ) {
+        c.title = None;
+        c.title_source = None;
+    }
+    if c.title.is_some() {
+        c.title_source.get_or_insert(TitleSource::Header);
+        return;
+    }
+    let tid = c
+        .title_id
+        .as_deref()
+        .and_then(|t| u64::from_str_radix(t, 16).ok());
+    let catalogue = tid.zip(names).and_then(|(tid, names)| {
+        let lookup = match c.kind {
+            TitleKind::Update | TitleKind::Dlc => switch_base(tid),
+            _ => tid,
+        };
+        names.title(lookup)
+    });
+    if let Some(found) = catalogue.filter(|t| !t.name.trim().is_empty()) {
+        c.title = Some(found.name);
+        c.title_source = Some(found.source);
+        return;
+    }
+    // A loose NCA's name is its content id, not a title.
+    if crate::consoles::nx::nca_id_from_name(file_name).is_some() {
+        return;
+    }
+    let stem = file_name
+        .rsplit_once('.')
+        .map_or(file_name, |(stem, _)| stem);
+    let title = parse_name(stem, false).title;
+    let title = title.trim();
+    // A name that is only a title or content id names no title.
+    let id_only = matches!(title.len(), 16 | 32) && title.bytes().all(|b| b.is_ascii_hexdigit());
+    if !title.is_empty() && !id_only {
+        c.title = Some(title.to_string());
+        c.title_source = Some(TitleSource::FileName);
+    }
+}
+
+/// Labels an item «Cifrado» (spec D11): a Switch or 3DS title whose name
+/// nothing resolved (no header title, no catalogue name, no file-name
+/// title, no DAT game name `dat_name`) and whose content is encrypted
+/// (`encrypted == Some(true)`, or a Switch NSP/XCI/NCA, always
+/// encrypted). The label replaces the emulator's `EncryptedContent`
+/// note, so a row never says «Cifrado» twice; a resolved title keeps
+/// that note alone.
+pub fn note_encrypted_name(
+    notes: &mut Vec<ItemNote>,
+    c: &crate::consoles::ConsoleId,
+    dat_name: Option<&str>,
+) {
+    let encrypted = match c.system.as_str() {
+        "3ds" => c.encrypted == Some(true),
+        "switch" => c.encrypted == Some(true) || crate::consoles::nx::is_encrypted_package(c),
+        _ => return,
+    };
+    let named = |t: Option<&str>| t.is_some_and(|t| !t.trim().is_empty());
+    if !encrypted || named(c.title.as_deref()) || named(dat_name) {
+        return;
+    }
+    notes.retain(|n| !matches!(n, ItemNote::EncryptedContent { .. }));
+    if !notes.contains(&ItemNote::EncryptedName) {
+        notes.push(ItemNote::EncryptedName);
+    }
 }
 
 // --- The identification ladder per file (organise spec §6) ---
@@ -1267,8 +1414,102 @@ pub fn identify_candidate(
     }) {
         id.notes.push(ItemNote::NoEmulator);
     }
+    archive_game(&insp, &mut combined, &mut id.notes, env.thresholds);
     id.combined = combined;
     id
+}
+
+/// Whether a PS3 folder game's probe is a disc's (`PS3_GAME/PARAM.SFO`),
+/// not an HDD/PSN title's (`PARAM.SFO` at its root).
+pub(crate) fn is_ps3_disc_probe(probe: &str) -> bool {
+    probe
+        .split('/')
+        .next()
+        .is_some_and(|first| first.eq_ignore_ascii_case("PS3_GAME"))
+}
+
+/// What a folder game inside an archive changes about its verdict and
+/// notes (adjustments spec D21–D23): several games, a case collision, two
+/// probes that disagree or a PS4/Vita structure without its SFO go to
+/// review; a Vita game in a 7z gets a note, one with the module Vita3K
+/// aborts on goes to review; a PS3 HDD/PSN title goes to review, to be
+/// installed in RPCS3. The emulator names are fixed strings.
+fn archive_game(
+    insp: &Inspection,
+    combined: &mut Combined,
+    notes: &mut Vec<ItemNote>,
+    thresholds: Thresholds,
+) {
+    let Some(game) = &insp.folder_game else {
+        return;
+    };
+    let mut note = |n: ItemNote| {
+        if !notes.contains(&n) {
+            notes.push(n);
+        }
+    };
+    let review = |combined: &mut Combined| {
+        if combined.verdict != Verdict::Review {
+            combined.verdict = Verdict::Review;
+        }
+    };
+    let undecided = |combined: &mut Combined, systems: &[&str]| {
+        combined.verdict = Verdict::Review;
+        combined.system = None;
+        combined.confidence = 0.0;
+        combined.method = Some(IdLevel::Header);
+        combined.why.clear();
+        combined.alternatives = systems
+            .iter()
+            .map(|s| ((*s).to_string(), thresholds.review))
+            .collect();
+    };
+    match game {
+        ArchiveGame::One {
+            system,
+            probe,
+            steroid,
+            ..
+        } => {
+            if combined.system.as_deref() != Some(system.as_str()) {
+                return;
+            }
+            match system.as_str() {
+                "psvita" => {
+                    if insp.container == Container::SevenZip {
+                        note(ItemNote::Vita7z);
+                    }
+                    if *steroid {
+                        review(combined);
+                        note(ItemNote::NoEmulator);
+                    }
+                }
+                "ps3" if !is_ps3_disc_probe(probe) => {
+                    review(combined);
+                    note(ItemNote::InstallFirst {
+                        emulator: "RPCS3".into(),
+                    });
+                }
+                _ => {}
+            }
+        }
+        ArchiveGame::Many { count } => {
+            review(combined);
+            note(ItemNote::ArchiveGames { count: *count });
+        }
+        ArchiveGame::CaseCollision => {
+            review(combined);
+            note(ItemNote::ArchiveCaseCollision);
+        }
+        ArchiveGame::Conflict { systems } => {
+            let systems: Vec<&str> = systems.iter().map(String::as_str).collect();
+            undecided(combined, &systems);
+        }
+        ArchiveGame::Ps4OrVita { .. } => {
+            undecided(combined, &["ps4", "psvita"]);
+            note(ItemNote::Ps4OrVita);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1293,6 +1534,74 @@ mod tests {
             "extractable": true,
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn encrypted_name_only_for_unresolved_encrypted_switch_and_3ds() {
+        use crate::consoles::{ConsoleId, PartKind, TitleKind};
+        let note = |c: &ConsoleId, mut notes: Vec<ItemNote>| {
+            note_encrypted_name(&mut notes, c, None);
+            notes
+        };
+        let azahar = ItemNote::EncryptedContent {
+            emulator: "Azahar".into(),
+        };
+        // Switch packages are always encrypted; their name stays unread.
+        for detail in ["PFS0", "NSZ PFS0", "XCI HFS0: secure", "XCZ card header"] {
+            let c = ConsoleId::proven("switch", detail);
+            assert_eq!(note(&c, vec![]), vec![ItemNote::EncryptedName], "{detail}");
+        }
+        let mut nca = ConsoleId::magic("switch", "NCA name");
+        nca.part = Some(PartKind::Nca);
+        assert_eq!(note(&nca, vec![]), vec![ItemNote::EncryptedName]);
+        // Homebrew and a game's executable are in clear.
+        let mut nro = ConsoleId::magic("switch", "NRO header");
+        nro.kind = TitleKind::Homebrew;
+        assert_eq!(note(&nro, vec![]), vec![]);
+        let mut nso = ConsoleId::magic("switch", "NSO header");
+        nso.part = Some(PartKind::ExeFs);
+        assert_eq!(note(&nso, vec![]), vec![]);
+        // A resolved title: nothing to label.
+        let mut named = ConsoleId::proven("switch", "PFS0");
+        named.title = Some("Super Mario Odyssey".into());
+        assert_eq!(note(&named, vec![]), vec![]);
+        // 3DS: only `encrypted == Some(true)`; the label replaces the
+        // emulator note, which a resolved title keeps.
+        let mut card = ConsoleId::proven("3ds", "NCSD header");
+        card.encrypted = Some(true);
+        assert_eq!(
+            note(&card, vec![azahar.clone()]),
+            vec![ItemNote::EncryptedName]
+        );
+        // A DAT game name resolves it too: the emulator note alone.
+        let mut notes = vec![azahar.clone()];
+        note_encrypted_name(&mut notes, &card, Some("Mario Kart 7 (Europe)"));
+        assert_eq!(notes, vec![azahar.clone()]);
+        let mut notes = vec![azahar.clone()];
+        note_encrypted_name(&mut notes, &card, Some("  "));
+        assert_eq!(notes, vec![ItemNote::EncryptedName]);
+        let mut notes = vec![];
+        note_encrypted_name(
+            &mut notes,
+            &ConsoleId::proven("switch", "PFS0"),
+            Some("Odyssey"),
+        );
+        assert_eq!(notes, vec![]);
+        card.title = Some("Test Game".into());
+        assert_eq!(note(&card, vec![azahar.clone()]), vec![azahar.clone()]);
+        let mut clear = ConsoleId::proven("3ds", "NCSD header");
+        clear.encrypted = Some(false);
+        assert_eq!(note(&clear, vec![]), vec![]);
+        // Other systems are never labelled.
+        let mut ps3 = ConsoleId::proven("ps3", "PARAM.SFO");
+        ps3.encrypted = Some(true);
+        assert_eq!(note(&ps3, vec![]), vec![]);
+        // Never twice.
+        let c = ConsoleId::proven("switch", "PFS0");
+        assert_eq!(
+            note(&c, vec![ItemNote::EncryptedName]),
+            vec![ItemNote::EncryptedName]
+        );
     }
 
     #[test]

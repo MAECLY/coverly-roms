@@ -223,6 +223,15 @@
       "exclude_systems": ["ports", "bios", "apps"],
       "max_dat_downloads": 12,
       "organize_step": "set-aside"
+    },
+    "catalogs": {
+      "switch": {
+        "enabled": false,
+        "icons": false,
+        "refresh_days": 7,
+        "fallback": false,
+        "fallback_url": "https://api.nlib.cc"
+      }
     }
   },
   "identity": {
@@ -466,6 +475,11 @@
       "field": "dedupe.max_dat_downloads",
       "min": 0.0,
       "max": 100.0
+    },
+    {
+      "field": "catalogs.switch.refresh_days",
+      "min": 7.0,
+      "max": 90.0
     }
   ],
   "field_error": {
@@ -1255,7 +1269,18 @@
         "items": 3,
         "copies": true,
         "free": 412100000000,
-        "volume": "TinyExt"
+        "volume": "TinyExt",
+        "huge": [
+          {
+            "item": 4,
+            "name": "CUSA00900",
+            "system": "ps4",
+            "bytes": 61000000000,
+            "extract": false,
+            "followers": [5]
+          }
+        ],
+        "rest": 126420000000
       }
     }
   ],
@@ -1797,7 +1822,14 @@
     "header",
     "param-json",
     "microsoft-game-config",
-    "appx-manifest"
+    "appx-manifest",
+    "nca-catalog",
+    "tmd",
+    "npdm",
+    "xbe",
+    "xex",
+    "self-header",
+    "pbp"
   ],
   "organize_batch2_reasons": [
     {
@@ -1892,5 +1924,143 @@
       "bytes": 12000000000,
       "items": 2
     }
+  ],
+  "adjustments_reasons": [
+    {
+      "kind": "game-part",
+      "part": "exe-fs",
+      "system": "switch",
+      "title_id": null
+    },
+    {
+      "kind": "game-part",
+      "part": "backup",
+      "system": "psvita",
+      "title_id": "PCSE00120"
+    },
+    {
+      "kind": "not-confirmed"
+    }
+  ],
+  "adjustments_notes": [
+    {
+      "kind": "homebrew"
+    },
+    {
+      "kind": "vita7z"
+    },
+    {
+      "kind": "missing-disc",
+      "n": 2
+    },
+    {
+      "kind": "encrypted-name"
+    },
+    {
+      "kind": "archive-games",
+      "count": 2
+    },
+    {
+      "kind": "ps4-or-vita"
+    },
+    {
+      "kind": "archive-case-collision"
+    },
+    {
+      "kind": "disc-set"
+    }
+  ],
+  "adjustments_playlist": {
+    "path": "ROMS/Saturn/Grandia (Japan).m3u",
+    "discs": [
+      "ROMS/Saturn/Grandia (Japan) (Disc 1).cue",
+      "ROMS/Saturn/Grandia (Japan) (Disc 2).cue"
+    ]
+  },
+  "adjustments_decisions": [
+    {
+      "item": 4,
+      "choice": "decline"
+    }
+  ],
+  "adjustments_part_kinds": [
+    "exe-fs",
+    "nca",
+    "library",
+    "title-meta",
+    "module",
+    "backup"
+  ],
+  "adjustments_title_kinds": [
+    "base",
+    "update",
+    "dlc",
+    "demo",
+    "homebrew",
+    "unknown"
+  ],
+  "adjustments_catalogue_item": {
+    "id": 1,
+    "sources": ["Cartridge.xci"],
+    "kind": "file",
+    "size": 5600000000,
+    "fps": [
+      {
+        "size": 5600000000,
+        "mtime_ns": 1700000000000000000
+      }
+    ],
+    "target": "switch/Cartridge.xci",
+    "set_targets": [],
+    "system_id": "switch",
+    "folder": "switch",
+    "confidence": 0.95,
+    "method": "header",
+    "why": [
+      {
+        "kind": "header",
+        "system": "switch",
+        "weight": 0.95,
+        "detail": "HEAD"
+      }
+    ],
+    "alternatives": [],
+    "rename": null,
+    "notes": [],
+    "companions": [],
+    "catalogue_name": "Super Mario Odyssey",
+    "transfer": {
+      "kind": "as-is"
+    },
+    "disc": null,
+    "title_id": {
+      "id": "0100000000010000",
+      "source": "nca-catalog"
+    },
+    "title_source": "titledb",
+    "action": "auto"
+  },
+  "adjustments_title_sources": ["header", "titledb", "nlib", "file-name"],
+  "catalog_statuses": [
+    { "state": "off" },
+    { "state": "pending" },
+    { "state": "downloading", "done": 12582912, "total": 91750400 },
+    { "state": "downloading", "done": 1048576, "total": null },
+    {
+      "state": "ready",
+      "count": 17342,
+      "updated": "2026-10-30",
+      "fallback": false
+    },
+    {
+      "state": "ready",
+      "count": 16904,
+      "updated": "2026-10-30",
+      "fallback": true
+    },
+    { "state": "failed-old", "updated": "2026-10-23" },
+    { "state": "failed-none" },
+    { "state": "rejected" },
+    { "state": "remove-failed" }
   ]
 }

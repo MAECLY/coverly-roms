@@ -62,6 +62,7 @@ impl World {
             dats: None,
             probe: &NoCloud,
             online: None,
+            titles: None,
             now: SystemTime::now(),
         };
         let opts = OrganizeOptions {
@@ -540,12 +541,14 @@ fn a_ps5_app_archive_is_taken_as_is() {
             ("CUSA00900/sce_sys/param.sfo", &sfo),
         ],
     );
-    // Two folders deep is not an app archive.
+    // Two folders deep is not an app archive, but a PS5 folder game the
+    // probes find inside the archive (adjustments D20), moved as is (D23).
+    let deep = ps5_param_json("PPSA03000", "Deep Game", false);
     zip_of(
         &pile.path().join("Deep.zip"),
         &[
-            ("a/PPSA01284/eboot.bin", &[0u8; 64]),
-            ("a/PPSA01284/sce_sys/param.json", &param),
+            ("a/PPSA03000/eboot.bin", &[1u8; 64]),
+            ("a/PPSA03000/sce_sys/param.json", &deep),
         ],
     );
 
@@ -577,18 +580,14 @@ fn a_ps5_app_archive_is_taken_as_is() {
         );
         assert!(!item.notes.contains(&ItemNote::NoEmulator), "{name}");
     }
-    for name in ["CUSA00900.zip", "Deep.zip"] {
-        let item = by(name);
-        // Batch 2: no ROM inside, so the archive is left unknown.
-        assert_eq!(item.system_id, None, "{name}");
-        assert_eq!(
-            item.action,
-            OrganizeAction::Left {
-                reason: coverly_core::organize::LeftReason::Unknown
-            },
-            "{name}"
-        );
-    }
+    let deep = by("Deep.zip");
+    assert_eq!(deep.system_id.as_deref(), Some("ps5"));
+    assert_eq!(deep.action, OrganizeAction::Auto);
+    assert_eq!(deep.transfer, Transfer::AsIs);
+    // A PS4 app is a folder game inside the archive: extracted (D23).
+    let ps4 = by("CUSA00900.zip");
+    assert_eq!(ps4.system_id.as_deref(), Some("ps4"));
+    assert!(matches!(ps4.transfer, Transfer::Extract { .. }), "{ps4:#?}");
 }
 
 /// Spec D12: a `.zar` is filed by its tree. A PS4 tree goes to `ps4/`, a

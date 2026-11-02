@@ -23,7 +23,7 @@ use std::time::UNIX_EPOCH;
 use serde::{Deserialize, Serialize};
 
 use super::{ArtQuery, ArtSource, Candidate, MatchKind, SourceError};
-use crate::consoles::{self, ArtFormat, ArtLocator, Budgeted, DirListing};
+use crate::consoles::{self, ArtFormat, ArtLocator, Budgeted};
 use crate::identify::sniff::FileAt;
 use crate::organize::walk::{list_dir, MetaProbe, OsMetaProbe};
 use crate::profiles::Media;
@@ -38,13 +38,16 @@ pub const MAX_SIDE: u32 = 1024;
 /// Most bytes the decoder may allocate for one icon.
 pub const MAX_ALLOC: u64 = 16 << 20;
 /// The systems whose readers can give an icon locator; any other ROM is
-/// never opened by this source.
-pub const SYSTEMS: [&str; 9] = [
+/// never opened by this source. On Switch only a homebrew NRO has one
+/// (its plaintext asset section; adjustments §8.2): a cartridge or an
+/// eShop dump gives none, and its NCAs are never read.
+pub const SYSTEMS: [&str; 10] = [
     "3ds",
     "ps3",
     "ps4",
     "ps5",
     "psvita",
+    "switch",
     "wiiu",
     "xbox360",
     "xboxone",
@@ -207,7 +210,7 @@ fn dir_art(dir: &Path) -> Vec<ArtLocator> {
         return Vec::new();
     }
     let names: Vec<String> = listed.into_iter().map(|(n, _, _)| n).collect();
-    match consoles::identify_dir(&DirListing { dir, names: &names }) {
+    match consoles::identify_dir_on_disk(dir, &names) {
         Ok(Some(found)) => found.id.art,
         _ => Vec::new(),
     }
@@ -286,7 +289,7 @@ fn read_inside(dir: &Path, rel: &Path) -> Result<Vec<u8>, ()> {
 }
 
 /// Decodes an icon: SMDH through the 3DS tile decoder (always 48×48),
-/// PNG and TGA through `image` under [`MAX_SIDE`] and [`MAX_ALLOC`].
+/// PNG, TGA and JPEG through `image` under [`MAX_SIDE`] and [`MAX_ALLOC`].
 fn decode(bytes: &[u8], format: ArtFormat) -> Result<::image::DynamicImage, ()> {
     let format = match format {
         ArtFormat::Smdh => {
@@ -296,6 +299,7 @@ fn decode(bytes: &[u8], format: ArtFormat) -> Result<::image::DynamicImage, ()> 
         }
         ArtFormat::Png => ::image::ImageFormat::Png,
         ArtFormat::Tga => ::image::ImageFormat::Tga,
+        ArtFormat::Jpeg => ::image::ImageFormat::Jpeg,
     };
     let mut limits = ::image::Limits::default();
     limits.max_image_width = Some(MAX_SIDE);

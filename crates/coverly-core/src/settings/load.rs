@@ -184,6 +184,19 @@ fn reset_field(s: &mut Settings, dotted: &str) {
     }
 }
 
+/// Resets the setting at the full dotted path `dotted` to its default.
+fn reset_path(s: &mut Settings, dotted: &str) {
+    let defaults = serde_json::to_value(Settings::default()).expect("defaults serialise");
+    let mut v = serde_json::to_value(&*s).expect("settings serialise");
+    let pointer = format!("/{}", dotted.replace('.', "/"));
+    if let (Some(slot), Some(def)) = (v.pointer_mut(&pointer), defaults.pointer(&pointer)) {
+        *slot = def.clone();
+        if let Ok(next) = serde_json::from_value(v) {
+            *s = next;
+        }
+    }
+}
+
 /// Field-level tolerant parse (see the module docs); `None` when `text` is
 /// not a JSON object.
 fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
@@ -214,6 +227,23 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
             let (value, dropped) = keep_good_entries(group, field, value);
             if dropped {
                 fixed.push(format!("{group}.{field}"));
+            }
+            // `catalogs.<name>` is itself a group of settings: one bad
+            // leaf falls back alone, the rest of the catalogue is kept.
+            if let (true, Value::Object(leaves)) = (group == "catalogs", &value) {
+                for (leaf, v) in leaves {
+                    let slot = &mut merged[group.as_str()][field.as_str()];
+                    if slot.get(leaf).is_none() {
+                        continue; // an unknown field: ignored
+                    }
+                    let before = slot[leaf.as_str()].clone();
+                    slot[leaf.as_str()] = v.clone();
+                    if serde_json::from_value::<Settings>(merged.clone()).is_err() {
+                        merged[group.as_str()][field.as_str()][leaf.as_str()] = before;
+                        fixed.push(format!("{group}.{field}.{leaf}"));
+                    }
+                }
+                continue;
             }
             let before = merged[group.as_str()][field.as_str()].clone();
             merged[group.as_str()][field.as_str()] = value;
@@ -287,6 +317,10 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
                     }
                 }
                 note(&mut fixed, "organize.folder_names");
+            } else if e.field.starts_with("catalogs.") {
+                // Catalogue settings are one level deeper: only the leaf.
+                reset_path(&mut settings, &e.field);
+                note(&mut fixed, &e.field);
             } else if let Some(profile) = e.field.strip_prefix("organize.arcade_order.") {
                 settings.organize.arcade_order.remove(profile);
                 note(&mut fixed, "organize.arcade_order");

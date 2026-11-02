@@ -1920,6 +1920,261 @@ time {
   gap: 1rem;
 }
 
+/* «Agradecimientos» (adjustments spec §9.1): the app's colophon. One
+   reading column, groups headed by the shelf rule, entries as plain rows
+   with hairlines between them; no cards, no motion. */
+.credits {
+  display: flex;
+  max-width: 72ch;
+  flex-direction: column;
+  gap: var(--cr-space-3);
+}
+
+.credits__title {
+  margin: 0;
+  font: var(--cr-type-app-heading);
+}
+
+.credits__intro {
+  margin: 0;
+  color: var(--cr-text-secondary);
+}
+
+.credits__group {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--cr-space-3);
+}
+
+/* The shelf rule: 1px line, 3px Buckram cap on the leading edge, the
+   group name in Archivo and its count in mono at the trailing edge. */
+.credits__shelf {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--cr-space-3);
+  margin: 0;
+  padding-bottom: var(--cr-space-1);
+  border-bottom: var(--cr-border-width-hairline) solid var(--cr-border);
+  font: var(--cr-type-app-dialog);
+  font-family: var(--cr-font-display);
+  font-stretch: 87.5%;
+  font-weight: 700;
+  color: var(--cr-text);
+}
+
+.credits__shelf::after {
+  content: '';
+  position: absolute;
+  bottom: calc(-1 * var(--cr-border-width-hairline));
+  left: 0;
+  width: 2rem;
+  height: var(--cr-border-width-spine);
+  background: var(--cr-primary);
+}
+
+.credits__count {
+  font: var(--cr-type-app-mono);
+  color: var(--cr-text-secondary);
+}
+
+.credits__entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  padding: var(--cr-space-3) 0;
+  border-bottom: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.credits__entry:last-child {
+  border-bottom: 0;
+}
+
+/* Focused by the settings search (it lands here), not a control. */
+.credits__entry:focus {
+  outline: none;
+}
+
+.credits__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 var(--cr-space-3);
+}
+
+.credits__name {
+  margin: 0;
+  font: var(--cr-type-app-dense);
+  font-weight: 600;
+  color: var(--cr-text);
+}
+
+.credits__license {
+  margin-left: auto;
+  font: var(--cr-type-app-caption);
+  color: var(--cr-text-secondary);
+  text-align: right;
+}
+
+.credits__use {
+  margin: 0;
+  color: var(--cr-text);
+}
+
+/* The required credit, exact and copyable: a quotation, not a badge. */
+.credits__quote {
+  margin: var(--cr-space-1) 0;
+  padding-left: var(--cr-space-3);
+  border-left: var(--cr-border-width-focus) solid var(--cr-border-strong);
+  color: var(--cr-text);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.credits__footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-3);
+  margin: var(--cr-space-3) 0 0;
+  padding-top: var(--cr-space-3);
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+  font: var(--cr-type-app-caption);
+  color: var(--cr-text-secondary);
+}
+
+.credits__notices {
+  align-self: flex-start;
+}
+
+/* Notices viewer (spec §9.1): licence text is the content, so this is the
+   one place set in mono. Blocks are virtualised; each opens with its
+   packages in the body face and the licence at the trailing edge. */
+.notices {
+  height: min(44rem, calc(100dvh - 48px));
+}
+
+.notices__find {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+}
+
+.notices__find-label {
+  font: var(--cr-type-app-caption);
+  font-weight: 500;
+  color: var(--cr-text-secondary);
+}
+
+.notices__find-row {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-1);
+}
+
+.notices__find-row input {
+  flex: 1 1 auto;
+  max-width: 28rem;
+}
+
+.notices__status {
+  margin: 0 0 0 var(--cr-space-2);
+  min-width: 7rem;
+  font: var(--cr-type-app-caption);
+  color: var(--cr-text-secondary);
+}
+
+.notices__scroll {
+  min-height: 8rem;
+  flex: 1 1 auto;
+  margin: 0 calc(-1 * var(--cr-space-5));
+  padding: 0 var(--cr-space-5);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.notices__scroll:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--cr-accent);
+}
+
+.notices__loading {
+  padding-top: var(--cr-space-3);
+  color: var(--cr-text-secondary);
+}
+
+.notices__block {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  padding: var(--cr-space-3) 0;
+  border-bottom: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.notices__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 var(--cr-space-3);
+  margin-bottom: var(--cr-space-2);
+}
+
+.notices__packages {
+  flex: 1 1 24rem;
+  margin: 0;
+  font: var(--cr-type-app-dense);
+  font-weight: 600;
+  color: var(--cr-text);
+  overflow-wrap: anywhere;
+}
+
+.notices__license {
+  margin: 0 0 0 auto;
+  font: var(--cr-type-app-caption);
+  color: var(--cr-text-secondary);
+  text-align: right;
+}
+
+.notices__text {
+  max-width: 80ch;
+  font: var(--cr-type-app-mono);
+  color: var(--cr-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.notices__mark {
+  border-radius: 2px;
+  background: var(--cr-primary-subtle);
+  color: var(--cr-primary-subtle-fg);
+}
+
+.notices__mark[data-current] {
+  background: var(--cr-primary);
+  color: var(--cr-primary-fg);
+}
+
+@media (forced-colors: active) {
+  .credits__shelf::after {
+    background-color: CanvasText;
+  }
+
+  .notices__mark {
+    background: Mark;
+    color: MarkText;
+  }
+
+  .notices__mark[data-current] {
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
 /* Settings search (D8): the field tops the nav; results replace the panel
    as plain rows, the active one sunken, no card. */
 .settings-search {

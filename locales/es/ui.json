@@ -87,7 +87,8 @@
       "safety": "Seguridad",
       "advanced": "Avanzado",
       "profiles": "Perfiles",
-      "about": "Acerca de"
+      "about": "Acerca de",
+      "credits": "Agradecimientos"
     },
     "general": {
       "language": "Idioma",
@@ -205,6 +206,30 @@
         "offline": "No se pudo contactar con el servidor.",
         "rate-limited": "El servidor pide esperar; inténtalo más tarde.",
         "unavailable": "El servidor no pudo comprobarla ahora."
+      },
+      "switchCatalog": {
+        "title": "Catálogo de Switch",
+        "label": "Catálogo de nombres de Switch",
+        "hint": "Descarga la lista pública de blawar/titledb (unos {size}, se queda en tu equipo) para poner nombre a los juegos de Switch. No usa ni pide claves.",
+        "statusOff": "Desactivado",
+        "status": "{count} títulos, actualizado el {date}",
+        "statusFallback": "{count} títulos de la lista de Estados Unidos, actualizado el {date}",
+        "downloading": "Descargando {done} de {total}",
+        "downloadingUnknown": "Descargando {done}",
+        "pending": "Descarga del catálogo pendiente",
+        "failedOld": "No se pudo actualizar; se usan los datos del {date}.",
+        "failedNone": "No se pudo descargar; se usan los nombres de archivo.",
+        "rejected": "El catálogo trae datos que Coverly no acepta; se mantiene el anterior.",
+        "removeFailed": "No se pudo borrar; cierra otras ventanas de Coverly.",
+        "download": "Descargar ahora",
+        "check": "Buscar actualización",
+        "remove": "Borrar catálogo",
+        "icons": "Iconos de Switch",
+        "iconsHint": "Se descargan solo cuando se ven y solo se muestran en Coverly.",
+        "fallback": "Respaldo en línea",
+        "fallbackUrl": "Dirección del respaldo",
+        "fallbackHint": "Si un juego no está en el catálogo, se envía su title ID a este servicio para preguntar el nombre.",
+        "fallbackHttps": "Tiene que empezar por {scheme}"
       }
     },
     "network": {
@@ -328,18 +353,40 @@
       }
     },
     "keywords": {
+      "credits": "agradecimientos, créditos, licencias, atribución, avisos, credits",
       "duplicates": "copias, repetidos",
       "hidden": "dotfiles, punto",
       "quarantine": "cuarentena, apartados, quarantine",
       "rar": "unrar, 7-Zip, 7z, rar",
       "region": "región, país, idioma",
+      "switchCatalog": "titledb, nombres, Nintendo Switch, title ID, nlib",
       "symlinks": "symlink, alias, acceso directo",
       "trash": "papelera, borrar, eliminar, trash"
+    },
+    "credits": {
+      "intro": "Coverly se apoya en el trabajo de estos proyectos. Aquí tienes qué usa de cada uno, su licencia y el crédito que piden.",
+      "search": "Buscar en agradecimientos",
+      "results": "{count} de {total}",
+      "empty": "Nada coincide con «{query}».",
+      "groups": {
+        "art-sources": "Fuentes de portadas y metadatos",
+        "databases": "Bases de datos y DAT",
+        "docs": "Documentación y wikis técnicos",
+        "conventions": "Convenciones de frontends y firmwares",
+        "libraries": "Bibliotecas",
+        "fonts-icons": "Tipografías e iconos"
+      },
+      "site": "Web oficial de {name}",
+      "opensBrowser": "Se abre en el navegador",
+      "license": "Licencia de {name}",
+      "noLicense": "Sin licencia declarada",
+      "notices": "Ver licencias de terceros",
+      "noContent": "Coverly no incluye ROMs, BIOS, claves ni arte de juegos."
     }
   },
   "about": {
     "license": "Licencia: AGPL-3.0-only. Coverly ROMs es software libre; su nombre y su logotipo son marcas (ver Marcas).",
-    "noTelemetry": "Sin telemetría: Coverly ROMs solo contacta con las fuentes de arte que actives y, salvo que lo desactives, con el servidor de actualizaciones.",
+    "noTelemetry": "Sin telemetría: Coverly ROMs solo contacta con las fuentes de arte y de datos que actives (incluido el catálogo de Switch y su respaldo en línea) y, salvo que lo desactives, con el servidor de actualizaciones.",
     "updates": "Canal de actualizaciones: {channel}.",
     "link": {
       "repo": "Código fuente",
@@ -349,6 +396,18 @@
       "releases": "Versiones publicadas",
       "issues": "Informar de un problema"
     }
+  },
+  "notices": {
+    "title": "Licencias de terceros",
+    "description": "Las licencias de las bibliotecas que Coverly incluye, tal y como las publican sus autores.",
+    "find": "Buscar en el texto",
+    "tabRust": "Rust ({count})",
+    "tabJs": "JavaScript ({count})",
+    "matches": "{index} de {count}",
+    "noMatches": "Sin coincidencias",
+    "previous": "Coincidencia anterior",
+    "next": "Coincidencia siguiente",
+    "loading": "Cargando las licencias"
   },
   "update": {
     "checkNow": "Buscar actualizaciones",
@@ -802,6 +861,12 @@
     "state": {
       "reportOnly": "Solo informe",
       "skipped": "No se toca"
+    },
+    "basis": {
+      "titleId": "Mismo title ID y versión",
+      "titleIdTip": "El id de juego y la versión se han leído del contenido de cada copia; sus bytes no se han comparado.",
+      "folderTree": "Misma carpeta",
+      "folderTreeTip": "Cada copia tiene los mismos archivos con el mismo tamaño; no se ha leído ninguno."
     }
   },
   "toolbar": {
@@ -1271,7 +1336,10 @@
       "extractFirst": "Este paquete no se abre así: hay que extraerlo antes",
       "noEmulator": "Ningún emulador lo abre así",
       "proEnhanced": "Mejorado para PS5 Pro",
-      "dlcFolder": "Va a la carpeta DLC, donde {layout} busca el contenido descargable"
+      "dlcFolder": "Va a la carpeta DLC, donde {layout} busca el contenido descargable",
+      "homebrew": "Homebrew",
+      "vita7z": "Vita3K solo instala .zip, .vpk o .vci",
+      "missingDisc": "Falta el disco {n}"
     },
     "pause": {
       "diskFull": "Disco lleno: faltan {needed}; se ha deshecho el juego a medias"
@@ -1303,7 +1371,10 @@
       "titleIdFile": "Title ID {id} en {file}",
       "titleIdName": "Title ID {id} tomado del nombre del archivo",
       "titleIdTicket": "Title ID {id} en el nombre del ticket",
-      "contentId": "Content ID {id}"
+      "contentId": "Content ID {id}",
+      "titledb": "Nombre del catálogo de blawar/titledb: {name}",
+      "nlib": "Nombre del respaldo en línea: {name}",
+      "ncaCatalog": "Title ID por el id del NCA en el catálogo"
     },
     "left": {
       "archiveNeedsMemory": "Necesita {mib} MB de memoria para descomprimirse",
@@ -1352,8 +1423,11 @@
       "keyMaterial": "Archivo de claves o licencia: Coverly no lo lee ni lo mueve",
       "emulatorData": "Está dentro de los datos de un emulador ({folder}); se deja tal cual",
       "gameOverlay": "Carpeta de mods o parches de {title}: se deja donde está",
+      "notConfirmed": "No confirmado; se queda donde está",
       "title": "Se quedan donde están",
-      "inLibrary": "Ya está en tu biblioteca como {path}"
+      "inLibrary": "Ya está en tu biblioteca como {path}",
+      "gamePart": "Parte de un juego; no se mueve suelta",
+      "backup": "Copia de seguridad cifrada de Vita"
     },
     "planning": "Identificando {done} de {total}…",
     "walking": "Buscando archivos…",
@@ -1405,7 +1479,11 @@
       "likelyThen": "; luego, ",
       "choose": "Elige un sistema…",
       "systemFor": "Sistema para {name}",
-      "items": "Archivos: {count}"
+      "items": "Archivos: {count}",
+      "archiveGames": "El comprimido contiene {count} juegos",
+      "ps4OrVita": "Hay que leer param.sfo para saber si es de PS4 o de Vita",
+      "discSet": "Parece un juego de varios discos",
+      "caseCollision": "Dos nombres del comprimido solo cambian en mayúsculas"
     },
     "renamed": "Se guardará como {name} porque ya existe otro distinto",
     "renamedFrom": "Renombrado; antes era {name}",
@@ -1425,6 +1503,19 @@
       "confirm": "Copiar {bytes}",
       "confirmMove": "Mover {bytes}",
       "cancel": "Cancelar"
+    },
+    "huge": {
+      "titleCopy": "¿Copiar {name}?",
+      "titleMove": "¿Mover {name} a otro disco?",
+      "titleExtract": "¿Extraer {name}?",
+      "body": "Ocupa {bytes}. Quedarán {free} libres en {volume}.",
+      "bodyNoFree": "Ocupa {bytes}.",
+      "noRoom": "No cabe en {volume}: faltan {missing}.",
+      "progress": "Elemento {index} de {count}",
+      "yes": "Sí",
+      "all": "Sí a todo",
+      "no": "No",
+      "nothing": "No se ha movido nada"
     },
     "encrypted": "Cifrado; algunos emuladores no pueden cargarlo",
     "level": {
@@ -1545,7 +1636,9 @@
       "cancelNote": "Si cancelas, se borra lo extraído de este juego y el comprimido queda como estaba. Los juegos ya extraídos se quedan.",
       "stageLabel": "Extracción de {name} hacia la carpeta de {system}",
       "movingLabel": "Moviendo a {folder}"
-    }
+    },
+    "encryptedLabel": "Cifrado",
+    "encryptedUnresolved": "No se puede leer el nombre sin descifrarlo"
   },
   "ui": {
     "close": "Cerrar",

@@ -87,7 +87,8 @@
       "safety": "Safety",
       "advanced": "Advanced",
       "profiles": "Profiles",
-      "about": "About"
+      "about": "About",
+      "credits": "Credits"
     },
     "general": {
       "language": "Language",
@@ -205,6 +206,30 @@
         "offline": "Could not reach the server.",
         "rate-limited": "The server asks to wait; try again later.",
         "unavailable": "The server could not check it now."
+      },
+      "switchCatalog": {
+        "title": "Switch catalogue",
+        "label": "Switch name catalogue",
+        "hint": "Downloads the public blawar/titledb list (about {size}, kept on your computer) to name Switch games. It never uses or asks for keys.",
+        "statusOff": "Off",
+        "status": "{count} titles, updated {date}",
+        "statusFallback": "{count} titles from the United States list, updated {date}",
+        "downloading": "Downloading {done} of {total}",
+        "downloadingUnknown": "Downloading {done}",
+        "pending": "Catalogue download pending",
+        "failedOld": "Could not update; using the data from {date}.",
+        "failedNone": "Could not download; using file names.",
+        "rejected": "The catalogue holds data Coverly does not accept; the previous one is kept.",
+        "removeFailed": "Could not delete it; close other Coverly windows.",
+        "download": "Download now",
+        "check": "Check for update",
+        "remove": "Delete catalogue",
+        "icons": "Switch icons",
+        "iconsHint": "Fetched only when shown, and shown only in Coverly.",
+        "fallback": "Online fallback",
+        "fallbackUrl": "Fallback address",
+        "fallbackHint": "When a game is not in the catalogue, its title ID is sent to this service to ask for the name.",
+        "fallbackHttps": "It has to start with {scheme}"
       }
     },
     "network": {
@@ -328,18 +353,40 @@
       }
     },
     "keywords": {
+      "credits": "credits, licences, licenses, attribution, notices, agradecimientos",
       "duplicates": "copies, duplicates",
       "hidden": "dotfiles, dot",
       "quarantine": "quarantine, set aside, cuarentena",
       "rar": "unrar, 7-Zip, 7z, rar",
       "region": "region, country, language",
+      "switchCatalog": "titledb, names, Nintendo Switch, title ID, nlib",
       "symlinks": "symlink, alias, shortcut",
       "trash": "trash, bin, delete, papelera"
+    },
+    "credits": {
+      "intro": "Coverly builds on the work of these projects. Here is what it uses from each, its licence and the credit it asks for.",
+      "search": "Search credits",
+      "results": "{count} of {total}",
+      "empty": "Nothing matches “{query}”.",
+      "groups": {
+        "art-sources": "Cover and metadata sources",
+        "databases": "Databases and DATs",
+        "docs": "Technical docs and wikis",
+        "conventions": "Frontend and firmware conventions",
+        "libraries": "Libraries",
+        "fonts-icons": "Fonts and icons"
+      },
+      "site": "{name} official site",
+      "opensBrowser": "Opens in your browser",
+      "license": "{name} licence",
+      "noLicense": "No declared licence",
+      "notices": "View third-party licences",
+      "noContent": "Coverly ships no ROMs, BIOS files, keys or game art."
     }
   },
   "about": {
     "license": "Licence: AGPL-3.0-only. Coverly ROMs is free software; its name and logo are trademarks (see Trademarks).",
-    "noTelemetry": "No telemetry: Coverly ROMs only contacts the art sources you enable and, unless you turn it off, the update server.",
+    "noTelemetry": "No telemetry: Coverly ROMs only contacts the art and data sources you enable (including the Switch catalogue and its online fallback) and, unless you turn it off, the update server.",
     "updates": "Update channel: {channel}.",
     "link": {
       "repo": "Source code",
@@ -349,6 +396,18 @@
       "releases": "Releases",
       "issues": "Report a problem"
     }
+  },
+  "notices": {
+    "title": "Third-party licences",
+    "description": "The licences of the libraries Coverly includes, as their authors publish them.",
+    "find": "Find in text",
+    "tabRust": "Rust ({count})",
+    "tabJs": "JavaScript ({count})",
+    "matches": "{index} of {count}",
+    "noMatches": "No matches",
+    "previous": "Previous match",
+    "next": "Next match",
+    "loading": "Loading the licences"
   },
   "update": {
     "checkNow": "Check for updates",
@@ -802,6 +861,12 @@
     "state": {
       "reportOnly": "Report only",
       "skipped": "Left alone"
+    },
+    "basis": {
+      "titleId": "Same title ID and version",
+      "titleIdTip": "The game id and version were read from each copy's content; their bytes were not compared.",
+      "folderTree": "Same folder",
+      "folderTreeTip": "Every copy holds the same files at the same sizes; none was read."
     }
   },
   "toolbar": {
@@ -1271,7 +1336,10 @@
       "extractFirst": "This package does not open as is: it has to be extracted first",
       "noEmulator": "No emulator opens it in this form",
       "proEnhanced": "Enhanced for PS5 Pro",
-      "dlcFolder": "Goes to the DLC folder, where {layout} looks for downloadable content"
+      "dlcFolder": "Goes to the DLC folder, where {layout} looks for downloadable content",
+      "homebrew": "Homebrew",
+      "vita7z": "Vita3K only installs .zip, .vpk or .vci",
+      "missingDisc": "Disc {n} is missing"
     },
     "pause": {
       "diskFull": "Disk full: {needed} more needed; the half-extracted game was undone"
@@ -1303,7 +1371,10 @@
       "titleIdFile": "Title ID {id} in {file}",
       "titleIdName": "Title ID {id} taken from the file name",
       "titleIdTicket": "Title ID {id} in the ticket name",
-      "contentId": "Content ID {id}"
+      "contentId": "Content ID {id}",
+      "titledb": "Name from the blawar/titledb catalogue: {name}",
+      "nlib": "Name from the online fallback: {name}",
+      "ncaCatalog": "Title ID from the NCA id in the catalogue"
     },
     "left": {
       "archiveNeedsMemory": "Needs {mib} MB of memory to decompress",
@@ -1352,8 +1423,11 @@
       "keyMaterial": "Key or licence file: Coverly never reads or moves it",
       "emulatorData": "Inside an emulator's data ({folder}); left as it is",
       "gameOverlay": "Mods or patch folder of {title}: left where it is",
+      "notConfirmed": "Not confirmed; stays where it is",
       "title": "Staying where they are",
-      "inLibrary": "Already in your library as {path}"
+      "inLibrary": "Already in your library as {path}",
+      "gamePart": "Part of a game; not moved on its own",
+      "backup": "Encrypted Vita backup"
     },
     "planning": "Identifying {done} of {total}…",
     "walking": "Looking for files…",
@@ -1405,7 +1479,11 @@
       "likelyThen": ", then ",
       "choose": "Choose a system…",
       "systemFor": "System for {name}",
-      "items": "Files: {count}"
+      "items": "Files: {count}",
+      "archiveGames": "The archive holds {count} games",
+      "ps4OrVita": "param.sfo must be read to tell PS4 from Vita",
+      "discSet": "Looks like a multi-disc game",
+      "caseCollision": "Two names in the archive differ only in case"
     },
     "renamed": "Will be saved as {name} because a different file already exists",
     "renamedFrom": "Renamed; it was {name}",
@@ -1425,6 +1503,19 @@
       "confirm": "Copy {bytes}",
       "confirmMove": "Move {bytes}",
       "cancel": "Cancel"
+    },
+    "huge": {
+      "titleCopy": "Copy {name}?",
+      "titleMove": "Move {name} to another drive?",
+      "titleExtract": "Extract {name}?",
+      "body": "It takes {bytes}. {free} will be left free on {volume}.",
+      "bodyNoFree": "It takes {bytes}.",
+      "noRoom": "It does not fit on {volume}: {missing} short.",
+      "progress": "Item {index} of {count}",
+      "yes": "Yes",
+      "all": "Yes to all",
+      "no": "No",
+      "nothing": "Nothing was moved"
     },
     "encrypted": "Encrypted; some emulators can't load it",
     "level": {
@@ -1545,7 +1636,9 @@
       "cancelNote": "If you cancel, what was extracted of this game is removed and the archive stays as it was. Games already extracted stay.",
       "stageLabel": "Extraction of {name} into the {system} folder",
       "movingLabel": "Moving into {folder}"
-    }
+    },
+    "encryptedLabel": "Encrypted",
+    "encryptedUnresolved": "The name cannot be read without decrypting it"
   },
   "ui": {
     "close": "Close",

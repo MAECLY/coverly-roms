@@ -25,7 +25,7 @@ use crate::net::{host_of, Http, HttpRequest, HttpResponse, Limiter, NetError};
 use crate::profiles::Media;
 use crate::systems::System;
 
-pub const SCREENSCRAPER_BASE: &str = "https://api.screenscraper.fr/api2";
+pub const SCREENSCRAPER_BASE: &str = crate::net::hosts::SCREENSCRAPER_BASE;
 pub const SOURCE_ID: &str = "screenscraper";
 pub const SOFTNAME: &str = concat!("CoverlyROMs-", env!("CARGO_PKG_VERSION"));
 pub const MIN_INTERVAL: Duration = Duration::from_millis(1200);
@@ -382,6 +382,7 @@ impl<'a> ScreenScraperSource<'a> {
             NetError::Offline(m) => NetError::Offline(self.scrub(&m)),
             NetError::Invalid(m) => NetError::Invalid(self.scrub(&m)),
             NetError::Insecure(_) => NetError::Insecure(self.cfg.base.clone()),
+            NetError::Unregistered(_) => NetError::Unregistered(self.scrub(&public)),
             other => other,
         })?;
         match resp.status {

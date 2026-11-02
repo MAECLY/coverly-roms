@@ -81,6 +81,7 @@ fn plan(keeper: usize, members: Vec<Member>) -> DedupePlan {
             action: GroupAction::Act,
             tie: false,
             choice_dropped: false,
+            basis: None,
         }],
         ..DedupePlan::default()
     }

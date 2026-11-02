@@ -10,11 +10,11 @@ import { useSettingsStore } from '@/stores/settingsStore';
 
 import { UpdatePanel } from '../update/UpdatePanel';
 import { hintText } from './Field';
+import { NoticesDialog } from './NoticesDialog';
 
 const LINKS: readonly LinkId[] = [
   'repo',
   'license',
-  'notices',
   'trademarks',
   'releases',
   'issues',
@@ -40,6 +40,10 @@ export function AboutSection() {
       </p>
       <UpdatePanel />
       <div className="flex flex-wrap gap-x-5 gap-y-2">
+        {/* The bundled notices open in the app, not in the browser. */}
+        <NoticesDialog>
+          <Button variant="link">{t('about.link.notices')}</Button>
+        </NoticesDialog>
         {LINKS.map((l) => (
           <Button
             key={l}

@@ -9,6 +9,9 @@ import sample from './contract.sample.json';
 import {
   CREDENTIAL_KEYS,
   KEY_CHECKS,
+  type CatalogStatus,
+  type CreditLink,
+  type LargeConfirm,
   type LargeTransferDetail,
   type PickReason,
   type SourceInfo,
@@ -40,6 +43,9 @@ import {
   type IdSource,
   type NotARom,
   type OrganizeItemKind,
+  type PartKind,
+  type TitleKind,
+  type TitleSource,
   type TitleIdRef,
   type Transfer,
   type EntriesUpdated,
@@ -63,6 +69,7 @@ import {
   type OrganizePlan,
   type OrganizePlanWire,
   type PlanWarning,
+  type Playlist,
   type OrganizeReportWire,
   type OrganizeCountsWire,
   type OrganizePlanView,
@@ -604,7 +611,10 @@ const checks: [string, readonly string[], object][] = [
   [
     'OrganizeItem',
     ORGANIZE_ITEM_KEYS satisfies AllKeys<
-      Omit<OrganizeItem, 'title_id' | 'content_id'>,
+      Omit<
+        OrganizeItem,
+        'title_id' | 'content_id' | 'playlist' | 'title_source'
+      >,
       typeof ORGANIZE_ITEM_KEYS
     >,
     sample.organize_plan_view.plan.items[0]!,
@@ -612,14 +622,17 @@ const checks: [string, readonly string[], object][] = [
   [
     'OrganizeItem (game folder)',
     CONSOLE_ITEM_KEYS satisfies AllKeys<
-      Omit<OrganizeItem, 'content_id'>,
+      Omit<OrganizeItem, 'content_id' | 'playlist' | 'title_source'>,
       typeof CONSOLE_ITEM_KEYS
     >,
     sample.organize_folder_item,
   ],
   [
     'OrganizeItem (content id)',
-    CONTENT_ITEM_KEYS satisfies AllKeys<OrganizeItem, typeof CONTENT_ITEM_KEYS>,
+    CONTENT_ITEM_KEYS satisfies AllKeys<
+      Omit<OrganizeItem, 'playlist' | 'title_source'>,
+      typeof CONTENT_ITEM_KEYS
+    >,
     sample.organize_batch3_item,
   ],
   [
@@ -651,8 +664,9 @@ const checks: [string, readonly string[], object][] = [
   ['OrganizeItem (extract)', ORGANIZE_ITEM_KEYS, sample.organize_extract_item],
   [
     'Transfer (extract)',
+    // `folder_game` is left out when false, as in this sample.
     EXTRACT_TRANSFER_KEYS satisfies AllKeys<
-      Extract<Transfer, { kind: 'extract' }>,
+      Omit<Extract<Transfer, { kind: 'extract' }>, 'folder_game'>,
       typeof EXTRACT_TRANSFER_KEYS
     >,
     sample.organize_extract_item.transfer,
@@ -701,7 +715,11 @@ const checks: [string, readonly string[], object][] = [
   ],
   [
     'DupGroupView',
-    DUP_GROUP_KEYS satisfies AllKeys<DupGroupView, typeof DUP_GROUP_KEYS>,
+    // `basis` is left out on a byte match (D19).
+    DUP_GROUP_KEYS satisfies AllKeys<
+      Omit<DupGroupView, 'basis'>,
+      typeof DUP_GROUP_KEYS
+    >,
     sample.dedupe_plan_view.groups[0]!,
   ],
   [
@@ -1069,7 +1087,21 @@ describe('organise contract', () => {
       copies: true,
       free: 412_100_000_000,
       volume: 'TinyExt',
+      huge: [
+        {
+          item: 4,
+          name: 'CUSA00900',
+          system: 'ps4',
+          bytes: 61_000_000_000,
+          extract: false,
+          followers: [5],
+        },
+      ],
+      rest: 126_420_000_000,
     });
+    // What the answers send back (adjustments D16).
+    const confirm: LargeConfirm = requests.organize_confirm;
+    expect(confirm).toEqual({ bytes: 126_420_000_000, items: [4, 7] });
   });
 });
 
@@ -1260,6 +1292,123 @@ describe('duplicates contract', () => {
   });
 });
 
+describe('adjustments contract', () => {
+  it('game parts, declined items, the new notes and kinds use the Rust spellings', () => {
+    const reasons = sample.adjustments_reasons as LeftReason[];
+    expect(reasons).toEqual([
+      { kind: 'game-part', part: 'exe-fs', system: 'switch', title_id: null },
+      {
+        kind: 'game-part',
+        part: 'backup',
+        system: 'psvita',
+        title_id: 'PCSE00120',
+      },
+      { kind: 'not-confirmed' },
+    ]);
+    const notes = sample.adjustments_notes as ItemNote[];
+    expect(notes.map((n) => n.kind)).toEqual([
+      'homebrew',
+      'vita7z',
+      'missing-disc',
+      'encrypted-name',
+      'archive-games',
+      'ps4-or-vita',
+      'archive-case-collision',
+      'disc-set',
+    ]);
+    expect(notes[2]).toEqual({ kind: 'missing-disc', n: 2 });
+    const playlist = sample.adjustments_playlist as Playlist;
+    expect(playlist.path).toBe('ROMS/Saturn/Grandia (Japan).m3u');
+    expect(playlist.discs).toHaveLength(2);
+    expect(notes[4]).toEqual({ kind: 'archive-games', count: 2 });
+    const decisions = sample.adjustments_decisions as OrganizeDecision[];
+    expect(decisions).toEqual([{ item: 4, choice: 'decline' }]);
+    expect(sample.adjustments_part_kinds).toEqual(PART_KINDS);
+    expect(sample.adjustments_title_kinds).toEqual(TITLE_KINDS);
+    expect(sample.adjustments_title_sources).toEqual(TITLE_SOURCES);
+    // A cartridge the catalogue named: its title id from the NCA ids and
+    // where its name came from (adjustments_values_match_the_shared_sample).
+    const cart = sample.adjustments_catalogue_item as OrganizeItem;
+    expect(cart.title_id).toEqual({
+      id: '0100000000010000',
+      source: 'nca-catalog',
+    });
+    expect(cart.title_source).toBe('titledb');
+    expect(Object.keys(cart).sort()).toEqual(
+      [...CONSOLE_ITEM_KEYS, 'title_source'].sort(),
+    );
+  });
+
+  it('catalogue statuses and credit links match Rust', () => {
+    // Every `CatalogStatus` variant, in Rust's order
+    // (catalogue_statuses_match_the_shared_sample).
+    const statuses = sample.catalog_statuses as CatalogStatus[];
+    expect(statuses.map((s) => s.state)).toEqual(CATALOG_STATES);
+    const ready = statuses.find((s) => s.state === 'ready');
+    expect(ready).toEqual({
+      state: 'ready',
+      count: 17_342,
+      updated: '2026-10-30',
+      fallback: false,
+    });
+    const links = requests.credit_links as CreditLink[];
+    expect(links).toEqual(['site', 'license'] satisfies CreditLink[]);
+  });
+});
+
+const CATALOG_STATES = [
+  'off',
+  'pending',
+  'downloading',
+  'downloading',
+  'ready',
+  'ready',
+  'failed-old',
+  'failed-none',
+  'rejected',
+  'remove-failed',
+] as const satisfies readonly CatalogStatus['state'][];
+
+/** Every `PartKind`, `TitleKind` and `TitleSource`, in Rust's order. */
+const PART_KINDS = [
+  'exe-fs',
+  'nca',
+  'library',
+  'title-meta',
+  'module',
+  'backup',
+] as const satisfies readonly PartKind[];
+const TITLE_KINDS = [
+  'base',
+  'update',
+  'dlc',
+  'demo',
+  'homebrew',
+  'unknown',
+] as const satisfies readonly TitleKind[];
+const TITLE_SOURCES = [
+  'header',
+  'titledb',
+  'nlib',
+  'file-name',
+] as const satisfies readonly TitleSource[];
+// Compile-time: each list names every member.
+const _allParts: Exclude<PartKind, (typeof PART_KINDS)[number]> extends never
+  ? true
+  : never = true;
+const _allKinds: Exclude<TitleKind, (typeof TITLE_KINDS)[number]> extends never
+  ? true
+  : never = true;
+const _allTitleSources: Exclude<
+  TitleSource,
+  (typeof TITLE_SOURCES)[number]
+> extends never
+  ? true
+  : never = true;
+void _allParts;
+void _allKinds;
+void _allTitleSources;
+
 /** Every `IdSource`, in Rust's declaration order. */
 const ID_SOURCES = [
   'param-sfo',
@@ -1274,6 +1423,13 @@ const ID_SOURCES = [
   'param-json',
   'microsoft-game-config',
   'appx-manifest',
+  'nca-catalog',
+  'tmd',
+  'npdm',
+  'xbe',
+  'xex',
+  'self-header',
+  'pbp',
 ] as const satisfies readonly IdSource[];
 // Compile-time: the list names every member.
 const _allSources: Exclude<IdSource, (typeof ID_SOURCES)[number]> extends never

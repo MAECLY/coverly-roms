@@ -18,7 +18,6 @@
 //! extension only, and a WUX by its own header without a serial, since
 //! its sector 0 is a WUD's.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use quick_xml::events::Event;
@@ -26,18 +25,20 @@ use quick_xml::Reader;
 
 use super::zarchive::{self, Archive, Node};
 use super::{
-    kind_wiiu, ArtFormat, ArtLocator, Budgeted, ConsoleId, DirListing, FolderMatch, IdSource,
+    kind_wiiu, ArtFormat, Budgeted, ConsoleId, DirListing, FolderMatch, IdSource, PartKind,
     TitleKind, MAX_META_FILE,
 };
-use crate::identify::sniff::FileAt;
 
-/// Most entries read from the one child folder a probe lists (D24).
-const MAX_CHILD_ENTRIES: usize = 256;
-/// The TMD header up to the title version.
-const TMD_HEAD: usize = 0x1E0;
-const TMD_SIG_RSA2048: u32 = 0x0001_0004;
-const TMD_TITLE_ID: usize = 0x18C;
-const TMD_VERSION: usize = 0x1DC;
+/// A TMD read up to the title version of its longest signature (RSA-4096:
+/// header at 0x240, version at 0x2DC).
+const TMD_HEAD: usize = 0x2E0;
+/// Title id and version, relative to the TMD header (3dbrew «Title
+/// metadata»: 0x18C and 0x1DC with an RSA-2048 signature).
+const TMD_TITLE_ID: usize = 0x4C;
+const TMD_VERSION: usize = 0x9C;
+/// The `detail` of a TMD whose title is a console's own (spec D14): no
+/// ROM and no hit (`NotARom::ConsoleSystem`).
+pub const TMD_SYSTEM_DETAIL: &str = "TMD console system";
 const WUX_MAGIC: [u8; 8] = [b'W', b'U', b'X', b'0', 0x2E, 0xD0, 0x99, 0x10];
 const WUX_HEADER: u64 = 0x20;
 
@@ -215,60 +216,6 @@ pub(super) fn find<'a>(names: &'a [String], want: &str) -> Option<&'a str> {
         .map(String::as_str)
 }
 
-/// A regular file (never a symlink) of at most `max` bytes.
-pub(super) fn plain_file(path: &Path, max: u64) -> Option<u64> {
-    let meta = fs::symlink_metadata(path).ok()?;
-    (meta.file_type().is_file() && meta.len() <= max).then_some(meta.len())
-}
-
-/// The first `n` bytes of `path` (or all of it when shorter), through
-/// [`Budgeted`]; `path` was checked by [`plain_file`].
-pub(super) fn read_head(path: &Path, len: u64, n: usize) -> Option<Vec<u8>> {
-    let file = super::open_rom(path).ok()?;
-    let mut src = FileAt(file);
-    let mut b = Budgeted::new(&mut src, len);
-    let n = usize::try_from(len).ok()?.min(n);
-    b.read(0, n).ok()
-}
-
-/// Up to [`MAX_CHILD_ENTRIES`] names of the directory `dir` (never a
-/// symlinked one).
-pub(super) fn list_child(dir: &Path) -> Option<Vec<String>> {
-    if !fs::symlink_metadata(dir).ok()?.file_type().is_dir() {
-        return None;
-    }
-    #[cfg(test)]
-    list_count::bump();
-    Some(
-        fs::read_dir(dir)
-            .ok()?
-            .flatten()
-            .take(MAX_CHILD_ENTRIES)
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .collect(),
-    )
-}
-
-/// How many directories [`list_child`] listed on this thread (unit tests
-/// of the one-listing rule, systems batch 3 D5).
-#[cfg(test)]
-pub(super) mod list_count {
-    use std::cell::Cell;
-
-    thread_local! {
-        static COUNT: Cell<usize> = const { Cell::new(0) };
-    }
-
-    pub(in super::super) fn bump() {
-        COUNT.with(|c| c.set(c.get() + 1));
-    }
-
-    /// The count since the last call, then zero.
-    pub(in super::super) fn take() -> usize {
-        COUNT.with(|c| c.replace(0))
-    }
-}
-
 /// A decrypted (loadiine) title folder (spec D12): `code` and `meta` or
 /// `content` among its names. `meta/meta.xml` is read (one listing of
 /// `meta`), else `code/app.xml`; the icon is `meta/iconTex.tga`.
@@ -278,17 +225,13 @@ pub fn probe_loadiine(l: &DirListing) -> Option<FolderMatch> {
     if meta.is_none() && find(l.names, "content").is_none() {
         return None;
     }
-    let meta_names = meta.and_then(|m| list_child(&l.dir.join(m)));
+    let meta_names = meta.and_then(|m| l.list(Path::new(m)));
     let in_meta = |want: &str| -> Option<PathBuf> {
         let m = meta?;
         let name = find(meta_names.as_deref()?, want)?;
         Some(PathBuf::from(m).join(name))
     };
-    let read = |rel: &Path| -> Option<Vec<u8>> {
-        let path = l.dir.join(rel);
-        let len = plain_file(&path, MAX_META_FILE)?;
-        read_head(&path, len, MAX_META_FILE as usize)
-    };
+    let read = |rel: &Path| -> Option<Vec<u8>> { l.read_small(rel, MAX_META_FILE) };
     let from_meta = in_meta("meta.xml").and_then(|rel| Some((parse_meta_xml(&read(&rel)?)?, rel)));
     let (mut id, probe) = match from_meta {
         Some(found) => found,
@@ -298,11 +241,8 @@ pub fn probe_loadiine(l: &DirListing) -> Option<FolderMatch> {
         }
     };
     if let Some(rel) = in_meta("iconTex.tga") {
-        if plain_file(&l.dir.join(&rel), u64::MAX).is_some() {
-            id.art.push(ArtLocator::File {
-                rel,
-                format: ArtFormat::Tga,
-            });
+        if l.plain_file(&rel, u64::MAX).is_some() {
+            id.art.push(l.art(&rel, ArtFormat::Tga));
         }
     }
     Some(FolderMatch {
@@ -318,9 +258,7 @@ pub fn probe_loadiine(l: &DirListing) -> Option<FolderMatch> {
 /// TMD header is read; `title.tik` and the `.app` contents never are.
 pub fn probe_nus(l: &DirListing) -> Option<FolderMatch> {
     let name = find(l.names, "title.tmd")?;
-    let path = l.dir.join(name);
-    let len = plain_file(&path, 1 << 20)?;
-    let h = read_head(&path, len, TMD_HEAD)?;
+    let h = l.read_head(Path::new(name), 1 << 20, TMD_HEAD as u64)?;
     let id = tmd_id(&h, "NUS title.tmd")?;
     Some(FolderMatch {
         id,
@@ -329,20 +267,95 @@ pub fn probe_nus(l: &DirListing) -> Option<FolderMatch> {
     })
 }
 
-/// A Wii U title from a TMD header (same layout as the 3DS and Wii TMD).
+/// What a TMD title is (spec D14).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TmdKind {
+    Title(TitleKind),
+    /// A console's own title (system app, applet, firmware, shared data).
+    System,
+}
+
+/// The system and kind of a title id by its **full** high word (spec
+/// D14; 3dbrew «Titles», wiibrew and wiiubrew «Title database»): a bit
+/// test would file every 3DS patch (`0004000E`) as DLC. Unknown high
+/// words are no guess.
+fn tmd_kind(tid: u64) -> Option<(&'static str, TmdKind)> {
+    use TitleKind::{Base, Demo, Dlc, Update};
+    let hi = (tid >> 32) as u32;
+    Some(match hi {
+        0x0004_0000 | 0x0004_0001 => ("3ds", TmdKind::Title(Base)),
+        0x0004_0002 => ("3ds", TmdKind::Title(Demo)),
+        0x0004_000E => ("3ds", TmdKind::Title(Update)),
+        0x0004_008C => ("3ds", TmdKind::Title(Dlc)),
+        0x0004_0010 | 0x0004_001B | 0x0004_0030 | 0x0004_009B | 0x0004_00DB | 0x0004_0130
+        | 0x0004_0138 => ("3ds", TmdKind::System),
+        0x0001_0000 | 0x0001_0001 | 0x0001_0004 => ("wii", TmdKind::Title(Base)),
+        0x0001_0005 => ("wii", TmdKind::Title(Dlc)),
+        0x0001_0002 | 0x0001_0008 | 0x0000_0001 => ("wii", TmdKind::System),
+        0x0005_0000 => ("wiiu", TmdKind::Title(Base)),
+        0x0005_0002 => ("wiiu", TmdKind::Title(Demo)),
+        0x0005_000E => ("wiiu", TmdKind::Title(Update)),
+        0x0005_000C => ("wiiu", TmdKind::Title(Dlc)),
+        0x0005_0010 | 0x0005_001B | 0x0005_004E | 0x0007_0002 | 0x0007_0008 | 0x0000_0007 => {
+            ("wiiu", TmdKind::System)
+        }
+        0x0003_0015 | 0x0003_0017 => ("nds", TmdKind::System),
+        h if h >> 16 == 0x0003 => ("nds", TmdKind::Title(Base)),
+        _ => return None,
+    })
+}
+
+/// Where the TMD header starts, after the signature type, the signature
+/// and its padding (3dbrew «Certificates»): RSA-4096, RSA-2048, ECDSA
+/// with SHA-1 or SHA-256, and HMAC-SHA1. `None` for any other type.
+fn tmd_header_at(sig_type: u32) -> Option<usize> {
+    Some(match sig_type {
+        0x0001_0000 | 0x0001_0003 => 4 + 0x200 + 0x3C,
+        0x0001_0001 | 0x0001_0004 => 4 + 0x100 + 0x3C,
+        0x0001_0002 | 0x0001_0005 => 4 + 0x3C + 0x40,
+        0x0001_0006 => 4 + 0x14 + 0x28,
+        _ => return None,
+    })
+}
+
+/// The title id and version of a TMD head.
+fn tmd_fields(h: &[u8]) -> Option<(u64, u16)> {
+    let at = tmd_header_at(be32(h, 0)?)?;
+    Some((be64(h, at + TMD_TITLE_ID)?, be16(h, at + TMD_VERSION)?))
+}
+
+/// A Wii U title from a NUS folder's TMD: only Wii U games, updates, DLC
+/// and demos are folder games in this batch.
 fn tmd_id(h: &[u8], detail: &str) -> Option<ConsoleId> {
-    if be32(h, 0)? != TMD_SIG_RSA2048 {
-        return None;
-    }
-    let tid = be64(h, TMD_TITLE_ID)?;
+    let (tid, version) = tmd_fields(h)?;
     if tid >> 48 != 0x0005 {
         return None;
     }
     let mut id = ConsoleId::proven("wiiu", detail);
     id.title_id = Some(format!("{tid:016X}"));
     id.kind = kind_wiiu(tid);
-    id.version = be16(h, TMD_VERSION).map(|v| v.to_string());
+    id.version = Some(version.to_string());
     id.id_source = Some(IdSource::Header);
+    Some(id)
+}
+
+/// A loose TMD (spec §8.2, D14): title metadata of the 3DS, Wii, DSi or
+/// Wii U title its full high word names, never a playable file alone. A
+/// console's own title is [`TMD_SYSTEM_DETAIL`]; an unknown high word or
+/// signature type is not identified.
+fn loose_tmd(h: &[u8]) -> Option<ConsoleId> {
+    let (tid, version) = tmd_fields(h)?;
+    let (system, kind) = tmd_kind(tid)?;
+    let kind = match kind {
+        TmdKind::Title(kind) => kind,
+        TmdKind::System => return Some(ConsoleId::proven(system, TMD_SYSTEM_DETAIL)),
+    };
+    let mut id = ConsoleId::proven(system, "title.tmd");
+    id.title_id = Some(format!("{tid:016X}"));
+    id.kind = kind;
+    id.version = Some(version.to_string());
+    id.id_source = Some(IdSource::Tmd);
+    id.part = Some(PartKind::TitleMeta);
     Some(id)
 }
 
@@ -359,8 +372,22 @@ pub fn identify(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
     }
     if head.starts_with(b"\x7FELF") && head.get(4..9) == Some(&[1, 2, 1, 0xCA, 0xFE][..]) {
         // ELF32, big-endian, Cafe OS ABI (`EI_OSABI 0xCA`, `EI_ABIVERSION
-        // 0xFE`): an RPX or RPL. Nothing in it names the title.
-        return Some(ConsoleId::magic("wiiu", "RPX header"));
+        // 0xFE`): an RPX or RPL. Nothing in it names the title. A loose
+        // `.rpx` is homebrew (a game's sits in `code/` beside `meta/`,
+        // which the loadiine probe owns); an `.rpl` is a library (§8.2).
+        return Some(match ext {
+            "rpl" => {
+                let mut id = ConsoleId::magic("wiiu", "RPL header");
+                id.part = Some(PartKind::Library);
+                id
+            }
+            "rpx" => {
+                let mut id = ConsoleId::magic("wiiu", "RPX header");
+                id.kind = TitleKind::Homebrew;
+                id
+            }
+            _ => ConsoleId::magic("wiiu", "RPX header"),
+        });
     }
     if head.starts_with(b"WUHB") {
         return Some(ConsoleId::magic("wiiu", "WUHB header"));
@@ -372,7 +399,7 @@ pub fn identify(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
         let h = b
             .read(0, TMD_HEAD.min(usize::try_from(b.len()).ok()?))
             .ok()?;
-        return tmd_id(&h, "title.tmd");
+        return loose_tmd(&h);
     }
     None
 }
@@ -408,6 +435,7 @@ fn kind_word(kind: TitleKind) -> &'static str {
         TitleKind::Update => "update",
         TitleKind::Dlc => "dlc",
         TitleKind::Demo => "demo",
+        TitleKind::Homebrew => "homebrew",
         TitleKind::Unknown => "unknown",
     }
 }
@@ -470,7 +498,10 @@ pub fn wua(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::super::testing::{self as t, RangeLog, SparseAt};
+    use super::super::{on_disk, ArtLocator};
     use super::*;
 
     fn budget(s: &mut SparseAt) -> Budgeted<'_> {
@@ -550,11 +581,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         t::wiiu_folder(dir.path(), "0005000010145D00", "WUP-P-ARDP", "Game");
         let names = ["code".to_string(), "content".into(), "meta".into()];
-        let found = probe_loadiine(&DirListing {
-            dir: dir.path(),
-            names: &names,
-        })
-        .unwrap();
+        let found = on_disk(dir.path(), &names, probe_loadiine).unwrap();
         assert_eq!(found.probe, Path::new("meta").join("meta.xml"));
         assert_eq!(found.id.id_source, Some(IdSource::MetaXml));
         assert_eq!(
@@ -567,21 +594,13 @@ mod tests {
         // Without `meta`, `code/app.xml` answers.
         fs::remove_dir_all(dir.path().join("meta")).unwrap();
         let names = ["code".to_string(), "content".into()];
-        let found = probe_loadiine(&DirListing {
-            dir: dir.path(),
-            names: &names,
-        })
-        .unwrap();
+        let found = on_disk(dir.path(), &names, probe_loadiine).unwrap();
         assert_eq!(found.probe, Path::new("code").join("app.xml"));
         assert_eq!(found.id.id_source, Some(IdSource::AppXml));
         assert!(found.id.art.is_empty());
         // `code` alone is not a title folder.
         let names = ["code".to_string()];
-        assert!(probe_loadiine(&DirListing {
-            dir: dir.path(),
-            names: &names
-        })
-        .is_none());
+        assert!(on_disk(dir.path(), &names, probe_loadiine).is_none());
     }
 
     #[test]
@@ -593,11 +612,7 @@ mod tests {
             "title.tik".into(),
             "title.tmd".into(),
         ];
-        let found = probe_nus(&DirListing {
-            dir: dir.path(),
-            names: &names,
-        })
-        .unwrap();
+        let found = on_disk(dir.path(), &names, probe_nus).unwrap();
         assert_eq!(found.probe, Path::new("title.tmd"));
         assert_eq!(found.id.title_id.as_deref(), Some("000500001010ED00"));
         assert_eq!(found.id.version.as_deref(), Some("32"));
@@ -610,11 +625,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             t::nus_folder(dir.path(), tid);
             let names = ["title.tmd".to_string()];
-            assert!(probe_nus(&DirListing {
-                dir: dir.path(),
-                names: &names
-            })
-            .is_none());
+            assert!(on_disk(dir.path(), &names, probe_nus).is_none());
         }
     }
 
@@ -662,10 +673,46 @@ mod tests {
         let mut s = SparseAt::new(0xB34);
         s.put(0, &t::tmd(0x0005_000E_1010_ED00));
         let id = identify(&mut budget(&mut s), "tmd").unwrap();
-        assert_eq!(id.kind, TitleKind::Update);
+        assert_eq!((id.system.as_str(), id.kind), ("wiiu", TitleKind::Update));
+        assert_eq!(id.part, Some(PartKind::TitleMeta));
+        // A 3DS TMD is a 3DS title's metadata (D14).
         let mut s = SparseAt::new(0xB34);
         s.put(0, &t::tmd(0x0004_0000_0003_0800));
-        assert_eq!(identify(&mut budget(&mut s), "tmd"), None);
+        let id = identify(&mut budget(&mut s), "tmd").unwrap();
+        assert_eq!((id.system.as_str(), id.kind), ("3ds", TitleKind::Base));
+        // A system title is no ROM.
+        let mut s = SparseAt::new(0xB34);
+        s.put(0, &t::tmd(0x0004_0010_0002_0000));
+        let id = identify(&mut budget(&mut s), "tmd").unwrap();
+        assert_eq!(id.detail, TMD_SYSTEM_DETAIL);
+    }
+
+    #[test]
+    fn tmd_header_offsets_match_the_builder() {
+        for sig in 0x0001_0000..=0x0001_0006u32 {
+            assert_eq!(tmd_header_at(sig), t::tmd_header_at(sig), "{sig:08X}");
+            let h = t::tmd_signed(sig, 0x0005_0000_1010_ED00, 7);
+            assert_eq!(tmd_fields(&h), Some((0x0005_0000_1010_ED00, 7)));
+        }
+        assert_eq!(tmd_header_at(0x0001_0007), None);
+    }
+
+    #[test]
+    fn rpx_is_homebrew_and_rpl_a_library() {
+        let mut s = SparseAt::new(0x400);
+        s.put(0, &t::rpx(0xFE));
+        let id = identify(&mut budget(&mut s), "rpx").unwrap();
+        assert_eq!((id.kind, id.part), (TitleKind::Homebrew, None));
+        let id = identify(&mut budget(&mut s), "rpl").unwrap();
+        assert_eq!(
+            (id.kind, id.part),
+            (TitleKind::Unknown, Some(PartKind::Library))
+        );
+        assert_eq!(id.detail, "RPL header");
+        // ABI version other than 0xFE: no Cafe OS file.
+        let mut s = SparseAt::new(0x400);
+        s.put(0, &t::rpx(0xFD));
+        assert_eq!(identify(&mut budget(&mut s), "rpx"), None);
     }
 
     #[test]

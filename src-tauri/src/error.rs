@@ -93,9 +93,11 @@ pub enum IpcError {
     KeeperRequired(String),
     #[error("the duplicates folder is inside or around a system folder: {0}")]
     QuarantineInSystemFolder(String),
-    /// The decided plan writes at least 10 GB to the target and the
-    /// request did not confirm that many bytes (systems batch 3 D23):
-    /// the numbers the confirmation shows.
+    /// The decided plan writes at least 10 GB to the target, or has huge
+    /// items, and the request did not confirm every huge item and that
+    /// many bytes (systems batch 3 D23, adjustments D16): the numbers the
+    /// questions show. `huge` are asked one by one, `rest` is what every
+    /// other item writes.
     #[error("would write {bytes} bytes to {volume}")]
     LargeTransfer {
         bytes: u64,
@@ -103,6 +105,8 @@ pub enum IpcError {
         copies: bool,
         free: Option<u64>,
         volume: String,
+        huge: Vec<coverly_core::organize::apply::HugeItem>,
+        rest: u64,
     },
 }
 
@@ -114,6 +118,8 @@ impl From<coverly_core::organize::LargeTransfer> for IpcError {
             copies: t.copies,
             free: t.free,
             volume: t.volume,
+            huge: t.huge,
+            rest: t.rest,
         }
     }
 }
@@ -235,6 +241,8 @@ mod tests {
             copies: true,
             free: None,
             volume: "TinyExt".into(),
+            huge: Vec::new(),
+            rest: 187_420_000_000,
         };
         assert_eq!(
             large.to_string(),
@@ -250,6 +258,8 @@ mod tests {
                     "copies": true,
                     "free": null,
                     "volume": "TinyExt",
+                    "huge": [],
+                    "rest": 187_420_000_000u64,
                 }
             })
         );

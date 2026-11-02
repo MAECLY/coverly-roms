@@ -14,6 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use coverly_core::art::{resolve_art, target_path};
 use coverly_core::audit::{build_report, write_csv};
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::catalog::TitleNames;
 use coverly_core::credentials::{
     store_secret, CredentialKey, CredentialStatus, CredentialStore, MemoryStore, SourceKeys,
 };
@@ -29,7 +30,8 @@ use coverly_core::organize::evidence::OnlineLookup;
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
     apply_organize, load_plan, plan_from_survey, probe_folder, resume_organize, survey,
-    Decision as OrganizeDecision, OrganizeEnv, OrganizeOptions, OrganizePlan, OsMetaProbe,
+    Decision as OrganizeDecision, LargeConfirm, OrganizeEnv, OrganizeOptions, OrganizePlan,
+    OsMetaProbe,
 };
 use coverly_core::plan::{Decision, Plan};
 use coverly_core::profiles::custom::{
@@ -112,6 +114,17 @@ pub struct AppState {
     /// Where external archive tools are looked for (`None` = this
     /// process's `PATH` and the fixed locations; tests point it elsewhere).
     tool_search: Option<Search>,
+    /// The optional Switch catalogue, opened on first use (adjustments
+    /// D2–D10); dropped before its file is deleted.
+    catalog: Mutex<catalog::CatalogHandle>,
+    /// Stops the running catalogue download.
+    catalog_cancel: AtomicBool,
+    /// Where the catalogue files are read from (`None` = blawar/titledb;
+    /// tests use a mock server).
+    catalog_base: Option<String>,
+    /// The language the webview last said it shows (`es-ES`, `en`…), for
+    /// the catalogue's region file while the language setting is automatic.
+    ui_locale: Mutex<Option<String>>,
 }
 
 /// A snapshot of the stored keys, dropped when a credential is saved or
@@ -271,6 +284,8 @@ fn check_organize_data_dir(cfg: &FillConfig, roots: &[&Path]) -> Result<(), IpcE
     Ok(())
 }
 
+mod catalog;
+
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -343,6 +358,10 @@ impl AppState {
             trash: Arc::new(OsTrash),
             file_bytes: Arc::new(DiskBytes),
             tool_search: None,
+            catalog: Mutex::new(None),
+            catalog_cancel: AtomicBool::new(false),
+            catalog_base: None,
+            ui_locale: Mutex::new(None),
         }
     }
 
@@ -468,8 +487,10 @@ impl AppState {
                     "settings saved: {}",
                     changed_groups(&p.settings, &next).join(", ")
                 );
-                p.settings = next.clone();
+                let before = std::mem::replace(&mut p.settings, next.clone());
                 p.report = LoadReport::default();
+                drop(p);
+                self.catalog_settings_changed(&before, &next);
                 Ok(SettingsUpdateView {
                     settings: next,
                     errors: Vec::new(),
@@ -1481,6 +1502,7 @@ impl AppState {
             dats: (!opts.offline && opts.download_dats).then_some(&store),
             probe: &OsMetaProbe,
             online: lookup.as_ref().map(|l| l as &dyn OnlineLookup),
+            titles: None,
             now: SystemTime::now(),
         };
 
@@ -1506,7 +1528,23 @@ impl AppState {
                 Arc::new(found)
             }
         };
-        let plan = plan_from_survey(&survey, &opts, decisions, &env)?;
+        // The optional Switch catalogue (plan P-2): fetched or refreshed
+        // only when it is on, the plan is online and the pile has a Switch
+        // item; identification then reads it locally (P-1).
+        let catalog = self.plan_catalog(
+            &cfg.settings,
+            &cfg.net,
+            &cfg.data_dir,
+            &survey,
+            opts.offline,
+        );
+        let env = OrganizeEnv {
+            titles: catalog.as_deref().map(|c| c as &dyn TitleNames),
+            ..env
+        };
+        let plan = plan_from_survey(&survey, &opts, decisions, &env);
+        self.release_catalog(catalog, &cfg.data_dir);
+        let plan = plan?;
         let stored = self.organize.store(
             plan_id,
             StoredPlan {
@@ -1550,6 +1588,7 @@ impl AppState {
             .map_err(|e| IpcError::Io(e.to_string()))?;
         // The layout as surveyed, even if its custom profile changed since.
         let profiles = [stored.layout.clone()];
+        let catalog = self.kept_catalog(&cfg.settings, &cfg.data_dir, &stored.survey);
         let env = OrganizeEnv {
             db: &db,
             profiles: &profiles,
@@ -1557,14 +1596,12 @@ impl AppState {
             dats: None,
             probe: &OsMetaProbe,
             online: None,
+            titles: catalog.as_deref().map(|c| c as &dyn TitleNames),
             now: SystemTime::now(),
         };
-        Ok(plan_from_survey(
-            &stored.survey,
-            &stored.opts,
-            decisions,
-            &env,
-        )?)
+        let plan = plan_from_survey(&stored.survey, &stored.opts, decisions, &env);
+        self.release_catalog(catalog, &cfg.data_dir);
+        Ok(plan?)
     }
 
     /// Takes the manual-write guard for an organise write: refused while a
@@ -1582,23 +1619,22 @@ impl AppState {
     /// refused until it ends; progress and the end arrive through
     /// `events`. The kept plans are dropped: the pile changes.
     ///
-    /// When the decided plan writes 10 GB or more (systems batch 3 D23),
-    /// nothing starts unless `confirmed_bytes` reaches its bytes:
-    /// [`IpcError::LargeTransfer`] carries the numbers to confirm.
+    /// When the decided plan writes 10 GB or more, or has huge items
+    /// (systems batch 3 D23, adjustments D15, D16), nothing starts unless
+    /// `confirm` names every huge item and at least the decided plan's
+    /// bytes: [`IpcError::LargeTransfer`] carries the numbers to ask
+    /// about. A huge item the user declined is sent as `Choice::Decline`,
+    /// so the decided plan already leaves it.
     pub fn organize_apply(
         &self,
         plan_id: u64,
         decisions: &[OrganizeDecision],
-        confirmed_bytes: Option<u64>,
+        confirm: Option<&LargeConfirm>,
         events: Arc<dyn OrganizeEvents>,
     ) -> Result<OrganizeJobView, IpcError> {
         let cfg = self.fill_config();
         let plan = self.decided_plan(plan_id, decisions, &cfg)?;
-        if let Some(t) = coverly_core::organize::large_transfer(&plan) {
-            if confirmed_bytes.is_none_or(|c| c < t.bytes) {
-                return Err(t.into());
-            }
-        }
+        coverly_core::organize::gate(&plan, confirm)?;
         let external_tools = self.organize.get(plan_id)?.opts.limits.external_tools;
         check_organize_data_dir(&cfg, &[&plan.source_root, &plan.target_root])?;
         let guard = self.organize_guard()?;
@@ -2234,6 +2270,7 @@ mod tests {
                 action: GroupAction::Act,
                 tie: false,
                 choice_dropped: false,
+                basis: None,
             }],
             ..DedupePlan::default()
         };

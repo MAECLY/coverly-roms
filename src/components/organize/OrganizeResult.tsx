@@ -49,6 +49,9 @@ interface Props {
   plan: OrganizePlan | null;
   undo: OrganizeUndoView | null;
   error: BackendError | null;
+  /** Items of `plan` answered «No» before this apply (adjustments D16),
+   * with the overlays that followed them: listed as not confirmed. */
+  declined?: readonly number[];
   onOpen(): void;
   onUndo(includeLater: boolean): void;
   onResume(): void;
@@ -102,6 +105,7 @@ export function OrganizeResult({
   plan,
   undo,
   error,
+  declined = [],
   onOpen,
   onUndo,
   onResume,
@@ -121,6 +125,10 @@ export function OrganizeResult({
     () => new Map((plan?.items ?? []).map((i) => [i.id, i])),
     [plan],
   );
+  const notConfirmed = declined.flatMap((id) => {
+    const item = items.get(id);
+    return item ? [item] : [];
+  });
   const undone = undoCounts(undo);
   const notRemoved =
     report?.items.filter((o) => o.status === 'copied-not-removed').length ?? 0;
@@ -228,7 +236,7 @@ export function OrganizeResult({
           )}
         </Alert>
       )}
-      {report && report.items.length > 0 && (
+      {report && report.items.length + notConfirmed.length > 0 && (
         <Collapsible className={panel}>
           <CollapsibleTrigger asChild>
             <Button
@@ -253,6 +261,14 @@ export function OrganizeResult({
                     {`${nameOf(o)} · ${outcomeText(t, o)}`}
                     {trashed(o, items.get(o.item), plan) &&
                       ` · ${t('organize.extract.trashed')}`}
+                  </li>
+                ))}
+                {notConfirmed.map((i) => (
+                  <li
+                    key={`declined-${i.id}`}
+                    className={`${pathText} px-3 py-1.5 text-cr-text`}
+                  >
+                    {`${baseName(i.sources[0] ?? '')} · ${t('organize.left.notConfirmed')}`}
                   </li>
                 ))}
               </ul>

@@ -5,14 +5,15 @@ expression: value
 {
   "broad_root": false,
   "counts": {
-    "auto": 12,
-    "bytes": 173321266573,
+    "auto": 11,
+    "bytes": 173321263296,
     "deep_folders": 0,
     "junk": 0,
     "left": 5,
     "other_files": 0,
     "review": 1,
-    "roms": 13,
+    "roms": 12,
+    "set_aside": 1,
     "systems": 4
   },
   "created_at": "<created_at>",
@@ -20,11 +21,9 @@ expression: value
   "duplicates": [
     {
       "action": {
-        "kind": "report-only",
-        "why": {
-          "kind": "title-id"
-        }
+        "kind": "act"
       },
+      "basis": "title-id",
       "choice_dropped": false,
       "id": 2988954550338500,
       "keeper": 0,
@@ -413,7 +412,7 @@ expression: value
       ]
     },
     {
-      "action": "auto",
+      "action": "set-aside",
       "alternatives": [
         [
           "ps5",
@@ -428,8 +427,9 @@ expression: value
       "companions": [],
       "confidence": 0.9799999594688416,
       "content_id": "EP0002-CUSA04447_00-GRAVITYRUSH00000",
+      "dest": "_Duplicados/Gravity Rush.zar",
       "disc": null,
-      "folder": "ps4",
+      "folder": null,
       "fps": [
         {
           "mtime_ns": 0,
@@ -437,9 +437,14 @@ expression: value
         }
       ],
       "id": 7,
+      "keeper": "ROMs/ps4/EP0002-CUSA04447_00-GRAVITYRUSH00000.pkg",
       "kind": "file",
       "method": "header",
       "notes": [],
+      "reason": {
+        "kind": "tie"
+      },
+      "relation": "exact",
       "rename": null,
       "set_targets": [],
       "size": 3277,
@@ -447,7 +452,7 @@ expression: value
         "Gravity Rush.zar"
       ],
       "system_id": "ps4",
-      "target": "ROMs/ps4/Gravity Rush.zar",
+      "target": null,
       "title_id": {
         "id": "CUSA04447",
         "source": "param-sfo"
@@ -922,8 +927,8 @@ expression: value
       "system": "xboxone"
     },
     {
-      "bytes": 173321201037,
-      "items": 12,
+      "bytes": 173321197760,
+      "items": 11,
       "kind": "large-transfer"
     }
   ]

@@ -419,4 +419,31 @@ describe('OrganizeResult', () => {
     expect(archive).toHaveTextContent('Next Tetris, The.zip');
     expect(archive).not.toHaveTextContent('Tetris (USA).gb');
   });
+  it('lists the items answered «No» as not confirmed (adjustments D16)', async () => {
+    const user = userEvent.setup();
+    const plan = planOf([
+      autoItem(0, 'a.gba', 'gba', 'GBA'),
+      autoItem(4, 'Bloodborne', 'ps4', 'PS4'),
+    ]);
+    render(
+      <I18nProvider locale="es">
+        <OrganizeResult
+          job={view()}
+          plan={plan}
+          undo={null}
+          error={null}
+          declined={[4]}
+          onOpen={vi.fn()}
+          onUndo={vi.fn()}
+          onResume={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+    await user.click(
+      screen.getByRole('button', { name: 'Qué ha pasado con cada archivo' }),
+    );
+    expect(
+      screen.getByText('Bloodborne · No confirmado; se queda donde está'),
+    ).toBeInTheDocument();
+  });
 });

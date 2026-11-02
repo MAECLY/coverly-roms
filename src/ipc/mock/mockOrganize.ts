@@ -82,6 +82,7 @@ import {
   type NameMode,
   type OrganizeDecision,
   type ItemNote,
+  type HugeItem,
   type LargeTransferDetail,
   type OrganizeItem,
   type OrganizeItemOutcome,
@@ -100,10 +101,22 @@ import {
   type SystemFamily,
   type SystemView,
   type TitleIdRef,
+  type TitleSource,
   type Transfer,
   type TransferMode,
 } from '../types';
 import type { MemberFactsView } from '../dedupeTypes';
+import {
+  ADJUST_PILES,
+  MOCK_DISCS,
+  MOCK_DUPES_TITLE,
+  MOCK_HUGE,
+  MOCK_HUGE_FREE,
+  MOCK_HUGE_TARGET,
+  MOCK_ODD,
+  MOCK_SWITCH,
+  type AdjustPile,
+} from './adjustFixture';
 import { MOCK_DISC_ARCHIVES, type MockArchiveEntry } from './discFixture';
 import { FIXTURE_SYSTEMS } from './fixture';
 import type { MockExport } from './mockJobs';
@@ -123,12 +136,14 @@ export const MOCK_PICK_KEY = 'coverly.mock.pick';
 /**
  * What "Open folder…" picks in the browser mock, so the organise offer is
  * reachable from the start screen:
- * `?mockPick=downloads|loose|mixed|retro|modern|current|<absolute path>` (or
+ * `?mockPick=downloads|loose|mixed|retro|modern|current|huge|switch|odd|discs|dupes-title|<absolute path>` (or
  * localStorage `coverly.mock.pick`). `downloads` is the owner's pile as it
  * is now (`MOCK_SAMPLE`), `loose` the same pile before any of it was sorted
  * (`MOCK_DOWNLOADS`), `retro` the systems batch 1 pile (`MOCK_RETRO`),
  * `modern` the systems batch 2 pile (`MOCK_MODERN`), `current` the systems
- * batch 3 pile (`MOCK_CURRENT`).
+ * batch 3 pile (`MOCK_CURRENT`), `huge` the adjustments pile of big items
+ * asked one by one (`MOCK_HUGE`, `adjustFixture.ts`), and `switch`, `odd`,
+ * `discs` and `dupes-title` the other adjustments piles (spec §9.4).
  * Null: the first fixture library, as before.
  */
 export function readMockPick(): string | null {
@@ -139,6 +154,11 @@ export function readMockPick(): string | null {
     if (v === 'retro') return MOCK_RETRO;
     if (v === 'modern') return MOCK_MODERN;
     if (v === 'current') return MOCK_CURRENT;
+    if (v === 'huge') return MOCK_HUGE;
+    if (v === 'switch') return MOCK_SWITCH;
+    if (v === 'odd') return MOCK_ODD;
+    if (v === 'discs') return MOCK_DISCS;
+    if (v === 'dupes-title') return MOCK_DUPES_TITLE;
     return v && v.startsWith('/') ? v : null;
   };
   try {
@@ -215,6 +235,9 @@ interface ArchiveDef {
   mismatch?: { ext: string; actual: string };
   /** File entries in archive order. */
   entries: MockArchiveEntry[];
+  /** A folder game zipped whole (adjustments D20–D23): its root folder
+   * is extracted as it is, whatever the profile takes. */
+  folderGame?: { root: string };
   /** A disc game: its id and the sheet the item is named after. */
   disc?: {
     id: DiscId;
@@ -258,6 +281,15 @@ interface PileFile {
   /** A sibling overlay (`<base>-UPDATE`): its name follows the base's
    * final name, suffix included (systems batch 3 D11). */
   sibling?: true;
+  /** Set when the Switch catalogue named it (adjustments D7). */
+  titleSource?: TitleSource;
+  /** A loose multi-disc set (adjustments D24): the other discs, in disc
+   * order; they travel with `name` as one `set` item. */
+  discs?: string[];
+  /** The `.m3u` that set gets beside its discs (a new file). */
+  playlist?: string;
+  /** What matched a duplicate copy when no bytes were compared (D19). */
+  dupBasis?: 'title-id' | 'folder-tree';
 }
 
 interface PileDef {
@@ -372,6 +404,39 @@ const MARIO_FACTS: MemberFactsView = {
   regions: ['world'],
   revision: 'Rev 1',
 };
+
+/** An adjustments pile (`adjustFixture.ts`) as pile files. */
+function adjustPile(p: AdjustPile): PileDef {
+  const folders = p.folders.map((f) =>
+    consoleFile(f.name, f.size, f.system, f.detail, f.titleId, {
+      folder: true,
+      ...(f.contentId && { contentId: f.contentId }),
+    }),
+  );
+  const archives = p.archives.map((a): PileFile => ({
+    ...consoleFile(a.name, a.size, a.system, a.detail, a.titleId),
+    archive: {
+      container: 'zip',
+      entries: a.entries,
+      folderGame: { root: a.root },
+    },
+  }));
+  const discs = p.discs.map((d): PileFile => ({
+    name: d.name,
+    size: d.size,
+    ...header(d.system, d.detail),
+    confidence: 0.95,
+  }));
+  const others = (p.files ?? []).map(({ titleSource, ...f }): PileFile => ({
+    ...f,
+    ...(titleSource && { titleSource }),
+  }));
+  return {
+    path: p.path,
+    junk: [],
+    files: [...folders, ...archives, ...discs, ...others],
+  };
+}
 
 const PILES: readonly PileDef[] = [
   {
@@ -1102,6 +1167,7 @@ const PILES: readonly PileDef[] = [
       { name: 'x.cik', size: 32, left: KEYS },
     ],
   },
+  ...ADJUST_PILES.map(adjustPile),
 ];
 
 const ARCHIVE_EXTS = ['.zip', '.7z', '.rar', '.gz', '.tgz'];
@@ -1125,6 +1191,8 @@ export const ORGANIZE_SYSTEMS: readonly {
   no_emulator?: boolean;
 }[] = [
   { id: 'saturn', name: 'Sega Saturn', folder: 'SATURN', family: 'console' },
+  // The adjustments disc sets (spec §9.4): a Sega CD set by name only.
+  { id: 'segacd', name: 'Sega CD', folder: 'SEGACD', family: 'console' },
   // The retro pile (spec §9.3): its systems and the review's runner-ups.
   { id: 'jaguar', name: 'Atari Jaguar', folder: 'JAGUAR', family: 'console' },
   {
@@ -1282,40 +1350,83 @@ const MOCK_VOLUME_FREE = 412_100_000_000;
 const volumeOf = (path: string): string =>
   /^\/Volumes\/[^/]+/.exec(path)?.[0] ?? '/';
 
+/** Free space the mock reports on a `/Volumes/<name>` target. */
+const freeOn = (volume: string): number =>
+  volume === MOCK_HUGE_TARGET ? MOCK_HUGE_FREE : MOCK_VOLUME_FREE;
+
 /** Rust `large_transfer` over the mock's volumes: the automatic items
  * with a target, by size in copy mode or across volumes, plus what
- * extractions write; a same-volume move is a rename. */
+ * extractions write; a same-volume move is a rename. An item is huge
+ * (adjustments D15) when it alone, with the shadPS4 overlays that follow
+ * it, writes 10 GB or more, or when it extracts a folder game out of an
+ * archive; `rest` is what every other item writes. `files` are the pile
+ * files of `items`, position by position. */
 function largeTransfer(
   r: Resolved,
   items: readonly OrganizeItem[],
+  files: readonly PileFile[],
 ): LargeTransferDetail | null {
   const crosses =
     r.mode === 'copy' || volumeOf(r.source) !== volumeOf(r.target);
-  let bytes = 0;
-  let count = 0;
-  for (const i of items) {
-    if (i.action !== 'auto' || i.target === null) continue;
-    const add =
-      i.transfer.kind === 'extract'
+  const written = (i: OrganizeItem): number | null =>
+    i.action !== 'auto' || i.target === null
+      ? null
+      : i.transfer.kind === 'extract'
         ? i.transfer.bytes
         : crosses
           ? i.size
           : null;
-    if (add === null) continue;
-    bytes += add;
-    count += 1;
+  // Overlays follow a base apply writes (systems batch 3 D11).
+  const followers = new Map<number, number[]>();
+  for (const [pos, file] of files.entries()) {
+    if (!file.sibling || !file.baseOf || written(items[pos]!) === null)
+      continue;
+    const base = files.findIndex((f) => f.name === file.baseOf);
+    if (base < 0 || written(items[base]!) === null) continue;
+    followers.set(base, [...(followers.get(base) ?? []), pos]);
   }
-  if (bytes < LARGE_TRANSFER) return null;
+  const following = new Set([...followers.values()].flat());
+  let bytes = 0;
+  let count = 0;
+  let hugeBytes = 0;
+  const huge: HugeItem[] = [];
+  for (const [pos, i] of items.entries()) {
+    const own = written(i);
+    if (own === null) continue;
+    bytes += own;
+    count += 1;
+    if (following.has(pos)) continue;
+    const follow = followers.get(pos) ?? [];
+    const withFollowers = follow.reduce(
+      (n, f) => n + (written(items[f]!) ?? 0),
+      own,
+    );
+    const folderGame =
+      i.transfer.kind === 'extract' && i.transfer.folder_game === true;
+    if (withFollowers < LARGE_TRANSFER && !folderGame) continue;
+    hugeBytes += withFollowers;
+    huge.push({
+      item: i.id,
+      name: i.sources[0] ?? '',
+      system: i.system_id ?? '',
+      bytes: withFollowers,
+      extract: i.transfer.kind === 'extract',
+      followers: follow.map((f) => items[f]!.id),
+    });
+  }
+  if (bytes < LARGE_TRANSFER && huge.length === 0) return null;
   const volume = volumeOf(r.target);
   return {
     bytes,
     items: count,
     copies: r.mode === 'copy',
-    free: volume === '/' ? null : MOCK_VOLUME_FREE,
+    free: volume === '/' ? null : freeOn(volume),
     volume:
       volume === '/'
         ? (r.target.split('/').filter(Boolean).pop() ?? r.target)
         : volume.slice('/Volumes/'.length),
+    huge,
+    rest: bytes - hugeBytes,
   };
 }
 
@@ -1635,7 +1746,9 @@ export function createMockOrganize(
       req.target ??
       (req.source === MOCK_CURRENT && !readMockSameVolume()
         ? MOCK_CURRENT_TARGET
-        : req.source);
+        : req.source === MOCK_HUGE
+          ? MOCK_HUGE_TARGET
+          : req.source);
     // Like Rust, the automatic mode moves on one drive and copies across.
     const auto: TransferMode =
       volumeOf(req.source) === volumeOf(target) ? 'move' : 'copy';
@@ -1684,12 +1797,14 @@ export function createMockOrganize(
           : [];
     const common = {
       id,
-      sources: [file.name],
+      sources: [file.name, ...(file.discs ?? [])],
       kind: file.folder
         ? ('folder' as const)
-        : isArchive(file)
-          ? ('archive' as const)
-          : ('file' as const),
+        : file.discs
+          ? ('set' as const)
+          : isArchive(file)
+            ? ('archive' as const)
+            : ('file' as const),
       size: file.size,
       fps: [{ size: file.size, mtime_ns: host.now * 1e9 - (id + 1) * 6e10 }],
       target: null,
@@ -1714,6 +1829,9 @@ export function createMockOrganize(
       ...(identified &&
         !file.left &&
         file.contentId && { content_id: file.contentId }),
+      ...(identified &&
+        !file.left &&
+        file.titleSource && { title_source: file.titleSource }),
     };
     if (file.left)
       return {
@@ -1751,7 +1869,13 @@ export function createMockOrganize(
     });
     let entries: ExtractEntry[];
     let target: string;
-    if (a.disc) {
+    if (a.folderGame) {
+      // The root subtree only, into the system's folder, as a game folder
+      // on disk would be (adjustments D23): always extracted.
+      const { root } = a.folderGame;
+      entries = a.entries.map((e) => entry(e, join(dir, e.name)));
+      target = join(dir, root);
+    } else if (a.disc) {
       // Paths are relative to the sheet's folder: the archive's game
       // folder is dropped (flat) or becomes `<stem>/` (one per game).
       const { primary } = a.disc;
@@ -1792,6 +1916,7 @@ export function createMockOrganize(
         source: { kind: 'builtin' },
         sheet_check: a.disc?.sheetDeferred ? 'deferred' : 'read',
         m3u: null,
+        ...(a.folderGame && { folder_game: true }),
       },
       target,
       notes,
@@ -1840,6 +1965,10 @@ export function createMockOrganize(
         items[d.item] = leave(item, { kind: 'unknown' });
         continue;
       }
+      if (d.choice === 'decline') {
+        items[d.item] = leave(item, { kind: 'not-confirmed' });
+        continue;
+      }
       if (!decidable) continue;
       if (d.choice === 'assign') {
         items[d.item] = {
@@ -1876,6 +2005,13 @@ export function createMockOrganize(
     const files = looseFiles(r);
     const items = files.map((f, i) => baseItem(f, i));
     decide(items, decisions);
+    // shadPS4 overlays follow their base's «No» (adjustments D16).
+    for (const [i, file] of files.entries()) {
+      if (!file.sibling || !file.baseOf) continue;
+      const base = items[files.findIndex((f) => f.name === file.baseOf)];
+      if (base?.action === 'left' && base.reason.kind === 'not-confirmed')
+        items[i] = leave(items[i]!, { kind: 'not-confirmed' });
+    }
     const existing = targets.get(r.target);
     const taken = new Set(
       existing
@@ -1973,6 +2109,7 @@ export function createMockOrganize(
       }
       if (
         r.names === 'catalogue' &&
+        !file.discs &&
         item.catalogue_name &&
         stemOf(source) !== item.catalogue_name
       ) {
@@ -1991,12 +2128,23 @@ export function createMockOrganize(
         source: c,
         target: join(dirOf, c),
       }));
+      // A loose disc set keeps its file names (D24) and gets its playlist.
+      const setTargets = (file.discs ?? []).map((d) => join(dirOf, d));
+      setTargets.forEach((t) => taken.add(t.toLowerCase()));
+      const playlist = file.playlist
+        ? {
+            path: join(dirOf, file.playlist),
+            discs: [join(dirOf, name), ...setTargets],
+          }
+        : null;
       items[i] = {
         ...item,
         folder,
         target: join(dirOf, name),
+        set_targets: setTargets,
         rename,
         companions,
+        ...(playlist && { playlist }),
       };
     }
     return { items, files };
@@ -2054,8 +2202,11 @@ export function createMockOrganize(
         mtime_ns: (host.now - age) * 1e9,
         in_library: false,
       });
-      const factsOf = (path: string) =>
-        allFiles(r.source).find((f) => f.name === path)?.facts;
+      const fileOf = (path: string) =>
+        allFiles(r.source).find((f) => f.name === path);
+      const factsOf = (path: string) => fileOf(path)?.facts;
+      // A title id matched (D19): read from the content, not compared.
+      const basis = fileOf(source)?.dupBasis;
       const member = (id: number, path: string, dest: string | null) => ({
         id,
         unit: unit(path, id === 0 ? 7_200 : 3_600),
@@ -2066,7 +2217,7 @@ export function createMockOrganize(
         dest,
         catalogue_name: keeper.catalogue_name,
         serials: [],
-        confidence: 1,
+        confidence: basis === 'title-id' ? 0.9 : 1,
         ...(factsOf(path) ? { facts: factsOf(path)! } : {}),
       });
       groups.push({
@@ -2089,6 +2240,7 @@ export function createMockOrganize(
         action: { kind: 'act' },
         tie: true,
         choice_dropped: false,
+        ...(basis && { basis }),
       });
     }
     return groups;
@@ -2124,7 +2276,7 @@ export function createMockOrganize(
       : [];
     if (moving.length === 0 && sortedFolders.length > 0)
       warnings.push({ kind: 'sorted-only' });
-    const large = largeTransfer(r, items);
+    const large = largeTransfer(r, items, files);
     if (large)
       warnings.push({
         kind: 'large-transfer',
@@ -2381,13 +2533,20 @@ export function createMockOrganize(
     const dir = join(j.romsRel, item.folder!);
     const t = item.transfer;
     if (t.kind === 'as-is') {
+      // A loose disc set writes every disc and, new, its playlist (D24).
+      const discs = [item.target!, ...item.set_targets];
+      const each = Math.round(file.size / discs.length);
+      const playlist = item.playlist?.path;
       return {
         job: j.job,
         file,
         system: item.system_id!,
         dir,
-        written: [item.target!],
-        shown: [{ rel: item.target!, size: file.size }],
+        written: [...discs, ...(playlist ? [playlist] : [])],
+        shown: [
+          ...discs.map((rel) => ({ rel, size: each })),
+          ...(playlist ? [{ rel: playlist, size: 0 }] : []),
+        ],
         extracted: false,
         trashed: false,
       };
@@ -2652,13 +2811,17 @@ export function createMockOrganize(
     async organizeCancel(planId) {
       cancelled.add(planId);
     },
-    async organizeApply(planId, decisions, confirmedBytes) {
+    async organizeApply(planId, decisions, confirm) {
       const r = stored(planId);
       const { plan, files } = planOf(r, decisions);
       // Like Rust's gate: on the decided plan, before the job guard and
       // before anything is written.
-      const large = largeTransfer(r, plan.items);
-      if (large && (confirmedBytes ?? -1) < large.bytes)
+      const large = largeTransfer(r, plan.items, files);
+      const confirmed =
+        confirm !== undefined &&
+        confirm.bytes >= (large?.bytes ?? 0) &&
+        (large?.huge ?? []).every((h) => confirm.items.includes(h.item));
+      if (large && !confirmed)
         throw new BackendError('large-transfer', undefined, large);
       notApplying();
       const fills = await host.fillHistory();

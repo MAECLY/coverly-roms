@@ -6,6 +6,15 @@ import type {
   OrganizeJobState,
   OrganizeProgressEvent,
 } from '../types';
+import {
+  MOCK_DISCS,
+  MOCK_DUPES_TITLE,
+  MOCK_HUGE,
+  MOCK_HUGE_TARGET,
+  MOCK_ODD,
+  MOCK_SWITCH,
+  MOCK_SWITCH_TITLES,
+} from './adjustFixture';
 import { FIXTURE_NOW } from './fixture';
 import {
   createMockBackend,
@@ -369,6 +378,18 @@ describe('mock organise backend', () => {
       action: 'left',
       reason: { kind: 'unknown' },
     });
+
+    // «No» to a huge item: left as not confirmed, and the next plan
+    // without the decision proposes it again (never remembered).
+    const declined = await b.organizePlan({ source: MOCK_MIXED }, [
+      { item: first!.id, choice: 'decline' },
+    ]);
+    expect(declined.plan.items[first!.id]).toMatchObject({
+      action: 'left',
+      reason: { kind: 'not-confirmed' },
+    });
+    const again = await b.organizePlan({ source: MOCK_MIXED });
+    expect(again.plan.items[first!.id]!.action).not.toBe('left');
     await expect(
       b.organizePlan({ source: MOCK_MIXED }, [{ item: 99, choice: 'accept' }]),
     ).rejects.toMatchObject({ code: 'bad-request' });
@@ -699,6 +720,8 @@ describe('mock folder pick', () => {
     expect(readMockPick()).toBe(MOCK_MODERN);
     window.history.replaceState(null, '', '/?mockPick=current');
     expect(readMockPick()).toBe(MOCK_CURRENT);
+    window.history.replaceState(null, '', '/?mockPick=huge');
+    expect(readMockPick()).toBe(MOCK_HUGE);
     window.history.replaceState(null, '', '/?mockPick=relative/path');
     expect(readMockPick()).toBeNull();
     window.localStorage.setItem(MOCK_PICK_KEY, '/Users/demo/Other');
@@ -1564,6 +1587,16 @@ describe('mock organise size gate (systems batch 3 D23)', () => {
       bytes,
       items,
     });
+    // The PS3 folder and the XCI alone write over 10 GB: each is asked
+    // on its own.
+    const big = plan.items.filter(
+      (i) => i.action === 'auto' && i.target !== null && i.size >= 1e10,
+    );
+    expect(big.map((i) => i.sources[0])).toEqual([
+      "Demon's Souls (BLUS-30443)",
+      'Zelda BotW.xci',
+    ]);
+    const hugeIds = big.map((i) => i.id);
     const refused = {
       code: 'large-transfer',
       largeTransfer: {
@@ -1572,16 +1605,31 @@ describe('mock organise size gate (systems batch 3 D23)', () => {
         copies: true,
         free: null,
         volume: 'Modern',
+        huge: big.map((i) => ({
+          item: i.id,
+          name: i.sources[0],
+          system: i.system_id,
+          bytes: i.size,
+          extract: false,
+          followers: [],
+        })),
+        rest: bytes - big.reduce((n, i) => n + i.size, 0),
       },
     };
     await expect(b.organizeApply(plan_id, [])).rejects.toMatchObject(refused);
-    await expect(b.organizeApply(plan_id, [], bytes - 1)).rejects.toMatchObject(
-      refused,
-    );
+    await expect(
+      b.organizeApply(plan_id, [], { bytes: bytes - 1, items: hugeIds }),
+    ).rejects.toMatchObject(refused);
+    // Every byte, but a huge item not named: still refused.
+    await expect(
+      b.organizeApply(plan_id, [], { bytes, items: hugeIds.slice(1) }),
+    ).rejects.toMatchObject(refused);
     // Nothing was written: no job, and the plan is still there to apply.
     expect(await b.jobHistory()).toEqual([]);
     const done = ended(b);
-    expect((await b.organizeApply(plan_id, [], bytes)).state).toBe('applying');
+    expect(
+      (await b.organizeApply(plan_id, [], { bytes, items: hugeIds })).state,
+    ).toBe('applying');
     expect((await done).state).toBe('done');
   });
 
@@ -1779,6 +1827,11 @@ describe('mock current-generation pile (systems batch 3 §9.3)', () => {
       source: MOCK_CURRENT,
       layout: 'esde',
     });
+    const { plan } = await b.organizePlan({
+      source: MOCK_CURRENT,
+      layout: 'esde',
+    });
+    const id = (name: string) => by(plan.items, name).id;
     const refused = {
       code: 'large-transfer',
       largeTransfer: {
@@ -1787,11 +1840,34 @@ describe('mock current-generation pile (systems batch 3 §9.3)', () => {
         copies: true,
         free: 412_100_000_000,
         volume: 'TinyExt',
+        // Bloodborne with the update that follows it, then Forza.
+        huge: [
+          {
+            item: id('CUSA00900'),
+            name: 'CUSA00900',
+            system: 'ps4',
+            bytes: 62_920_000_000,
+            extract: false,
+            followers: [id('CUSA00900-UPDATE')],
+          },
+          {
+            item: id('Forza Horizon 5'),
+            name: 'Forza Horizon 5',
+            system: 'xboxseries',
+            bytes: 110_400_000_000,
+            extract: false,
+            followers: [],
+          },
+        ],
+        rest: 14_100_000_000,
       },
     };
     await expect(b.organizeApply(plan_id, [])).rejects.toMatchObject(refused);
     const done = ended(b);
-    await b.organizeApply(plan_id, [], 187_420_000_000);
+    await b.organizeApply(plan_id, [], {
+      bytes: 187_420_000_000,
+      items: [id('CUSA00900'), id('Forza Horizon 5')],
+    });
     expect((await done).state).toBe('done');
   });
 
@@ -1812,5 +1888,280 @@ describe('mock current-generation pile (systems batch 3 §9.3)', () => {
     const done = ended(b);
     expect((await b.organizeApply(plan_id, [])).state).toBe('applying');
     expect((await done).state).toBe('done');
+  });
+});
+
+describe('mock huge pile (adjustments D15–D17, ?mockPick=huge)', () => {
+  const by = (items: OrganizeItem[], name: string) =>
+    items.find((i) => i.sources[0] === name)!;
+
+  it('copies to «Juegos» and asks the PS4 folders and the zipped PS3 disc one by one', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_HUGE,
+      layout: 'esde',
+    });
+    expect(plan.target_root).toBe(MOCK_HUGE_TARGET);
+    expect(plan.mode).toBe('copy');
+    const ps3 = by(plan.items, "Demon's Souls (BLUS-30443).zip");
+    expect(ps3).toMatchObject({
+      action: 'auto',
+      system_id: 'ps3',
+      target: 'ROMs/ps3/BLUS30443',
+      transfer: { kind: 'extract', folder_game: true },
+    });
+    const extract = ps3.transfer.kind === 'extract' ? ps3.transfer.bytes : 0;
+    expect(extract).toBe(7_410_181_124);
+    const err = await b.organizeApply(plan_id, []).catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      code: 'large-transfer',
+      largeTransfer: {
+        copies: true,
+        free: 120_000_000_000,
+        volume: 'Juegos',
+        // Name order, as the plan lists them.
+        huge: [
+          { name: 'Bloodborne', bytes: 52_400_000_000, extract: false },
+          {
+            name: "Demon's Souls (BLUS-30443).zip",
+            bytes: extract,
+            extract: true,
+          },
+          { name: 'Ghost of Tsushima', bytes: 61_200_000_000 },
+          { name: 'The Last of Us Part II', bytes: 38_300_000_000 },
+        ],
+        // The two PS2 discs: under 10 GB, no aggregate question.
+        rest: 6_920_000_000,
+      },
+    });
+    expect(await b.jobHistory()).toEqual([]);
+  });
+
+  it('applies with a «No» declined and the rest confirmed from the numbers', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_HUGE,
+      layout: 'esde',
+    });
+    const huge = (
+      (await b.organizeApply(plan_id, []).catch((e: unknown) => e)) as {
+        largeTransfer: {
+          huge: { item: number; bytes: number }[];
+          rest: number;
+        };
+      }
+    ).largeTransfer;
+    const [blood, ...others] = huge.huge;
+    const done = ended(b);
+    await b.organizeApply(plan_id, [{ item: blood!.item, choice: 'decline' }], {
+      bytes: huge.rest + others.reduce((n, h) => n + h.bytes, 0),
+      items: others.map((h) => h.item),
+    });
+    const view = await done;
+    expect(view.state).toBe('done');
+    const bloodborne = by(plan.items, 'Bloodborne').id;
+    expect(
+      view.report?.items.find((o) => o.item === bloodborne),
+    ).toBeUndefined();
+    expect(view.report?.copied).toBe(4);
+    expect(view.report?.extracted).toBe(1);
+  });
+
+  it('a declined PS4 base leaves the overlay that follows it', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({
+      source: MOCK_CURRENT,
+      layout: 'esde',
+    });
+    const base = by(plan.items, 'CUSA00900').id;
+    const declined = await b.organizePlan(
+      { source: MOCK_CURRENT, layout: 'esde' },
+      [{ item: base, choice: 'decline' }],
+    );
+    for (const name of ['CUSA00900', 'CUSA00900-UPDATE'])
+      expect(by(declined.plan.items, name)).toMatchObject({
+        action: 'left',
+        reason: { kind: 'not-confirmed' },
+      });
+  });
+});
+
+describe('mock adjustments piles (spec §9.4)', () => {
+  const by = (items: OrganizeItem[], name: string) =>
+    items.find((i) => i.sources[0] === name)!;
+  const notes = (i: OrganizeItem) => i.notes.map((n) => n.kind);
+
+  it('?mockPick names every adjustments pile', () => {
+    onTestFinished(() => window.history.replaceState(null, '', '/'));
+    for (const [pick, path] of [
+      ['switch', MOCK_SWITCH],
+      ['odd', MOCK_ODD],
+      ['discs', MOCK_DISCS],
+      ['dupes-title', MOCK_DUPES_TITLE],
+    ] as const) {
+      window.history.replaceState(null, '', `/?mockPick=${pick}`);
+      expect(readMockPick()).toBe(path);
+    }
+  });
+
+  it('switch: catalogue names, an NCA-resolved cartridge, a part, homebrew and one «Cifrado»', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({
+      source: MOCK_SWITCH,
+      layout: 'esde',
+    });
+    const zelda = by(plan.items, 'Zelda BotW [01007EF00011E000][v0].nsp');
+    expect(zelda).toMatchObject({
+      action: 'auto',
+      system_id: 'switch',
+      catalogue_name: MOCK_SWITCH_TITLES['01007EF00011E000'],
+      title_source: 'titledb',
+    });
+    const cart = by(plan.items, 'Cartridge.xci');
+    expect(cart).toMatchObject({
+      catalogue_name: 'Super Mario Odyssey',
+      title_id: { id: '0100000000010000', source: 'nca-catalog' },
+      title_source: 'titledb',
+    });
+    const update = by(
+      plan.items,
+      'Zelda BotW Update [01007EF00011E800][v786432].nsp',
+    );
+    expect(update.notes).toContainEqual({
+      kind: 'update',
+      of: 'The Legend of Zelda Breath of the Wild',
+    });
+    expect(
+      plan.items.find((i) => i.sources[0]!.endsWith('.nca')),
+    ).toMatchObject({
+      action: 'left',
+      reason: { kind: 'game-part', part: 'nca', system: 'switch' },
+    });
+    expect(notes(by(plan.items, 'hbmenu.nro'))).toEqual(['homebrew']);
+    const encrypted = plan.items.filter((i) =>
+      i.notes.some((n) => n.kind === 'encrypted-name'),
+    );
+    expect(encrypted.map((i) => i.sources[0])).toEqual([
+      '0100F2C0115B6000.nsp',
+    ]);
+    expect(encrypted[0]!.title_source).toBeUndefined();
+  });
+
+  it('odd: one row per loose format, homebrew moves and parts stay', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({ source: MOCK_ODD, layout: 'esde' });
+    expect(plan.items).toHaveLength(18);
+    const homebrew = plan.items
+      .filter((i) => notes(i).includes('homebrew'))
+      .map((i) => [i.sources[0], i.system_id, i.action]);
+    expect(homebrew).toEqual([
+      ['boot.dol', 'wii', 'auto'],
+      ['Checkpoint.nro', 'switch', 'auto'],
+      ['FBI.3dsx', '3ds', 'auto'],
+      ['Homebrew Launcher.rpx', 'wiiu', 'auto'],
+      ['Swiss.dol', 'gamecube', 'auto'],
+      ['VitaShell.self', 'psvita', 'auto'],
+      ['XBMC4Xbox.xbe', 'xbox', 'auto'],
+    ]);
+    const parts = plan.items.flatMap((i) =>
+      i.action === 'left' && i.reason.kind === 'game-part'
+        ? [[i.sources[0], i.reason.part]]
+        : [],
+    );
+    expect(parts).toEqual([
+      ['9a3f1c2d4e5b6a7980a1b2c3d4e5f607.nca', 'nca'],
+      ['eboot.bin', 'exe-fs'],
+      ['kernel_util.prx', 'module'],
+      ['libgui.rpl', 'library'],
+      ['main.npdm', 'exe-fs'],
+      ['main.nso', 'exe-fs'],
+      ['PCSE00120/game.psvimg', 'backup'],
+      ['title.tmd', 'title-meta'],
+      ['xam.xex', 'module'],
+    ]);
+    expect(by(plan.items, 'Crash Bandicoot.pbp')).toMatchObject({
+      action: 'auto',
+      system_id: 'psx',
+      title_id: { id: 'SCUS94900', source: 'pbp' },
+    });
+    expect(notes(by(plan.items, 'Halo 3 TU3.xex'))).toEqual(['update']);
+  });
+
+  it('discs: sets move with their m3u, the name-only set waits, a missing disc says so', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_DISCS,
+      layout: 'esde',
+    });
+    const saga = by(plan.items, 'Panzer Dragoon Saga (USA) (Disc 1).chd');
+    expect(saga).toMatchObject({
+      action: 'auto',
+      kind: 'set',
+      system_id: 'saturn',
+      target: 'ROMs/saturn/Panzer Dragoon Saga (USA) (Disc 1).chd',
+      playlist: { path: 'ROMs/saturn/Panzer Dragoon Saga (USA).m3u' },
+    });
+    expect(saga.sources).toHaveLength(4);
+    expect(saga.set_targets).toHaveLength(3);
+    expect(saga.playlist!.discs).toEqual([saga.target, ...saga.set_targets]);
+    const tales = by(plan.items, 'Tales of Symphonia (USA) (Disc 1).rvz');
+    expect(tales.playlist!.path).toBe('ROMs/gc/Tales of Symphonia (USA).m3u');
+    expect(by(plan.items, 'Grandia (Japan) (Disc 1).chd').notes).toEqual([
+      { kind: 'missing-disc', n: 2 },
+    ]);
+    expect(
+      by(plan.items, 'Lunar - The Silver Star (USA) (Disc 1).chd'),
+    ).toMatchObject({ action: 'review', notes: [{ kind: 'disc-set' }] });
+
+    const done = ended(b);
+    await b.organizeApply(plan_id, []);
+    const view = await done;
+    expect(view.state).toBe('done');
+    const written = view.report!.items.flatMap((o) => o.targets);
+    expect(written).toContain(
+      `${plan.target_root}/ROMs/saturn/Panzer Dragoon Saga (USA).m3u`,
+    );
+    expect(written).toContain(
+      `${plan.target_root}/ROMs/saturn/Panzer Dragoon Saga (USA) (Disc 4).chd`,
+    );
+  });
+
+  it('dupes-title: copies matched by title id and by folder are set aside and undo brings them back', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_DUPES_TITLE,
+    });
+    const aside = plan.items
+      .filter((i) => i.action === 'set-aside')
+      .map((i) => i.sources[0]);
+    expect(aside).toEqual([
+      'Bloodborne (CUSA00900)',
+      'Zelda (copia) [01007EF00011E000][v0].nsp',
+    ]);
+    expect(plan.duplicates.map((g) => g.basis).sort()).toEqual([
+      'folder-tree',
+      'title-id',
+    ]);
+    const title = plan.duplicates.find((g) => g.basis === 'title-id')!;
+    expect(title.action).toEqual({ kind: 'act' });
+
+    // Moved on its own volume: no size question.
+    const done = ended(b);
+    expect((await b.organizeApply(plan_id, [])).state).toBe('applying');
+    const view = await done;
+    expect(view.state).toBe('done');
+    expect(view.report).toMatchObject({ set_aside: 2 });
+    const undo = await b.organizeUndo(view.job!, false);
+    expect(undo.report[0]?.restored).toEqual(
+      expect.arrayContaining([
+        `${MOCK_DUPES_TITLE}/Bloodborne (CUSA00900)`,
+        `${MOCK_DUPES_TITLE}/Zelda (copia) [01007EF00011E000][v0].nsp`,
+      ]),
+    );
+    const again = await b.organizePlan({
+      source: MOCK_DUPES_TITLE,
+      rescan: true,
+    });
+    expect(again.plan.counts.set_aside).toBe(2);
   });
 });

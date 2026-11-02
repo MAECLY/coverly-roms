@@ -11,26 +11,37 @@
 //! addresses are then counted from there.
 //!
 //! What is and isn't possible, enforced here (D4, D10):
-//! - XCI/XCZ: the card header up to 0x13F and the root HFS0 entry names
-//!   (`update`, `normal`, `secure`, `logo`) are read. The gamecard info
-//!   at 0x190 is encrypted with a console key and is never read, nor is
-//!   any NCA. The HFS0 lists content ids (hashes), not title ids, so the
-//!   title id only comes from the file name.
+//! - XCI/XCZ: the card header up to 0x13F, the root HFS0 entry names
+//!   (`update`, `normal`, `secure`, `logo`) and the secure partition's
+//!   plaintext HFS0 header and names table (adjustments D6) are read. The
+//!   gamecard info at 0x190 is encrypted with a console key and is never
+//!   read, nor is any NCA. The secure HFS0 lists NCA ids (content
+//!   hashes), not title ids: they are kept as [`ConsoleId::nca_ids`] and
+//!   the title id comes from the file name, or later from the optional
+//!   catalogue's `ncas.json` (`organize::evidence::resolve_switch_title`).
 //! - NSP/NSZ: the PFS0 table is read. The title id comes from a ticket's
 //!   **entry name** (`<rights id>.tik`, whose first 16 hex digits are the
 //!   title id), else from a plaintext `*.cnmt.xml` entry (≤ 64 KiB), else
-//!   from the file name. The bodies of `.tik`, `.cert`, `.nca` and `.ncz`
-//!   entries are never read.
+//!   from the file name; without a ticket or `cnmt.xml` the
+//!   `<32 hex>.nca`/`.ncz` entry names are kept as NCA ids. The bodies of
+//!   `.tik`, `.cert`, `.nca` and `.ncz` entries are never read.
+//! - A loose `<32 hex>.nca`/`.ncz` is known by its name alone (part
+//!   [`PartKind::Nca`]); not one byte of it is read.
+//! - NRO (homebrew): `NRO0` at 0x10, its size at 0x18 and the `ASET`
+//!   asset section there: the NACP title (first non-empty language),
+//!   `DisplayVersion` and the JPEG icon's byte range. NSO: part of a
+//!   game's ExeFS ([`PartKind::ExeFs`]).
 //! - Any format: `[0100…]` (16 hex) and `[vN]` tokens of the file name.
-//! - No title-id catalogue is downloaded and no key is ever needed.
+//! - Nothing here downloads anything, and no key is ever needed.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use super::wiiu::{find, get, plain_file, xml_fields};
+use super::wiiu::{find, get, xml_fields};
 use super::{
-    kind_switch, Budgeted, ConsoleId, DirListing, FolderMatch, IdSource, TitleKind, MAX_META_FILE,
+    clean_title, kind_switch, ArtFormat, ArtLocator, Budgeted, ConsoleId, DirListing, FolderMatch,
+    IdSource, PartKind, TitleKind, TitleSource, MAX_META_FILE,
 };
-use crate::identify::sniff::{FileAt, ReadAt};
+use crate::identify::sniff::ReadAt;
 
 /// Most entries a PFS0/HFS0 table may declare before it is distrusted.
 const MAX_ENTRIES: u32 = 1024;
@@ -45,6 +56,21 @@ const CARD_HEAD: u64 = 0x140;
 const KEY_AREA: u64 = 0x1000;
 /// Root HFS0 partition names that may reach the detail (fixed set).
 const XCI_PARTITIONS: [&str; 4] = ["update", "normal", "secure", "logo"];
+/// The NRO header bytes read after the first 0x10: magic, version, size.
+const NRO_HEADER: usize = 0x10;
+/// The `ASET` header: magic, version, then icon, NACP and RomFS as
+/// `offset u64, size u64` pairs, offsets from the section's start.
+const ASET_HEADER: usize = 0x38;
+/// The NACP bytes read: 16 language entries of 0x300 (name 0x200,
+/// publisher 0x100), then up to the end of `DisplayVersion` (0x3060,
+/// 0x10 bytes); switchbrew «NACP».
+const NACP_READ: usize = 0x3070;
+const NACP_LANGS: usize = 16;
+const NACP_LANG: usize = 0x300;
+const NACP_NAME: usize = 0x200;
+const NACP_DISPLAY_VERSION: usize = 0x3060;
+/// Largest NRO icon located (the embedded-art reader caps it again).
+const MAX_NRO_ICON: u64 = 1 << 20;
 
 fn le32(h: &[u8], o: usize) -> Option<u32> {
     Some(u32::from_le_bytes(h.get(o..o + 4)?.try_into().ok()?))
@@ -155,6 +181,38 @@ fn ticket_title_id(name: &str) -> Option<u64> {
     u64::from_str_radix(&stem[..16], 16).ok()
 }
 
+/// The lower-case NCA id of an entry or file named `<32 hex>.nca`,
+/// `<32 hex>.ncz` or `<32 hex>.cnmt.nca` (a meta NCA): exactly 32 hex
+/// digits before the extension (D6).
+pub fn nca_id_from_name(name: &str) -> Option<String> {
+    let stem = [".cnmt.nca", ".nca", ".ncz"]
+        .iter()
+        .find(|ext| ends_with_ci(name, ext))
+        .map(|ext| &name[..name.len() - ext.len()])?;
+    (stem.len() == 32 && stem.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| stem.to_ascii_lowercase())
+}
+
+/// Whether `c` is a Switch package whose content is always encrypted:
+/// an NSP/NSZ (PFS0), an XCI/XCZ (card header, HFS0) or a loose NCA. Its
+/// name is never read from inside it (spec D11); a homebrew NRO or a
+/// game's NSO is in clear.
+pub fn is_encrypted_package(c: &ConsoleId) -> bool {
+    c.system == "switch"
+        && (c.part == Some(PartKind::Nca)
+            || ["PFS0", "HFS0", "card header"]
+                .iter()
+                .any(|d| c.detail.contains(d)))
+}
+
+/// The NCA ids among `names`, sorted and without repeats.
+fn nca_ids<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut ids: Vec<String> = names.filter_map(nca_id_from_name).collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
 /// `<Id>0x0100…</Id>`, `<Version>`, `<Type>` of a plaintext `cnmt.xml`.
 fn parse_cnmt_xml(bytes: &[u8]) -> Option<(u64, Option<u32>, TitleKind)> {
     let f = xml_fields(bytes, &["Id", "Version", "Type"])?;
@@ -233,17 +291,28 @@ fn pfs0(b: &mut Budgeted, name: &str) -> Option<ConsoleId> {
     } else {
         id = ConsoleId::proven("switch", &format!("{prefix}PFS0"));
         from_name(&mut id, name);
+        id.nca_ids = nca_ids(entries.iter().map(|e| e.name.as_str()));
     }
     Some(id)
 }
 
 /// An XCI/XCZ by its card header at `base` and its root HFS0 (spec
-/// §8.3): the title id only from the file name.
+/// §8.3): the title id only from the file name; the secure partition's
+/// NCA names as NCA ids (D6). No table is read inside the card header
+/// (`base` .. `base + 0x200`), where the gamecard info is.
 fn xci(b: &mut Budgeted, base: u64, card: &[u8], ext: &str, name: &str) -> Option<ConsoleId> {
     let label = if ext == "xcz" { "XCZ" } else { "XCI" };
+    let past_card = base.checked_add(0x200)?;
     let root = le64(card, 0x30)
         .and_then(|o| base.checked_add(o))
+        .filter(|&at| at >= past_card)
         .and_then(|at| partition(b, at, b"HFS0", HFS0_ENTRY));
+    let secure = root.as_ref().and_then(|entries| {
+        let secure = entries.iter().find(|e| e.name == "secure")?;
+        // Only the secure HFS0's header and names table: never an NCA.
+        let inner = partition(b, secure.start, b"HFS0", HFS0_ENTRY)?;
+        Some(nca_ids(inner.iter().map(|e| e.name.as_str())))
+    });
     let mut id = match root {
         Some(entries) => {
             let mut parts: Vec<&str> = XCI_PARTITIONS
@@ -261,7 +330,93 @@ fn xci(b: &mut Budgeted, base: u64, card: &[u8], ext: &str, name: &str) -> Optio
         None => ConsoleId::magic("switch", &format!("{label} card header")),
     };
     from_name(&mut id, name);
+    id.nca_ids = secure.unwrap_or_default();
     Some(id)
+}
+
+/// A loose NCA by its name alone (D6): part of a title, never read.
+fn loose_nca(ext: &str, name: &str) -> Option<ConsoleId> {
+    if !matches!(ext, "nca" | "ncz") {
+        return None;
+    }
+    let nca = nca_id_from_name(name)?;
+    let mut id = ConsoleId::magic("switch", "NCA name");
+    id.part = Some(PartKind::Nca);
+    id.nca_ids = vec![nca];
+    Some(id)
+}
+
+/// The first non-empty NUL-terminated text of `bytes`, cleaned.
+fn nacp_text(bytes: &[u8]) -> Option<String> {
+    let end = bytes.iter().position(|&c| c == 0).unwrap_or(bytes.len());
+    clean_title(&String::from_utf8_lossy(&bytes[..end]))
+}
+
+/// A homebrew NRO (switchbrew «NRO», «NACP»): `NRO0` at 0x10, the NRO's
+/// size at 0x18, and at that offset an `ASET` section whose NACP gives the
+/// title and `DisplayVersion` and whose icon is a JPEG. Without a usable
+/// asset section it is a magic-only verdict, still homebrew.
+fn nro(b: &mut Budgeted) -> Option<ConsoleId> {
+    let h = b.read(0x10, NRO_HEADER).ok()?;
+    if h.get(..4)? != b"NRO0" {
+        return None;
+    }
+    let mut id = ConsoleId::magic("switch", "NRO header");
+    id.kind = TitleKind::Homebrew;
+    let Some(aset) = le32(&h, 8).and_then(|size| nro_assets(b, u64::from(size))) else {
+        return Some(id);
+    };
+    let (title, version, icon) = aset;
+    id.confidence = 0.95;
+    id.detail = "NRO NACP".into();
+    if title.is_some() {
+        id.title_source = Some(TitleSource::Header);
+    }
+    id.title = title;
+    id.version = version;
+    id.art.extend(icon);
+    Some(id)
+}
+
+/// The NACP title and version and the icon locator of the `ASET` section
+/// at `at`; `None` when the section or its NACP does not fit in the file.
+#[allow(clippy::type_complexity)]
+fn nro_assets(
+    b: &mut Budgeted,
+    at: u64,
+) -> Option<(Option<String>, Option<String>, Option<ArtLocator>)> {
+    let end = at.checked_add(ASET_HEADER as u64)?;
+    if at < 0x20 || end > b.len() {
+        return None;
+    }
+    let h = b.read(at, ASET_HEADER).ok()?;
+    if h.get(..4)? != b"ASET" {
+        return None;
+    }
+    let (nacp_off, nacp_len) = (le64(&h, 0x18)?, le64(&h, 0x20)?);
+    let nacp_at = at.checked_add(nacp_off)?;
+    let fits = |start: u64, len: u64| start.checked_add(len).is_some_and(|e| e <= b.len());
+    if nacp_len < NACP_READ as u64 || !fits(nacp_at, NACP_READ as u64) {
+        return None;
+    }
+    let (icon_off, icon_len) = (le64(&h, 0x08)?, le64(&h, 0x10)?);
+    let icon = at
+        .checked_add(icon_off)
+        .filter(|&o| icon_len > 0 && icon_len <= MAX_NRO_ICON && fits(o, icon_len))
+        .map(|offset| ArtLocator::Range {
+            offset,
+            len: icon_len,
+            format: ArtFormat::Jpeg,
+        });
+    let nacp = b.read(nacp_at, NACP_READ).ok()?;
+    let title = nacp
+        .as_chunks::<NACP_LANG>()
+        .0
+        .iter()
+        .take(NACP_LANGS)
+        .find_map(|lang| nacp_text(&lang[..NACP_NAME]));
+    let version = nacp_text(nacp.get(NACP_DISPLAY_VERSION..NACP_READ)?);
+    Some((title, version, icon))
 }
 
 /// A Switch file by its own header: `PFS0` at 0 (NSP, NSZ), `HEAD` at
@@ -273,6 +428,9 @@ fn xci(b: &mut Budgeted, base: u64, card: &[u8], ext: &str, name: &str) -> Optio
 /// anything of its first entry, and the card header is read only up to
 /// 0x13F: the encrypted gamecard info at 0x190 is never touched.
 pub fn identify(b: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
+    if let Some(id) = loose_nca(ext, name) {
+        return Some(id);
+    }
     if b.len() < 0x10 {
         return None;
     }
@@ -281,7 +439,14 @@ pub fn identify(b: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
         return pfs0(b, name);
     }
     if ext == "nso" && h0.starts_with(b"NSO0") {
-        return Some(ConsoleId::magic("switch", "NSO header"));
+        let mut id = ConsoleId::magic("switch", "NSO header");
+        id.part = Some(PartKind::ExeFs);
+        return Some(id);
+    }
+    if ext == "nro" && b.len() >= 0x20 {
+        if let Some(id) = nro(b) {
+            return Some(id);
+        }
     }
     if b.len() >= CARD_HEAD {
         let card = b.read(0x100, (CARD_HEAD - 0x100) as usize).ok();
@@ -296,9 +461,6 @@ pub fn identify(b: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
         if card.starts_with(b"HEAD") {
             return xci(b, KEY_AREA, &card, ext, name);
         }
-    }
-    if ext == "nro" && b.len() >= 0x14 && b.read(0x10, 4).ok()?.as_slice() == b"NRO0" {
-        return Some(ConsoleId::magic("switch", "NRO header"));
     }
     None
 }
@@ -316,6 +478,9 @@ pub fn identify_first(
     ext: &str,
     name: &str,
 ) -> Option<(ConsoleId, u64)> {
+    if let Some(id) = loose_nca(ext, name) {
+        return Some((id, 0));
+    }
     let mut b = Budgeted::new(src, len);
     let id = identify(&mut b, ext, name)?;
     let own = matches!(ext, "xci" | "xcz" | "nsp" | "nsz");
@@ -326,7 +491,12 @@ pub fn identify_first(
 /// (or `.nsz`/`.xcz`) holding `00`, `01`… The `00` part's head is read
 /// through [`identify`] with the folder's name; nothing else is opened.
 pub fn probe_split(l: &DirListing) -> Option<FolderMatch> {
-    let folder = l.dir.file_name()?.to_string_lossy().into_owned();
+    // A split file is a FAT folder with the archive attribute; an
+    // archive's entries have no such attribute (D20).
+    if l.meta(Path::new(""))?.fat_archive_bit != Some(true) {
+        return None;
+    }
+    let folder = l.name;
     let (_, ext) = folder.rsplit_once('.')?;
     let ext = ext.to_ascii_lowercase();
     if !matches!(ext.as_str(), "nsp" | "nsz" | "xci" | "xcz") {
@@ -334,11 +504,7 @@ pub fn probe_split(l: &DirListing) -> Option<FolderMatch> {
     }
     let first = find(l.names, "00")?;
     find(l.names, "01")?;
-    let path = l.dir.join(first);
-    let len = plain_file(&path, u64::MAX)?;
-    let mut src = FileAt(super::open_rom(&path).ok()?);
-    let mut b = Budgeted::new(&mut src, len);
-    let mut id = identify(&mut b, &ext, &folder)?;
+    let mut id = l.with_file(Path::new(first), |b| identify(b, &ext, folder))?;
     id.detail = if ext.starts_with("ns") {
         "split NSP folder".into()
     } else {
@@ -355,6 +521,7 @@ pub fn probe_split(l: &DirListing) -> Option<FolderMatch> {
 mod tests {
     use std::ops::Range;
 
+    use super::super::on_disk;
     use super::super::testing::{self, RangeLog, SparseAt};
     use super::*;
 
@@ -383,7 +550,9 @@ mod tests {
         assert_eq!((id.title_id, id.kind), (None, TitleKind::Unknown));
         let (info, n) = testing::XCI_CARD_INFO;
         assert!(!log.touched(info, n), "{:?}", log.ranges);
-        assert!(!log.touched(secure.start, secure.end - secure.start));
+        // Of the secure partition only the place of its HFS0 header is
+        // looked at (D6); this filler is no HFS0, so nothing more is read.
+        assert!(!log.touched(secure.start + 0x10, secure.end - secure.start - 0x10));
         // The title id, when there is one, comes from the file name only.
         let mut f = testing::xci(&["secure"]);
         let id = run(&mut f, "xcz", "Zelda [0100000000010000][v0].xcz").unwrap();
@@ -613,6 +782,134 @@ mod tests {
         assert_eq!(run(&mut nso, "bin", "a.bin"), None);
     }
 
+    const NCA_A: &str = "0123456789abcdef0123456789abcdef";
+    const NCA_B: &str = "FEDCBA9876543210FEDCBA9876543210";
+
+    #[test]
+    fn xci_secure_names_give_nca_ids_without_reading_any_nca() {
+        let a = format!("{NCA_A}.nca");
+        let b = format!("{NCA_B}.cnmt.nca");
+        let mut f = testing::xci_with_secure(&[&b, &a, "short.nca", "logo.bin"]);
+        let len = f.len;
+        let (info, n) = testing::XCI_CARD_INFO;
+        let mut forbidden: Vec<Range<u64>> = Vec::new();
+        forbidden.push(info..info + n);
+        forbidden.extend(f.entries[3..].iter().cloned());
+        let mut guard = testing::PanicOn {
+            inner: &mut f,
+            ranges: forbidden,
+        };
+        let id =
+            super::super::identify(&mut Budgeted::new(&mut guard, len), "xci", "Game.xci").unwrap();
+        assert_eq!(id.detail, "XCI HFS0: update, normal, secure");
+        assert_eq!(id.title_id, None);
+        assert_eq!(
+            id.nca_ids,
+            vec![NCA_A.to_string(), NCA_B.to_ascii_lowercase()]
+        );
+    }
+
+    #[test]
+    fn xci_secure_partition_past_the_file_keeps_the_root_verdict() {
+        let mut f = testing::xci_with_secure(&[&format!("{NCA_A}.nca")]);
+        let secure = f.entry_range(2);
+        f.len = secure.start + 8;
+        let id = run(&mut f, "xci", "Game.xci").unwrap();
+        assert_eq!(id.confidence, 0.95);
+        assert!(id.nca_ids.is_empty());
+    }
+
+    #[test]
+    fn nsp_without_ticket_or_cnmt_lists_its_nca_names() {
+        let a = format!("{NCA_A}.nca");
+        let b = format!("{NCA_B}.ncz");
+        let mut f = testing::nsp_pfs0(&[&b, &a, "x.nca", "0123.nca"]);
+        let len = f.len;
+        let forbidden = f.entries.clone();
+        let mut guard = testing::PanicOn {
+            inner: &mut f,
+            ranges: forbidden,
+        };
+        let id =
+            super::super::identify(&mut Budgeted::new(&mut guard, len), "nsz", "Game.nsz").unwrap();
+        assert_eq!(id.title_id, None);
+        assert_eq!(
+            id.nca_ids,
+            vec![NCA_A.to_string(), NCA_B.to_ascii_lowercase()]
+        );
+        // A ticket names the title: no NCA ids are kept.
+        let tik = "01000000000100000000000000000000.tik";
+        let mut f = testing::nsp_pfs0(&[&a, tik]);
+        let id = run(&mut f, "nsp", "Game.nsp").unwrap();
+        assert_eq!(id.title_id.as_deref(), Some("0100000000010000"));
+        assert!(id.nca_ids.is_empty());
+    }
+
+    #[test]
+    fn a_loose_nca_is_known_by_its_name_alone() {
+        let name = format!("{NCA_A}.nca");
+        let mut f = SparseAt::new(0x4000);
+        f.put(0x200, b"NCA3");
+        let len = f.len;
+        let mut guard = testing::PanicOn {
+            inner: &mut f,
+            ranges: std::iter::once(0..len).collect(),
+        };
+        let id = super::super::identify(&mut Budgeted::new(&mut guard, len), "nca", &name).unwrap();
+        assert_eq!(id.system, "switch");
+        assert_eq!(id.part, Some(PartKind::Nca));
+        assert_eq!(
+            (id.title_id, id.title, id.kind),
+            (None, None, TitleKind::Unknown)
+        );
+        assert_eq!(id.nca_ids, vec![NCA_A.to_string()]);
+        let (found, read) =
+            identify_first(&mut guard, len, "ncz", &format!("{NCA_B}.ncz")).unwrap();
+        assert_eq!((found.part, read), (Some(PartKind::Nca), 0));
+        assert_eq!(found.nca_ids, vec![NCA_B.to_ascii_lowercase()]);
+        // A meta NCA is named `<id>.cnmt.nca`.
+        let meta = format!("{NCA_A}.cnmt.nca");
+        assert_eq!(identify_first(&mut guard, len, "nca", &meta).unwrap().1, 0);
+    }
+
+    #[test]
+    fn nro_nacp_gives_homebrew_title_version_and_icon() {
+        let icon = [0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0];
+        let mut f = testing::nro("Checkpoint", "3.8.0", &icon);
+        let id = run(&mut f, "nro", "checkpoint.nro").unwrap();
+        assert_eq!(id.system, "switch");
+        assert_eq!((id.confidence, id.detail.as_str()), (0.95, "NRO NACP"));
+        assert_eq!(id.kind, TitleKind::Homebrew);
+        assert_eq!(id.title.as_deref(), Some("Checkpoint"));
+        assert_eq!(id.title_source, Some(TitleSource::Header));
+        assert_eq!(id.version.as_deref(), Some("3.8.0"));
+        assert_eq!(
+            id.art,
+            vec![ArtLocator::Range {
+                offset: testing::NRO_SIZE + 0x38,
+                len: icon.len() as u64,
+                format: ArtFormat::Jpeg,
+            }]
+        );
+        // No icon: no locator.
+        let mut f = testing::nro("Checkpoint", "3.8.0", &[]);
+        assert!(run(&mut f, "nro", "a.nro").unwrap().art.is_empty());
+        // An asset section past the file: magic only, still homebrew.
+        let mut f = testing::nro("Checkpoint", "3.8.0", &[]);
+        f.len = testing::NRO_SIZE + 0x10;
+        let id = run(&mut f, "nro", "a.nro").unwrap();
+        assert_eq!((id.confidence, id.detail.as_str()), (0.90, "NRO header"));
+        assert_eq!((id.kind, id.title), (TitleKind::Homebrew, None));
+    }
+
+    #[test]
+    fn nso_is_a_part_of_a_game() {
+        let mut f = testing::nso();
+        let id = run(&mut f, "nso", "main.nso").unwrap();
+        assert_eq!(id.part, Some(PartKind::ExeFs));
+        assert_eq!(id.kind, TitleKind::Unknown);
+    }
+
     #[test]
     fn budget_adversarial_hfs0() {
         let mut f = testing::xci(&["secure"]);
@@ -639,28 +936,16 @@ mod tests {
             fs::write(dir.join("00"), f.bytes()).unwrap();
             fs::write(dir.join("01"), [0u8; 16]).unwrap();
             let names = vec!["00".to_string(), "01".to_string()];
-            let found = probe_split(&DirListing {
-                dir: &dir,
-                names: &names,
-            })
-            .unwrap();
+            let found = on_disk(&dir, &names, probe_split).unwrap();
             assert_eq!(found.id.detail, "split NSP folder");
             assert_eq!(found.id.title_id.as_deref(), Some("0100000000010000"));
             assert_eq!(found.probe, PathBuf::from("00"));
             // Not a split file: one part only, or another folder name.
             let one = vec!["00".to_string()];
-            assert!(probe_split(&DirListing {
-                dir: &dir,
-                names: &one
-            })
-            .is_none());
+            assert!(on_disk(&dir, &one, probe_split).is_none());
             let other = tmp.path().join("Mario");
             fs::create_dir(&other).unwrap();
-            assert!(probe_split(&DirListing {
-                dir: &other,
-                names: &names
-            })
-            .is_none());
+            assert!(on_disk(&other, &names, probe_split).is_none());
         }
     }
 }

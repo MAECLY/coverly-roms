@@ -65,6 +65,9 @@ pub struct DiscIdentity {
     pub serials: Vec<String>,
     /// 1-based disc number, from a Sega device field (`GD-ROM1/1`).
     pub disc_no: Option<u8>,
+    /// The set's disc count, the `m` of a Sega `n/m` device field
+    /// (adjustments D24).
+    pub count: Option<u8>,
     /// `None` when the boot file or the volume descriptor was not read.
     pub volume: Option<VolumeFingerprint>,
     /// Where the serials came from.
@@ -173,6 +176,7 @@ impl DiscReader {
                 system: DiscSystem::Known("psp"),
                 serials: serial.into_iter().collect(),
                 disc_no: None,
+                count: None,
                 volume: None,
                 source,
                 confidence: 0.85,
@@ -192,6 +196,7 @@ impl DiscReader {
                 system: DiscSystem::Known("neocd"),
                 serials: Vec::new(),
                 disc_no: None,
+                count: None,
                 volume: None,
                 source: DiscIdSource::Signature,
                 confidence: 0.85,
@@ -208,6 +213,7 @@ pub(crate) fn signature(id: &'static str, confidence: f32, detail: &str) -> Disc
         system: DiscSystem::Known(id),
         serials: Vec::new(),
         disc_no: None,
+        count: None,
         volume: None,
         source: DiscIdSource::Signature,
         confidence,
@@ -226,6 +232,7 @@ fn sega_identity(src: &mut dyn SectorSource, ip: IpBin) -> io::Result<DiscIdenti
         system: DiscSystem::Known(ip.system.id()),
         serials: ip.serial.into_iter().collect(),
         disc_no: ip.disc.map(|(n, _)| n),
+        count: ip.disc.map(|(_, m)| m),
         volume,
         source: DiscIdSource::IpBin,
         confidence: 0.95,
@@ -267,6 +274,7 @@ fn playstation(
         system: disc.system,
         serials: disc.serial.into_iter().collect(),
         disc_no: None,
+        count: None,
         volume: disc.volume,
         source,
         confidence: disc.confidence,

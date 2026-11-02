@@ -333,7 +333,7 @@ const CTR_CART_LEN: u64 = 0x8000_0000;
 pub const NCSD_P0: u64 = 0x4000;
 /// ExeFS of a [`ncch_parts`] NoCrypto NCCH: offset in the NCCH and the
 /// `icon` file's offset inside the ExeFS data.
-const EXEFS_AT: u64 = 0x1400;
+pub const EXEFS_AT: u64 = 0x1400;
 const EXEFS_ICON: u64 = 0x200;
 
 fn utf16le(s: &str) -> Vec<u8> {
@@ -559,13 +559,44 @@ pub fn wiiu_folder(dir: &std::path::Path, title_id: &str, product: &str, name: &
 /// A TMD head (3dbrew/wiiubrew «Title metadata»): RSA-2048 signature type,
 /// title id `tid` at 0x18C, version 32 at 0x1DC, one content.
 pub fn tmd(tid: u64) -> Vec<u8> {
-    let mut t = vec![0u8; 0xB04 + 0x30];
-    t[..4].copy_from_slice(&be32(0x0001_0004));
-    t[0x140..0x14A].copy_from_slice(b"Root-CA000");
-    t[0x18C..0x194].copy_from_slice(&tid.to_be_bytes());
-    t[0x1DC..0x1DE].copy_from_slice(&32u16.to_be_bytes());
-    t[0x1DE..0x1E0].copy_from_slice(&1u16.to_be_bytes());
+    tmd_signed(0x0001_0004, tid, 32)
+}
+
+/// The signature and padding length before a TMD header, by signature
+/// type (3dbrew «Certificates»): RSA-4096, RSA-2048, ECDSA, HMAC, with
+/// SHA-1 (`0x1000x`) or SHA-256 (`0x1000x + 3`). `None` for any other.
+pub fn tmd_header_at(sig_type: u32) -> Option<usize> {
+    Some(match sig_type {
+        0x0001_0000 | 0x0001_0003 => 4 + 0x200 + 0x3C,
+        0x0001_0001 | 0x0001_0004 => 4 + 0x100 + 0x3C,
+        0x0001_0002 | 0x0001_0005 => 4 + 0x3C + 0x40,
+        0x0001_0006 => 4 + 0x14 + 0x28,
+        _ => return None,
+    })
+}
+
+/// A TMD head signed with `sig_type`: title id `tid` at header + 0x4C,
+/// `version` at header + 0x9C, one content. An unknown signature type
+/// lays the header out as RSA-2048 does.
+pub fn tmd_signed(sig_type: u32, tid: u64, version: u16) -> Vec<u8> {
+    let at = tmd_header_at(sig_type).unwrap_or(0x140);
+    let mut t = vec![0u8; at + 0x9C4 + 0x30];
+    t[..4].copy_from_slice(&be32(sig_type));
+    t[at..at + 10].copy_from_slice(b"Root-CA000");
+    t[at + 0x4C..at + 0x54].copy_from_slice(&tid.to_be_bytes());
+    t[at + 0x9C..at + 0x9E].copy_from_slice(&version.to_be_bytes());
+    t[at + 0x9E..at + 0xA0].copy_from_slice(&1u16.to_be_bytes());
     t
+}
+
+/// A Cafe OS ELF head (decaf-emu `cafe_loader_rpl.h`): ELF32, big-endian,
+/// OSABI `0xCA` and ABI version `abi` (`0xFE` for an RPX or RPL), PowerPC.
+pub fn rpx(abi: u8) -> Vec<u8> {
+    let mut h = vec![0u8; 0x400];
+    h[..9].copy_from_slice(&[0x7F, b'E', b'L', b'F', 1, 2, 1, 0xCA, abi]);
+    h[0x10..0x12].copy_from_slice(&0xFE01u16.to_be_bytes());
+    h[0x12..0x14].copy_from_slice(&20u16.to_be_bytes());
+    h
 }
 
 /// A NUS download folder in `dir`: `title.tmd` for `tid`, `title.tik`
@@ -825,6 +856,113 @@ pub fn xci(names: &[&str]) -> SparseAt {
     s.put(0, &head);
     s.len = end.max(0x1_0000);
     s
+}
+
+/// An NSP whose PFS0 lists `names`, each a 0x200-byte filler body (no
+/// ticket, no `cnmt.xml` unless named): the NCA-ids-by-name case (D6).
+pub fn nsp_pfs0(names: &[&str]) -> SparseAt {
+    let body = [0x55u8; 0x200];
+    let entries: Vec<(&str, &[u8])> = names.iter().map(|n| (*n, &body[..])).collect();
+    nsp(&entries)
+}
+
+/// An XCI whose root HFS0 holds `update`, `normal` and `secure`, the
+/// `secure` body being an HFS0 of `names` (each a 0x200-byte filler NCA
+/// body). `s.entries` holds the three root bodies' ranges, then the secure
+/// entries' bodies (adjustments D6).
+pub fn xci_with_secure(names: &[&str]) -> SparseAt {
+    let body = [0xA5u8; 0x200];
+    let mut inner = SparseAt::new(u64::MAX);
+    let inner_entries: Vec<(&str, &[u8])> = names.iter().map(|n| (*n, &body[..])).collect();
+    let inner_end = partition(&mut inner, 0, b"HFS0", 0x40, &inner_entries);
+    inner.len = inner_end;
+    let secure = inner.bytes();
+    let mut s = SparseAt::new(u64::MAX);
+    let mut head = vec![0u8; 0x200];
+    head[..0x100].fill(0x5A);
+    head[0x100..0x104].copy_from_slice(b"HEAD");
+    head[0x10D] = 0xE0;
+    head[0x130..0x138].copy_from_slice(&XCI_HFS0.to_le_bytes());
+    head[0x190..0x200].fill(0xC3);
+    let root: Vec<(&str, &[u8])> = vec![
+        ("update", &body[..]),
+        ("normal", &body[..]),
+        ("secure", &secure[..]),
+    ];
+    let end = partition(&mut s, XCI_HFS0, b"HFS0", 0x40, &root);
+    head[0x138..0x140].copy_from_slice(&(0x10u64 + 0x40 * 3).to_le_bytes());
+    s.put(0, &head);
+    let at = s.entries[2].start;
+    s.entries
+        .extend(inner.entries.iter().map(|r| at + r.start..at + r.end));
+    s.len = end.max(0x1_0000);
+    s
+}
+
+/// Where [`nro`] puts its asset section (the NRO's own size).
+pub const NRO_SIZE: u64 = 0x1000;
+/// Offset of the NACP's `DisplayVersion` (switchbrew «NACP»).
+const NACP_DISPLAY_VERSION: usize = 0x3060;
+const NACP_LEN: usize = 0x4000;
+
+/// A homebrew NRO (switchbrew «NRO»): `NRO0` at 0x10, its size at 0x18,
+/// then an `ASET` asset section with `icon` (when not empty) and a NACP
+/// whose first language entry is empty and the second holds `title`, with
+/// `DisplayVersion` = `version`.
+pub fn nro(title: &str, version: &str, icon: &[u8]) -> SparseAt {
+    let mut s = SparseAt::new(u64::MAX);
+    let mut h = vec![0u8; 0x20];
+    h[0x10..0x14].copy_from_slice(b"NRO0");
+    h[0x18..0x1C].copy_from_slice(&le32(NRO_SIZE as u32));
+    s.put(0, &h);
+    let mut aset = vec![0u8; 0x38];
+    aset[..4].copy_from_slice(b"ASET");
+    let icon_at = 0x38u64;
+    let nacp_at = icon_at + icon.len() as u64;
+    if !icon.is_empty() {
+        aset[0x08..0x10].copy_from_slice(&icon_at.to_le_bytes());
+        aset[0x10..0x18].copy_from_slice(&(icon.len() as u64).to_le_bytes());
+    }
+    aset[0x18..0x20].copy_from_slice(&nacp_at.to_le_bytes());
+    aset[0x20..0x28].copy_from_slice(&(NACP_LEN as u64).to_le_bytes());
+    s.put(NRO_SIZE, &aset);
+    if !icon.is_empty() {
+        s.put(NRO_SIZE + icon_at, icon);
+    }
+    let mut nacp = vec![0u8; NACP_LEN];
+    nacp[0x300..0x300 + title.len()].copy_from_slice(title.as_bytes());
+    nacp[NACP_DISPLAY_VERSION..NACP_DISPLAY_VERSION + version.len()]
+        .copy_from_slice(version.as_bytes());
+    s.put(NRO_SIZE + nacp_at, &nacp);
+    s.len = NRO_SIZE + nacp_at + NACP_LEN as u64;
+    s
+}
+
+/// A Switch executable (`NSO0` at 0) of a game's ExeFS.
+pub fn nso() -> SparseAt {
+    let mut s = SparseAt::new(0x100);
+    s.put(0, b"NSO0");
+    s
+}
+
+/// A source that panics on any read touching one of `ranges` (D1, D6
+/// tests: a ticket, an NCA body, the XCI gamecard info).
+pub struct PanicOn<'a> {
+    pub inner: &'a mut dyn ReadAt,
+    pub ranges: Vec<std::ops::Range<u64>>,
+}
+
+impl ReadAt for PanicOn<'_> {
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+        let end = offset.saturating_add(buf.len() as u64);
+        for r in &self.ranges {
+            assert!(
+                !(offset < r.end && r.start < end),
+                "read {offset:#x}..{end:#x} touches the forbidden {r:?}"
+            );
+        }
+        self.inner.read_at(offset, buf)
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -1289,15 +1427,49 @@ pub fn xbe(tid: u32, name: &str) -> Vec<u8> {
     h
 }
 
+/// The XBE `AllowedMedia` bits (xboxdevwiki «XBE»).
+pub const XBE_MEDIA_HARD_DISK: u32 = 0x0000_0001;
+pub const XBE_MEDIA_DVD_X2: u32 = 0x0000_0002;
+pub const XBE_MEDIA_NONSECURE_HARD_DISK: u32 = 0x4000_0000;
+
+/// A loose XBE: [`xbe`] named «Loose Test» with title id `tid`,
+/// `AllowedMedia` `media` (cert + 0x9C) and `DiscNumber` `disc` (cert +
+/// 0xA8).
+pub fn xbe_loose(tid: u32, media: u32, disc: u32) -> Vec<u8> {
+    let mut h = xbe(tid, "Loose Test");
+    let c = XBE_CERT;
+    h[c + 0x9C..c + 0xA0].copy_from_slice(&le32(media));
+    h[c + 0xA8..c + 0xAC].copy_from_slice(&le32(disc));
+    h
+}
+
+/// The XEX2 `module_flags` bits (xenia `xex2_info.h`).
+pub const XEX_MODULE_TITLE: u32 = 0x01;
+pub const XEX_MODULE_DLL: u32 = 0x08;
+pub const XEX_MODULE_PATCH: u32 = 0x10;
+pub const XEX_PATCH_FULL: u32 = 0x20;
+pub const XEX_PATCH_DELTA: u32 = 0x40;
+
+/// A loose XEX2: [`xex2`] with `module_flags` `flags`, title id `tid` and
+/// disc `disc` of `count`.
+pub fn xex_loose(flags: u32, tid: u32, disc: u8, count: u8) -> Vec<u8> {
+    let mut h = xex2(tid);
+    h[4..8].copy_from_slice(&be32(flags));
+    h[XEX_EXEC_INFO + 0x12] = disc;
+    h[XEX_EXEC_INFO + 0x13] = count;
+    h
+}
+
 /// Where [`xex2`] puts its execution info.
 pub const XEX_EXEC_INFO: usize = 0x100;
 
 /// An XEX2 head (xenia `xex2_info.h`): two optional headers, the second
 /// the execution info (key `0x00040006`) with title id `tid`, version
-/// `0x20000100`, disc 1 of 1. No PE image.
+/// `0x20000100`, disc 1 of 1, `module_flags` TITLE. No PE image.
 pub fn xex2(tid: u32) -> Vec<u8> {
     let mut h = vec![0u8; 0x200];
     h[..4].copy_from_slice(b"XEX2");
+    h[4..8].copy_from_slice(&be32(XEX_MODULE_TITLE));
     h[8..12].copy_from_slice(&be32(0x200));
     h[0x14..0x18].copy_from_slice(&be32(2));
     h[0x18..0x1C].copy_from_slice(&be32(0x0001_00FF));
@@ -1632,4 +1804,159 @@ pub fn xvd_head(ctype: u32) -> SparseAt {
         [4, 3, 2, 1],
         0x1_0000,
     )
+}
+
+// ---------------------------------------------------------------------
+// Loose executables (adjustments §8.2). Synthetic headers only.
+// ---------------------------------------------------------------------
+
+/// A Switch `main.npdm` (switchbrew «NPDM»): `META`, AciOffset 0x80 at
+/// 0x70, then `ACI0` with `program_id` at +0x10.
+pub fn npdm(program_id: u64) -> Vec<u8> {
+    let mut out = vec![0u8; 0xC0];
+    out[..4].copy_from_slice(b"META");
+    out[0x20..0x2B].copy_from_slice(b"Application");
+    out[0x70..0x74].copy_from_slice(&le32(0x80));
+    out[0x74..0x78].copy_from_slice(&le32(0x40));
+    out[0x80..0x84].copy_from_slice(b"ACI0");
+    out[0x90..0x98].copy_from_slice(&program_id.to_le_bytes());
+    out
+}
+
+/// Size of each text section of [`dol`].
+pub const DOL_TEXT: u32 = 0x100;
+
+/// A DOL (wiibrew «DOL») with `texts` text sections of [`DOL_TEXT`]
+/// bytes of `nop` and one data section, every address in main RAM; the
+/// last text word is `mtspr HID4, r3` when `wii_word`.
+pub fn dol(texts: usize, wii_word: bool) -> Vec<u8> {
+    let mut h = vec![0u8; 0x100];
+    let mut body = Vec::new();
+    let mut at = 0x100u32;
+    for i in 0..texts {
+        h[i * 4..i * 4 + 4].copy_from_slice(&be32(at));
+        h[0x48 + i * 4..0x4C + i * 4].copy_from_slice(&be32(0x8000_3100 + i as u32 * 0x1000));
+        h[0x90 + i * 4..0x94 + i * 4].copy_from_slice(&be32(DOL_TEXT));
+        let mut text: Vec<u8> = std::iter::repeat_n(be32(0x6000_0000), DOL_TEXT as usize / 4)
+            .flatten()
+            .collect();
+        if wii_word && i + 1 == texts {
+            let n = text.len();
+            text[n - 4..].copy_from_slice(&be32(0x7C73_FBA6));
+        }
+        body.extend(text);
+        at += DOL_TEXT;
+    }
+    // One data section.
+    h[0x1C..0x20].copy_from_slice(&be32(at));
+    h[0x64..0x68].copy_from_slice(&be32(0x8040_0000));
+    h[0xAC..0xB0].copy_from_slice(&be32(0x40));
+    body.extend([0xD0u8; 0x40]);
+    h[0xE0..0xE4].copy_from_slice(&be32(0x8000_3100));
+    h.extend(body);
+    h
+}
+
+/// A SELF head (scetool `sce.h`, vita-make-fself): `SCE\0`, the four
+/// `version` bytes (`00 00 00 02` PS3 big-endian, `03 00 00 00` Vita
+/// little-endian), header type 1 and an app info at 0x70 with `authid`
+/// and `self_type`.
+pub fn self_header(version: [u8; 4], self_type: u32, authid: u64) -> Vec<u8> {
+    let big = version == [0, 0, 0, 2];
+    let mut out = vec![0u8; 0x100];
+    out[..4].copy_from_slice(b"SCE\0");
+    out[4..8].copy_from_slice(&version);
+    let u16b = |v: u16| {
+        if big {
+            v.to_be_bytes()
+        } else {
+            v.to_le_bytes()
+        }
+    };
+    let u32b = |v: u32| {
+        if big {
+            v.to_be_bytes()
+        } else {
+            v.to_le_bytes()
+        }
+    };
+    let u64b = |v: u64| {
+        if big {
+            v.to_be_bytes()
+        } else {
+            v.to_le_bytes()
+        }
+    };
+    out[0xA..0xC].copy_from_slice(&u16b(1));
+    let info_field = if big { 0x28 } else { 0x38 };
+    out[info_field..info_field + 8].copy_from_slice(&u64b(0x70));
+    out[0x70..0x78].copy_from_slice(&u64b(authid));
+    out[0x78..0x7C].copy_from_slice(&u32b(0x0100_0002));
+    out[0x7C..0x80].copy_from_slice(&u32b(self_type));
+    out
+}
+
+/// A PS3 NPDRM SELF (`self_type` 8) whose control info at 0x100 holds
+/// one type 3 entry with `NPD\0` and `content_id`.
+pub fn ps3_npdrm_self(content_id: &str) -> Vec<u8> {
+    let mut out = self_header([0, 0, 0, 2], 8, 0x1010_0000_0100_0003);
+    out.resize(0x100, 0);
+    out[0x58..0x60].copy_from_slice(&0x100u64.to_be_bytes());
+    out[0x60..0x68].copy_from_slice(&0x90u64.to_be_bytes());
+    let mut e = vec![0u8; 0x90];
+    e[0..4].copy_from_slice(&be32(3));
+    e[4..8].copy_from_slice(&be32(0x90));
+    e[0x10..0x14].copy_from_slice(b"NPD\0");
+    e[0x20..0x20 + content_id.len()].copy_from_slice(content_id.as_bytes());
+    out.extend(e);
+    out
+}
+
+/// A PSP `EBOOT.PBP` (PPSSPP `PBPReader.cpp`): `\0PBP`, a `PARAM.SFO`
+/// with `CATEGORY`, `DISC_ID` and a title, then a PSAR opening with
+/// `psar_magic` (none when empty).
+pub fn pbp(category: &str, disc_id: &str, psar_magic: &[u8]) -> Vec<u8> {
+    let sfo = param_sfo(&[
+        ("CATEGORY", category),
+        ("DISC_ID", disc_id),
+        ("TITLE", "Test Game"),
+    ]);
+    let sfo_at = 0x28u32;
+    let after = sfo_at + sfo.len() as u32;
+    let mut out = vec![0u8; 0x28];
+    out[..4].copy_from_slice(b"\0PBP");
+    out[4..8].copy_from_slice(&le32(0x0001_0000));
+    out[8..12].copy_from_slice(&le32(sfo_at));
+    // ICON0 … DATA.PSP all empty, right after the SFO; PSAR last.
+    for i in 1..7 {
+        out[8 + i * 4..12 + i * 4].copy_from_slice(&le32(after));
+    }
+    out[0x24..0x28].copy_from_slice(&le32(after));
+    out.extend(sfo);
+    out.extend_from_slice(psar_magic);
+    out.resize(out.len() + 0x40, 0);
+    out
+}
+
+/// A PBP whose `PARAM.SFO` spans 128 KiB, over the metadata budget.
+pub fn pbp_big_sfo() -> SparseAt {
+    let mut h = vec![0u8; 0x28];
+    h[..4].copy_from_slice(b"\0PBP");
+    h[8..12].copy_from_slice(&le32(0x28));
+    for i in 1..8 {
+        h[8 + i * 4..12 + i * 4].copy_from_slice(&le32(0x2_0028));
+    }
+    let mut s = SparseAt::new(0x2_0100);
+    s.put(0, &h);
+    s.put(0x28, b"\0PSF");
+    s
+}
+
+/// A PSP module (PPSSPP `PrxDecrypter.h`): `~PSP`, then `modname` at
+/// 0x0A.
+pub fn prx(modname: &str) -> Vec<u8> {
+    let mut out = vec![0u8; 0x150];
+    out[..4].copy_from_slice(b"~PSP");
+    out[0x0A..0x0A + modname.len()].copy_from_slice(modname.as_bytes());
+    out
 }

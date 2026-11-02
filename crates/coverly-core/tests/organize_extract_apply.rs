@@ -775,9 +775,9 @@ mod apply_phases {
     use coverly_core::archive::{open_archive_with, Tool};
     use coverly_core::organize::extract::{set_phase_hook, HookPoint};
     use coverly_core::organize::{
-        apply_organize, ApplyEnv, ArchiveAfter, Counts, ExtractSource, ItemKind, ItemStatus,
-        NameMode, OrganizeAction, OrganizeItem, OrganizePhase, OrganizePlan, OrganizeProgress,
-        OrganizeReport, SheetCheck, SkipReason, SourceFp, Transfer, TransferMode,
+        apply_organize, ApplyEnv, ApplyError, ArchiveAfter, Counts, ExtractSource, ItemKind,
+        ItemStatus, NameMode, OrganizeAction, OrganizeItem, OrganizePhase, OrganizePlan,
+        OrganizeProgress, OrganizeReport, SheetCheck, SkipReason, SourceFp, Transfer, TransferMode,
     };
     use coverly_core::write::trash::{FakeTrash, TrashBackend};
     use coverly_core::write::{job_archive_steps, ArchiveStep};
@@ -829,11 +829,14 @@ mod apply_phases {
                 source: ExtractSource::Builtin,
                 sheet_check: SheetCheck::Read,
                 m3u: None,
+                folder_game: false,
             },
             disc: None,
             action: OrganizeAction::Auto,
             title_id: None,
             content_id: None,
+            playlist: None,
+            title_source: None,
         }
     }
 
@@ -1010,6 +1013,7 @@ mod apply_phases {
             dats: None,
             probe: &NoCloud,
             online: None,
+            titles: None,
             now: SystemTime::now(),
         };
         let opts = OrganizeOptions {
@@ -1751,11 +1755,22 @@ mod apply_phases {
 
     #[test]
     fn too_little_room_for_what_is_left_pauses_before_writing() {
+        use std::sync::atomic::AtomicUsize;
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
         let env = env();
         let (archive, entries) = ps1(&env, "PS");
         let before = fs::read(&archive).unwrap();
         let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash);
-        set_free_space_override(Some(|_| Some(1000)));
+        // Room at the start of the apply (its space check), then the
+        // volume fills up before the item's own check.
+        CALLS.store(0, Ordering::SeqCst);
+        set_free_space_override(Some(|_| {
+            if CALLS.fetch_add(1, Ordering::SeqCst) == 0 {
+                Some(u64::MAX / 2)
+            } else {
+                Some(1000)
+            }
+        }));
         let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
         set_free_space_override(None);
         match report.paused {
@@ -1766,6 +1781,38 @@ mod apply_phases {
             other => panic!("{other:?}"),
         }
         assert_eq!(report.resumable_items, [0]);
+        assert_untouched(&env, &archive, &before, &entries);
+    }
+
+    /// Adjustments spec D17: a same-volume move still writes what it
+    /// extracts, so the apply's space check refuses it up front.
+    #[test]
+    fn a_same_volume_extraction_without_room_is_refused_up_front() {
+        let env = env();
+        let (archive, entries) = ps1(&env, "PS");
+        let before = fs::read(&archive).unwrap();
+        let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash);
+        set_free_space_override(Some(|_| Some(1000)));
+        let trash = FakeTrash::new(trash_dir(&env));
+        let result = apply_organize(
+            &plan_of(&env, vec![item], TransferMode::Move),
+            &ApplyEnv {
+                data_dir: &env.data,
+                progress: &|_| {},
+                cancel: &AtomicBool::new(false),
+                trash: &trash,
+                tools: Some(&[]),
+            },
+        );
+        set_free_space_override(None);
+        let sum: u64 = entries.iter().map(|e| e.size).sum();
+        match result {
+            Err(ApplyError::NoSpace { needed, free }) => {
+                assert_eq!(free, 1000);
+                assert_eq!(needed, sum + sum.div_ceil(100));
+            }
+            other => panic!("{other:?}"),
+        }
         assert_untouched(&env, &archive, &before, &entries);
     }
 

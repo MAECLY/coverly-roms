@@ -637,3 +637,97 @@ describe('SystemGroups — extract rows keep warnings in sight', () => {
     });
   });
 });
+
+describe('SystemGroups (adjustments)', () => {
+  function renderEs(items: OrganizeItem[]) {
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf(items))}
+          layoutName="Anbernic (stock)"
+          systemName={systemName}
+          mode="move"
+          profile={null}
+        />
+      </I18nProvider>,
+    );
+  }
+
+  it('an unresolved title is labelled «Cifrado» once, as a word with its reason', () => {
+    renderEs([
+      autoItem(0, '0100F2C0115B6000.xci', 'switch', 'ROMS/SWITCH', {
+        method: 'header',
+        why: [
+          { kind: 'header', system: 'switch', weight: 0.95, detail: 'HEAD' },
+        ],
+        notes: [{ kind: 'encrypted-name' }, { kind: 'encrypted' }],
+      }),
+    ]);
+    const label = screen.getByText('Cifrado');
+    expect(label).toHaveAccessibleDescription(
+      'No se puede leer el nombre sin descifrarlo',
+    );
+    // The reason is a visible line, not only a description.
+    expect(
+      screen.getByText('No se puede leer el nombre sin descifrarlo'),
+    ).toBeVisible();
+    // «Cifrado» is said once: the older note line is not repeated.
+    expect(document.body.textContent!.match(/Cifrado/g)).toHaveLength(1);
+  });
+
+  it('a resolved encrypted 3DS game shows only its existing note', () => {
+    renderEs([
+      autoItem(0, 'Pokemon Y (Europe).3ds', '3ds', 'ROMS/3DS', {
+        notes: [{ kind: 'encrypted-content', emulator: 'Azahar' }],
+      }),
+    ]);
+    expect(screen.queryByText('Cifrado')).toBeNull();
+    expect(
+      screen.getByText('Copia cifrada: Azahar solo abre copias descifradas'),
+    ).toBeInTheDocument();
+  });
+
+  it('homebrew, a catalogue name and a disc set playlist each get their line', () => {
+    renderEs([
+      autoItem(0, 'hbmenu.nro', 'switch', 'ROMS/SWITCH', {
+        notes: [{ kind: 'homebrew' }],
+      }),
+      autoItem(1, 'Cartridge.xci', 'switch', 'ROMS/SWITCH', {
+        catalogue_name: 'Super Mario Odyssey',
+        title_id: { id: '0100000000010000', source: 'nca-catalog' },
+        title_source: 'titledb',
+      }),
+      autoItem(2, 'Grandia (Japan) (Disc 1).cue', 'saturn', 'ROMS/SATURN', {
+        kind: 'set',
+        sources: [
+          'Grandia (Japan) (Disc 1).cue',
+          'Grandia (Japan) (Disc 3).cue',
+        ],
+        notes: [{ kind: 'missing-disc', n: 2 }],
+        playlist: {
+          path: 'ROMS/SATURN/Grandia (Japan).m3u',
+          discs: [
+            'ROMS/SATURN/Grandia (Japan) (Disc 1).cue',
+            'ROMS/SATURN/Grandia (Japan) (Disc 3).cue',
+          ],
+        },
+      }),
+    ]);
+    expect(screen.getByText('Homebrew')).toBeInTheDocument();
+    const source = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'P' &&
+        el.textContent ===
+          'Nombre del catálogo de blawar/titledb: Super Mario Odyssey',
+    );
+    // A game name, not a number or a code: in the body face.
+    expect(source.querySelector('.mono')).toBeNull();
+    expect(
+      screen.getByText('Title ID por el id del NCA en el catálogo'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Falta el disco 2')).toBeInTheDocument();
+    expect(
+      screen.getByText('Se crea Grandia (Japan).m3u para cambiar de disco'),
+    ).toBeInTheDocument();
+  });
+});

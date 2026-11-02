@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
 use crate::cache::{Cache, ContentRow};
-use crate::consoles::{self, Budgeted, ConsoleId, DirListing, TitleKind};
+use crate::consoles::{self, Budgeted, ConsoleId, TitleKind};
 use crate::identify::dat::normalise_serial;
 use crate::identify::hash::{
     hash_stream, hex_upper, n64_to_z64, HashOutcome, HeaderRule, N64Order, RomHashes,
@@ -48,8 +48,9 @@ pub const WORKERS: usize = 4;
 pub const SLOW_VOLUME_WORKERS: usize = 2;
 
 /// Version of the facts stored in `content_keys.keys_json`; other versions
-/// are a miss.
-const FACTS_VERSION: u32 = 2;
+/// are a miss. `3`: title keys say whether their id came from the file
+/// name, and folder trees key folder games (adjustments spec D19).
+const FACTS_VERSION: u32 = 3;
 /// The largest header any rule takes off (SNES/SMS copier).
 const MAX_HEADER: usize = 512;
 /// Bytes read from a CHD for its header (v5 is 124).
@@ -80,9 +81,11 @@ pub enum ExactKey {
     /// A CHD whose header gives only the raw data SHA1. Unconfirmed.
     ChdRaw { rawsha1: String },
     /// Same console title id, kind and version (systems batch 2 D11, plan
-    /// P-6), and the same disc of a multi-disc game. Not a byte proof:
-    /// unconfirmed, so report-only. Only units of [`TITLE_ID_SYSTEMS`]
-    /// whose bytes nothing proved equal get one.
+    /// P-6), and the same disc of a multi-disc game. Not a byte proof
+    /// ([`ExactKey::is_confirmed`] is `false`), but a group of them acts
+    /// when every id came from the content ([`ExactKey::acts_unconfirmed`],
+    /// adjustments spec D19). Only units of [`TITLE_ID_SYSTEMS`] whose
+    /// bytes nothing proved equal get one.
     Title {
         title_id: String,
         /// Serialised as `title-kind`: `kind` is the enum's tag.
@@ -91,7 +94,22 @@ pub enum ExactKey {
         version: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         disc: Option<u8>,
+        /// The id came from the file name alone (`[0100…]`, a `CUSA…`
+        /// folder name), never from the content: too weak to move a file
+        /// (spec Q14). Not part of [`ExactKey::key_string`], so such a copy
+        /// still groups, report-only.
+        #[serde(default, skip_serializing_if = "is_false")]
+        by_name: bool,
     },
+    /// A folder game's tree: [`folder_tree_digest`] of its files' relative
+    /// paths and sizes, from metadata only, or from an archive's entry
+    /// listing for a folder game inside a zip or 7z (spec D19, D20). Not a
+    /// byte proof, but equal trees in one system act.
+    FolderTree { digest: String },
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl ExactKey {
@@ -120,6 +138,7 @@ impl ExactKey {
                 kind,
                 version,
                 disc,
+                ..
             } => {
                 let disc = disc.map_or(String::new(), |d| format!(":d{d}"));
                 format!(
@@ -127,6 +146,7 @@ impl ExactKey {
                     version.as_deref().unwrap_or_default()
                 )
             }
+            ExactKey::FolderTree { digest } => format!("l1:{system}:tree:{digest}"),
         }
     }
 
@@ -135,9 +155,60 @@ impl ExactKey {
     pub fn is_confirmed(&self) -> bool {
         !matches!(
             self,
-            ExactKey::ZipCrc { .. } | ExactKey::ChdRaw { .. } | ExactKey::Title { .. }
+            ExactKey::ZipCrc { .. }
+                | ExactKey::ChdRaw { .. }
+                | ExactKey::Title { .. }
+                | ExactKey::FolderTree { .. }
         )
     }
+
+    /// Acts although not a byte proof (spec D19): a title key whose id
+    /// came from the content (never from the file name alone, Q14) and,
+    /// for an update or DLC, whose version is known (a ticket names the
+    /// title, not its version: two update NSPs of one game may be two
+    /// versions), and a folder tree. A group acts on title keys only when
+    /// every member's key does.
+    pub fn acts_unconfirmed(&self) -> bool {
+        match self {
+            ExactKey::Title {
+                by_name,
+                kind,
+                version,
+                ..
+            } => {
+                !by_name
+                    && (version.is_some() || !matches!(kind, TitleKind::Update | TitleKind::Dlc))
+            }
+            ExactKey::FolderTree { .. } => true,
+            _ => false,
+        }
+    }
+}
+
+/// SHA-1 (upper-case hex) of the sorted `(relative path, size)` list of a
+/// folder game's files (spec D19): each path NFC, lower-case, with `/`
+/// between its parts, so a tree on disk and the same tree inside an
+/// archive (whatever its separator or case) give one digest. Sorts
+/// `entries` in place.
+pub fn folder_tree_digest(entries: &mut [(String, u64)]) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    for (path, _) in entries.iter_mut() {
+        let clean: String = path
+            .nfc()
+            .collect::<String>()
+            .replace('\\', "/")
+            .to_lowercase();
+        *path = clean.trim_matches('/').to_string();
+    }
+    entries.sort();
+    let mut hasher = Sha1::new();
+    for (path, size) in entries.iter() {
+        hasher.update(path.as_bytes());
+        hasher.update(b"\t");
+        hasher.update(size.to_string().as_bytes());
+        hasher.update(b"\n");
+    }
+    hex_upper(&hasher.finalize())
 }
 
 /// What level 1 found out about one unit.
@@ -166,6 +237,11 @@ pub struct KeyedUnit {
     /// the rest; a zip's ROM entry. Empty when not known without a read
     /// the planner did not need.
     pub dat_crcs: Vec<(u32, u64)>,
+    /// A folder game's [`ExactKey::FolderTree`] (on disk, or inside an
+    /// archive), beside its title key in `exact` (spec D19). Only set
+    /// when another unit of its system may have one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree: Option<ExactKey>,
 }
 
 impl KeyedUnit {
@@ -358,6 +434,7 @@ pub fn level_one(
         pass(&mut stage);
     }
 
+    let trees = folder_trees(units, cancel);
     let mut out = Vec::with_capacity(n);
     for (i, (u, f)) in units.iter().zip(&facts).enumerate() {
         if fresh[i] {
@@ -384,9 +461,40 @@ pub fn level_one(
             dat_game: None,
             chd_raw: f.chd_raw.clone(),
             dat_crcs: f.crcs.clone(),
+            tree: trees[i]
+                .clone()
+                .map(|digest| ExactKey::FolderTree { digest }),
         });
     }
     out
+}
+
+/// The folder trees of `units` (index-aligned): the digest the caller
+/// measured, else, for a folder game on disk, one measured now from
+/// metadata only. Only in systems where two or more units may have one
+/// (folder games and archive folder games): a lone folder is never
+/// walked.
+fn folder_trees(units: &[Unit], cancel: &AtomicBool) -> Vec<Option<String>> {
+    let may_have = |u: &Unit| u.kind == UnitKind::Folder || u.tree_digest.is_some();
+    let mut per_system: HashMap<&str, usize> = HashMap::new();
+    for u in units.iter().filter(|u| may_have(u)) {
+        *per_system.entry(u.system.as_str()).or_default() += 1;
+    }
+    units
+        .iter()
+        .map(|u| {
+            if !may_have(u) || per_system.get(u.system.as_str()).copied().unwrap_or(0) < 2 {
+                return None;
+            }
+            if u.tree_digest.is_some() {
+                return u.tree_digest.clone();
+            }
+            if cancel.load(Ordering::Relaxed) {
+                return None;
+            }
+            crate::organize::walk::tree_digest(&u.primary)
+        })
+        .collect()
 }
 
 /// Shared state of the class passes.
@@ -1236,8 +1344,9 @@ pub const TITLE_ID_SYSTEMS: [&str; 13] = [
 /// `cache.json` namespace of the title keys read, by path, size and
 /// modification time: a warm run reads no header again. `v2`: PS4/PS5
 /// keys are content ids and Xbox One/Series keys exist (systems batch 3
-/// D14), so `v1` entries are a miss.
-const TITLE_NS: &str = "dedupe-title-v2";
+/// D14); `v3`: keys say whether the id came from the file name
+/// (adjustments spec D19), so older entries are a miss.
+const TITLE_NS: &str = "dedupe-title-v3";
 
 /// Whether `system` is one of [`TITLE_ID_SYSTEMS`].
 pub fn has_title_ids(system: &str) -> bool {
@@ -1247,8 +1356,9 @@ pub fn has_title_ids(system: &str) -> bool {
 /// The title key of `u` from its console header (files) or folder probe
 /// (folder games), within the readers' budget (D24): `None` for other
 /// systems, for a unit no reader identifies, or for one identified as
-/// another system. A Switch file name's `[0100…][vN]` tokens are enough
-/// (spec D10) and read nothing.
+/// another system. A Switch file name's `[0100…][vN]` tokens stand in
+/// when the content gives no id, marked [`by_name`](ExactKey::Title) so
+/// they never act (adjustments spec D19, Q14).
 fn title_key(u: &Unit, ctx: &KeyCtx) -> Option<ExactKey> {
     if !has_title_ids(&u.system) {
         return None;
@@ -1258,16 +1368,22 @@ fn title_key(u: &Unit, ctx: &KeyCtx) -> Option<ExactKey> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    if u.system == "switch" {
-        if let Some((tid, version)) = consoles::nx::title_id_from_name(&name) {
-            return Some(ExactKey::Title {
-                title_id: format!("{tid:016X}"),
-                kind: consoles::kind_switch(tid),
-                version: version.map(|v| v.to_string()),
-                disc: None,
-            });
-        }
+    let from_content = title_key_read(u, ctx, &name);
+    if from_content.is_some() || u.system != "switch" {
+        return from_content;
     }
+    let (tid, version) = consoles::nx::title_id_from_name(&name)?;
+    Some(ExactKey::Title {
+        title_id: format!("{tid:016X}"),
+        kind: consoles::kind_switch(tid),
+        version: version.map(|v| v.to_string()),
+        disc: None,
+        by_name: true,
+    })
+}
+
+/// The title key a reader finds in `u` (cached by path, size and time).
+fn title_key_read(u: &Unit, ctx: &KeyCtx, name: &str) -> Option<ExactKey> {
     let cached = |cache: &Cache, key: &str| {
         cache
             .get_json::<Option<ExactKey>>(TITLE_NS, key)
@@ -1285,13 +1401,10 @@ fn title_key(u: &Unit, ctx: &KeyCtx) -> Option<ExactKey> {
                 .into_iter()
                 .map(|(n, _, _)| n)
                 .collect();
-            consoles::identify_dir(&DirListing {
-                dir: &u.primary,
-                names: &names,
-            })
-            .ok()
-            .flatten()
-            .map(|m| m.id)
+            consoles::identify_dir_on_disk(&u.primary, &names)
+                .ok()
+                .flatten()
+                .map(|m| m.id)
         }
         // An XVC header gives one verdict per Xbox system (systems batch 3
         // D19): the one of the unit's own system.
@@ -1299,7 +1412,7 @@ fn title_key(u: &Unit, ctx: &KeyCtx) -> Option<ExactKey> {
             let file = consoles::open_rom(&u.primary).ok()?;
             let mut at = crate::identify::sniff::FileAt(file);
             let mut src = Budgeted::new(&mut at, u.size);
-            consoles::identify_all(&mut src, &u.ext, &name)
+            consoles::identify_all(&mut src, &u.ext, name)
                 .into_iter()
                 .find(|id| id.system == u.system)
         }
@@ -1337,6 +1450,12 @@ pub fn remember_title_key(cache: &Cache, u: &Unit, id: &ConsoleId) {
     let _ = cache.put_json(TITLE_NS, &title_cache_key(u), &found, None);
 }
 
+/// The key string of the title key `id` gives in `system`, as the folder
+/// tree links compare it (spec D19); `None` when it gives none.
+pub fn title_key_string(id: &ConsoleId, system: &str) -> Option<String> {
+    title_of(id, system).map(|k| k.key_string(system))
+}
+
 /// The title key a reader's answer gives in `system`. PS4/PS5: the full
 /// content id when there is one (`UP9000-CUSA00900_00-BLOODBORNE000000`),
 /// so another region or another DLC label is another key (systems batch 3
@@ -1360,11 +1479,16 @@ fn title_of(id: &ConsoleId, system: &str) -> Option<ExactKey> {
     if title_id.is_empty() {
         return None;
     }
+    // A content id, store id or product id is always read from the
+    // content; only the title id may be a name's.
+    let by_name =
+        id.id_source == Some(consoles::IdSource::FileName) && key_id == id.title_id.as_deref();
     Some(ExactKey::Title {
         title_id: title_id.to_ascii_uppercase(),
         kind: id.kind,
         version: id.version.clone(),
         disc: id.disc_no,
+        by_name,
     })
 }
 
@@ -1441,6 +1565,7 @@ fn title_version_key(unit: &Unit, k: &KeyedUnit) -> Option<VersionKey> {
         kind,
         version,
         disc,
+        ..
     }) = &k.exact
     else {
         return None;

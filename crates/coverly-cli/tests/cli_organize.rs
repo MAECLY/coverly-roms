@@ -1087,3 +1087,374 @@ fn resume_of_a_confirmed_large_job_needs_no_flag() {
         .stdout(contains("copied 2"));
     assert!(other.path().join("ROMS/GBA/Game A.gba").is_file());
 }
+
+/// `COVERLY_TEST_PROMPT` of the CLI: a test build answers the per-item
+/// questions from this list (comma separated, then EOF), as if stdin and
+/// stderr were terminals.
+const TEST_PROMPT_ENV: &str = "COVERLY_TEST_PROMPT";
+
+/// Between a GB (32 KiB) and a GBA (64 KiB) file: each GBA is huge on its
+/// own, the GBs are not, and two GBs together reach it.
+const HUGE_AT: &str = "40000";
+
+/// Three GBA files (huge with [`HUGE_AT`]) and, with `rest`, two GB files.
+fn big_pile(rest: bool) -> TempDir {
+    let tmp = TempDir::new().unwrap();
+    for (i, name) in ["Big 1.gba", "Big 2.gba", "Big 3.gba"].iter().enumerate() {
+        write_old(&tmp.path().join(name), &fx::gba_tagged(10 + i as u8));
+    }
+    if rest {
+        write_old(&tmp.path().join("Small 1.gb"), &fx::gb_tagged(0x00, 21));
+        write_old(&tmp.path().join("Small 2.gb"), &fx::gb_tagged(0x00, 22));
+    }
+    tmp
+}
+
+/// The names asked about, in order (`Copy "<name>" (…`).
+fn asked(stderr: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(stderr)
+        .lines()
+        .filter_map(|l| l.strip_prefix("Copy \""))
+        .filter_map(|l| l.split_once('"').map(|(n, _)| n.to_string()))
+        .collect()
+}
+
+fn big_args(target: &Path, extra: &[&str]) -> Vec<String> {
+    let mut args = copy_args(target);
+    args.extend(["--report", "json"].map(String::from));
+    args.extend(extra.iter().map(|s| s.to_string()));
+    args
+}
+
+fn run_big(
+    pile: &Path,
+    target: &Path,
+    data: &Path,
+    cache: &Path,
+    extra: &[&str],
+    script: Option<&str>,
+) -> assert_cmd::assert::Assert {
+    let args = big_args(target, extra);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let mut cmd = coverly(data, cache, &args);
+    cmd.env(LARGE_TRANSFER_ENV, HUGE_AT);
+    if let Some(s) = script {
+        cmd.env(TEST_PROMPT_ENV, s);
+    }
+    cmd.arg(pile).assert()
+}
+
+#[test]
+fn each_huge_item_is_asked_and_no_yes_all_follow_the_answers() {
+    let (p, data, cache) = (
+        big_pile(false),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let other = TempDir::new().unwrap();
+    let out = run_big(
+        p.path(),
+        other.path(),
+        data.path(),
+        cache.path(),
+        &[],
+        Some("n,y,a"),
+    )
+    .success()
+    .get_output()
+    .clone();
+    let names = asked(&out.stderr);
+    assert_eq!(names.len(), 3, "{}", String::from_utf8_lossy(&out.stderr));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("free on "), "{stderr}");
+    assert!(
+        stderr.contains("after this)? [y]es / [a]ll / [n]o:"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("Write "), "no rest question: {stderr}");
+    // Prompts on stderr only: stdout is the JSON report.
+    let report = json_of(&out.stdout);
+    assert_eq!(report["mode"], "apply");
+    let gba = other.path().join("ROMS/GBA");
+    assert!(!gba.join(&names[0]).exists(), "declined");
+    assert!(gba.join(&names[1]).is_file());
+    assert!(gba.join(&names[2]).is_file());
+    assert!(p.path().join(&names[0]).is_file());
+    let left = report["plan"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["sources"][0].as_str().unwrap().ends_with(&names[0]))
+        .unwrap()
+        .clone();
+    assert_eq!(left["reason"]["kind"], "not-confirmed", "{left}");
+}
+
+#[test]
+fn yes_to_all_also_confirms_the_rest_and_the_rest_is_asked_otherwise() {
+    let (p, data, cache) = (
+        big_pile(true),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let other = TempDir::new().unwrap();
+    // «All» at the first item: nothing else is asked.
+    let out = run_big(
+        p.path(),
+        other.path(),
+        data.path(),
+        cache.path(),
+        &[],
+        Some("a"),
+    )
+    .success()
+    .get_output()
+    .clone();
+    assert_eq!(asked(&out.stderr).len(), 1);
+    assert!(other.path().join("ROMS/GB/Small 1.gb").is_file());
+
+    // Yes to each: then the rest (two GB files, over the threshold) is
+    // asked once; «no» there writes nothing.
+    let other = TempDir::new().unwrap();
+    let data = TempDir::new().unwrap();
+    let out = run_big(
+        p.path(),
+        other.path(),
+        data.path(),
+        cache.path(),
+        &[],
+        Some("y,y,y,n"),
+    )
+    .code(1)
+    .get_output()
+    .clone();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(asked(&out.stderr).len(), 3);
+    assert!(stderr.contains("Write 65.5 kB more to "), "{stderr}");
+    assert!(stderr.contains("nothing was written"), "{stderr}");
+    assert!(tree_digest(other.path()).is_empty());
+
+    let out = run_big(
+        p.path(),
+        other.path(),
+        data.path(),
+        cache.path(),
+        &[],
+        Some("y,y,y,y"),
+    )
+    .success()
+    .get_output()
+    .clone();
+    assert!(String::from_utf8_lossy(&out.stderr).contains("Write 65.5 kB more to "));
+    assert!(other.path().join("ROMS/GB/Small 2.gb").is_file());
+    assert!(other.path().join("ROMS/GBA/Big 3.gba").is_file());
+}
+
+#[test]
+fn eof_at_a_question_writes_nothing_and_refuses_like_today() {
+    let (p, data, cache) = (
+        big_pile(false),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let other = TempDir::new().unwrap();
+    let before = tree_digest(p.path());
+    run_big(
+        p.path(),
+        other.path(),
+        data.path(),
+        cache.path(),
+        &[],
+        Some(""),
+    )
+    .code(1)
+    .stderr(contains(
+        "re-run with --yes-large to confirm; nothing was written",
+    ));
+    assert_eq!(tree_digest(p.path()), before);
+    assert!(tree_digest(other.path()).is_empty());
+    assert!(!data.path().join("jobs").exists());
+}
+
+#[test]
+fn yes_large_asks_nothing() {
+    let (p, data, cache) = (
+        big_pile(true),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let other = TempDir::new().unwrap();
+    let out = run_big(
+        p.path(),
+        other.path(),
+        data.path(),
+        cache.path(),
+        &["--yes-large"],
+        Some("n,n,n,n"),
+    )
+    .success()
+    .get_output()
+    .clone();
+    assert!(asked(&out.stderr).is_empty());
+    assert!(other.path().join("ROMS/GBA/Big 1.gba").is_file());
+}
+
+#[test]
+fn skip_large_leaves_every_huge_item_and_the_rest_still_needs_confirming() {
+    let (p, data, cache) = (
+        big_pile(false),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let other = TempDir::new().unwrap();
+    let out = run_big(
+        p.path(),
+        other.path(),
+        data.path(),
+        cache.path(),
+        &["--skip-large"],
+        None,
+    )
+    .success()
+    .get_output()
+    .clone();
+    assert!(asked(&out.stderr).is_empty());
+    assert!(!other.path().join("ROMS/GBA").exists(), "every GBA left");
+    let report = json_of(&out.stdout);
+    let not_confirmed = report["plan"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|i| i["reason"]["kind"] == "not-confirmed")
+        .count();
+    assert_eq!(not_confirmed, 3);
+
+    // With two GB files the rest reaches the threshold: no terminal, so
+    // nothing confirms it.
+    let (p, data) = (big_pile(true), TempDir::new().unwrap());
+    let other = TempDir::new().unwrap();
+    run_big(
+        p.path(),
+        other.path(),
+        data.path(),
+        cache.path(),
+        &["--skip-large"],
+        None,
+    )
+    .code(1)
+    .stderr(contains("instead of --skip-large; nothing was written"));
+    assert!(tree_digest(other.path()).is_empty());
+}
+
+/// Two copies of one huge GBA: the plan keeps one and sets the other
+/// aside. Declining the keeper leaves it, so the other copy becomes the
+/// keeper and is huge too: it is asked (or skipped) as well, not refused.
+fn twin_pile() -> TempDir {
+    let tmp = TempDir::new().unwrap();
+    write_old(&tmp.path().join("Twin.gba"), &fx::gba_tagged(30));
+    write_old(&tmp.path().join("Twin (1).gba"), &fx::gba_tagged(30));
+    tmp
+}
+
+#[test]
+fn an_item_that_becomes_huge_after_a_decline_is_asked_or_skipped_too() {
+    let cache = TempDir::new().unwrap();
+    // --skip-large: both copies stay where they are, nothing is refused.
+    let (p, data, other) = (
+        twin_pile(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let out = run_big(
+        p.path(),
+        other.path(),
+        data.path(),
+        cache.path(),
+        &["--skip-large"],
+        None,
+    )
+    .success()
+    .get_output()
+    .clone();
+    assert!(asked(&out.stderr).is_empty());
+    assert!(!other.path().join("ROMS/GBA").exists(), "both copies left");
+    assert!(p.path().join("Twin.gba").is_file());
+    assert!(p.path().join("Twin (1).gba").is_file());
+
+    // Asked: «no» to the keeper, then the copy that takes its place is
+    // asked on its own; «yes» copies it.
+    let (data, other) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let out = run_big(
+        p.path(),
+        other.path(),
+        data.path(),
+        cache.path(),
+        &[],
+        Some("n,y"),
+    )
+    .success()
+    .get_output()
+    .clone();
+    let names = asked(&out.stderr);
+    assert_eq!(names.len(), 2, "{}", String::from_utf8_lossy(&out.stderr));
+    assert_ne!(names[0], names[1]);
+    assert!(other.path().join("ROMS/GBA").join(&names[1]).is_file());
+    assert!(!other.path().join("ROMS/GBA").join(&names[0]).exists());
+}
+
+#[test]
+fn skip_large_with_no_huge_item_changes_nothing() {
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    let other = TempDir::new().unwrap();
+    let mut args = copy_args(other.path());
+    args.push("--skip-large".into());
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    coverly(data.path(), cache.path(), &args)
+        .arg(p.path())
+        .assert()
+        .success()
+        .stdout(contains("copied 2"));
+}
+
+#[test]
+fn yes_large_and_skip_large_together_are_a_usage_error() {
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    coverly(
+        data.path(),
+        cache.path(),
+        &[
+            "organize",
+            "--offline",
+            "--apply",
+            "--yes-large",
+            "--skip-large",
+        ],
+    )
+    .arg(p.path())
+    .assert()
+    .code(2);
+}
+
+#[test]
+fn without_a_terminal_the_refusal_is_unchanged() {
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    let other = TempDir::new().unwrap();
+    let args = copy_args(other.path());
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let out = coverly(data.path(), cache.path(), &args)
+        .env(LARGE_TRANSFER_ENV, "1")
+        .arg(p.path())
+        .assert()
+        .code(1)
+        .get_output()
+        .clone();
+    // The volume is the mount holding the target (the temp folder's own
+    // name where none is listed): only it may vary by OS.
+    let bytes = (64 + 32) * 1024;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let volume = stderr
+        .strip_prefix(&format!("error: would write {bytes} bytes (≥ 10 GB) to "))
+        .and_then(|r| r.strip_suffix("; re-run with --yes-large to confirm; nothing was written\n"))
+        .unwrap_or_else(|| panic!("unexpected refusal: {stderr:?}"));
+    assert!(!volume.is_empty() && !volume.contains('\n'), "{stderr:?}");
+}

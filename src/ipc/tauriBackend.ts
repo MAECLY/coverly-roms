@@ -17,6 +17,7 @@ import { sniffImageMime } from './sniff';
 import type {
   ArtImage,
   CandidateView,
+  CatalogStatus,
   CredentialStatus,
   DedupeJobView,
   DedupePlanViewWire,
@@ -63,6 +64,7 @@ export const ORGANIZE_PROGRESS_EVENT = 'organize-progress';
 export const ORGANIZE_CHANGED_EVENT = 'organize-changed';
 export const DEDUPE_PROGRESS_EVENT = 'dedupe-progress';
 export const DEDUPE_CHANGED_EVENT = 'dedupe-changed';
+export const CATALOG_PROGRESS_EVENT = 'catalog-progress';
 
 async function dedupePlanCall(cmd: string, args: Record<string, unknown>) {
   return normalizeDedupePlanView(await call<DedupePlanViewWire>(cmd, args));
@@ -185,12 +187,12 @@ export function createTauriBackend(): Backend {
         }),
       ),
     organizeCancel: (planId) => call<void>('organize_cancel', { planId }),
-    organizeApply: async (planId, decisions, confirmedBytes) =>
+    organizeApply: async (planId, decisions, confirm) =>
       normalizeOrganizeJob(
         await call<OrganizeJobViewWire>('organize_apply', {
           planId,
           decisions,
-          confirmedBytes: confirmedBytes ?? null,
+          confirm: confirm ?? null,
         }),
       ),
     organizeResume: async (job) =>
@@ -257,6 +259,17 @@ export function createTauriBackend(): Backend {
     openConfigFolder: () => call<void>('open_config_folder'),
     openLogsFolder: () => call<void>('open_logs_folder'),
     openLink: (link) => call<void>('open_link', { link }),
+    openCredit: (id, which) => call<void>('open_credit', { id, which }),
+    catalogStatus: (locale) =>
+      call<CatalogStatus>('catalog_status', { locale: locale ?? null }),
+    catalogUpdate: (locale) =>
+      call<CatalogStatus>('catalog_update', { locale: locale ?? null }),
+    onCatalogProgress: (cb) =>
+      listen<CatalogStatus>(CATALOG_PROGRESS_EVENT, (e) => cb(e.payload)),
+    catalogCancel: () => call<void>('catalog_cancel'),
+    catalogRemove: () => call<CatalogStatus>('catalog_remove'),
+    // Only sniffed PNG/JPEG/WebP/GIF become images, like library art.
+    catalogIcon: (tid) => image('catalog_icon', { tid }),
     cacheUsage: () => call<number>('cache_usage'),
     clearCache: () => call<number>('clear_cache'),
     listProfiles: () => call<ProfileInfo[]>('list_profiles'),

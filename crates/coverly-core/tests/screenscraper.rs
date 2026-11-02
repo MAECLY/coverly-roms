@@ -356,6 +356,16 @@ fn errors_never_show_secrets() {
 }
 
 #[test]
+fn an_unregistered_base_never_shows_secrets() {
+    let mut w = w();
+    w.cfg.base = "https://ss.mirror.example/api2".into();
+    let e = run(&w, Media::Cover, Some(&hashes())).unwrap_err();
+    let text = format!("{e} {e:?}");
+    assert!(!text.contains("devpw") && !text.contains("mypw"), "{text}");
+    assert!(text.contains("ss.mirror.example"), "{text}");
+}
+
+#[test]
 fn hostile_ids_regions_and_media_types_are_dropped() {
     let w = w();
     w.server.serve_json(&jeu_infos_path(),

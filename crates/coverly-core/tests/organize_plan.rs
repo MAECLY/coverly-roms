@@ -62,6 +62,7 @@ impl World {
             dats: None,
             probe: &NoCloud,
             online: None,
+            titles: None,
             now: SystemTime::now(),
         }
     }
@@ -1249,6 +1250,7 @@ mod extract_types {
             },
             sheet_check: SheetCheck::Deferred,
             m3u: Some(PathBuf::from("ROMS/PS/Game.m3u")),
+            folder_game: false,
         };
         round_trip(&transfer, "extract");
         let json = serde_json::to_value(&transfer).unwrap();
@@ -1270,6 +1272,7 @@ mod extract_types {
                 source: ExtractSource::Builtin,
                 sheet_check: SheetCheck::Read,
                 m3u: None,
+                folder_game: false,
             }
         );
         let disc = DiscId {
@@ -2901,9 +2904,9 @@ fn stored_facts(world: &World, path: &Path) -> Option<serde_json::Value> {
 }
 
 #[test]
-fn facts_of_version_7_are_read_again() {
-    // Batch 3 D28: version 7 facts carry no content id, region or Xbox
-    // product id on `Sniff.console`.
+fn facts_of_version_8_are_read_again() {
+    // Adjustments D33: version 8 facts carry no game part, title source,
+    // homebrew kind, NCA ids or disc count on `Sniff.console`.
     let dir = TempDir::new().unwrap();
     let rom = dir.path().join("Game.gba");
     put(&rom, &fx::gba());
@@ -2915,10 +2918,10 @@ fn facts_of_version_7_are_read_again() {
     };
     plan(&world, dir.path(), opts.clone());
     let mut stored = stored_facts(&world, &rom).expect("facts memoised");
-    assert_eq!(stored["v"], 8);
+    assert_eq!(stored["v"], 9);
 
-    // A version 7 row with a stale verdict is not trusted.
-    stored["v"] = 7.into();
+    // A version 8 row with a stale verdict is not trusted.
+    stored["v"] = 8.into();
     stored["inspection"]["payloads"][0]["sniff"]["hits"] = serde_json::json!([]);
     let meta = fs::metadata(&rom).unwrap();
     let mtime = FileTime::from_last_modification_time(&meta);
@@ -2934,7 +2937,7 @@ fn facts_of_version_7_are_read_again() {
         .find(|i| i.system_id.as_deref() == Some("gba"));
     assert!(item.is_some(), "the header is read again");
     let stored = stored_facts(&world, &rom).unwrap();
-    assert_eq!(stored["v"], 8);
+    assert_eq!(stored["v"], 9);
     assert_eq!(
         stored["inspection"]["payloads"][0]["sniff"]["hits"][0]["system"],
         "gba"
@@ -3670,13 +3673,14 @@ fn systems_batch_2_pile_plans() {
 }
 
 #[test]
-fn a_pile_folder_game_and_its_file_twin_are_reported_and_both_move() {
+fn a_pile_folder_game_and_its_file_twin_act_as_one_title() {
     use coverly_core::consoles::testing as ct;
-    use coverly_core::dedupe::{GroupAction, ReportWhy, UnitKind};
+    use coverly_core::dedupe::{GroupAction, GroupBasis, UnitKind};
     use coverly_core::organize::ItemKind;
     // D28: a folder game is a duplicates unit in the pile too. A Wii U
-    // loadiine folder and a WUA of the same title id, kind and version
-    // are one reported group; neither is set aside.
+    // loadiine folder and a WUA of the same title id, kind and version,
+    // both read from the content, are one copy (adjustments spec D19):
+    // one moves in, the other is set aside.
     let world = World::new();
     let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
     let folder = "Super Mario 3D World [0005000010145D00]";
@@ -3704,21 +3708,23 @@ fn a_pile_folder_game_and_its_file_twin_are_reported_and_both_move() {
     );
     let dir = by_name(&p, folder);
     assert_eq!(dir.kind, ItemKind::Folder);
-    assert!(dir.moves_in(), "{:?}", dir.action);
     let wua = by_name(&p, "Super Mario 3D World.wua");
-    assert!(wua.moves_in(), "{:?}", wua.action);
+    assert_eq!(
+        [dir, wua].iter().filter(|i| i.moves_in()).count(),
+        1,
+        "{:?} / {:?}",
+        dir.action,
+        wua.action
+    );
+    assert!([dir, wua].iter().any(|i| i.is_set_aside()));
     let group = p
         .duplicates
         .iter()
         .find(|g| g.members.iter().any(|m| m.unit.kind == UnitKind::Folder))
         .expect("a group with the folder game");
     assert_eq!(group.members.len(), 2);
-    assert_eq!(
-        group.action,
-        GroupAction::ReportOnly {
-            why: ReportWhy::FolderGame
-        }
-    );
+    assert_eq!(group.action, GroupAction::Act);
+    assert_eq!(group.basis, Some(GroupBasis::TitleId));
 }
 
 /// Faked folder sizes of the current-generation pile (systems batch 3

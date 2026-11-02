@@ -1,0 +1,1079 @@
+{
+  "$schema": "./credits.schema.json",
+  "entries": [
+    {
+      "id": "libretro-thumbnails",
+      "group": "art-sources",
+      "name": "libretro-thumbnails",
+      "url": "https://github.com/libretro-thumbnails/libretro-thumbnails",
+      "use": {
+        "es": "Portadas, capturas, pantallas de título y logos, buscados por nombre.",
+        "en": "Covers, screenshots, title screens and logos, looked up by name."
+      },
+      "license": {
+        "name": {
+          "es": "Sin licencia declarada; el arte es de sus titulares",
+          "en": "No licence declared; the art belongs to its owners"
+        }
+      },
+      "credit": {
+        "es": "Portadas y capturas: libretro-thumbnails. Capturas vía MobyGames, Fandom y aportaciones de voluntarios. El arte pertenece a los desarrolladores y editores de cada juego.",
+        "en": "Covers and screenshots: libretro-thumbnails. Screenshots via MobyGames, Fandom and volunteer contributions. The art belongs to each game's developers and publishers."
+      },
+      "required": false,
+      "endpoints": [
+        "https://thumbnails.libretro.com/",
+        "https://raw.githubusercontent.com/libretro-thumbnails/"
+      ],
+      "sources": ["libretro"]
+    },
+    {
+      "id": "steamgriddb",
+      "group": "art-sources",
+      "name": "SteamGridDB",
+      "url": "https://www.steamgriddb.com/",
+      "use": {
+        "es": "Crédito de cortesía. Portadas verticales hechas por la comunidad, con tu propia clave de API.",
+        "en": "Courtesy credit. Community-made vertical covers, with your own API key."
+      },
+      "license": {
+        "name": {
+          "es": "Términos de SteamGridDB (sin verificar)",
+          "en": "SteamGridDB terms (not verified)"
+        }
+      },
+      "required": false,
+      "endpoints": [
+        "https://www.steamgriddb.com/",
+        "https://cdn2.steamgriddb.com/"
+      ],
+      "sources": ["steamgriddb"]
+    },
+    {
+      "id": "screenscraper",
+      "group": "art-sources",
+      "name": "ScreenScraper",
+      "url": "https://www.screenscraper.fr/",
+      "use": {
+        "es": "Medios e identificación por hash en Organizar, con tu cuenta.",
+        "en": "Media and hash identification in Organise, with your account."
+      },
+      "license": {
+        "spdx": "CC-BY-NC-SA-4.0",
+        "name": "CC BY-NC-SA 4.0",
+        "url": "https://creativecommons.org/licenses/by-nc-sa/4.0/"
+      },
+      "credit": {
+        "es": "Datos y medios de ScreenScraper (screenscraper.fr), CC BY-NC-SA 4.0.",
+        "en": "Data and media from ScreenScraper (screenscraper.fr), CC BY-NC-SA 4.0."
+      },
+      "required": true,
+      "endpoints": ["https://api.screenscraper.fr/"],
+      "sources": ["screenscraper"]
+    },
+    {
+      "id": "embedded-art",
+      "group": "art-sources",
+      "name": {
+        "es": "Arte dentro de los juegos",
+        "en": "Art inside the games"
+      },
+      "use": {
+        "es": "Iconos y arte que traen los propios archivos de juego (SMDH, NACP, ICON0…), leídos en local.",
+        "en": "Icons and art inside the game files themselves (SMDH, NACP, ICON0…), read locally."
+      },
+      "license": {
+        "name": {
+          "es": "© los titulares de cada juego",
+          "en": "© each game's owners"
+        }
+      },
+      "required": false,
+      "sources": ["embedded"]
+    },
+    {
+      "id": "nintendo-eshop-icons",
+      "group": "art-sources",
+      "name": {
+        "es": "Iconos de la Nintendo eShop",
+        "en": "Nintendo eShop icons"
+      },
+      "use": {
+        "es": "Iconos de los juegos de Switch, solo si los activas; se guardan en tu caché local y nunca se redistribuyen.",
+        "en": "Switch game icons, only if you turn them on; kept in your local cache and never redistributed."
+      },
+      "license": {
+        "name": "© Nintendo"
+      },
+      "credit": {
+        "es": "Iconos de juegos de Switch © Nintendo, descargados solo si lo activas y guardados solo en tu equipo.",
+        "en": "Switch game icons © Nintendo, downloaded only if you turn them on and kept only on your computer."
+      },
+      "required": false,
+      "endpoints": ["https://img-eshop.cdn.nintendo.net/"],
+      "datasets": ["eshop-icons"]
+    },
+    {
+      "id": "titledb",
+      "group": "databases",
+      "name": "titledb",
+      "url": "https://github.com/blawar/titledb",
+      "use": {
+        "es": "Nombres, editora y fecha de los juegos de Switch por title ID; descarga opcional bajo demanda.",
+        "en": "Switch game names, publisher and release date by title ID; an optional on-demand download."
+      },
+      "license": {
+        "spdx": "MIT",
+        "name": "MIT",
+        "url": "https://github.com/blawar/titledb/blob/master/LICENSE"
+      },
+      "credit": {
+        "es": "Nombres de títulos de Switch: blawar/titledb (MIT, © 2019 Blake Warner). Los nombres y el arte de los juegos pertenecen a sus titulares.",
+        "en": "Switch title names: blawar/titledb (MIT, © 2019 Blake Warner); game names and artwork © their respective owners."
+      },
+      "required": true,
+      "endpoints": ["https://raw.githubusercontent.com/blawar/titledb/"],
+      "datasets": ["titledb", "titledb-ncas"]
+    },
+    {
+      "id": "nlib",
+      "group": "databases",
+      "name": "nlib (api.nlib.cc)",
+      "url": "https://github.com/ghost-land/nlib-api",
+      "use": {
+        "es": "Respaldo opcional para nombres de Switch, solo si lo activas; Coverly no incluye nada de su código.",
+        "en": "Optional fallback for Switch names, only if you turn it on; Coverly ships none of its code."
+      },
+      "license": {
+        "name": "GPL-3.0"
+      },
+      "required": false,
+      "endpoints": ["https://api.nlib.cc/"],
+      "datasets": ["nlib"]
+    },
+    {
+      "id": "libretro-database",
+      "group": "databases",
+      "name": "libretro-database",
+      "url": "https://github.com/libretro/libretro-database",
+      "use": {
+        "es": "Identificar ROMs por hash, serie o nombre corto de arcade, y el nombre del catálogo; se descarga a tu caché.",
+        "en": "Identifies ROMs by hash, serial or arcade short name, and gives the catalogue name; downloaded to your cache."
+      },
+      "license": {
+        "spdx": "CC-BY-SA-4.0",
+        "name": "CC BY-SA 4.0",
+        "url": "https://creativecommons.org/licenses/by-sa/4.0/"
+      },
+      "credit": {
+        "es": "Datos de identificación: libretro-database, © libretro contributors, CC BY-SA 4.0.",
+        "en": "Identification data: libretro-database, © libretro contributors, CC BY-SA 4.0."
+      },
+      "required": true,
+      "endpoints": [
+        "https://raw.githubusercontent.com/libretro/libretro-database/"
+      ],
+      "datasets": ["dat", "homebrew"]
+    },
+    {
+      "id": "gametdb",
+      "group": "databases",
+      "name": "GameTDB",
+      "url": "https://www.gametdb.com/",
+      "use": {
+        "es": "Los ID de GameCube, Wii, Wii U y PS3 que trae libretro-database.",
+        "en": "The GameCube, Wii, Wii U and PS3 IDs that libretro-database carries."
+      },
+      "license": {
+        "name": {
+          "es": "Permiso de su FAQ",
+          "en": "Permission in its FAQ"
+        }
+      },
+      "credit": {
+        "es": "Datos de juegos de GameTDB (https://www.gametdb.com/), donde puedes añadir juegos y arte nuevos.",
+        "en": "Game data from GameTDB (https://www.gametdb.com/), where you can add new game entries and artwork."
+      },
+      "required": true
+    },
+    {
+      "id": "no-intro",
+      "group": "databases",
+      "name": "No-Intro",
+      "url": "https://no-intro.org/",
+      "use": {
+        "es": "Crédito de cortesía. DAT de cartuchos y la nomenclatura de los nombres de archivo, a través de libretro-database.",
+        "en": "Courtesy credit. Cartridge DATs and the file-name conventions, through libretro-database."
+      },
+      "license": {
+        "name": {
+          "es": "Términos de DAT-o-MATIC (sin verificar)",
+          "en": "DAT-o-MATIC terms (not verified)"
+        }
+      },
+      "required": false,
+      "datasets": ["no-intro"]
+    },
+    {
+      "id": "redump",
+      "group": "databases",
+      "name": "Redump",
+      "url": "https://redump.org/",
+      "use": {
+        "es": "Crédito de cortesía. DAT de discos y las convenciones de pistas y hojas CUE, a través de libretro-database.",
+        "en": "Courtesy credit. Disc DATs and the track and CUE sheet conventions, through libretro-database."
+      },
+      "license": {
+        "name": {
+          "es": "Términos de Redump (sin verificar)",
+          "en": "Redump terms (not verified)"
+        }
+      },
+      "required": false,
+      "datasets": ["redump"]
+    },
+    {
+      "id": "tosec",
+      "group": "databases",
+      "name": "TOSEC",
+      "url": "https://www.tosecdev.org/",
+      "use": {
+        "es": "Crédito de cortesía. DAT de ordenadores clásicos y sus convenciones de nombres, a través de libretro-database.",
+        "en": "Courtesy credit. Classic computer DATs and their naming conventions, through libretro-database."
+      },
+      "license": {
+        "name": {
+          "es": "Términos de TOSEC (sin verificar)",
+          "en": "TOSEC terms (not verified)"
+        }
+      },
+      "required": false,
+      "datasets": ["tosec"]
+    },
+    {
+      "id": "mame",
+      "group": "databases",
+      "name": "MAME",
+      "use": {
+        "es": "Crédito de cortesía. Nombres cortos y DAT de arcade del emulador MAME, a través de libretro-database.",
+        "en": "Courtesy credit. Arcade short names and DATs from the MAME emulator, through libretro-database."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia del DAT sin verificar",
+          "en": "DAT licence not verified"
+        }
+      },
+      "required": false,
+      "datasets": ["mame"]
+    },
+    {
+      "id": "fbneo",
+      "group": "databases",
+      "name": "FinalBurn Neo",
+      "use": {
+        "es": "Crédito de cortesía. DAT de arcade del emulador FinalBurn Neo, a través de libretro-database.",
+        "en": "Courtesy credit. Arcade DATs from the FinalBurn Neo emulator, through libretro-database."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia propia (sin verificar)",
+          "en": "Own licence (not verified)"
+        }
+      },
+      "required": false,
+      "datasets": ["fbneo-split"]
+    },
+    {
+      "id": "switchbrew",
+      "group": "docs",
+      "name": "Switchbrew",
+      "url": "https://switchbrew.org/",
+      "use": {
+        "es": "Crédito de cortesía. Documentación de formatos de Switch (NCA, NRO, CNMT, XCI, tickets).",
+        "en": "Courtesy credit. Documentation of Switch formats (NCA, NRO, CNMT, XCI, tickets)."
+      },
+      "license": {
+        "name": {
+          "es": "Contenido de la wiki (licencia sin verificar)",
+          "en": "Wiki content (licence not verified)"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "wiibrew",
+      "group": "docs",
+      "name": "WiiBrew",
+      "url": "https://wiibrew.org/",
+      "use": {
+        "es": "Crédito de cortesía. Documentación de formatos de Wii (discos, DOL, WAD, TMD).",
+        "en": "Courtesy credit. Documentation of Wii formats (discs, DOL, WAD, TMD)."
+      },
+      "license": {
+        "name": {
+          "es": "Contenido de la wiki (licencia sin verificar)",
+          "en": "Wiki content (licence not verified)"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "wiiubrew",
+      "group": "docs",
+      "name": "WiiUBrew",
+      "url": "https://wiiubrew.org/",
+      "use": {
+        "es": "Crédito de cortesía. Documentación de formatos de Wii U (TMD, RPX/RPL, meta.xml) y su base de títulos.",
+        "en": "Courtesy credit. Documentation of Wii U formats (TMD, RPX/RPL, meta.xml) and its title database."
+      },
+      "license": {
+        "name": {
+          "es": "Contenido de la wiki (licencia sin verificar)",
+          "en": "Wiki content (licence not verified)"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "3dbrew",
+      "group": "docs",
+      "name": "3dbrew",
+      "url": "https://www.3dbrew.org/",
+      "use": {
+        "es": "Crédito de cortesía. Documentación de formatos de 3DS (NCCH, CIA, SMDH, TMD) y su lista de títulos.",
+        "en": "Courtesy credit. Documentation of 3DS formats (NCCH, CIA, SMDH, TMD) and its title list."
+      },
+      "license": {
+        "name": {
+          "es": "Contenido de la wiki (licencia sin verificar)",
+          "en": "Wiki content (licence not verified)"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "dsibrew",
+      "group": "docs",
+      "name": "DSiBrew",
+      "url": "https://dsibrew.org/",
+      "use": {
+        "es": "Crédito de cortesía. Documentación de la lista de títulos de DSi.",
+        "en": "Courtesy credit. Documentation of the DSi title list."
+      },
+      "license": {
+        "name": {
+          "es": "Contenido de la wiki (licencia sin verificar)",
+          "en": "Wiki content (licence not verified)"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "xboxdevwiki",
+      "group": "docs",
+      "name": "XboxDevWiki",
+      "url": "https://xboxdevwiki.net/",
+      "use": {
+        "es": "Crédito de cortesía. Documentación del formato XBE de la Xbox original.",
+        "en": "Courtesy credit. Documentation of the original Xbox XBE format."
+      },
+      "license": {
+        "name": {
+          "es": "Contenido de la wiki (licencia sin verificar)",
+          "en": "Wiki content (licence not verified)"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "psdevwiki",
+      "group": "docs",
+      "name": "PSDevWiki",
+      "url": "https://www.psdevwiki.com/",
+      "use": {
+        "es": "Crédito de cortesía. Documentación de formatos de PlayStation (SFO, PKG, SELF, PBP, SYSTEM.CNF).",
+        "en": "Courtesy credit. Documentation of PlayStation formats (SFO, PKG, SELF, PBP, SYSTEM.CNF)."
+      },
+      "license": {
+        "name": {
+          "es": "Contenido de la wiki (licencia sin verificar)",
+          "en": "Wiki content (licence not verified)"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "dolphin",
+      "group": "docs",
+      "name": "Dolphin",
+      "use": {
+        "es": "Crédito de cortesía. Código fuente del emulador, consultado para entender los formatos de Wii y GameCube.",
+        "en": "Courtesy credit. Source code of the emulator, read to understand the Wii and GameCube formats."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "ppsspp",
+      "group": "docs",
+      "name": "PPSSPP",
+      "use": {
+        "es": "Crédito de cortesía. Código fuente del emulador, consultado para entender los formatos de PSP.",
+        "en": "Courtesy credit. Source code of the emulator, read to understand the PSP formats."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "rpcs3",
+      "group": "docs",
+      "name": "RPCS3",
+      "use": {
+        "es": "Crédito de cortesía. Código fuente del emulador, consultado para entender los formatos de PS3.",
+        "en": "Courtesy credit. Source code of the emulator, read to understand the PS3 formats."
+      },
+      "license": {
+        "spdx": "GPL-2.0-only",
+        "name": "GPL-2.0",
+        "url": "https://spdx.org/licenses/GPL-2.0-only.html"
+      },
+      "required": false
+    },
+    {
+      "id": "vita3k",
+      "group": "docs",
+      "name": "Vita3K",
+      "use": {
+        "es": "Crédito de cortesía. Código fuente del emulador, consultado para entender los formatos de PS Vita.",
+        "en": "Courtesy credit. Source code of the emulator, read to understand the PS Vita formats."
+      },
+      "license": {
+        "spdx": "MIT",
+        "name": "MIT",
+        "url": "https://spdx.org/licenses/MIT.html"
+      },
+      "required": false
+    },
+    {
+      "id": "cemu",
+      "group": "docs",
+      "name": "Cemu",
+      "use": {
+        "es": "Crédito de cortesía. Código fuente del emulador, consultado para entender los formatos de Wii U.",
+        "en": "Courtesy credit. Source code of the emulator, read to understand the Wii U formats."
+      },
+      "license": {
+        "spdx": "MPL-2.0",
+        "name": "MPL-2.0",
+        "url": "https://spdx.org/licenses/MPL-2.0.html"
+      },
+      "required": false
+    },
+    {
+      "id": "xenia",
+      "group": "docs",
+      "name": "Xenia",
+      "use": {
+        "es": "Crédito de cortesía. Código fuente del emulador, consultado para entender los formatos de Xbox 360.",
+        "en": "Courtesy credit. Source code of the emulator, read to understand the Xbox 360 formats."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "xemu",
+      "group": "docs",
+      "name": "xemu",
+      "use": {
+        "es": "Crédito de cortesía. Código fuente del emulador, consultado para entender los formatos de Xbox.",
+        "en": "Courtesy credit. Source code of the emulator, read to understand the Xbox formats."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "azahar",
+      "group": "docs",
+      "name": "Azahar",
+      "use": {
+        "es": "Crédito de cortesía. Código fuente del emulador, consultado para entender los formatos de 3DS.",
+        "en": "Courtesy credit. Source code of the emulator, read to understand the 3DS formats."
+      },
+      "license": {
+        "name": "GPL-3.0"
+      },
+      "required": false
+    },
+    {
+      "id": "duckstation",
+      "group": "docs",
+      "name": "DuckStation",
+      "use": {
+        "es": "Crédito de cortesía. Código fuente del emulador, consultado para entender los formatos de PlayStation.",
+        "en": "Courtesy credit. Source code of the emulator, read to understand the PlayStation formats."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "shadps4",
+      "group": "docs",
+      "name": "shadPS4",
+      "use": {
+        "es": "Crédito de cortesía. Código fuente del emulador, consultado para entender los formatos de PS4.",
+        "en": "Courtesy credit. Source code of the emulator, read to understand the PS4 formats."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "cxbx-reloaded",
+      "group": "docs",
+      "name": "Cxbx-Reloaded",
+      "use": {
+        "es": "Crédito de cortesía. Código fuente del emulador, consultado para entender los formatos de Xbox.",
+        "en": "Courtesy credit. Source code of the emulator, read to understand the Xbox formats."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "decaf-emu",
+      "group": "docs",
+      "name": "decaf-emu",
+      "use": {
+        "es": "Crédito de cortesía. Código fuente del emulador, consultado para entender los formatos de Wii U.",
+        "en": "Courtesy credit. Source code of the emulator, read to understand the Wii U formats."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "es-de",
+      "group": "conventions",
+      "name": "ES-DE",
+      "url": "https://es-de.org/",
+      "use": {
+        "es": "Crédito de cortesía. Nombres de carpetas de sistemas y de medios que Coverly respeta al organizar.",
+        "en": "Courtesy credit. System and media folder names Coverly follows when it organizes."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "batocera",
+      "group": "conventions",
+      "name": "Batocera",
+      "url": "https://batocera.org/",
+      "use": {
+        "es": "Crédito de cortesía. Nombres de carpetas de sistemas y de medios que Coverly respeta al organizar.",
+        "en": "Courtesy credit. System and media folder names Coverly follows when it organizes."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "muos",
+      "group": "conventions",
+      "name": "muOS",
+      "url": "https://muos.dev/",
+      "use": {
+        "es": "Crédito de cortesía. Nombres de carpetas de sistemas y de medios que Coverly respeta al organizar.",
+        "en": "Courtesy credit. System and media folder names Coverly follows when it organizes."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "knulli",
+      "group": "conventions",
+      "name": "Knulli",
+      "url": "https://knulli.org/",
+      "use": {
+        "es": "Crédito de cortesía. Nombres de carpetas de sistemas y de medios que Coverly respeta al organizar.",
+        "en": "Courtesy credit. System and media folder names Coverly follows when it organizes."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "retrobat",
+      "group": "conventions",
+      "name": "RetroBat",
+      "use": {
+        "es": "Crédito de cortesía. Nombres de carpetas de sistemas y de medios que Coverly respeta al organizar.",
+        "en": "Courtesy credit. System and media folder names Coverly follows when it organizes."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "onion",
+      "group": "conventions",
+      "name": "Onion",
+      "url": "https://onionui.github.io/",
+      "use": {
+        "es": "Crédito de cortesía. Nombres de carpetas de sistemas y de medios que Coverly respeta al organizar.",
+        "en": "Courtesy credit. System and media folder names Coverly follows when it organizes."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "rocknix",
+      "group": "conventions",
+      "name": "ROCKNIX",
+      "url": "https://rocknix.org/",
+      "use": {
+        "es": "Crédito de cortesía. Nombres de carpetas de sistemas y de medios que Coverly respeta al organizar.",
+        "en": "Courtesy credit. System and media folder names Coverly follows when it organizes."
+      },
+      "license": {
+        "name": {
+          "es": "Licencia sin verificar",
+          "en": "Licence not verified"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "tauri",
+      "group": "libraries",
+      "name": "Tauri",
+      "url": "https://tauri.app/",
+      "use": {
+        "es": "La base de la app de escritorio: ventana, diálogos, enlaces y actualizaciones.",
+        "en": "The desktop app's base: window, dialogs, links and updates."
+      },
+      "license": {
+        "spdx": "Apache-2.0 OR MIT",
+        "name": "Apache-2.0 OR MIT"
+      },
+      "required": false
+    },
+    {
+      "id": "react",
+      "group": "libraries",
+      "name": "React",
+      "url": "https://react.dev/",
+      "use": {
+        "es": "El motor de la interfaz.",
+        "en": "The interface engine."
+      },
+      "license": {
+        "spdx": "MIT",
+        "name": "MIT",
+        "url": "https://spdx.org/licenses/MIT.html"
+      },
+      "required": false
+    },
+    {
+      "id": "zustand",
+      "group": "libraries",
+      "name": "zustand",
+      "url": "https://github.com/pmndrs/zustand",
+      "use": {
+        "es": "El estado de la interfaz.",
+        "en": "The interface state."
+      },
+      "license": {
+        "spdx": "MIT",
+        "name": "MIT",
+        "url": "https://spdx.org/licenses/MIT.html"
+      },
+      "required": false
+    },
+    {
+      "id": "radix-ui",
+      "group": "libraries",
+      "name": "Radix UI",
+      "url": "https://www.radix-ui.com/primitives",
+      "use": {
+        "es": "Componentes accesibles: diálogos, menús, pestañas.",
+        "en": "Accessible components: dialogs, menus, tabs."
+      },
+      "license": {
+        "spdx": "MIT",
+        "name": "MIT",
+        "url": "https://spdx.org/licenses/MIT.html"
+      },
+      "required": false
+    },
+    {
+      "id": "shadcn-ui",
+      "group": "libraries",
+      "name": "shadcn/ui",
+      "url": "https://ui.shadcn.com/",
+      "use": {
+        "es": "La base de los componentes de la interfaz.",
+        "en": "The base of the interface components."
+      },
+      "license": {
+        "spdx": "MIT",
+        "name": "MIT",
+        "url": "https://spdx.org/licenses/MIT.html"
+      },
+      "required": false
+    },
+    {
+      "id": "tailwindcss",
+      "group": "libraries",
+      "name": "Tailwind CSS",
+      "url": "https://tailwindcss.com/",
+      "use": {
+        "es": "Genera los estilos de la interfaz.",
+        "en": "Generates the interface styles."
+      },
+      "license": {
+        "spdx": "MIT",
+        "name": "MIT",
+        "url": "https://spdx.org/licenses/MIT.html"
+      },
+      "required": false
+    },
+    {
+      "id": "tanstack-virtual",
+      "group": "libraries",
+      "name": "TanStack Virtual",
+      "url": "https://tanstack.com/virtual",
+      "use": {
+        "es": "Listas largas sin perder fluidez.",
+        "en": "Long lists that stay smooth."
+      },
+      "license": {
+        "spdx": "MIT",
+        "name": "MIT",
+        "url": "https://spdx.org/licenses/MIT.html"
+      },
+      "required": false
+    },
+    {
+      "id": "sonner",
+      "group": "libraries",
+      "name": "sonner",
+      "url": "https://sonner.emilkowal.ski/",
+      "use": {
+        "es": "Los avisos emergentes.",
+        "en": "The toast notifications."
+      },
+      "license": {
+        "spdx": "MIT",
+        "name": "MIT",
+        "url": "https://spdx.org/licenses/MIT.html"
+      },
+      "required": false
+    },
+    {
+      "id": "cva",
+      "group": "libraries",
+      "name": "class-variance-authority",
+      "url": "https://github.com/joe-bell/cva",
+      "use": {
+        "es": "Las variantes de estilo de los componentes.",
+        "en": "The components' style variants."
+      },
+      "license": {
+        "spdx": "Apache-2.0",
+        "name": "Apache-2.0",
+        "url": "https://spdx.org/licenses/Apache-2.0.html"
+      },
+      "required": false
+    },
+    {
+      "id": "sqlite",
+      "group": "libraries",
+      "name": "SQLite",
+      "url": "https://sqlite.org/",
+      "use": {
+        "es": "La caché y la base de datos local.",
+        "en": "The cache and the local database."
+      },
+      "license": {
+        "name": {
+          "es": "Dominio público",
+          "en": "Public domain"
+        }
+      },
+      "required": false
+    },
+    {
+      "id": "rusqlite",
+      "group": "libraries",
+      "name": "rusqlite",
+      "url": "https://github.com/rusqlite/rusqlite",
+      "use": {
+        "es": "Acceso a SQLite desde Rust.",
+        "en": "SQLite access from Rust."
+      },
+      "license": {
+        "spdx": "MIT",
+        "name": "MIT",
+        "url": "https://spdx.org/licenses/MIT.html"
+      },
+      "required": false
+    },
+    {
+      "id": "ureq",
+      "group": "libraries",
+      "name": "ureq",
+      "url": "https://github.com/algesten/ureq",
+      "use": {
+        "es": "Las peticiones de red.",
+        "en": "The network requests."
+      },
+      "license": {
+        "spdx": "MIT OR Apache-2.0",
+        "name": "MIT OR Apache-2.0"
+      },
+      "required": false
+    },
+    {
+      "id": "rustls",
+      "group": "libraries",
+      "name": "rustls",
+      "url": "https://github.com/rustls/rustls",
+      "use": {
+        "es": "Las conexiones HTTPS.",
+        "en": "The HTTPS connections."
+      },
+      "license": {
+        "spdx": "Apache-2.0 OR ISC OR MIT",
+        "name": "Apache-2.0 OR ISC OR MIT"
+      },
+      "required": false
+    },
+    {
+      "id": "serde",
+      "group": "libraries",
+      "name": "serde",
+      "url": "https://serde.rs/",
+      "use": {
+        "es": "Leer y escribir ajustes y datos.",
+        "en": "Reads and writes settings and data."
+      },
+      "license": {
+        "spdx": "MIT OR Apache-2.0",
+        "name": "MIT OR Apache-2.0"
+      },
+      "required": false
+    },
+    {
+      "id": "zip",
+      "group": "libraries",
+      "name": "zip",
+      "url": "https://github.com/zip-rs/zip2",
+      "use": {
+        "es": "Leer y extraer archivos zip.",
+        "en": "Reads and extracts zip archives."
+      },
+      "license": {
+        "spdx": "MIT",
+        "name": "MIT",
+        "url": "https://spdx.org/licenses/MIT.html"
+      },
+      "required": false
+    },
+    {
+      "id": "sevenz-rust2",
+      "group": "libraries",
+      "name": "sevenz-rust2",
+      "url": "https://github.com/hasenbanck/sevenz-rust2",
+      "use": {
+        "es": "Leer y extraer archivos 7z.",
+        "en": "Reads and extracts 7z archives."
+      },
+      "license": {
+        "spdx": "Apache-2.0",
+        "name": "Apache-2.0",
+        "url": "https://spdx.org/licenses/Apache-2.0.html"
+      },
+      "required": false
+    },
+    {
+      "id": "image",
+      "group": "libraries",
+      "name": "image",
+      "url": "https://github.com/image-rs/image",
+      "use": {
+        "es": "Decodificar y redimensionar las imágenes.",
+        "en": "Decodes and resizes images."
+      },
+      "license": {
+        "spdx": "MIT OR Apache-2.0",
+        "name": "MIT OR Apache-2.0"
+      },
+      "required": false
+    },
+    {
+      "id": "retroarch-assets",
+      "group": "fonts-icons",
+      "name": "RetroArch Assets",
+      "url": "https://github.com/libretro/retroarch-assets",
+      "use": {
+        "es": "Siluetas de los sistemas (tema XMB Monochrome), adaptadas.",
+        "en": "System silhouettes (XMB Monochrome theme), adapted."
+      },
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "name": "CC BY 4.0",
+        "url": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "credit": {
+        "es": "Iconos de sistemas adaptados de RetroArch Assets (tema XMB Monochrome), © libretro contributors. CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), sin garantías. Original: https://github.com/libretro/retroarch-assets. Cambios: recoloreados, optimizados con SVGO y recortados.",
+        "en": "System icons adapted from RetroArch Assets (XMB Monochrome theme), © libretro contributors. CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), without warranties. Original: https://github.com/libretro/retroarch-assets. Changes: recoloured, optimised with SVGO and cropped."
+      },
+      "required": true
+    },
+    {
+      "id": "lucide",
+      "group": "fonts-icons",
+      "name": "Lucide",
+      "url": "https://lucide.dev/",
+      "use": {
+        "es": "Los iconos de la interfaz.",
+        "en": "The interface icons."
+      },
+      "license": {
+        "spdx": "ISC",
+        "name": "ISC",
+        "url": "https://spdx.org/licenses/ISC.html"
+      },
+      "credit": {
+        "es": "Copyright (c) 2026 Lucide Icons and Contributors. Copyright (c) 2013-present Cole Bemis.",
+        "en": "Copyright (c) 2026 Lucide Icons and Contributors. Copyright (c) 2013-present Cole Bemis."
+      },
+      "required": false
+    },
+    {
+      "id": "archivo",
+      "group": "fonts-icons",
+      "name": "Archivo",
+      "url": "https://github.com/Omnibus-Type/Archivo",
+      "use": {
+        "es": "La tipografía de los títulos.",
+        "en": "The heading typeface."
+      },
+      "license": {
+        "spdx": "OFL-1.1",
+        "name": "SIL OFL 1.1",
+        "url": "https://openfontlicense.org/"
+      },
+      "credit": {
+        "es": "Copyright 2020 The Archivo Project Authors. SIL Open Font License 1.1.",
+        "en": "Copyright 2020 The Archivo Project Authors. SIL Open Font License 1.1."
+      },
+      "required": false
+    },
+    {
+      "id": "atkinson-hyperlegible-next",
+      "group": "fonts-icons",
+      "name": "Atkinson Hyperlegible Next",
+      "url": "https://github.com/googlefonts/atkinson-hyperlegible-next",
+      "use": {
+        "es": "La tipografía del texto.",
+        "en": "The body typeface."
+      },
+      "license": {
+        "spdx": "OFL-1.1",
+        "name": "SIL OFL 1.1",
+        "url": "https://openfontlicense.org/"
+      },
+      "credit": {
+        "es": "Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors. SIL Open Font License 1.1.",
+        "en": "Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors. SIL Open Font License 1.1."
+      },
+      "required": false
+    },
+    {
+      "id": "atkinson-hyperlegible-mono",
+      "group": "fonts-icons",
+      "name": "Atkinson Hyperlegible Mono",
+      "url": "https://github.com/googlefonts/atkinson-hyperlegible-next-mono",
+      "use": {
+        "es": "La tipografía monoespaciada de cifras y rutas.",
+        "en": "The monospaced typeface for numbers and paths."
+      },
+      "license": {
+        "spdx": "OFL-1.1",
+        "name": "SIL OFL 1.1",
+        "url": "https://openfontlicense.org/"
+      },
+      "credit": {
+        "es": "Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors. SIL Open Font License 1.1.",
+        "en": "Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors. SIL Open Font License 1.1."
+      },
+      "required": false
+    }
+  ]
+}

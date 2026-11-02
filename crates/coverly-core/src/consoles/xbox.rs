@@ -52,11 +52,12 @@ use std::path::{Path, PathBuf};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
-use super::wiiu::{find, list_child, plain_file, read_head};
+use super::listing::plain_file;
+use super::wiiu::find;
 use super::zarchive::{self, Archive, ZarKind};
 use super::{
     clean_title, ArtFormat, ArtLocator, Budgeted, ConsoleId, DirListing, FolderLeave, FolderMatch,
-    IdSource, TitleKind, MAX_META_FILE,
+    IdSource, PartKind, TitleKind, MAX_META_FILE,
 };
 use crate::identify::sniff::{FileAt, NotARom};
 
@@ -132,6 +133,21 @@ pub fn xbe_serial(title_id: u32) -> Option<String> {
 /// An XBE: the header, then the certificate. A certificate outside the
 /// first 64 KiB (or unreadable) leaves the magic-only verdict.
 pub fn xbe(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
+    xbe_cert(bytes_at).map(|(id, _)| id)
+}
+
+/// The certificate fields only a loose XBE's rules use (spec §8.2).
+#[derive(Clone, Copy, Debug)]
+struct XbeCert {
+    /// `AllowedMedia` (+0x9C).
+    media: u32,
+    /// `DiscNumber` (+0xA8), counted from 0 like a GameCube disc byte.
+    disc: u32,
+}
+
+/// [`xbe`] with the certificate's media and disc fields; `None` for
+/// those on a magic-only verdict.
+fn xbe_cert(bytes_at: &mut BytesAt) -> Option<(ConsoleId, Option<XbeCert>)> {
     let h = bytes_at(0, XBE_HEADER)?;
     if &h[..4] != b"XBEH" {
         return None;
@@ -144,10 +160,10 @@ pub fn xbe(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
         .map(u64::from)
         .filter(|&c| c < MAX_CERT)
     else {
-        return Some(magic);
+        return Some((magic, None));
     };
     let Some(c) = bytes_at(cert, XBE_CERT_LEN) else {
-        return Some(magic);
+        return Some((magic, None));
     };
     let tid = le32(&c, 8)?;
     let mut id = ConsoleId::proven("xbox", "XBE certificate");
@@ -164,6 +180,71 @@ pub fn xbe(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
     );
     id.version = le32(&c, 0xAC).map(|v| v.to_string());
     id.id_source = Some(IdSource::Header);
+    let fields = XbeCert {
+        media: le32(&c, 0x9C)?,
+        disc: le32(&c, 0xA8)?,
+    };
+    Some((id, Some(fields)))
+}
+
+/// `AllowedMedia` bits (xboxdevwiki «XBE»): the media mask and the two
+/// hard-disk ones; `NONSECURE_MODE` (`0x80000000`) is no medium.
+const XBE_MEDIA_MASK: u32 = 0x00FF_FFFF;
+const XBE_MEDIA_HARD_DISK: u32 = 0x0000_0001;
+const XBE_MEDIA_NONSECURE_HARD_DISK: u32 = 0x4000_0000;
+
+/// A loose `.xbe` (spec §8.2): homebrew when it has no title id or runs
+/// only from the hard disk, else the game (a retail XBE beside other
+/// files is a game folder no probe matched: the planner asks about it).
+/// `DiscNumber` `n` is disc `n + 1`; the first disc stays unnumbered.
+fn loose_xbe(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
+    let (mut id, cert) = xbe_cert(bytes_at)?;
+    let Some(cert) = cert else {
+        return Some(id);
+    };
+    let hard_disk = XBE_MEDIA_HARD_DISK | XBE_MEDIA_NONSECURE_HARD_DISK;
+    let media = cert.media & (XBE_MEDIA_MASK | XBE_MEDIA_NONSECURE_HARD_DISK);
+    let hard_disk_only = media != 0 && media & !hard_disk == 0;
+    id.kind = if id.title_id.is_none() || hard_disk_only {
+        TitleKind::Homebrew
+    } else {
+        TitleKind::Base
+    };
+    id.id_source = id.title_id.is_some().then_some(IdSource::Xbe);
+    id.disc_no = (cert.disc > 0)
+        .then(|| u8::try_from(cert.disc).ok()?.checked_add(1))
+        .flatten();
+    Some(id)
+}
+
+/// XEX2 `module_flags` (xenia `xex2_info.h`): title, DLL, and the three
+/// patch kinds.
+const XEX_MODULE_TITLE: u32 = 0x01;
+const XEX_MODULE_DLL: u32 = 0x08;
+const XEX_MODULE_PATCHES: u32 = 0x10 | 0x20 | 0x40;
+
+/// A loose `.xex` (spec §8.2): a patch is an update, a DLL a module part,
+/// a title the game. A development title id (`FFFExxxx`, as homebrew
+/// uses) is not guessed: kind unknown.
+fn loose_xex(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
+    let mut id = xex2(bytes_at)?;
+    if id.title_id.is_none() {
+        return Some(id);
+    }
+    let flags = bytes_at(4, 4).and_then(|f| be32(&f, 0)).unwrap_or(0);
+    let dev_id = id
+        .title_id
+        .as_deref()
+        .is_some_and(|t| t.starts_with("FFFE"));
+    id.id_source = Some(IdSource::Xex);
+    id.kind = TitleKind::Unknown;
+    if flags & XEX_MODULE_PATCHES != 0 {
+        id.kind = TitleKind::Update;
+    } else if flags & XEX_MODULE_DLL != 0 {
+        id.part = Some(PartKind::Module);
+    } else if flags & XEX_MODULE_TITLE != 0 && !dev_id {
+        id.kind = TitleKind::Base;
+    }
     Some(id)
 }
 
@@ -207,6 +288,7 @@ pub fn xex2(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
     id.version = be32(&e, 4).map(|v| format!("{v:08X}"));
     let (disc, discs) = (e[0x12], e[0x13]);
     id.disc_no = (disc > 0 && discs > 1).then_some(disc);
+    id.disc_count = id.disc_no.and(Some(discs));
     id.kind = TitleKind::Base;
     id.id_source = Some(IdSource::Header);
     Some(id)
@@ -479,7 +561,8 @@ pub fn launcher(head: &[u8], ext: &str) -> Option<ConsoleId> {
     Some(id)
 }
 
-/// An Xbox or Xbox 360 file by its own header: XBE, XEX, STFS under any
+/// An Xbox or Xbox 360 file by its own header: a loose XBE or XEX
+/// (classified by [`loose_xbe`], [`loose_xex`]), STFS under any
 /// extension; ZAR under `.zar`; an XDVDFS image under `.iso`/`.xiso`.
 pub fn identify(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
     if b.len() < 4 {
@@ -488,8 +571,8 @@ pub fn identify(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
     let head = b.read(0, 4).ok()?;
     let mut whole = |o: u64, n: usize| b.read(o, n).ok();
     match &head[..] {
-        b"XBEH" => xbe(&mut whole),
-        b"XEX2" | b"XEX1" | b"XEX%" | b"XEX-" => xex2(&mut whole),
+        b"XBEH" => loose_xbe(&mut whole),
+        b"XEX2" | b"XEX1" | b"XEX%" | b"XEX-" => loose_xex(&mut whole),
         b"CON " | b"LIVE" | b"PIRS" => stfs(b),
         _ if ext == "zar" => zar(b, ext),
         _ if ext == "iso" || ext == "xiso" => xdvdfs(b, ext),
@@ -497,7 +580,9 @@ pub fn identify(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
     }
 }
 
-/// Runs `f` over the regular file `path` through a fresh [`Budgeted`].
+/// Runs `f` over the regular local file `path` through a fresh
+/// [`Budgeted`] (the walk's XVD peek; folder probes read through
+/// [`DirListing::with_file`]).
 fn with_file<R>(path: &Path, f: impl FnOnce(&mut Budgeted) -> Option<R>) -> Option<R> {
     let len = plain_file(path, u64::MAX)?;
     let mut src = FileAt(super::open_rom(path).ok()?);
@@ -513,7 +598,7 @@ fn probe_exe(
     source: IdSource,
 ) -> Option<FolderMatch> {
     let name = find(l.names, file)?;
-    let mut id = with_file(&l.dir.join(name), |b| {
+    let mut id = l.with_file(Path::new(name), |b| {
         let mut at = |o: u64, n: usize| {
             if o.checked_add(n as u64)? > MAX_META_FILE {
                 return None;
@@ -550,7 +635,7 @@ pub fn probe_xex(l: &DirListing) -> Option<FolderMatch> {
 /// magic it is no match. The thumbnail range is relative to the probe
 /// file.
 pub fn probe_god(l: &DirListing) -> Option<FolderMatch> {
-    let own = l.dir.file_name()?.to_str()?;
+    let own = l.name;
     if !is_hex(own, 8) {
         return None;
     }
@@ -558,9 +643,7 @@ pub fn probe_god(l: &DirListing) -> Option<FolderMatch> {
         .names
         .iter()
         .filter(|n| is_hex(n, 8))
-        .filter(|n| {
-            std::fs::symlink_metadata(l.dir.join(n.as_str())).is_ok_and(|m| m.file_type().is_dir())
-        })
+        .filter(|n| l.is_dir(Path::new(n.as_str())))
         .collect();
     // The base content types first; one listing only.
     subs.sort_by_key(|n| match u32::from_str_radix(n, 16) {
@@ -569,11 +652,11 @@ pub fn probe_god(l: &DirListing) -> Option<FolderMatch> {
         _ => (2, n.to_ascii_uppercase()),
     });
     let sub = subs.first()?;
-    let names = list_child(&l.dir.join(sub.as_str()))?;
+    let names = l.list(Path::new(sub.as_str()))?;
     let mut hashes: Vec<&String> = names.iter().filter(|n| is_hex(n, 40)).collect();
     hashes.sort();
     let hash = hashes.first()?;
-    let id = with_file(&l.dir.join(sub.as_str()).join(hash.as_str()), stfs)?;
+    let id = l.with_file(&Path::new(sub.as_str()).join(hash.as_str()), stfs)?;
     Some(FolderMatch {
         id,
         probe: PathBuf::from(sub.as_str()).join(hash.as_str()),
@@ -864,7 +947,7 @@ fn gdk_families<'a>(families: impl Iterator<Item = &'a str>) -> (Vec<&'static st
 
 /// The folder's own name, as a title fallback.
 fn folder_title(l: &DirListing) -> Option<String> {
-    clean_title(&l.dir.file_name()?.to_string_lossy())
+    clean_title(l.name)
 }
 
 /// The first of `rels` that resolves inside the folder (D21), at most
@@ -901,27 +984,20 @@ fn logo_locator(l: &DirListing, rel: &str, listed: &mut bool) -> Option<ArtLocat
                 .is_some_and(|e| e.eq_ignore_ascii_case(".png"))
         })
         .and_then(|n| file.get(..n))?;
-    let mut at = l.dir.to_path_buf();
     let mut rel_dir = PathBuf::new();
     for c in parents {
-        at.push(c);
         rel_dir.push(c);
-        if !std::fs::symlink_metadata(&at).ok()?.file_type().is_dir() {
+        if !l.is_dir(&rel_dir) {
             return None;
         }
     }
     let found = |name: &str| -> Option<ArtLocator> {
-        let meta = std::fs::symlink_metadata(at.join(name)).ok()?;
-        meta.file_type().is_file().then(|| ArtLocator::File {
-            rel: rel_dir.join(name),
-            format: ArtFormat::Png,
-        })
+        let rel = rel_dir.join(name);
+        l.meta(&rel)?.file.then(|| l.art(&rel, ArtFormat::Png))
     };
-    if let Ok(meta) = std::fs::symlink_metadata(at.join(file)) {
-        return meta.file_type().is_file().then(|| ArtLocator::File {
-            rel: rel_dir.join(file),
-            format: ArtFormat::Png,
-        });
+    if let Some(meta) = l.meta(&rel_dir.join(file)) {
+        let rel = rel_dir.join(file);
+        return meta.file.then(|| l.art(&rel, ArtFormat::Png));
     }
     let listing: Vec<String>;
     let names: &[String] = if parents.is_empty() {
@@ -931,7 +1007,7 @@ fn logo_locator(l: &DirListing, rel: &str, listed: &mut bool) -> Option<ArtLocat
             return None;
         }
         *listed = true;
-        listing = list_child(&at)?;
+        listing = l.list(&rel_dir)?;
         &listing
     };
     if let Some(same) = names.iter().find(|n| n.eq_ignore_ascii_case(file)) {
@@ -954,9 +1030,8 @@ fn logo_locator(l: &DirListing, rel: &str, listed: &mut bool) -> Option<ArtLocat
 
 /// Reads a probe file of at most [`MAX_META_FILE`] bytes; `Err(())` when
 /// it is present but cannot be read (or is not a plain small file).
-fn read_probe(path: &Path) -> Result<Vec<u8>, ()> {
-    let len = plain_file(path, MAX_META_FILE).ok_or(())?;
-    read_head(path, len, MAX_META_FILE as usize).ok_or(())
+fn read_probe(l: &DirListing, rel: &Path) -> Result<Vec<u8>, ()> {
+    l.read_small(rel, MAX_META_FILE).ok_or(())
 }
 
 /// An Xbox One or Series GDK game folder (D18): `MicrosoftGame.config`
@@ -978,7 +1053,7 @@ pub fn probe_gdk(l: &DirListing) -> Vec<FolderMatch> {
             leave: Some(why),
         }]
     };
-    let Ok(bytes) = read_probe(&l.dir.join(name)) else {
+    let Ok(bytes) = read_probe(l, Path::new(name)) else {
         return leave(FolderLeave::Unreadable);
     };
     let Some(g) = manifest_text(&bytes).and_then(|t| parse_gdk(&t)) else {
@@ -1110,7 +1185,7 @@ pub fn probe_era(l: &DirListing) -> Option<FolderMatch> {
         return None;
     }
     let name = find(l.names, ERA_MANIFEST)?;
-    let bytes = read_probe(&l.dir.join(name)).ok()?;
+    let bytes = read_probe(l, Path::new(name)).ok()?;
     let m = parse_era(&manifest_text(&bytes)?)?;
     if !m.xbox {
         return None;
@@ -1267,7 +1342,7 @@ pub fn xvd(b: &mut Budgeted) -> Option<Vec<ConsoleId>> {
 #[cfg(test)]
 mod tests {
     use super::super::testing::{self as t, RangeLog, SparseAt};
-    use super::super::{MAX_READ, MAX_SEEKS};
+    use super::super::{on_disk, MAX_READ, MAX_SEEKS};
     use super::*;
 
     fn run(f: &mut SparseAt, ext: &str) -> Option<ConsoleId> {
@@ -1306,6 +1381,44 @@ mod tests {
             (id.confidence, id.detail.as_str()),
             (0.95, "XBE certificate")
         );
+        assert_eq!(
+            (id.kind, id.id_source),
+            (TitleKind::Base, Some(IdSource::Xbe))
+        );
+    }
+
+    #[test]
+    fn loose_xbe_homebrew_rules() {
+        let hd = t::XBE_MEDIA_HARD_DISK;
+        let nshd = t::XBE_MEDIA_NONSECURE_HARD_DISK;
+        let dvd = t::XBE_MEDIA_DVD_X2;
+        for (tid, media, kind) in [
+            (0, dvd, TitleKind::Homebrew),
+            (0x4D53_0004, hd, TitleKind::Homebrew),
+            (0x4D53_0004, nshd, TitleKind::Homebrew),
+            (0x4D53_0004, hd | nshd | 0x8000_0000, TitleKind::Homebrew),
+            (0x4D53_0004, hd | dvd, TitleKind::Base),
+            (0x4D53_0004, 0, TitleKind::Base),
+        ] {
+            let id = run(&mut file(&t::xbe_loose(tid, media, 0)), "xbe").unwrap();
+            assert_eq!(id.kind, kind, "{tid:08X} {media:#x}");
+            assert_eq!(id.disc_no, None);
+        }
+        let id = run(&mut file(&t::xbe_loose(0x4D53_0004, dvd, 1)), "xbe").unwrap();
+        assert_eq!(id.disc_no, Some(2));
+    }
+
+    #[test]
+    fn default_xbe_in_a_probe_is_not_reclassified() {
+        // The folder probe reads `default.xbe` with its own rules: a
+        // hard-disk-only certificate keeps the probe's verdict (no kind).
+        let dir = tempfile::tempdir().unwrap();
+        let x = t::xbe_loose(0x4D53_0004, t::XBE_MEDIA_HARD_DISK, 0);
+        std::fs::write(dir.path().join("default.xbe"), x).unwrap();
+        let names = ["default.xbe".to_string()];
+        let found = on_disk(dir.path(), &names, probe_xbe).unwrap();
+        assert_eq!(found.id.kind, TitleKind::Unknown);
+        assert_eq!(found.id.id_source, Some(IdSource::DefaultXbe));
     }
 
     #[test]
@@ -1465,12 +1578,31 @@ mod tests {
         assert_eq!(id.serial.as_deref(), Some("4D5307E6"));
         assert_eq!(id.version.as_deref(), Some("20000100"));
         assert_eq!((id.kind, id.disc_no), (TitleKind::Base, None));
-        assert_eq!(id.id_source, Some(IdSource::Header));
+        assert_eq!(id.id_source, Some(IdSource::Xex));
         // Disc 2 of 2.
         let mut x = t::xex2(0x4D53_07E6);
         x[t::XEX_EXEC_INFO + 0x12] = 2;
         x[t::XEX_EXEC_INFO + 0x13] = 2;
-        assert_eq!(run(&mut file(&x), "xex").unwrap().disc_no, Some(2));
+        let id = run(&mut file(&x), "xex").unwrap();
+        assert_eq!((id.disc_no, id.disc_count), (Some(2), Some(2)));
+        // Module flags (§8.2): patch, DLL, a title without its flag.
+        for (flags, kind, part) in [
+            (
+                t::XEX_MODULE_TITLE | t::XEX_PATCH_FULL,
+                TitleKind::Update,
+                None,
+            ),
+            (t::XEX_MODULE_PATCH, TitleKind::Update, None),
+            (
+                t::XEX_MODULE_DLL,
+                TitleKind::Unknown,
+                Some(PartKind::Module),
+            ),
+            (0, TitleKind::Unknown, None),
+        ] {
+            let id = run(&mut file(&t::xex_loose(flags, 0x4D53_07E6, 1, 1)), "xex").unwrap();
+            assert_eq!((id.kind, id.part), (kind, part), "{flags:#x}");
+        }
         // An older head is the system only.
         let mut old = t::xex2(1);
         old[..4].copy_from_slice(b"XEX1");
@@ -1830,7 +1962,7 @@ mod tests {
 
         fn probe(dir: &Path, p: super::super::super::DirProbe) -> Option<FolderMatch> {
             let names = listing_of(dir);
-            p(&DirListing { dir, names: &names })
+            on_disk(dir, &names, p)
         }
 
         #[test]
@@ -1896,7 +2028,7 @@ mod tests {
         fn gdk(dir: &Path, spec: &t::GdkSpec) -> Vec<FolderMatch> {
             t::gdk_folder(dir, spec);
             let names = listing_of(dir);
-            probe_gdk(&DirListing { dir, names: &names })
+            on_disk(dir, &names, probe_gdk)
         }
 
         fn systems(found: &[FolderMatch]) -> Vec<(&str, f32, TitleKind)> {
@@ -2124,10 +2256,7 @@ mod tests {
                 std::fs::create_dir(&dir).unwrap();
                 std::fs::write(dir.join("MicrosoftGame.config"), bytes).unwrap();
                 let names = listing_of(&dir);
-                let found = probe_gdk(&DirListing {
-                    dir: &dir,
-                    names: &names,
-                });
+                let found = on_disk(&dir, &names, probe_gdk);
                 assert_eq!(!found.is_empty(), hit, "{name}");
                 if hit {
                     assert_eq!(found[0].id.system, "xboxone", "{name}");
@@ -2147,10 +2276,7 @@ mod tests {
             assert_eq!(manifest_text(text.as_bytes()), None);
             std::fs::write(dir.join(GDK_CONFIG), text).unwrap();
             let names = listing_of(&dir);
-            let found = probe_gdk(&DirListing {
-                dir: &dir,
-                names: &names,
-            });
+            let found = on_disk(&dir, &names, probe_gdk);
             assert_eq!(found.len(), 1);
             assert_eq!(found[0].leave, Some(FolderLeave::Unreadable));
         }
@@ -2163,10 +2289,7 @@ mod tests {
             let text = t::gdk_config(&t::GdkSpec::default());
             std::fs::write(dir.join("microsoftgame.config"), text).unwrap();
             let names = listing_of(&dir);
-            let found = probe_gdk(&DirListing {
-                dir: &dir,
-                names: &names,
-            });
+            let found = on_disk(&dir, &names, probe_gdk);
             assert_eq!(found[0].probe, Path::new("microsoftgame.config"));
         }
 
@@ -2192,10 +2315,7 @@ mod tests {
                 return; // Running as root: permissions do not apply.
             }
             let names = listing_of(&dir);
-            let found = probe_gdk(&DirListing {
-                dir: &dir,
-                names: &names,
-            });
+            let found = on_disk(&dir, &names, probe_gdk);
             assert_eq!(found.len(), 1);
             assert_eq!(found[0].leave, Some(FolderLeave::Unreadable));
             assert_eq!(found[0].id.system, "xboxone");
@@ -2286,15 +2406,16 @@ mod tests {
 
         fn locate(dir: &Path, rel: &str) -> Option<PathBuf> {
             let names = listing_of(dir);
-            let l = DirListing { dir, names: &names };
-            let mut listed = false;
-            match logo_locator(&l, rel, &mut listed)? {
-                ArtLocator::File { rel, format } => {
-                    assert_eq!(format, ArtFormat::Png);
-                    Some(rel)
+            on_disk(dir, &names, |l| {
+                let mut listed = false;
+                match logo_locator(l, rel, &mut listed)? {
+                    ArtLocator::File { rel, format } => {
+                        assert_eq!(format, ArtFormat::Png);
+                        Some(rel)
+                    }
+                    other => panic!("{other:?}"),
                 }
-                other => panic!("{other:?}"),
-            }
+            })
         }
 
         #[test]
@@ -2347,20 +2468,18 @@ mod tests {
             // At the root the folder's own names are used, no listing.
             t::put_file(&dir, "Store.scale-125.png", &t::png_8x8());
             let names = listing_of(&dir);
-            let l = DirListing {
-                dir: &dir,
-                names: &names,
-            };
-            let mut listed = true;
-            assert_eq!(
-                logo_locator(&l, "Store.png", &mut listed),
-                Some(ArtLocator::File {
-                    rel: PathBuf::from("Store.scale-125.png"),
-                    format: ArtFormat::Png
-                })
-            );
-            // One listing per probe: a second subfolder is not listed.
-            assert_eq!(logo_locator(&l, "Assets\\Logo.png", &mut listed), None);
+            on_disk(&dir, &names, |l| {
+                let mut listed = true;
+                assert_eq!(
+                    logo_locator(l, "Store.png", &mut listed),
+                    Some(ArtLocator::File {
+                        rel: PathBuf::from("Store.scale-125.png"),
+                        format: ArtFormat::Png
+                    })
+                );
+                // One listing per probe: a second subfolder is not listed.
+                assert_eq!(logo_locator(l, "Assets\\Logo.png", &mut listed), None);
+            });
         }
 
         /// D21 budget: a GDK probe lists at most one subfolder for its
@@ -2384,12 +2503,9 @@ mod tests {
                 std::fs::rename(dir.join(from), dir.join(to)).unwrap();
             }
             let names = listing_of(&dir);
-            crate::consoles::wiiu::list_count::take();
-            let found = probe_gdk(&DirListing {
-                dir: &dir,
-                names: &names,
-            });
-            assert_eq!(crate::consoles::wiiu::list_count::take(), 1);
+            crate::consoles::listing::list_count::take();
+            let found = on_disk(&dir, &names, probe_gdk);
+            assert_eq!(crate::consoles::listing::list_count::take(), 1);
             // The one listing went to `A`; `C`'s MRT name is not looked up.
             assert_eq!(found[0].id.art, []);
         }
@@ -2416,10 +2532,7 @@ mod tests {
             std::fs::remove_file(dir.join("Assets").join("Big.png")).unwrap();
             std::fs::remove_file(dir.join("Assets").join("Store.png")).unwrap();
             let names = listing_of(&dir);
-            let again = probe_gdk(&DirListing {
-                dir: &dir,
-                names: &names,
-            });
+            let again = on_disk(&dir, &names, probe_gdk);
             assert_eq!(
                 again[0].id.art,
                 [ArtLocator::File {

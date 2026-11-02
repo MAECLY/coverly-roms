@@ -102,7 +102,14 @@ pub fn run(args: &UpdateArgs) -> Result<(), Failure> {
     let url =
         resolve_endpoint(std::env::var(ENDPOINT_ENV).ok().as_deref(), channel).map_err(failure)?;
     let net = cli.settings.net_config();
-    let http = UreqHttp::new(&net);
+    // An override endpoint is the user's own URL: its host (and the
+    // artifacts its manifest lists there) is admitted beside the registry.
+    let user_urls: Vec<String> = std::env::var(ENDPOINT_ENV)
+        .ok()
+        .and_then(|v| coverly_core::net::hosts::https_origin(&v))
+        .into_iter()
+        .collect();
+    let http = UreqHttp::new(&net).with_user_urls(user_urls.clone());
     let outcome = check(&http, &url, CURRENT).map_err(failure)?;
     match (&args.action, outcome) {
         (UpdateAction::Check(c), outcome) => report(c.json, &outcome),
@@ -115,7 +122,7 @@ pub fn run(args: &UpdateArgs) -> Result<(), Failure> {
                 .ok_or_else(|| failure(UpdateError::NoPlatform(std::env::consts::OS.into())))?;
             // The settings' timeout is sized for small answers; the binary
             // gets at least MIN_ARTIFACT_TIMEOUT.
-            let artifact_http = UreqHttp::new(&artifact_net_config(&net));
+            let artifact_http = UreqHttp::new(&artifact_net_config(&net)).with_user_urls(user_urls);
             let bytes = download_verified(&artifact_http, &m, &platform, &key).map_err(failure)?;
             if i.dry_run {
                 return print_stdout(&format!(

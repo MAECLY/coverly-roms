@@ -318,3 +318,32 @@ describe('LeftInPlace', () => {
     expect(screen.getByText('1,7 GB')).toHaveClass('font-mono');
   });
 });
+
+describe('LeftInPlace (adjustments)', () => {
+  it('a game part, a Vita backup and a declined item say why they stay', () => {
+    show([
+      left(0, 'main.npdm', {
+        kind: 'game-part',
+        part: 'exe-fs',
+        system: 'switch',
+        title_id: '0100000000010000',
+      }),
+      left(1, 'PCSE00120/game.psvimg', {
+        kind: 'game-part',
+        part: 'backup',
+        system: 'psvita',
+        title_id: 'PCSE00120',
+      }),
+      left(2, 'Bloodborne (CUSA00900)', { kind: 'not-confirmed' }),
+    ]);
+    expect(
+      screen.getByText('Parte de un juego; no se mueve suelta'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Copia de seguridad cifrada de Vita'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('No confirmado; se queda donde está'),
+    ).toBeInTheDocument();
+  });
+});
