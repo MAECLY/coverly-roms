@@ -36,8 +36,8 @@
   <a href="#install">Download</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#questions">FAQ</a> ·
-  <a href="https://coverly-roms.maecly.com/features/">Features</a> ·
-  <a href="https://coverly-roms.maecly.com/roadmap/">Roadmap</a> ·
+  <a href="https://coverly-roms.maecly.com/en/features/">Features</a> ·
+  <a href="https://coverly-roms.maecly.com/en/roadmap/">Roadmap</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <b>English</b> · <a href="README.es.md">Español</a>
 </p>
@@ -176,8 +176,8 @@ The same list is in [Acknowledgements](#acknowledgements) and
 and dark themes; in-app updates.
 
 Every feature, one by one, is on the [features
-page](https://coverly-roms.maecly.com/features/), and what comes next is on the
-[roadmap](https://coverly-roms.maecly.com/roadmap/). Both pages go live with
+page](https://coverly-roms.maecly.com/en/features/), and what comes next is on the
+[roadmap](https://coverly-roms.maecly.com/en/roadmap/). Both pages go live with
 the next update of the website.
 
 ## How it works
