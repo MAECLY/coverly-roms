@@ -5,6 +5,7 @@ import { setBackend, type Backend } from '@/ipc/backend';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
 import { MOCK_HUGE } from '@/ipc/mock/adjustFixture';
+import { BackendError } from '@/ipc/errors';
 import {
   MOCK_CURRENT,
   MOCK_DOWNLOADS,
@@ -807,6 +808,32 @@ describe('organise store', () => {
         hugeCursor: 0,
         hugeAccepted: [],
       });
+    });
+
+    it('an apply that failed starts the questions afresh: a «Sí» then is not sent as declined', async () => {
+      const apply = await hugeCopy();
+      const [blood] = huge();
+      await store().answerHuge('no');
+      // The apply goes out and fails for another reason (the target filled up).
+      apply.mockRejectedValueOnce(new BackendError('no-space', '1/2'));
+      await store().answerHuge('all');
+      expect(store()).toMatchObject({ status: 'ready', pendingLarge: null });
+      expect(store().error?.code).toBe('no-space');
+      // Applied again: every huge item is asked again, Bloodborne too.
+      await store().apply();
+      expect(huge()[0]!.item).toBe(blood!.item);
+      expect(store().hugeDeclined).toEqual([]);
+      await store().answerHuge('yes');
+      await store().answerHuge('no');
+      await store().answerHuge('no');
+      await store().answerHuge('no');
+      const [, decisions, confirm] = apply.mock.lastCall!;
+      expect(decisions).not.toContainEqual({
+        item: blood!.item,
+        choice: 'decline',
+      });
+      expect(confirm?.items).toEqual([blood!.item]);
+      await waitFor(() => expect(store().status).toBe('done'));
     });
   });
 });

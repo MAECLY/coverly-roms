@@ -522,9 +522,14 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
     },
     refresh,
     async apply() {
-      const { planId, decisions, status } = get();
+      const { planId, decisions, status, hugeDeclined } = get();
       // Only the plan on screen, made with the options on screen.
       if (planId === null || status !== 'ready') return;
+      // A new apply sends no `decline`, so the backend asks every huge
+      // item again: earlier «No» answers (an apply that then failed)
+      // must not override this sequence's «Sí».
+      if (hugeDeclined.length > 0)
+        set({ hugeCursor: 0, hugeAccepted: [], hugeDeclined: [] });
       await run(
         (b) => b.organizeApply(planId, Object.values(decisions)),
         planId,
