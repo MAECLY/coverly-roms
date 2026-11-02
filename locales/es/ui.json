@@ -609,6 +609,7 @@
       "container": "Se queda: formato preferido en {profile} ({kept}); la otra es {other}.",
       "cover": "Se queda: tiene portada; la otra no.",
       "catalogueName": "Se queda: se llama como en el catálogo.",
+      "wuaOverFolder": "Se queda: un .wua puede incluir la actualización y los DLC que a la carpeta le falten.",
       "tie": "Son idénticas; se queda la más antigua. Elige otra si prefieres.",
       "tieSettled": "Son idénticas; se queda la más antigua."
     },
@@ -837,6 +838,7 @@
       "container": "Formato",
       "hasCover": "Portada",
       "catalogueName": "Nombre del catálogo",
+      "wuaOverFolder": "Archivo .wua",
       "tie": "Empate",
       "runnerUp": "Si no, ganaría {name} por {rule}"
     },

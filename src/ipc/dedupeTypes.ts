@@ -123,6 +123,7 @@ export const KEEP_REASON_KINDS = [
   'container',
   'has-cover',
   'catalogue-name',
+  'wua-over-folder',
   'tie',
 ] as const;
 
@@ -139,6 +140,8 @@ export type KeepReasonView =
   | { kind: 'container'; kept: string; other: string; profile: string }
   | { kind: 'has-cover' }
   | { kind: 'catalogue-name'; name: string }
+  /** A Wii U `.wua` over a folder with the same title id (it can bundle the update and DLC). */
+  | { kind: 'wua-over-folder' }
   | { kind: 'tie' };
 
 export const REPORT_WHY_KINDS = [

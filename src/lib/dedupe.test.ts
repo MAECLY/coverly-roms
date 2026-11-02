@@ -59,6 +59,7 @@ function samples(): KeepReasonView[] {
       case 'user-choice':
       case 'in-library':
       case 'has-cover':
+      case 'wua-over-folder':
       case 'tie':
         out.push({ kind });
         break;
@@ -127,6 +128,18 @@ describe('reasonText', () => {
     expect(reasonText(tr('en'), region, {})).toBe(
       'Stays: preferred region (World); the other is Japan.',
     );
+  });
+
+  it('says_why_a_wii_u_wua_stays_over_its_folder', () => {
+    const wua: KeepReasonView = { kind: 'wua-over-folder' };
+    expect(reasonText(tr('es'), wua, {})).toBe(
+      'Se queda: un .wua puede incluir la actualización y los DLC que a la carpeta le falten.',
+    );
+    expect(reasonText(tr('en'), wua, {})).toBe(
+      'Stays: a .wua can bundle the update and DLC the folder may lack.',
+    );
+    expect(translate('es', ruleKey('wua-over-folder'))).toBe('Archivo .wua');
+    expect(translate('en', ruleKey('wua-over-folder'))).toBe('.wua archive');
   });
 
   it('names the profile and upper-cases containers', () => {

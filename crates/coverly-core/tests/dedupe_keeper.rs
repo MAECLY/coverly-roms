@@ -715,6 +715,189 @@ fn names_never_choose_outside_the_catalogue_rule() {
     assert_eq!((k, reason), (1, KeepReason::Tie));
 }
 
+// --- Wii U: a .wua over a game folder ---
+
+/// The owner's real pair: a Cemu `.wua` and a loadiine folder with the
+/// same title id (`000500001014B700`). The folder is older, so the tie
+/// alone would keep it.
+fn wiiu_pair() -> (Unit, Unit) {
+    let wua = unit(
+        0,
+        "wiiu",
+        "New SUPER MARIO BROS. U + New SUPER LUIGI U (US).wua",
+        UnitKind::Single,
+        9,
+    );
+    let mut folder = unit(
+        1,
+        "wiiu",
+        "New SUPER MARIO BROS U New SUPER LUIGI U [Game] [000500001014b700]",
+        UnitKind::Folder,
+        1,
+    );
+    folder.ext = String::new();
+    (wua, folder)
+}
+
+#[test]
+fn wua_stays_over_a_folder_with_the_same_title_id() {
+    let (wua, folder) = wiiu_pair();
+    // Whatever the member order and the container order.
+    let order = ContainerOrder::new("anbernic-stock", &["chd", "pbp", "cue", "zip", "raw"]);
+    for cands in [
+        [cand(0, &wua), cand(1, &folder)],
+        [cand(1, &folder), cand(0, &wua)],
+    ] {
+        for order in [no_order(), order.clone()] {
+            let (k, reason, tie) = pick(&cands, &all_rules(), &order);
+            assert_eq!((k, reason, tie), (0, KeepReason::WuaOverFolder, false));
+        }
+    }
+    // Even with every rule off: it is not one of the user's rules.
+    let off: Vec<RuleToggle> = all_rules()
+        .into_iter()
+        .map(|t| RuleToggle { on: false, ..t })
+        .collect();
+    let (k, reason, _) = pick(&[cand(0, &wua), cand(1, &folder)], &off, &no_order());
+    assert_eq!((k, reason), (0, KeepReason::WuaOverFolder));
+    // The runner-up is the folder, set aside for the same reason.
+    let (_, _, runner, _) = choose(
+        &[cand(0, &wua), cand(1, &folder)],
+        &all_rules(),
+        &default_regions(),
+        &no_order(),
+        None,
+        None,
+    );
+    assert_eq!(runner, Some((1, KeepReason::WuaOverFolder)));
+}
+
+#[test]
+fn wua_preference_never_overrides_the_user_or_their_copies() {
+    let (wua, folder) = wiiu_pair();
+    let cands = [cand(0, &wua), cand(1, &folder)];
+    let regions = default_regions();
+    // The user's pick and a forced keeper (`--keep`) win.
+    for (user, forced) in [(Some(1), None), (None, Some(1))] {
+        let (k, reason, _, _) = choose(&cands, &all_rules(), &regions, &no_order(), user, forced);
+        assert_eq!((k, reason), (1, KeepReason::UserChoice));
+    }
+    // A real save only the folder has keeps the folder.
+    let saves = [save("wiiu/New SUPER MARIO BROS U.sav", 2)];
+    let mut cf = cand(1, &folder);
+    cf.saves = &saves;
+    let (k, reason, _) = pick(&[cand(0, &wua), cf], &all_rules(), &no_order());
+    assert_eq!(k, 1);
+    assert!(matches!(reason, KeepReason::HasSave { .. }));
+    // A folder already in the library stays over a .wua in the pile.
+    let mut pile_wua = wua.clone();
+    pile_wua.in_library = false;
+    let (k, reason, _) = pick(
+        &[cand(0, &pile_wua), cand(1, &folder)],
+        &all_rules(),
+        &no_order(),
+    );
+    assert_eq!((k, reason), (1, KeepReason::InLibrary));
+    // Played only on the folder keeps the folder.
+    let mut cf = cand(1, &folder);
+    cf.played = Some(Played {
+        playcount: 2,
+        lastplayed: None,
+        favorite: false,
+    });
+    let (k, reason, _) = pick(&[cand(0, &wua), cf], &all_rules(), &no_order());
+    assert_eq!((k, reason), (1, KeepReason::Played { playcount: 2 }));
+}
+
+#[test]
+fn wua_preference_is_only_between_a_wua_and_a_wii_u_folder() {
+    let (wua, folder) = wiiu_pair();
+    // Two folders, two archives: the usual tie.
+    let mut folder2 = folder.clone();
+    folder2.id = 0;
+    folder2.mtime_ns = 5;
+    let (_, reason, tie) = pick(
+        &[cand(0, &folder2), cand(1, &folder)],
+        &all_rules(),
+        &no_order(),
+    );
+    assert_eq!((reason, tie), (KeepReason::Tie, true));
+    let mut wua2 = wua.clone();
+    wua2.id = 1;
+    wua2.mtime_ns = 1;
+    let (_, reason, _) = pick(&[cand(0, &wua), cand(1, &wua2)], &all_rules(), &no_order());
+    assert_eq!(reason, KeepReason::Tie);
+    // A .wux image against the folder: no preference.
+    let mut wux = wua.clone();
+    wux.ext = "wux".into();
+    let (k, reason, _) = pick(
+        &[cand(0, &wux), cand(1, &folder)],
+        &all_rules(),
+        &no_order(),
+    );
+    assert_eq!((k, reason), (1, KeepReason::Tie));
+    // Another system's folder game.
+    let mut ps3 = folder.clone();
+    ps3.system = "ps3".into();
+    let mut other = wua.clone();
+    other.system = "ps3".into();
+    let (_, reason, _) = pick(&[cand(0, &other), cand(1, &ps3)], &all_rules(), &no_order());
+    assert_eq!(reason, KeepReason::Tie);
+}
+
+#[test]
+fn wua_stays_whatever_the_order_of_the_other_rules() {
+    let (wua, folder) = wiiu_pair();
+    // The folder wins on cover and catalogue, and those rules come first.
+    let mut rules = all_rules();
+    rules.sort_by_key(|t| !matches!(t.rule, KeepRule::Cover | KeepRule::Verified));
+    let mut cf = cand(1, &folder);
+    cf.has_cover = true;
+    cf.dat_name = Some("New Super Mario Bros. U + New Super Luigi U");
+    let (k, reason, _) = pick(&[cand(0, &wua), cf], &rules, &no_order());
+    assert_eq!((k, reason), (0, KeepReason::WuaOverFolder));
+}
+
+#[test]
+fn wua_stays_over_two_folders_in_any_member_order() {
+    let (wua, folder) = wiiu_pair();
+    let mut folder2 = folder.clone();
+    folder2.id = 2;
+    folder2.mtime_ns = 3;
+    folder2.primary = PathBuf::from("wiiu/New SUPER MARIO BROS U [000500001014b700]");
+    let (w, f1, f2) = (cand(0, &wua), cand(1, &folder), cand(2, &folder2));
+    let orders = [
+        [&w, &f1, &f2],
+        [&w, &f2, &f1],
+        [&f1, &w, &f2],
+        [&f1, &f2, &w],
+        [&f2, &w, &f1],
+        [&f2, &f1, &w],
+    ];
+    for order in orders {
+        let cands: Vec<Candidate> = order.iter().map(|c| (*c).clone()).collect();
+        let (k, reason, runner, tie) = choose(
+            &cands,
+            &all_rules(),
+            &default_regions(),
+            &no_order(),
+            None,
+            None,
+        );
+        assert_eq!((k, reason, tie), (0, KeepReason::WuaOverFolder, false));
+        // The older folder is the runner-up.
+        assert_eq!(runner, Some((1, KeepReason::WuaOverFolder)));
+    }
+}
+
+#[test]
+fn wua_reason_wire_spelling() {
+    assert_eq!(
+        serde_json::to_value(KeepReason::WuaOverFolder).unwrap(),
+        serde_json::json!({ "kind": "wua-over-folder" })
+    );
+}
+
 // --- Game list ---
 
 fn system_dir(xml: &str) -> (tempfile::TempDir, PathBuf) {
