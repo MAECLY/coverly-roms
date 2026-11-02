@@ -818,11 +818,16 @@ fn record_of<'r>(
 fn has_leftovers(plan: &OrganizePlan, item: &OrganizeItem, records: &[TransferRecord]) -> bool {
     let members = item.sources.iter().skip(1);
     let companions = item.companions.iter().map(|c| &c.source);
-    members.chain(companions).any(|rel| {
-        let from = plan.source_root.join(rel);
-        fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file())
-            && record_of(records, item.id, &from).is_none()
-    })
+    let unwritten = item
+        .playlist
+        .as_ref()
+        .is_some_and(|p| fs::symlink_metadata(plan.target_root.join(&p.path)).is_err());
+    unwritten
+        || members.chain(companions).any(|rel| {
+            let from = plan.source_root.join(rel);
+            fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file())
+                && record_of(records, item.id, &from).is_none()
+        })
 }
 
 /// Where a finished item's files are by the journal: primary, members,
@@ -998,6 +1003,7 @@ fn target_dirs(plan: &OrganizePlan, items: &[&OrganizeItem]) -> Vec<PathBuf> {
             .iter()
             .chain(&item.set_targets)
             .chain(item.companions.iter().map(|c| &c.target))
+            .chain(item.playlist.as_ref().map(|p| &p.path))
             .chain(extracted);
         for target in targets {
             if let Some(dir) = plan.target_root.join(target).parent() {
@@ -1434,6 +1440,9 @@ impl<'a> Run<'a> {
         if let Some(pause) = self.move_companions(item, &mut targets) {
             return pause;
         }
+        if let Some(pause) = self.write_playlist(item, &mut targets) {
+            return pause;
+        }
         Step::Done(status, targets)
     }
 
@@ -1725,6 +1734,9 @@ impl<'a> Run<'a> {
             }
         }
         if let Some(pause) = self.move_companions(item, &mut targets) {
+            return pause;
+        }
+        if let Some(pause) = self.write_playlist(item, &mut targets) {
             return pause;
         }
         Step::Done(status, targets)
@@ -2139,6 +2151,35 @@ impl<'a> Run<'a> {
 
     /// The generated playlist of a resumed item whose entries are all in
     /// place: written when it is missing; one with the very text is kept.
+    /// The playlist of a loose multi-disc set (adjustments spec D24),
+    /// once its discs are in place: a new file, journaled so undo removes
+    /// it, in copy mode too. A file already at its name (the user's, or
+    /// this job's own on a resume) is kept as it is. `Some` is a pause.
+    fn write_playlist(&mut self, item: &OrganizeItem, targets: &mut Vec<PathBuf>) -> Option<Step> {
+        let playlist = item.playlist.as_ref()?;
+        let root = &self.plan.target_root;
+        let m3u = root.join(&playlist.path);
+        let discs: Vec<PathBuf> = playlist.discs.iter().map(|d| root.join(d)).collect();
+        let refs: Vec<&Path> = discs.iter().map(PathBuf::as_path).collect();
+        let text = m3u_text(&refs, &m3u)?;
+        if fs::symlink_metadata(&m3u).is_ok() {
+            return None;
+        }
+        match self
+            .writer
+            .create_new_file(&m3u, text.as_bytes(), Some(item.id))
+        {
+            Ok(()) => targets.push(m3u),
+            Err(WriteError::Io(e)) if e.kind() == ErrorKind::AlreadyExists => {}
+            Err(e) => {
+                if let Step::Pause(reason) = self.on_error(&e) {
+                    return Some(Step::Pause(reason));
+                }
+            }
+        }
+        None
+    }
+
     fn ensure_m3u(&mut self, id: usize, entries: &[ExtractEntry], m3u: &Path) -> Result<(), Step> {
         let sheets: Vec<PathBuf> = entries
             .iter()

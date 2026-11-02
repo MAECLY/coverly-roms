@@ -717,6 +717,7 @@ export function noteKey(n: ItemNote): KeyedText | null {
     case 'archive-games':
     case 'ps4-or-vita':
     case 'archive-case-collision':
+    case 'disc-set':
       return null;
     case 'multi-rom-zip':
     case 'no-folder-on-device':

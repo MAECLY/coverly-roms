@@ -866,3 +866,31 @@ fn new_disc_details_are_from_the_fixed_vocabulary() {
         assert_eq!(id(bytes).unwrap().detail, want);
     }
 }
+
+/// Saturn `CD-n/m` keeps both numbers, on the disc reader and on a loose
+/// track's sniff (adjustments D24): what confirms a loose disc set.
+#[test]
+fn saturn_and_dreamcast_counts_reach_the_sniff() {
+    let disc = id(dt::saturn_track_disc("T-4507G   ", "2/3")).unwrap();
+    assert_eq!((disc.disc_no, disc.count), (Some(2), Some(3)));
+    let sniff = |bytes: Vec<u8>| {
+        let len = bytes.len() as u64;
+        coverly_core::identify::sniff::sniff_named(
+            &mut coverly_core::identify::sniff::SliceAt(&bytes),
+            len,
+            "bin",
+            "Game (Disc 2).bin",
+        )
+    };
+    assert_eq!(
+        sniff(dt::saturn_track_disc("T-4507G   ", "2/3")).disc,
+        Some((2, 3))
+    );
+    assert_eq!(
+        sniff(dt::dreamcast_track03("T-40214N  ", "1/2")).disc,
+        Some((1, 2))
+    );
+    // A device field that makes no sense gives nothing.
+    assert_eq!(sniff(dt::saturn_track_disc("T-4507G   ", "4/3")).disc, None);
+    assert_eq!(sniff(dt::segacd_track()).disc, None);
+}

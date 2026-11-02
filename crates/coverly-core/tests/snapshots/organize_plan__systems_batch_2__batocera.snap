@@ -5,14 +5,14 @@ expression: redact(&p)
 {
   "broad_root": false,
   "counts": {
-    "auto": 18,
+    "auto": 17,
     "bytes": 254533,
     "deep_folders": 0,
     "junk": 0,
     "left": 6,
     "other_files": 0,
     "review": 0,
-    "roms": 18,
+    "roms": 17,
     "systems": 9
   },
   "created_at": "<created_at>",
@@ -657,73 +657,34 @@ expression: redact(&p)
         {
           "mtime_ns": 0,
           "size": 216
-        }
-      ],
-      "id": 13,
-      "kind": "file",
-      "method": "header",
-      "notes": [],
-      "rename": null,
-      "set_targets": [],
-      "size": 216,
-      "sources": [
-        "Resident Evil 4 (USA) (Disc 1).rvz"
-      ],
-      "system_id": "gamecube",
-      "target": "roms/gamecube/Resident Evil 4 (USA) (Disc 1).rvz",
-      "title_id": {
-        "id": "G4BE08",
-        "source": "header"
-      },
-      "transfer": {
-        "kind": "as-is"
-      },
-      "why": [
-        {
-          "detail": "RVZ disc header",
-          "kind": "header",
-          "system": "gamecube",
-          "weight": 0.949999988079071
         },
-        {
-          "detail": "rvz",
-          "kind": "extension",
-          "system": "gamecube",
-          "weight": 0.5
-        }
-      ]
-    },
-    {
-      "action": "auto",
-      "alternatives": [
-        [
-          "wii",
-          0.5
-        ]
-      ],
-      "catalogue_name": null,
-      "companions": [],
-      "confidence": 0.9799999594688416,
-      "disc": null,
-      "folder": "gamecube",
-      "fps": [
         {
           "mtime_ns": 0,
           "size": 216
         }
       ],
-      "id": 14,
-      "kind": "file",
+      "id": 13,
+      "kind": "set",
       "method": "header",
       "notes": [],
+      "playlist": {
+        "discs": [
+          "roms/gamecube/Resident Evil 4 (USA) (Disc 1).rvz",
+          "roms/gamecube/Resident Evil 4 (USA) (Disc 2).rvz"
+        ],
+        "path": "roms/gamecube/Resident Evil 4 (USA).m3u"
+      },
       "rename": null,
-      "set_targets": [],
-      "size": 216,
+      "set_targets": [
+        "roms/gamecube/Resident Evil 4 (USA) (Disc 2).rvz"
+      ],
+      "size": 432,
       "sources": [
+        "Resident Evil 4 (USA) (Disc 1).rvz",
         "Resident Evil 4 (USA) (Disc 2).rvz"
       ],
       "system_id": "gamecube",
-      "target": "roms/gamecube/Resident Evil 4 (USA) (Disc 2).rvz",
+      "target": "roms/gamecube/Resident Evil 4 (USA) (Disc 1).rvz",
       "title_id": {
         "id": "G4BE08",
         "source": "header"
@@ -760,7 +721,7 @@ expression: redact(&p)
           "size": 1068
         }
       ],
-      "id": 15,
+      "id": 14,
       "kind": "folder",
       "method": "header",
       "notes": [],
@@ -807,7 +768,7 @@ expression: redact(&p)
           "size": 640
         }
       ],
-      "id": 16,
+      "id": 15,
       "kind": "file",
       "method": "header",
       "notes": [],
@@ -855,7 +816,7 @@ expression: redact(&p)
           "size": 160
         }
       ],
-      "id": 17,
+      "id": 16,
       "kind": "file",
       "method": "header",
       "notes": [],
@@ -903,7 +864,7 @@ expression: redact(&p)
           "size": 32
         }
       ],
-      "id": 18,
+      "id": 17,
       "kind": "file",
       "method": "header",
       "notes": [
@@ -956,7 +917,7 @@ expression: redact(&p)
           "size": 62048
         }
       ],
-      "id": 19,
+      "id": 18,
       "kind": "file",
       "method": "header",
       "notes": [],
@@ -1000,7 +961,7 @@ expression: redact(&p)
           "size": 8
         }
       ],
-      "id": 20,
+      "id": 19,
       "kind": "file",
       "method": null,
       "notes": [],
@@ -1035,7 +996,7 @@ expression: redact(&p)
           "size": 128
         }
       ],
-      "id": 21,
+      "id": 20,
       "kind": "file",
       "method": null,
       "notes": [],
@@ -1069,7 +1030,7 @@ expression: redact(&p)
           "size": 128
         }
       ],
-      "id": 22,
+      "id": 21,
       "kind": "file",
       "method": null,
       "notes": [],
@@ -1103,7 +1064,7 @@ expression: redact(&p)
           "size": 64
         }
       ],
-      "id": 23,
+      "id": 22,
       "kind": "file",
       "method": null,
       "notes": [],

@@ -919,7 +919,9 @@ export type ItemNote =
   /** PS4 and Vita share the structure; param.sfo was not read: review. */
   | { kind: 'ps4-or-vita' }
   /** Two names in the archive differ only in case: review. */
-  | { kind: 'archive-case-collision' };
+  | { kind: 'archive-case-collision' }
+  /** Loose discs whose names alone say they are one game: review. */
+  | { kind: 'disc-set' };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =
@@ -1085,7 +1087,18 @@ export type OrganizeItem = OrganizeAction & {
   /** The console content id (PKG header, `param.sfo`, `param.json`, XVC);
    * Rust leaves it out when absent. */
   content_id?: string;
+  /** The `.m3u` a loose multi-disc set gets (Rust leaves it out when
+   * absent). */
+  playlist?: Playlist;
 };
+
+/** A playlist written for a loose multi-disc set: a new file, never over
+ * an existing one, removed by undo. Paths relative to the target root. */
+export interface Playlist {
+  path: string;
+  /** Each disc's sheet or image, in disc order: the playlist's lines. */
+  discs: string[];
+}
 
 export interface OrganizeCounts {
   /** Items that move (automatically or once reviewed). */

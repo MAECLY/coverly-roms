@@ -35,6 +35,7 @@ use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::HeaderRule;
 use crate::identify::sniff::{NotARom, Sniff};
 use crate::organize::apply::{cluster_size, large_transfer, user_available};
+use crate::organize::discsets::{self, HeaderDisc, SetEvidence};
 use crate::organize::evidence::Combined;
 use crate::organize::evidence::{
     identify_candidate, DatCatalogue, Facts, Identification, LadderEnv, OnlineLookup, Thresholds,
@@ -348,6 +349,9 @@ pub enum ItemNote {
     Vita7z,
     /// Disc `n` of a multi-disc set is not in the pile (spec D24).
     MissingDisc { n: u8 },
+    /// Loose discs whose names alone say they are one game (spec D24):
+    /// grouped for review, never moved together automatically.
+    DiscSet,
     /// The title could not be read without keys and the catalogue did not
     /// name it: shown as «Cifrado» (spec D11).
     EncryptedName,
@@ -492,6 +496,17 @@ pub enum OrganizeAction {
     },
 }
 
+/// A `.m3u` written for a loose multi-disc set (adjustments spec D24):
+/// a new file, never over an existing one, journaled and undone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Playlist {
+    /// Relative to the target root.
+    pub path: PathBuf,
+    /// Each disc's sheet or image, relative to the target root, in disc
+    /// order: the playlist's lines.
+    pub discs: Vec<PathBuf>,
+}
+
 /// One game of the plan: a file, an archive or a disc set.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OrganizeItem {
@@ -533,6 +548,10 @@ pub struct OrganizeItem {
     /// the JSON when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_id: Option<String>,
+    /// The playlist a loose multi-disc set gets (spec D24); left out of
+    /// the JSON when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playlist: Option<Playlist>,
     #[serde(flatten)]
     pub action: OrganizeAction,
 }
@@ -561,6 +580,7 @@ impl OrganizeItem {
         self.companions.clear();
         self.rename = None;
         self.transfer = Transfer::AsIs;
+        self.playlist = None;
     }
 }
 
@@ -919,6 +939,21 @@ pub struct SurveyEntry {
     /// What a console header reader found (systems batch 2 §8): title id
     /// and kind group updates and DLC with their base (D11).
     pub console: Option<crate::consoles::ConsoleId>,
+    /// Loose discs grouped into one game (adjustments D24): the entry is
+    /// their `Set`, sources in disc order.
+    pub disc_set: Option<LooseDiscSet>,
+}
+
+/// A loose multi-disc game the survey grouped (adjustments spec D24).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LooseDiscSet {
+    /// The game's name without its disc tag: folder and playlist name.
+    pub title: String,
+    pub evidence: SetEvidence,
+    /// Each disc's primary file (sheet or image), absolute, in disc order.
+    pub discs: Vec<PathBuf>,
+    /// Disc numbers that are not in the pile.
+    pub missing: Vec<u8>,
 }
 
 /// What a pile holds and what each candidate is: everything a plan needs
@@ -1223,6 +1258,7 @@ pub fn survey(
                 facts: None,
                 tree: None,
                 console: None,
+                disc_set: None,
             },
             candidate: None,
             set_sniff: None,
@@ -1398,6 +1434,9 @@ pub fn survey(
         leave_game_part(entry);
         review_xbe_with_siblings(entry);
     }
+    // Loose discs of one game become one set (adjustments D24), before
+    // the duplicates step sees them.
+    let entries = group_loose_discs(entries, env.db);
     let entries = updates_after_bases(entries);
 
     Ok(Survey {
@@ -1408,6 +1447,148 @@ pub fn survey(
         walked,
     })
 }
+
+/// What a disc's header says about its place in a set (spec D24): the
+/// GameCube/Wii ID6 and disc byte, an Xbox title id and disc number, or a
+/// Sega `n/m` device field.
+fn header_disc(entry: &SurveyEntry) -> Option<HeaderDisc> {
+    if let Some(c) = &entry.console {
+        match c.system.as_str() {
+            "gamecube" | "wii" => {
+                return Some(HeaderDisc::Nintendo {
+                    id: c.title_id.clone()?,
+                    n: c.disc_no?,
+                })
+            }
+            "xbox" | "xbox360" => {
+                return Some(HeaderDisc::Xbox {
+                    id: c.title_id.clone()?,
+                    n: c.disc_no?,
+                    m: c.disc_count,
+                })
+            }
+            _ => {}
+        }
+    }
+    let sniff = &entry.facts.as_ref()?.inspection.payloads.first()?.sniff;
+    sniff.disc.map(|(n, m)| HeaderDisc::Sega { n, m })
+}
+
+/// Whether an entry may be one disc of a loose set: an identified file or
+/// sheet set (never a pile `.m3u`, an archive or a folder game) of a disc
+/// system (`multi_file`; floppy disks of computers are left as they are)
+/// that is a game, not an update, DLC or part.
+fn disc_candidate<'e>(entry: &'e SurveyEntry, db: &SystemDb) -> Option<&'e str> {
+    if entry.left.is_some() || entry.disc_set.is_some() {
+        return None;
+    }
+    let primary = entry.sources.first()?;
+    match entry.kind {
+        ItemKind::File => {}
+        ItemKind::Set if extension(primary) != "m3u" => {}
+        _ => return None,
+    }
+    if entry
+        .console
+        .as_ref()
+        .is_some_and(|c| c.part.is_some() || matches!(c.kind, TitleKind::Update | TitleKind::Dlc))
+    {
+        return None;
+    }
+    let id = entry.identification.as_ref()?;
+    if id.left.is_some() || id.combined.verdict == Verdict::Unknown {
+        return None;
+    }
+    id.combined
+        .system
+        .as_deref()
+        .filter(|s| db.get(s).is_some_and(|s| s.multi_file))
+}
+
+/// Merges loose discs of one game into one `Set` entry (spec D24): the
+/// first disc's identification stands for the set, its sources are every
+/// disc's files in disc order, missing discs are noted and a set the names
+/// alone group is reviewed. Each merged entry takes the place of its first
+/// disc.
+fn group_loose_discs(entries: Vec<SurveyEntry>, db: &SystemDb) -> Vec<SurveyEntry> {
+    let (sets, at): (Vec<discsets::DiscSet>, Vec<usize>) = {
+        let mut at = Vec::new();
+        let mut candidates = Vec::new();
+        for (i, entry) in entries.iter().enumerate() {
+            let Some(system) = disc_candidate(entry, db) else {
+                continue;
+            };
+            let id = entry.identification.as_ref();
+            let dat_name = id
+                .filter(|id| id.combined.method == Some(IdLevel::Hash))
+                .and_then(|id| id.catalogue_name.as_deref());
+            candidates.push(discsets::Candidate {
+                path: &entry.sources[0],
+                system,
+                header: header_disc(entry),
+                dat_name,
+                region: entry.console.as_ref().and_then(|c| c.region),
+            });
+            at.push(i);
+        }
+        (discsets::group(&candidates), at)
+    };
+    if sets.is_empty() {
+        return entries;
+    }
+    let mut slots: Vec<Option<SurveyEntry>> = entries.into_iter().map(Some).collect();
+    for set in sets {
+        let members: Vec<usize> = set.members.iter().map(|&m| at[m]).collect();
+        let Some(first) = members.iter().copied().min() else {
+            continue;
+        };
+        if members.iter().any(|&i| slots[i].is_none()) {
+            continue;
+        }
+        let mut discs: Vec<SurveyEntry> = members.iter().filter_map(|&i| slots[i].take()).collect();
+        let mut merged = discs.remove(0);
+        let mut primaries = vec![merged.sources[0].clone()];
+        let mut review = matches!(
+            merged.identification.as_ref().map(|id| id.combined.verdict),
+            Some(Verdict::Review)
+        );
+        for disc in discs {
+            primaries.push(disc.sources[0].clone());
+            review |= matches!(
+                disc.identification.as_ref().map(|id| id.combined.verdict),
+                Some(Verdict::Review)
+            );
+            merged.size = merged.size.saturating_add(disc.size);
+            merged.sources.extend(disc.sources);
+            merged.fps.extend(disc.fps);
+        }
+        merged.kind = ItemKind::Set;
+        merged.inspection = None;
+        if let Some(id) = merged.identification.as_mut() {
+            if set.evidence == SetEvidence::NameOnly {
+                review = true;
+                id.notes.push(ItemNote::DiscSet);
+            }
+            if review && id.combined.verdict == Verdict::Auto {
+                id.combined.verdict = Verdict::Review;
+            }
+            id.notes
+                .extend(set.missing.iter().map(|&n| ItemNote::MissingDisc { n }));
+        }
+        merged.disc_set = Some(LooseDiscSet {
+            title: set.title,
+            evidence: set.evidence,
+            discs: primaries,
+            missing: set.missing,
+        });
+        slots[first] = Some(merged);
+    }
+    slots.into_iter().flatten().collect()
+}
+
+/// Systems whose loose disc sets get no `.m3u` (adjustments D24): their
+/// emulators swap discs another way.
+const NO_PLAYLIST: [&str; 3] = ["ps2", "xbox", "xbox360"];
 
 /// The base title id and kind of an entry's console header (D11).
 fn title_group(entry: &SurveyEntry) -> Option<((String, String), TitleKind)> {
@@ -1802,6 +1983,7 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
             facts: None,
             tree: Some(tree),
             console,
+            disc_set: None,
         }
     };
     let mut out = Vec::new();
@@ -1942,6 +2124,7 @@ fn build_entries(
             facts: None,
             tree: None,
             console: None,
+            disc_set: None,
         };
         if !is_list {
             if candidate.ext == "zip" || candidate.ext == "7z" {
@@ -2343,6 +2526,7 @@ pub fn plan_from_survey(
             },
             title_id: None,
             content_id: None,
+            playlist: None,
         };
         let mut key = None;
         match (&entry.left, &entry.identification) {
@@ -2560,6 +2744,29 @@ pub fn plan_from_survey(
             Err(reason) => item.leave(reason),
         }
     }
+    // Loose multi-disc sets are laid out like an extracted multi-disc
+    // archive (adjustments D24); PS2, Xbox and Xbox 360 get no playlist.
+    for item in items
+        .iter()
+        .filter(|i| i.moves_in() && i.kind == ItemKind::Set)
+    {
+        let Some(set) = survey
+            .entries
+            .get(item.id)
+            .and_then(|e| e.disc_set.as_ref())
+        else {
+            continue;
+        };
+        let playlist = !item
+            .system_id
+            .as_deref()
+            .is_some_and(|s| NO_PLAYLIST.contains(&s));
+        shapes[item.id] = Some(ExtractShape::LooseDiscs {
+            discs: set.discs.iter().map(|d| rel(src, d)).collect(),
+            title: set.title.clone(),
+            playlist,
+        });
+    }
     let fat32 = file_system_is_fat32(&target_root);
     let layout = TargetLayout {
         target_root: target_root.clone(),
@@ -2691,6 +2898,7 @@ pub fn plan_from_survey(
             action: OrganizeAction::Left { reason },
             title_id: None,
             content_id: None,
+            playlist: None,
         });
     }
 
@@ -3233,6 +3441,10 @@ pub fn space_needed(items: &[OrganizeItem], source_root: &Path, copies: bool, cl
                 .fold(0u64, u64::saturating_add),
             Transfer::AsIs => 0,
         };
+        // A loose set's playlist is a few lines too.
+        if item.playlist.is_some() {
+            add = add.saturating_add(round(1));
+        }
         if copies {
             for c in &item.companions {
                 let size = fs::metadata(source_root.join(&c.source)).map_or(0, |m| m.len());
@@ -3994,6 +4206,7 @@ mod tests {
             disc: None,
             title_id: None,
             content_id: None,
+            playlist: None,
             action: OrganizeAction::Auto,
         };
         let bare = serde_json::to_value(&item).unwrap();

@@ -834,6 +834,7 @@ mod apply_phases {
             action: OrganizeAction::Auto,
             title_id: None,
             content_id: None,
+            playlist: None,
         }
     }
 

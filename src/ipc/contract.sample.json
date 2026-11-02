@@ -1954,8 +1954,18 @@
     },
     {
       "kind": "archive-case-collision"
+    },
+    {
+      "kind": "disc-set"
     }
   ],
+  "adjustments_playlist": {
+    "path": "ROMS/Saturn/Grandia (Japan).m3u",
+    "discs": [
+      "ROMS/Saturn/Grandia (Japan) (Disc 1).cue",
+      "ROMS/Saturn/Grandia (Japan) (Disc 2).cue"
+    ]
+  },
   "adjustments_decisions": [
     {
       "item": 4,

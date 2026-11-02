@@ -152,6 +152,7 @@ fn extract_item(
         action: OrganizeAction::Auto,
         title_id: None,
         content_id: None,
+        playlist: None,
     }
 }
 

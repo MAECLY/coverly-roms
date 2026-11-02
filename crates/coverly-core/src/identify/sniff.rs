@@ -212,6 +212,11 @@ pub struct Sniff {
     /// title id, kind, embedded-art locators. Memoised with the facts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub console: Option<crate::consoles::ConsoleId>,
+    /// Disc number and count of a Saturn `CD-n/m` or Dreamcast
+    /// `GD-ROMn/m` device field (adjustments D24): what confirms a loose
+    /// multi-disc set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disc: Option<(u8, u8)>,
     /// Bytes of prefix actually read (0 = unreadable or empty).
     pub read: usize,
 }
@@ -465,6 +470,7 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sniff) 
         if starts(head, 0, magic) || starts(head, 0x10, magic) {
             s.hit(system, 0.90, detail);
             s.serial = ip_bin_serial(head);
+            s.disc = crate::disc::sega::ip_bin_in_head(head).and_then(|ip| ip.disc);
             return;
         }
     }

@@ -267,6 +267,12 @@ const DISC_SETS: &[(&str, WritePile, usize, usize)] = &[
     // Two GameCube discs whose headers name two different games: the
     // headers contradict the names, never a set.
     ("different games", two_games, 2, 0),
+    // One ID6, two disc bytes: one set with its playlist.
+    ("one game id", one_game_two_discs, 1, 1),
+    // Saturn `CD-n/3` device fields: one set.
+    ("one disc count", saturn_three_discs, 1, 1),
+    // Xbox 360 discs of one title id: one set, no playlist.
+    ("xbox 360 discs", xex_two_discs, 1, 0),
 ];
 
 fn mario_kart_7() -> SparseAt {
@@ -495,6 +501,43 @@ fn two_games(dir: &Path) {
         &gc_rvz("GM8E01", 1),
         2,
     );
+}
+
+fn one_game_two_discs(dir: &Path) {
+    put(
+        &dir.join("Resident Evil 4 (USA) (Disc 1).rvz"),
+        &gc_rvz("G4BE08", 0),
+        1,
+    );
+    put(
+        &dir.join("Resident Evil 4 (USA) (Disc 2).rvz"),
+        &gc_rvz("G4BE08", 1),
+        2,
+    );
+}
+
+fn saturn_three_discs(dir: &Path) {
+    for n in 1..=3u64 {
+        let stem = format!("Panzer Dragoon Saga (USA) (Disc {n})");
+        let cue =
+            format!("FILE \"{stem}.bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n");
+        put(&dir.join(format!("{stem}.cue")), cue.as_bytes(), n);
+        put(
+            &dir.join(format!("{stem}.bin")),
+            &coverly_core::disc::testing::saturn_track_disc("MK-81307  ", &format!("{n}/3")),
+            n,
+        );
+    }
+}
+
+fn xex_two_discs(dir: &Path) {
+    for n in 1..=2u8 {
+        put(
+            &dir.join(format!("Lost Odyssey (USA) (Disc {n}).xex")),
+            &ct::xex_loose(ct::XEX_MODULE_TITLE, 0x4D53_0832, n, 2),
+            u64::from(n),
+        );
+    }
 }
 
 fn best(hits: &[Evidence]) -> Option<&str> {
@@ -772,7 +815,9 @@ fn plan(dir: &Path, decisions: &[Decision], world: &World) -> OrganizePlan {
 fn playlists(plan: &OrganizePlan) -> usize {
     plan.items
         .iter()
-        .filter(|i| matches!(&i.transfer, Transfer::Extract { m3u: Some(_), .. }))
+        .filter(|i| {
+            matches!(&i.transfer, Transfer::Extract { m3u: Some(_), .. }) || i.playlist.is_some()
+        })
         .count()
 }
 

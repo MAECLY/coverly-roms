@@ -410,6 +410,7 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         disc: None,
         title_id: None,
         content_id: None,
+        playlist: None,
         action,
     };
     let auto = OrganizeItem {
@@ -562,6 +563,7 @@ fn organize_extract_item_sample() -> coverly_core::organize::OrganizeItem {
         }),
         title_id: None,
         content_id: None,
+        playlist: None,
         action: OrganizeAction::Auto,
     }
 }
@@ -1103,6 +1105,7 @@ fn organise_set_aside_views_match_the_shared_sample() {
         disc: None,
         title_id: None,
         content_id: None,
+        playlist: None,
         action: OrganizeAction::SetAside {
             keeper: "ROMS/GB/Tetris (World) (Rev 1).gb".into(),
             relation: Relation::Exact,
@@ -1240,6 +1243,7 @@ fn systems_batch_2_items_match_the_shared_sample() {
             source: IdSource::ParamSfo,
         }),
         content_id: None,
+        playlist: None,
         action: OrganizeAction::Auto,
     };
     let sources: Vec<IdSource> = vec![
@@ -1340,6 +1344,7 @@ fn systems_batch_3_items_match_the_shared_sample() {
             source: IdSource::ParamSfo,
         }),
         content_id: Some("UP9000-CUSA00900_00-BLOODBORNE000000".into()),
+        playlist: None,
         action: OrganizeAction::Auto,
     };
     let folder: Value = serde_json::from_str(&serde_json::to_string(&folder).unwrap()).unwrap();
@@ -1370,7 +1375,7 @@ fn systems_batch_3_items_match_the_shared_sample() {
 #[test]
 fn adjustment_values_match_the_shared_sample() {
     use coverly_core::consoles::{PartKind, TitleKind, TitleSource};
-    use coverly_core::organize::{Choice, Decision, ItemNote, LeftReason};
+    use coverly_core::organize::{Choice, Decision, ItemNote, LeftReason, Playlist};
 
     let actual = json!({
         "adjustments_reasons": [
@@ -1394,7 +1399,15 @@ fn adjustment_values_match_the_shared_sample() {
             ItemNote::ArchiveGames { count: 2 },
             ItemNote::Ps4OrVita,
             ItemNote::ArchiveCaseCollision,
+            ItemNote::DiscSet,
         ],
+        "adjustments_playlist": Playlist {
+            path: "ROMS/Saturn/Grandia (Japan).m3u".into(),
+            discs: vec![
+                "ROMS/Saturn/Grandia (Japan) (Disc 1).cue".into(),
+                "ROMS/Saturn/Grandia (Japan) (Disc 2).cue".into(),
+            ],
+        },
         "adjustments_decisions": [Decision {
             item: 4,
             choice: Choice::Decline,

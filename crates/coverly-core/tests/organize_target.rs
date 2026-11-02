@@ -44,6 +44,7 @@ fn item(id: usize, sources: &[&str], system: &str, kind: ItemKind, size: u64) ->
         action: OrganizeAction::Auto,
         title_id: None,
         content_id: None,
+        playlist: None,
     }
 }
 

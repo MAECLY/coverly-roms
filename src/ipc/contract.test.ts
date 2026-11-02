@@ -66,6 +66,7 @@ import {
   type OrganizePlan,
   type OrganizePlanWire,
   type PlanWarning,
+  type Playlist,
   type OrganizeReportWire,
   type OrganizeCountsWire,
   type OrganizePlanView,
@@ -607,7 +608,7 @@ const checks: [string, readonly string[], object][] = [
   [
     'OrganizeItem',
     ORGANIZE_ITEM_KEYS satisfies AllKeys<
-      Omit<OrganizeItem, 'title_id' | 'content_id'>,
+      Omit<OrganizeItem, 'title_id' | 'content_id' | 'playlist'>,
       typeof ORGANIZE_ITEM_KEYS
     >,
     sample.organize_plan_view.plan.items[0]!,
@@ -615,14 +616,17 @@ const checks: [string, readonly string[], object][] = [
   [
     'OrganizeItem (game folder)',
     CONSOLE_ITEM_KEYS satisfies AllKeys<
-      Omit<OrganizeItem, 'content_id'>,
+      Omit<OrganizeItem, 'content_id' | 'playlist'>,
       typeof CONSOLE_ITEM_KEYS
     >,
     sample.organize_folder_item,
   ],
   [
     'OrganizeItem (content id)',
-    CONTENT_ITEM_KEYS satisfies AllKeys<OrganizeItem, typeof CONTENT_ITEM_KEYS>,
+    CONTENT_ITEM_KEYS satisfies AllKeys<
+      Omit<OrganizeItem, 'playlist'>,
+      typeof CONTENT_ITEM_KEYS
+    >,
     sample.organize_batch3_item,
   ],
   [
@@ -1285,8 +1289,12 @@ describe('adjustments contract', () => {
       'archive-games',
       'ps4-or-vita',
       'archive-case-collision',
+      'disc-set',
     ]);
     expect(notes[2]).toEqual({ kind: 'missing-disc', n: 2 });
+    const playlist = sample.adjustments_playlist as Playlist;
+    expect(playlist.path).toBe('ROMS/Saturn/Grandia (Japan).m3u');
+    expect(playlist.discs).toHaveLength(2);
     expect(notes[4]).toEqual({ kind: 'archive-games', count: 2 });
     const decisions = sample.adjustments_decisions as OrganizeDecision[];
     expect(decisions).toEqual([{ item: 4, choice: 'decline' }]);

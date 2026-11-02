@@ -906,6 +906,7 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::Homebrew => "homebrew".into(),
         ItemNote::Vita7z => "Vita3K only installs .zip, .vpk or .vci".into(),
         ItemNote::MissingDisc { n } => format!("disc {n} is missing"),
+        ItemNote::DiscSet => "looks like a multi-disc game".into(),
         ItemNote::EncryptedName => {
             "encrypted; the name cannot be read without decrypting it".into()
         }
@@ -1797,6 +1798,7 @@ mod tests {
             (ItemNote::Homebrew, "homebrew"),
             (ItemNote::Vita7z, "Vita3K only installs .zip, .vpk or .vci"),
             (ItemNote::MissingDisc { n: 2 }, "disc 2 is missing"),
+            (ItemNote::DiscSet, "looks like a multi-disc game"),
             (
                 ItemNote::EncryptedName,
                 "encrypted; the name cannot be read without decrypting it",
