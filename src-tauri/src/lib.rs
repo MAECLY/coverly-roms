@@ -4,7 +4,6 @@ pub mod dedupe;
 pub mod error;
 pub mod ipc;
 pub mod jobs;
-pub mod keychain;
 pub mod library;
 pub mod logging;
 pub mod organize;
@@ -14,6 +13,7 @@ pub mod sources;
 pub mod state;
 pub mod update;
 
+pub use coverly_core::credentials::keychain;
 pub use ipc::{app_info, AppInfo, APP_NAME};
 
 use coverly_core::paths::{config_dir, AppDirs};

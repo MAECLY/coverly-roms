@@ -8,6 +8,10 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
+/// The OS credential store, shared by the app and the CLI.
+#[cfg(feature = "keychain")]
+pub mod keychain;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CredentialKey {

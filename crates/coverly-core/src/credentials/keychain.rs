@@ -5,7 +5,7 @@
 //! at it), so callers run on the blocking pool. Pattern from Versorium's
 //! `secrets` module.
 
-use coverly_core::credentials::{CredentialError, CredentialKey, CredentialStore};
+use super::{CredentialError, CredentialKey, CredentialStore};
 
 /// The bundle identifier: entries are recognisable in Keychain Access.
 pub const SERVICE: &str = "com.maecly.coverlyroms";
@@ -37,7 +37,7 @@ impl Default for KeychainStore {
 }
 
 /// Maps a keyring error to a secret-free `CredentialError`.
-pub(crate) fn classify(e: &keyring::Error) -> CredentialError {
+pub fn classify(e: &keyring::Error) -> CredentialError {
     match e {
         keyring::Error::NoStorageAccess(_) => CredentialError::Locked,
         keyring::Error::NoDefaultStore => CredentialError::Unavailable,
@@ -111,12 +111,7 @@ mod tests {
     #[ignore = "real OS keychain"]
     fn real_keychain_round_trip() {
         let store = KeychainStore::with_service("com.maecly.coverlyroms.test");
-        coverly_core::credentials::store_secret(
-            &store,
-            CredentialKey::ScreenscraperUser,
-            "m5-test",
-        )
-        .unwrap();
+        super::super::store_secret(&store, CredentialKey::ScreenscraperUser, "m5-test").unwrap();
         assert_eq!(
             store
                 .get(CredentialKey::ScreenscraperUser)

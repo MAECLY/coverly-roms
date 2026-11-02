@@ -39,12 +39,15 @@ semver.workspace = true
 base64.workspace = true
 minisign-verify.workspace = true
 minisign = { workspace = true, optional = true }
+# The OS credential store (feature `keychain`): the app and the CLI.
+keyring = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-foundation.workspace = true
+security-framework = { version = "3.7", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
@@ -58,6 +61,12 @@ windows-sys = { workspace = true, features = [
   "Win32_System_Threading",
   "Win32_UI_Shell",
 ] }
+windows-native-keyring-store = { version = "1.1", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Without a crypto feature secret-service does not compile; crypto-rust is
+# what zbus-secret-service-keyring-store enables through keyring.
+secret-service = { version = "5.2", optional = true, default-features = false, features = ["crypto-rust"] }
 
 # Scripted stand-in for 7zz/unrar/bsdtar in the external-tool tests
 # (plan AP-5); never shipped.
@@ -72,6 +81,14 @@ doctest = false
 # Mock HTTP server, fixtures and throwaway update keys for tests of this
 # crate and of the CLI.
 test-util = ["dep:minisign", "sevenz-rust2/compress"]
+# The OS keychain store and the per-platform crates its errors are
+# classified by (same versions keyring pulls in).
+keychain = [
+  "dep:keyring",
+  "dep:security-framework",
+  "dep:windows-native-keyring-store",
+  "dep:secret-service",
+]
 
 [dev-dependencies]
 coverly-core = { path = ".", features = ["test-util"] }
