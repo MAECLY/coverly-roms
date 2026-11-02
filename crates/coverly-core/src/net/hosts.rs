@@ -142,18 +142,21 @@ fn has_dot_segment(url: &str) -> bool {
             let decoded = percent_encoding::percent_decode_str(&seg)
                 .decode_utf8_lossy()
                 .into_owned();
-            if decoded.contains(['/', '\\']) {
+            if decoded.contains(['/', '\\']) || decoded == "." || decoded == ".." {
                 return true;
             }
             if decoded == seg {
-                break;
+                return false;
             }
             seg = decoded;
         }
-        seg == "." || seg == ".." || seg.contains('%')  && seg.to_ascii_lowercase().contains("%2")
-            && false
+        // Still encoded after that many rounds: no plain name is.
+        true
     })
 }
+
+/// Rounds of percent-decoding [`has_dot_segment`] looks through.
+const MAX_DECODES: usize = 4;
 
 /// `scheme://authority/` of an HTTPS URL, used to admit the user's update
 /// endpoint override and the artifacts its manifest points to on that host.
@@ -203,7 +206,11 @@ mod tests {
             &[]
         ));
         // Doubly encoded separators and dots still walk nowhere.
-        for tail in ["x/%252f..%252fother/a.png", "x/%255c/a.png", "x/%25252e%25252e/a.png"] {
+        for tail in [
+            "x/%252f..%252fother/a.png",
+            "x/%255c/a.png",
+            "x/%25252e%25252e/a.png",
+        ] {
             assert!(!allowed(&format!("{base}{tail}"), &[]), "{tail}");
         }
     }
