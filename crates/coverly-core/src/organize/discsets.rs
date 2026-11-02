@@ -17,8 +17,9 @@
 //! A group with none of these is proposed for review by name only
 //! ([`SetEvidence::NameOnly`]). A group is rejected (each disc stays its
 //! own item) when two discs share a number (the duplicates step handles
-//! that), when their regions differ, or when a header contradicts the
-//! name (another game, another disc number, another count). DuckStation's
+//! that), when their regions differ, or when a header or a DAT name
+//! contradicts the name (another game, another disc number, another
+//! count). DuckStation's
 //! `discsets.yaml` is not used (CC BY-NC-ND).
 
 use std::collections::BTreeMap;
@@ -257,6 +258,16 @@ fn confirm(candidates: &[Candidate], mut discs: Vec<(usize, DiscTag)>) -> Option
     if headers.iter().any(|(tag, h)| tag.n >= 1 && h.n() != tag.n) {
         return None;
     }
+    // A DAT name a hash gave says which disc the file is, like a header.
+    let dat_contradicts = discs.iter().any(|(i, tag)| {
+        candidates[*i]
+            .dat_name
+            .and_then(disc_tag)
+            .is_some_and(|dat| dat.n != tag.n)
+    });
+    if dat_contradicts {
+        return None;
+    }
     let numbered: Vec<&(usize, DiscTag)> = discs.iter().filter(|(_, t)| t.n >= 1).collect();
     let all_headers = numbered
         .iter()
@@ -375,6 +386,22 @@ mod tests {
         assert!(group(&c).is_empty());
         c[1].dat_name = Some("Game (USA) (Disc 2)");
         assert_eq!(group(&c)[0].evidence, SetEvidence::DatHash);
+    }
+
+    #[test]
+    fn dat_disc_numbers_must_be_the_names() {
+        let mut c = [
+            cand("p/Game (Disc 1).bin", "psx", None),
+            cand("p/Game (Disc 2).bin", "psx", None),
+        ];
+        // Swapped names: the hashes say which disc each file is.
+        c[0].dat_name = Some("Game (USA) (Disc 2)");
+        c[1].dat_name = Some("Game (USA) (Disc 1)");
+        assert!(group(&c).is_empty());
+        // Two copies of disc 1 under two disc names.
+        c[1].dat_name = Some("Game (USA) (Disc 2)");
+        c[0].dat_name = Some("Game (USA) (Disc 2)");
+        assert!(group(&c).is_empty());
     }
 
     #[test]
