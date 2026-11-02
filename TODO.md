@@ -33,6 +33,10 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
 7. [Agradecimientos y créditos](#7-agradecimientos-y-créditos)
 8. [Integraciones (cuentas, claves y servicios)](#8-integraciones-cuentas-claves-y-servicios)
 
+## Fallos conocidos
+
+- [ ] **`organize --apply` se para con «paused: volume-gone» si la carpeta de destino todavía no existe.** Lo encontró la verificación de la tanda de ajustes (PR #36), y en `origin/main` pasa lo mismo, así que viene de antes. Debería crear la carpeta de destino (o pedir confirmación) y distinguirla de un volumen desconectado de verdad.
+
 ## 0. Nombres de los archivos de cada release y Windows ARM
 
 Hoy los archivos se llaman como los genera Tauri (`Coverly.ROMs_0.2.0_universal.dmg`, `_x64-setup.exe`, `_amd64.AppImage`, `_aarch64.AppImage`, `_arm64.deb`…) y la CLI `coverly-0.2.0-darwin-aarch64`. Mezclan `amd64`/`x64` y `aarch64`/`arm64` y no dicen el sistema con palabras normales. Nombres propuestos, iguales para la app y la CLI:
