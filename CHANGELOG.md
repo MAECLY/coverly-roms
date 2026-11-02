@@ -111,6 +111,20 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   folder games.
 - `.cik` files are treated as key material and left untouched.
 
+### Fixed
+
+- RetroArch now shows covers, screenshots and title screens of games whose
+  name has `&`, `*`, `:`, `` ` ``, `"`, `<`, `>`, `?`, `\` or `|`
+  (for example «Mario & Luigi»): Coverly names the thumbnail with those
+  characters replaced by `_`, as RetroArch looks for it. Thumbnails written
+  before under the full name are left where they are and are not reported
+  as orphans (when a duplicate is set aside, its old thumbnail goes with
+  it); the next fill writes the right file next to them. Other profiles are
+  unchanged.
+- ScreenScraper media listed without a region, or under a region Coverly
+  has no name for (such as ScreenScraper's own `ss`), are no longer dropped:
+  they are offered after every region of your order.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

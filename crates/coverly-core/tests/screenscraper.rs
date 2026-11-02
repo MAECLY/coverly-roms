@@ -571,3 +571,80 @@ fn identify_by_hash_trusts_only_an_answer_for_the_asked_system_and_crc() {
         Some("Golden Sun")
     );
 }
+
+/// Real `jeuInfos` answers (public dumps of Sonic 3 and others) list
+/// `fanart`, `video`, `video-normalized`, `steamgrid` and `themehs` with no
+/// `region` and a `media=<type>` URL, and `box-2D` under ScreenScraper's own
+/// `ss` region. Both are kept, region-agnostic, after every known region.
+#[test]
+fn media_without_a_region_or_with_an_unknown_region_are_region_agnostic() {
+    use coverly_core::matching::{default_region_order, strategy_for, RankContext, StrategyKind};
+
+    let w = w();
+    let answer = golden_sun_with(|j| {
+        let medias = j["medias"].as_array_mut().unwrap();
+        medias.push(serde_json::json!({
+            "type": "box-2D", "parent": "jeu", "format": "png",
+            "url": "https://neoclone.screenscraper.fr/api2/mediaJeu.php?systemeid=12&jeuid=3&media=box-2D"
+        }));
+        // The same region-less media twice is kept once.
+        medias.push(serde_json::json!({ "type": "box-2D", "parent": "jeu" }));
+        medias.push(serde_json::json!({ "type": "box-2D", "parent": "jeu", "region": "ss" }));
+        medias.push(serde_json::json!({ "type": "fanart", "parent": "jeu" }));
+        medias.push(serde_json::json!({ "type": "ss", "parent": "jeu", "region": "" }));
+        // Still refused: a region-less media of another parent or type.
+        medias.push(serde_json::json!({ "type": "box-2D", "parent": "support" }));
+        medias.push(serde_json::json!({ "type": "../box", "parent": "jeu" }));
+    });
+    w.server.serve_json(&jeu_infos_path(), &answer);
+    let covers = run(&w, Media::Cover, Some(&hashes())).unwrap();
+    let urls: Vec<&str> = covers.iter().map(|c| c.url.as_str()).collect();
+    assert_eq!(covers.len(), 5, "us, eu, jp, ss and region-less: {urls:?}");
+    let media_url = |m: &str| {
+        format!(
+            "{}/mediaJeu.php?systemeid=12&jeuid=3&media={}",
+            w.cfg.base,
+            enc(m)
+        )
+    };
+    let bare = covers
+        .iter()
+        .find(|c| c.url == media_url("box-2D"))
+        .expect("region-less box-2D, without a (region) suffix");
+    assert!(bare.regions.is_empty());
+    let own = covers
+        .iter()
+        .find(|c| c.url == media_url("box-2D(ss)"))
+        .expect("box-2D of the ScreenScraper region");
+    assert!(own.regions.is_empty());
+    // Media with a region keep it and their `type(region)` URL.
+    let us = covers.iter().find(|c| c.regions == [Region::Usa]).unwrap();
+    assert_eq!(us.url, media_url("box-2D(us)"));
+
+    // An empty region is no region: the screenshot list gains one entry.
+    let shots = run(&w, Media::Screenshot, Some(&hashes())).unwrap();
+    assert_eq!(shots.len(), 2);
+    assert!(shots.iter().any(|c| c.url == media_url("ss")));
+
+    // Ranked after every region of the order (the ROM's, wor, us, eu, jp).
+    let rom = parse_name("Golden Sun (Japan)", false);
+    let order = default_region_order();
+    let sources = vec!["screenscraper".to_string()];
+    let ctx = RankContext {
+        rom_regions: &rom.regions,
+        regions: &order,
+        sources: &sources,
+        embedded_first: false,
+    };
+    for kind in [StrategyKind::RomRegion, StrategyKind::Priority] {
+        let ranked = strategy_for(kind).rank(&ctx, &covers);
+        let last: Vec<bool> = ranked[3..]
+            .iter()
+            .map(|&i| covers[i].regions.is_empty())
+            .collect();
+        assert_eq!(last, [true, true], "{kind:?}");
+        if kind == StrategyKind::RomRegion {
+            assert_eq!(covers[ranked[0]].regions, [Region::Japan]);
+        }
+    }
+}

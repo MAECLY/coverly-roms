@@ -290,6 +290,40 @@ fn retroarch_without_a_libretro_name_is_unsupported() {
     );
 }
 
+/// RetroArch finds `Mario _ Luigi (USA).png` for `Mario & Luigi (USA)`:
+/// that is the art. A thumbnail Coverly wrote before under the ROM's own
+/// name is never found by RetroArch, so it does not count as art (a fill
+/// writes the right name), but it still belongs to the ROM: never an
+/// orphan, never offered for deletion.
+#[test]
+fn retroarch_art_is_the_sanitised_name_and_the_old_name_is_kept_as_the_roms() {
+    let lib = tempfile::TempDir::new().unwrap();
+    let root = lib.path();
+    let boxarts = "thumbnails/Nintendo - Super Nintendo Entertainment System/Named_Boxarts";
+    touch(root, "snes/Mario & Luigi (USA).sfc");
+    touch(root, &format!("{boxarts}/Mario _ Luigi (USA).png"));
+    touch(root, &format!("{boxarts}/Stray (USA).png"));
+    // Windows refuses `?` in a file name, so only Unix can hold the old name.
+    if cfg!(unix) {
+        touch(root, "snes/What? (USA).sfc");
+        touch(root, &format!("{boxarts}/What? (USA).png"));
+    }
+    let art = resolve(root, "retroarch", &[Media::Cover]);
+    let snes = system(&art, "snes");
+    assert_eq!(
+        present_name(state(snes, "Mario & Luigi (USA)", Media::Cover)),
+        "Mario _ Luigi (USA).png"
+    );
+    if cfg!(unix) {
+        assert_eq!(
+            state(snes, "What? (USA)", Media::Cover),
+            &ArtState::Missing,
+            "RetroArch looks for `What_ (USA).png`"
+        );
+    }
+    assert_eq!(orphan_names(snes), ["Stray (USA).png"]);
+}
+
 #[test]
 fn art_state_serializes_with_a_state_tag() {
     let present = ArtState::Present {

@@ -24,11 +24,12 @@ pub const PROFILES_DIR: &str = "profiles";
 /// Larger files are not profiles.
 pub const MAX_PROFILE_BYTES: u64 = 64 * 1024;
 /// Template tokens (see [`render`]).
-pub const TOKENS: [&str; 6] = [
+pub const TOKENS: [&str; 7] = [
     "{root}",
     "{system_dir}",
     "{rel_dir}",
     "{stem}",
+    "{libretro_stem}",
     "{system_id}",
     "{libretro}",
 ];
@@ -364,7 +365,7 @@ fn template_error(t: &SlotFile) -> Option<FieldErrorCode> {
         }
     }
     let last = segments.last().copied().unwrap_or("");
-    if !last.contains("{stem}") {
+    if !last.contains("{stem}") && !last.contains("{libretro_stem}") {
         return Some(Invalid);
     }
     let ext_ok = match t.format {

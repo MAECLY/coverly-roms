@@ -26,11 +26,11 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
 2. [Sistemas que faltan](#2-sistemas-que-faltan)
    2.1. [Actualizaciones, DLC, demos y revisiones dentro de su juego](#21-actualizaciones-dlc-demos-y-revisiones-dentro-de-su-juego)
 3. [Biblioteca](#3-biblioteca)
+   - 3.1. [Fuentes de nombres y arte por title ID](#31-fuentes-de-nombres-y-arte-por-title-id)
 4. [Sincronizar con dispositivos](#4-sincronizar-con-dispositivos)
 5. [Partidas guardadas (saves)](#5-partidas-guardadas-saves)
 6. [Organización y exportación para frontends](#6-organización-y-exportación-para-frontends)
 7. [Agradecimientos y créditos](#7-agradecimientos-y-créditos)
-   - 7.1. [Fuentes de nombres y arte por title ID](#71-fuentes-de-nombres-y-arte-por-title-id)
 
 ## 0. Nombres de los archivos de cada release y Windows ARM
 
@@ -389,7 +389,7 @@ Hecha el 2026-11-01 (4 investigadores y un verificador crítico por grupo, que a
 
 ## 3. Biblioteca
 
-> **Dependencias:** depende de 2.1 (el juego como entidad con sus actualizaciones, DLC, demo, versiones y revisiones, y la estructura de carpetas maestra). **Lo usan 4 y 5.**
+> **Dependencias:** depende de 2.1 (el juego como entidad con sus actualizaciones, DLC, demo, versiones y revisiones, y la estructura de carpetas maestra). **Lo usan 4 y 5.** Se coordina con 3.1: allí están las fuentes y los tipos de arte (portada, portada ancha y cuadrada, fondo, logo, icono), y aquí se guardan por juego y se muestran en su ficha. También con 6, que escribe ese arte en la carpeta de cada frontend.
 
 Hoy la app abre carpetas: en Inicio aparecen como «Unidades conectadas» y «Bibliotecas recientes», pero solo son rutas, y la «biblioteca» es lo que haya en esa ruta en ese momento. La idea es que exista **una biblioteca propia, la definitiva**, que vive en el ordenador y tiene identidad y funciones propias. Los dispositivos (la SD de la Anbernic, la Ayaneo…) pasan a ser destinos que se comparan y sincronizan con ella (bloque 4).
 
@@ -400,7 +400,7 @@ Referencias revisadas: [Playnite](https://api.playnite.link/docs/manual/gettingS
 - **Identidad propia.** Un nombre, una ubicación fija (una o varias carpetas raíz) y una base de datos que persiste entre sesiones. No depende de que la unidad esté conectada para ver qué hay.
 - **El juego como entidad, no el archivo.** Un juego identificado (hash / serial / catálogo) con sus archivos: ROM o set de disco, partidas, portadas, manual, parches. Varias versiones o regiones del mismo juego agrupadas.
 - **Metadatos ricos y editables.** Título, sistema, región, idioma, año, desarrollador, editor, género, jugadores, descripción, valoración. Fuentes: catálogos (No-Intro, Redump), ScreenScraper, IGDB, MobyGames, SteamGridDB. Corrección manual que no se pierde al volver a escanear.
-- **Arte completo.** Portada, título, captura, logo, fondo, caja 3D, vídeo de muestra; lo que ya hace el relleno, pero guardado en la biblioteca y no solo en la carpeta de cada frontend.
+- **Arte completo.** Portada (vertical, ancha y cuadrada), título, captura, logo, fondo (hero), icono, caja 3D y vídeo de muestra. Es lo que ya hace el relleno, pero guardado en la biblioteca y no solo en la carpeta de cada frontend. Los tipos y sus fuentes están en 3.1 (SteamGridDB completo y arte de fondo).
 - **Colecciones y etiquetas.** Favoritos, listas manuales («para la Anbernic», «RPG pendientes»), colecciones inteligentes por filtro (sistema, género, región, «sin portada») y etiquetas libres.
 - **Estado del jugador.** Jugado / sin jugar, completado, valoración propia, notas, tiempo de juego y última partida cuando se puedan leer (`gamelist.xml`, historial de RetroArch, Playnite).
 - **Integridad.** Verificación contra DAT (bien / mala / desconocida), duplicados (ya existe), huecos de arte (ya existe), archivos que faltan o cambiaron desde el último escaneo.
@@ -414,10 +414,46 @@ Referencias revisadas: [Playnite](https://api.playnite.link/docs/manual/gettingS
 - [ ] Crear biblioteca: nombre, carpetas raíz, perfil de organización interno (el formato «maestro» de la biblioteca, independiente del de cada dispositivo).
 - [ ] Importar a la biblioteca desde una carpeta o un dispositivo (copiar o mover, con deshacer), reutilizando Organizar y duplicados.
 - [ ] Ficha de juego con metadatos editables y fuentes nuevas (IGDB, MobyGames) además de las de arte.
+- [ ] Arte por juego en la biblioteca: guardar todos los tipos disponibles (huecos nuevos de 3.1). Elegir cuál usar en cada uno desde una galería, como el plugin de SteamGridDB en Decky, y que la elección no se pierda al volver a escanear. En la ficha, fondo a pantalla completa con el logo encima, como en el dashboard de PS5 o Xbox.
 - [ ] Colecciones manuales, inteligentes y favoritos; etiquetas.
 - [ ] Estado del jugador y lectura de tiempo de juego donde exista.
 - [ ] Rediseñar Inicio: «Mi biblioteca» como centro, y debajo «Dispositivos» (bloque 4) en lugar de rutas sueltas.
 - [ ] Exportar / importar la biblioteca y su base de datos.
+
+### Lo que las fuentes ya ofrecen para la biblioteca (auditoría del 2026-11-01)
+
+Auditoría de todas las fuentes, comparando lo que ofrecen con lo que usa Coverly, con archivo y línea: [`docs/02-research/source-capabilities.md`](docs/02-research/source-capabilities.md). El §4.2 propone el **modelo de metadatos unificado**: cada campo con sus fuentes por orden de prioridad, su origen y su fecha, y la edición manual siempre por encima. Tareas, por valor:
+
+- [ ] Modelo de metadatos por juego (§4.2), con el origen de cada campo y la edición manual con prioridad.
+- [ ] Leer los metadatos de los DAT de GameTDB **que ya se descargan**: desarrolladora, editora, fecha, jugadores y ESRB. Hoy se descartan en `identify/dat.rs`.
+- [ ] Ficha desde ScreenScraper: sinopsis por idioma, editora, desarrolladora, fechas por región, jugadores, nota y clasificaciones.
+- [ ] Ficha desde `metadat/` de libretro, bajo demanda y por CRC o serial: género, desarrolladora, editora, franquicia, año, jugadores y clasificaciones.
+- [ ] Ficha de Switch desde titledb y de Wii, Wii U, 3DS y DS desde el XML de GameTDB.
+- [ ] Guardar los ids externos de cada juego: gameid de ScreenScraper, SteamGridDB, IGDB, Wikidata, Steam, StoreId y RetroAchievements. Que se puedan corregir a mano.
+- [ ] Agrupar versiones y regiones:
+  - con `cloneof`, que hoy se guarda pero nadie lee;
+  - con las de ScreenScraper, `XboxCrossGenSetId` y las releases de xdb.
+- [ ] Etiquetar variantes (beta, demo, traducción, hack, sin licencia, «no es un juego») a partir de las marcas de ScreenScraper, los DAT y `IsDemo`.
+- [ ] Colecciones inteligentes:
+  - por género, modo y tema;
+  - por saga ordenada (familias de ScreenScraper, franquicias, colecciones de IGDB);
+  - por hardware (analógico, vibración);
+  - «con logros».
+- [ ] Estado del jugador: importar el tiempo jugado y la última partida (`.lrtl`, `content_history.lpl`) y los favoritos (`content_favorites.lpl`) de RetroArch.
+- [ ] Integridad:
+  - estado del volcado frente al DAT;
+  - sets de arcade (split, non-merged, miembros);
+  - hashes de Wii, Wii U y 3DS desde GameTDB;
+  - regiones, idiomas y serial de ScreenScraper para contrastar con lo que se lee del archivo.
+- [ ] Cabeceras de Xbox en la ficha: región, clasificación e ids del XBE; media ID del XEX; descripción y editora del STFS.
+- [ ] Galería en la ficha con miniaturas y autor de cada imagen. El logo va sobre el fondo.
+- [ ] Bajo demanda desde la ficha:
+  - manual, flyer y mapas de ScreenScraper;
+  - vídeo como enlace (TheGamesDB, IGDB, Store), y su MP4 solo como opción apagada y con límite.
+- [ ] Edición física o digital, según IGDB.
+- [ ] Logo de la editora y la desarrolladora, e icono de cada colección (ScreenScraper).
+- [ ] Prioridad baja: controles (tips y acciones de ScreenScraper).
+- Aparcado: enviar correcciones a ScreenScraper, solo con confirmación expresa cada vez.
 
 ### RetroAchievements
 
@@ -435,6 +471,144 @@ Tareas:
 - [ ] En la biblioteca: insignia «tiene logros» / «sin logros» / «versión no compatible» (cuando el hash no coincide con ninguna versión soportada, avisar y proponer la versión buena), filtro por logros y colección inteligente «con logros pendientes».
 - [ ] Al elegir qué copia se conserva en duplicados y al sincronizar (bloque 4), preferir la versión compatible con RetroAchievements como regla opcional.
 - [ ] Respetar los límites de uso de la API: caché local, sin peticiones masivas, y todo opcional y desactivado sin clave.
+
+## 3.1. Fuentes de nombres y arte por title ID
+
+> **Dependencias:** no depende de 3 para empezar: los huecos y las fuentes nuevas mejoran ya el relleno actual, y la biblioteca (3) los guardará por juego cuando exista. Cada fuente nueva añade su crédito en 7. Usa la identificación por cabecera de las Tandas 2 y 3 y de la tanda de ajustes, que es de donde salen el title ID, el serial o el content ID. La tanda de ajustes solo integra `blawar/titledb` para Switch; el resto va aquí. Investigación completa, con licencias y cifras: [`docs/02-research/metadata-sources-by-title-id.md`](docs/02-research/metadata-sources-by-title-id.md).
+
+Reglas para todas las fuentes:
+
+- Todo se descarga bajo demanda en el equipo del usuario y se guarda en caché (30 días para los volcados).
+- No se meten datos, derivados ni imágenes en el repo ni en el instalador.
+- Cada fuente lleva crédito visible con enlace.
+- Las peticiones van con user-agent propio y respetando los límites de cada fuente.
+- Las imágenes oficiales no las licencia nadie: se muestran solo en local para identificar el juego.
+
+Tareas:
+
+- [ ] **GameTDB** para 3DS, Wii U, Wii, GameCube, DS/DSiWare y PS3, con búsqueda por ID de producto o serial.
+  - Decidido con Miguel el 2026-11-01: basta con el permiso de su FAQ (_«anyone to use in any game-related project»_). Descarga del XML bajo demanda, caché de 30 días, `Crawl-Delay` para `art.gametdb.com` y crédito visible.
+  - En Wii U, los discos se buscan por el prefijo de `WUP-P-XXXX`.
+- [ ] **Wikidata (CC0)** como puente:
+  - del title ID de Switch y del content ID de PS3, PS4, PS5 y Vita al nombre, la editora y la fecha;
+  - de ahí, a los ids de SteamGridDB e IGDB, para que las carátulas salgan del proveedor de SteamGridDB que ya existe;
+  - es la única fuente libre para PS4 y PS5;
+  - en PS3 hay que filtrar los DLC por el sufijo del content ID.
+- [ ] **Xbox:**
+  - leer en local las cabeceras XBE y STFS/LIVE/CON/GoD (title ID, nombre, icono o miniatura);
+  - `xemu-project/xdb` para la Xbox original, solo para identificar;
+  - `x360db` para Xbox 360, sabiendo que sus carátulas solo responden por HTTP y pueden desaparecer;
+  - el catálogo de la Microsoft Store para One/Series, consultado en vivo por XboxTitleId y guardado solo en la caché local.
+- [ ] **Arte de fondo (background/hero) de PS4, PS5, Xbox One y Xbox Series.** Petición de Miguel (2026-11-01): estas consolas muestran detrás de cada juego un fondo a pantalla completa, y queremos el mayor número posible de fuentes abiertas para ese arte.
+  - Primero, el arte que trae el propio juego: `pic1.png` en PS4, `pic0.png` en PS5 y los recursos visuales de los GDK/ERA de Xbox.
+  - Después, fuentes de la comunidad, como los «heroes» de SteamGridDB y los fanart de ScreenScraper.
+  - Por último, los catálogos oficiales, consultados bajo demanda y guardados solo en la caché local.
+  - Hace falta un hueco de «fondo» en el modelo de arte y mostrarlo en las vistas.
+  - Investigación hecha: [`docs/02-research/background-art-sources.md`](docs/02-research/background-art-sources.md). Ninguna fuente tiene licencia abierta para estas imágenes (son de las editoras), así que se descargan bajo demanda, se guardan solo en local y nunca se empaquetan.
+  - Orden de búsqueda:
+    1. Lo incrustado:
+       - PS4: `pic1` del parche y luego del juego, y en un PKG sin cifrar sus entradas;
+       - PS5: `pic0` y luego `pic1`;
+       - Xbox: la imagen de carga de los GDK y ERA.
+    2. TheGamesDB `fanart` (16:9).
+    3. Heroes de SteamGridDB (`/heroes/game/{id}`, recortados de 3:1 a 16:9; también `/logos` e `/icons`).
+    4. ScreenScraper `fanart`.
+    5. Steam `library_hero`, solo para los juegos que también están en PC.
+    6. IGDB artworks, opcional.
+    7. El catálogo de la Microsoft Store, solo para Xbox: apagado por defecto, con aviso de copyright.
+    8. RAWG, como último recurso.
+  - Puente: Wikidata (CC0) con los ids de SteamGridDB (P12561), Microsoft Store (P5885), Steam (P1733) e IGDB (P5794).
+  - Descartadas:
+    - la PS Store, porque sus términos prohíben montar bases de datos y el scraping;
+    - tmdb2 de Sony, porque pide una clave del firmware;
+    - las herramientas de fPKG;
+    - LaunchBox, que no tiene términos.
+  - Tareas: hueco `Media::Background` con su propio límite de tamaño; leer lo incrustado; pedirlo a SteamGridDB y ScreenScraper; proveedores nuevos (TheGamesDB, Steam); escribirlo en cada frontend (`fanart` en ES-DE, `background` en Pegasus…); fondo en Detalles y Galería, columna «Fondo» en Huecos de arte y filtro «sin fondo».
+  - Comprobar antes: los términos de SteamGridDB, la cobertura real con una muestra de unos 20 juegos y el tamaño de `pic1` en PS4.
+- [ ] **SteamGridDB completo** (petición de Miguel, 2026-11-01). Hoy Coverly solo pide portadas verticales estáticas (`/grids/game/{id}`, 600×900 y 342×482) y su modelo de arte solo tiene tres huecos: portada, captura y pantalla de título (`Media` en `profiles/mod.rs`). El plugin de Decky ofrece cinco tipos y la API v2 tiene más variantes:
+
+  | Tipo en Decky    | Endpoint de la API v2                                                                                                              | Variantes que ofrece la API (comprobar al empezar)                                      | Hueco en Coverly                                                 |
+  | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+  | Cápsula          | `/grids` vertical (600×900, 342×482, 660×930)                                                                                      | estilos `alternate`, `blurred`, `white_logo`, `material`, `no_logo`; estática o animada | Portada (ya existe)                                              |
+  | Cápsula ancha    | `/grids` horizontal (920×430, 460×215)                                                                                             | los mismos estilos                                                                      | Nuevo: «portada ancha»                                           |
+  | Imagen principal | `/heroes` (1920×620, 3840×1240, 1600×650)                                                                                          | `alternate`, `blurred`, `material`                                                      | Nuevo: «fondo» (el mismo del arte de fondo de arriba)            |
+  | Logotipo         | `/logos`                                                                                                                           | `official`, `white`, `black`, `custom` (PNG/WebP transparente)                          | Nuevo: «logo» (las marquesinas de ES-DE y Batocera)              |
+  | Icono            | `/icons`                                                                                                                           | `official`, `custom` (PNG/ICO, varios tamaños)                                          | Nuevo: «icono»                                                   |
+  | —                | `/grids` cuadrado (512×512, 1024×1024)                                                                                             | los mismos estilos                                                                      | Nuevo: «portada cuadrada» (muOS y algunas portátiles)            |
+  | —                | Búsqueda por plataforma: `/{tipo}/steam/{appid}` y `/{tipo}/{plataforma}/{id}` (egs, gog, origin, uplay, bnet, flashpoint, eshop…) | —                                                                                       | Buscar por id exacto (vía Wikidata o Steam) antes que por nombre |
+  - **Por juego y por sistema** (ligado a la biblioteca del bloque 3 y a los perfiles del 6): cada perfil de frontend dice qué huecos usa y con qué forma. Por ejemplo, ES-DE: `covers`, `marquees` (logo), `fanart` (fondo), `screenshots` y `titlescreens`. Las portátiles usan portada o cuadrada. La biblioteca guarda todos los tipos disponibles y Organizar escribe solo los que pide el perfil.
+  - **Para ajustar en Ajustes:** tipos activos, estilos preferidos, animadas sí/no, y los filtros que ya existen (NSFW, humor, epilepsia).
+  - **En la interfaz:** galería para elegir entre las opciones de cada tipo, como hace Decky; el logo sobre el fondo en Detalles; la portada ancha en la vista de lista o filas.
+  - Respetar los límites de la API y la caché local. La clave de API la sigue poniendo el usuario.
+  - Opcional: pedir a SteamGridDB una clave propia para Coverly. La del plugin de Decky es exclusiva suya y está prohibido reutilizarla. Si la dan, iría dentro de la app; si no, sigue la del usuario.
+
+- [ ] **Redump y No-Intro** para identificar por hash o serial. No tocar la sección de claves de disco de Redump.
+- [ ] **IGDB** como proveedor opcional con la clave del propio usuario, igual que SteamGridDB.
+- [ ] Pendiente de revisar antes de usarlas: SerialStation (operador y términos), DBox y los términos de No-Intro para los sistemas de Nintendo.
+- [ ] **Descartadas** (no usar):
+  - 3dsdb.com, hax0kartik/3dsdb, nswdb y XboxUnity, por la scene o las claves;
+  - Tinfoil, por ser propietaria;
+  - el buscador y las imágenes de Nintendo Europa, que su página de copyright prohíbe usar;
+  - tmdb2 de Sony y el uso masivo de su web;
+  - MobyGames, por ser de pago, y LaunchBox, por no tener términos.
+
+### Auditoría de capacidades: tareas para las fuentes y los huecos (2026-11-01)
+
+Detalle con archivo y línea: [`docs/02-research/source-capabilities.md`](docs/02-research/source-capabilities.md). El §4.1 da los **14 huecos de arte**, cada uno con sus fuentes por orden de prioridad:
+
+- portada, portada ancha y cuadrada;
+- fondo, logo, marquesina e icono;
+- captura y pantalla de título;
+- trasera, lomo, caja 3D, cartucho o disco, y bezel.
+
+Vídeo, manual, mapas y flyer van aparte, como adjuntos bajo demanda. Tareas, por valor:
+
+- [ ] Ampliar `Media` con los huecos del §4.1, cada uno con su propio límite de tamaño.
+- [x] **ScreenScraper, fallo:** `parse_game` descarta los medios sin región o con región desconocida (`screenscraper.rs`), y por eso nunca llegan el fanart, el steamgrid, el vídeo ni la marquesina. Corregirlo antes que nada de ScreenScraper. Hecho en PR #35 (`8f05b86`).
+- [ ] Hueco logo, en este orden:
+  1. `Named_Logos` de libretro, gratis y sin clave;
+  2. `wheel-hd` y `wheel` de ScreenScraper;
+  3. `/logos` de SteamGridDB, en el idioma del usuario;
+  4. logos de IGDB con transparencia;
+  5. GDK y ERA locales.
+- [ ] SteamGridDB completo (ver arriba).
+  - Desempatar por `release_date` y `verified`.
+  - Mostrar en Ajustes los filtros NSFW, humor y epilepsia.
+  - Las animadas, con su propio límite de tamaño.
+- [ ] Pasar el serial, el title ID y los ids externos a las consultas de arte (`ArtQuery`). El serial ya se lee en `sniff.rs`.
+- [ ] Identificar por serial y por prefijo STFS al escanear, no solo en Duplicados. Es lo que hace útiles los DAT de GameTDB en GameCube, Wii, Wii U y PS3, que no traen CRC.
+- [ ] ScreenScraper, búsqueda:
+  - por `serialnum` cuando no hay hash, y `romtype` según el contenedor;
+  - reusar el `gameid` en las repeticiones;
+  - mandar md5 y sha1 desde Organizar.
+- [ ] ScreenScraper, cuotas:
+  - leer las cuotas diarias y las de error;
+  - ante un 429, esperar y reintentar;
+  - mostrar las cuotas en Ajustes.
+- [ ] ScreenScraper, imágenes: pedir el tamaño y el formato que usa cada perfil, y mandar el CRC de la imagen local para no volver a bajarla.
+- [ ] Huecos de caja y soporte:
+  - trasera, lomo y soporte de ScreenScraper;
+  - caja 3D, disco y caja completa de GameTDB;
+  - trasera y soporte de xdb.
+- [ ] Marquesina de arcade y bezels de ScreenScraper, en 4:3 o 16:9 según el perfil.
+- [ ] Puente de ids con Wikidata, primero con `haswbstatement` y después con `wbgetentities`, y SPARQL solo en lotes pequeños.
+- [ ] Proveedores nuevos:
+  - titledb por title ID: icono, banner y capturas;
+  - GameTDB por ID6 o ID4, de uno en uno y respetando su robots;
+  - Xbox: xdb, x360db y Microsoft Store, más el icono local del XBE;
+  - IGDB, con la cuenta de Twitch del usuario;
+  - TheGamesDB, por hash o uid.
+- [ ] Guardar con cada imagen su procedencia (autor, idioma, URL, formato, tamaño y hash).
+- [ ] Orden de regiones configurable: la del usuario, luego mundial, EE. UU., Europa y Japón.
+- [ ] Usar como último recurso las imágenes de RetroAchievements (caja, título y captura), sin verificar todavía.
+- [ ] Puente CRC → serial con `metadat/serial` para cartuchos.
+- [ ] Opcional: DAT de TOSEC para los sistemas sin No-Intro.
+- [ ] Comprobar antes de integrar:
+  - los tipos de ScreenScraper que no están en su tabla oficial;
+  - el `platformId` de eShop en SteamGridDB;
+  - el cupo de TheGamesDB;
+  - los términos de SteamGridDB, Redump, No-Intro y RetroAchievements;
+  - si la licencia de Wikidata es CC0.
 
 ## 4. Sincronizar con dispositivos
 
@@ -584,11 +758,22 @@ Algunos frontends lanzan juegos de PS3, Vita y otros sistemas «instalados» en 
 
 - [ ] «Exportar para…»: generar desde la biblioteca la estructura completa de un frontend (carpetas de sistema, ROMs, medios, listas de juegos, lanzadores) en una carpeta o tarjeta de destino, con vista previa y deshacer. Es la base de la sincronización del bloque 4.
 
+### De la auditoría de fuentes (2026-11-01)
+
+- [x] **Fallo en el perfil RetroArch:** `{stem}` no cambia por `_` los caracteres ``&*/:`"<>?\|`` y RetroArch sí lo hace al buscar las miniaturas. Por eso no encuentra la de «Mario & Luigi». Aplicar `sanitise_libretro` en ese perfil. Hecho en PR #35 (`8f05b86`): token `{libretro_stem}`.
+- [ ] Escribir los huecos nuevos en cada frontend: el logo en `marquees/` de ES-DE, en `marquee` de Batocera y en `Named_Logos/`; el fondo, la caja 3D y el disco donde los admita cada uno.
+- [ ] Exportar los metadatos (género, jugadores, fecha, desarrolladora, editora, descripción) a `gamelist.xml`, Pegasus y LaunchBox, solo los campos que la licencia permita:
+  - nunca los de RAWG;
+  - los de ScreenScraper, con la atribución CC BY-NC-SA.
+- [ ] `.lpl` completos: rutas con `#` dentro de un zip, `crc32` o serial, `db_name` y `base_content_directory`.
+- [ ] Pasar la rotación y la resolución al frontend para los arcades verticales.
+- [ ] Arte de sistema (logos de consola) desde ScreenScraper, TheGamesDB e IGDB.
+
 ## 7. Agradecimientos y créditos
 
 Petición de Miguel (2026-11-01): una pestaña nueva en Ajustes, **«Agradecimientos»**, que dé crédito con claridad a todo lo que no es nuestro y que Coverly usa. Incluye fuentes de portadas, APIs, bases de datos, DAT, documentación técnica, bibliotecas, tipografías e iconos. Por ejemplo, hoy: libretro-thumbnails, SteamGridDB y ScreenScraper.
 
-> **Dependencias:** ninguna para empezar. Cada fuente nueva (titledb en la tanda de ajustes, las del 7.1) añade aquí su entrada al integrarse. Inventario completo de lo que se usa hoy, con licencias, textos de crédito obligatorios y lo que falta verificar: [`docs/02-research/credits-inventory.md`](docs/02-research/credits-inventory.md). **Autorizado por Miguel dentro de la tanda de ajustes (ajuste 7).**
+> **Dependencias:** ninguna para empezar. Cada fuente nueva (titledb en la tanda de ajustes, las del 3.1) añade aquí su entrada al integrarse. Inventario completo de lo que se usa hoy, con licencias, textos de crédito obligatorios y lo que falta verificar: [`docs/02-research/credits-inventory.md`](docs/02-research/credits-inventory.md). **Autorizado por Miguel dentro de la tanda de ajustes (ajuste 7).**
 
 - [ ] Pestaña «Agradecimientos» en Ajustes (es/en), con el lenguaje visual de la app, agrupada por tipo:
   - fuentes de portadas y metadatos;
@@ -603,46 +788,14 @@ Petición de Miguel (2026-11-01): una pestaña nueva en Ajustes, **«Agradecimie
 - [ ] Un test que falle si un proveedor de red o un conjunto de datos nuevo no tiene su entrada de crédito.
 - [ ] Avisos de terceros de las dependencias (Rust y JS) generados al compilar, para cumplir con MIT, BSD, Apache y las demás. Se muestran desde la misma pestaña («Ver licencias de terceros»).
 - [ ] Buscable desde el buscador de Ajustes, como el resto de secciones.
+- [ ] Créditos que añade la auditoría de fuentes:
+  - «ScreenScraper y sus fuentes», que cubra textos, vídeos y manuales;
+  - libretro-database «y metadatos»;
+  - autor de cada imagen de SteamGridDB;
+  - filas para RAWG, Steam/Valve, xdb (con MobyGames como origen), x360db, Microsoft Store, RetroAchievements, rcheevos y `blawar/nut`.
 - [ ] Corregir a la vez los fallos de cumplimiento que encontró el inventario:
   - el bundle no incluye `LICENSES/*.txt` ni los OFL de las tipografías;
   - `THIRD-PARTY-NOTICES.md` cita TheGamesDB, que no se usa, y remite a términos en `docs/09-legal/` que no existen;
   - faltan los avisos de las dependencias JS y de varios crates (MPL de option-ext, CDLA de webpki-roots, ISC/BoringSSL de ring, Unicode-3.0);
   - falta el enlace que pide GameTDB;
   - falta el crédito CC BY 4.0 de los iconos de RetroArch Assets en la interfaz.
-
-## 7.1. Fuentes de nombres y arte por title ID
-
-> **Dependencias:** usa la identificación por cabecera de las Tandas 2 y 3 y de la tanda de ajustes, que es de donde salen el title ID, el serial o el content ID. La tanda de ajustes solo integra `blawar/titledb` para Switch; el resto va aquí. Investigación completa, con licencias y cifras: [`docs/02-research/metadata-sources-by-title-id.md`](docs/02-research/metadata-sources-by-title-id.md).
-
-Reglas para todas las fuentes:
-
-- Todo se descarga bajo demanda en el equipo del usuario y se guarda en caché (30 días para los volcados).
-- No se meten datos, derivados ni imágenes en el repo ni en el instalador.
-- Cada fuente lleva crédito visible con enlace.
-- Las peticiones van con user-agent propio y respetando los límites de cada fuente.
-- Las imágenes oficiales no las licencia nadie: se muestran solo en local para identificar el juego.
-
-Tareas:
-
-- [ ] **GameTDB** para 3DS, Wii U, Wii, GameCube, DS/DSiWare y PS3, con búsqueda por ID de producto o serial.
-  - Decidido con Miguel el 2026-11-01: basta con el permiso de su FAQ (_«anyone to use in any game-related project»_). Descarga del XML bajo demanda, caché de 30 días, `Crawl-Delay` para `art.gametdb.com` y crédito visible.
-  - En Wii U, los discos se buscan por el prefijo de `WUP-P-XXXX`.
-- [ ] **Wikidata (CC0)** como puente:
-  - del title ID de Switch y del content ID de PS3, PS4, PS5 y Vita al nombre, la editora y la fecha;
-  - de ahí, a los ids de SteamGridDB e IGDB, para que las carátulas salgan del proveedor de SteamGridDB que ya existe;
-  - es la única fuente libre para PS4 y PS5;
-  - en PS3 hay que filtrar los DLC por el sufijo del content ID.
-- [ ] **Xbox:**
-  - leer en local las cabeceras XBE y STFS/LIVE/CON/GoD (title ID, nombre, icono o miniatura);
-  - `xemu-project/xdb` para la Xbox original, solo para identificar;
-  - `x360db` para Xbox 360, sabiendo que sus carátulas solo responden por HTTP y pueden desaparecer;
-  - el catálogo de la Microsoft Store para One/Series, consultado en vivo por XboxTitleId y guardado solo en la caché local.
-- [ ] **Redump y No-Intro** para identificar por hash o serial. No tocar la sección de claves de disco de Redump.
-- [ ] **IGDB** como proveedor opcional con la clave del propio usuario, igual que SteamGridDB.
-- [ ] Pendiente de revisar antes de usarlas: SerialStation (operador y términos), DBox y los términos de No-Intro para los sistemas de Nintendo.
-- [ ] **Descartadas** (no usar):
-  - 3dsdb.com, hax0kartik/3dsdb, nswdb y XboxUnity, por la scene o las claves;
-  - Tinfoil, por ser propietaria;
-  - el buscador y las imágenes de Nintendo Europa, que su página de copyright prohíbe usar;
-  - tmdb2 de Sony y el uso masivo de su web;
-  - MobyGames, por ser de pago, y LaunchBox, por no tener términos.

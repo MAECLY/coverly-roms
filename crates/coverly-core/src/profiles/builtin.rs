@@ -666,15 +666,15 @@ pub fn builtin_profiles() -> Vec<Profile> {
                 &[
                     (
                         Media::Cover,
-                        "{root}/thumbnails/{libretro}/Named_Boxarts/{stem}.png",
+                        "{root}/thumbnails/{libretro}/Named_Boxarts/{libretro_stem}.png",
                     ),
                     (
                         Media::Screenshot,
-                        "{root}/thumbnails/{libretro}/Named_Snaps/{stem}.png",
+                        "{root}/thumbnails/{libretro}/Named_Snaps/{libretro_stem}.png",
                     ),
                     (
                         Media::Title,
-                        "{root}/thumbnails/{libretro}/Named_Titles/{stem}.png",
+                        "{root}/thumbnails/{libretro}/Named_Titles/{libretro_stem}.png",
                     ),
                 ],
                 None,
@@ -889,6 +889,59 @@ mod tests {
             .unwrap()
             .template
             .contains("/Named_Titles/"));
+    }
+
+    /// Renders `media` of profile `id` for a ROM named `stem`.
+    fn slot_path(id: &str, media: Media, stem: &str) -> PathBuf {
+        let p = profile(id);
+        let slot = p.slot(media).expect("slot");
+        let system_dir = Path::new("/sd").join(&p.roms_root).join("SFC");
+        render(
+            &slot.template,
+            &TemplateVars {
+                root: Path::new("/sd"),
+                system_dir: &system_dir,
+                rel_dir: Path::new(""),
+                stem,
+                system_id: "snes",
+                libretro: Some("Nintendo - Super Nintendo Entertainment System"),
+            },
+        )
+    }
+
+    /// RetroArch looks thumbnails up with `&*/:`"<>?\|` replaced by `_`
+    /// (`gfx_thumbnail.c`), so it writes them under that name.
+    #[test]
+    fn retroarch_names_thumbnails_as_retroarch_looks_them_up() {
+        let stem = "Mario & Luigi - Superstar Saga? (USA)";
+        for (media, dir) in [
+            (Media::Cover, "Named_Boxarts"),
+            (Media::Screenshot, "Named_Snaps"),
+            (Media::Title, "Named_Titles"),
+        ] {
+            assert_eq!(
+                slot_path("retroarch", media, stem),
+                PathBuf::from(format!(
+                    "/sd/thumbnails/Nintendo - Super Nintendo Entertainment System/{dir}/Mario _ Luigi - Superstar Saga_ (USA).png"
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn other_profiles_keep_the_rom_name_as_is() {
+        let stem = "Mario & Luigi - Superstar Saga? (USA)";
+        for p in builtin_profiles()
+            .into_iter()
+            .filter(|p| p.id != "retroarch")
+        {
+            for (media, slot) in &p.slots {
+                assert!(!slot.template.contains("{libretro_stem}"), "{}", p.id);
+                let path = slot_path(&p.id, *media, stem);
+                let name = path.file_name().unwrap().to_string_lossy();
+                assert!(name.starts_with(stem), "{} {media:?}: {name}", p.id);
+            }
+        }
     }
 
     #[test]

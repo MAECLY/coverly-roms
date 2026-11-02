@@ -264,6 +264,18 @@ fn preview_renders_library_relative_paths() {
         paths["title"],
         "thumbs/Nintendo - Super Nintendo Entertainment System/Hacks/Zelda (USA).png"
     );
+    let mut thumbs = p.clone();
+    thumbs.slots.get_mut("title").unwrap().template =
+        "{root}/thumbs/{libretro}/{rel_dir}/{libretro_stem}.png".into();
+    assert!(errors(&thumbs).is_empty(), "{:?}", errors(&thumbs));
+    let amp = PreviewExample {
+        file_name: "Mario & Luigi (USA).sfc".into(),
+        ..ex.clone()
+    };
+    assert_eq!(
+        preview_paths(&thumbs, &amp, &SystemDb::builtin())["title"],
+        "thumbs/Nintendo - Super Nintendo Entertainment System/Hacks/Mario _ Luigi (USA).png"
+    );
     let mut broken = p.clone();
     broken.slots.get_mut("cover").unwrap().template = "{root}/../{stem}.png".into();
     let paths = preview_paths(&broken, &ex, &SystemDb::builtin());
