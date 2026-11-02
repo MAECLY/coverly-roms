@@ -72,29 +72,43 @@ export interface Integration {
   needs: FieldInput[];
 }
 
-const KINDS: readonly string[] = ['api-key', 'account', 'dataset', 'link'];
-const GROUPS: readonly string[] = [
-  'art',
-  'names',
-  'achievements',
-  'catalogs',
-  'updates',
-];
-const STATUSES: readonly string[] = ['working', 'planned'];
-const INPUTS: readonly string[] = [
-  'user',
-  'password',
-  'api-key',
-  'client-id',
-  'secret',
-];
-const TESTS: readonly string[] = ['steamgriddb', 'screenscraper'];
-const SOURCES: readonly string[] = [
-  'libretro',
-  'steamgriddb',
-  'screenscraper',
-  'embedded',
-];
+/** The keys of a record that must name every member of `T`: the
+ * compiler then flags an allow-list that misses a new member. */
+function allOf<T extends string>(r: Record<T, true>): readonly string[] {
+  return Object.keys(r);
+}
+
+const KINDS = allOf<IntegrationKind>({
+  'api-key': true,
+  account: true,
+  dataset: true,
+  link: true,
+});
+const GROUPS = allOf<IntegrationGroup>({
+  art: true,
+  names: true,
+  achievements: true,
+  catalogs: true,
+  updates: true,
+});
+const STATUSES = allOf<IntegrationStatus>({ working: true, planned: true });
+const INPUTS = allOf<FieldInput>({
+  user: true,
+  password: true,
+  'api-key': true,
+  'client-id': true,
+  secret: true,
+});
+const TESTS = allOf<IntegrationTest>({
+  steamgriddb: true,
+  screenscraper: true,
+});
+const SOURCES = allOf<SourceId>({
+  libretro: true,
+  steamgriddb: true,
+  screenscraper: true,
+  embedded: true,
+});
 
 function optString(v: unknown): boolean {
   return v === undefined || v === null || typeof v === 'string';
