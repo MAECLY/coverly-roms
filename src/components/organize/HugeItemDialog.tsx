@@ -46,7 +46,8 @@ interface Props {
  * what the item takes and what will be left free on the target after the
  * rest and the items already accepted (1 % margin, as apply checks); an
  * item that does not fit takes only «No». Focus starts on «No» for every
- * item; Escape is «No».
+ * item; Escape is «No». Each next item is also spoken through a polite
+ * live region, since answering «No» does not move the focus.
  */
 export function HugeItemDialog({
   detail,
@@ -81,6 +82,33 @@ export function HugeItemDialog({
     if (a !== 'no' && !fits) return;
     onAnswer(a);
   };
+  // The next item's question, read out once it replaces the last one:
+  // «No» keeps the focus where it was, so nothing else would announce it.
+  // Empty for the first item, which the dialog reads as it opens.
+  const body =
+    room === null
+      ? t('organize.huge.bodyNoFree', { bytes: size(item.bytes) })
+      : room.fits
+        ? t('organize.huge.body', {
+            bytes: size(item.bytes),
+            free: size(room.left),
+            volume: detail.volume,
+          })
+        : t('organize.huge.noRoom', {
+            volume: detail.volume,
+            missing: size(room.missing),
+          });
+  const announcement =
+    cursor === 0
+      ? ''
+      : [
+          t(title, { name: item.name }),
+          body,
+          t('organize.huge.progress', {
+            index: cursor + 1,
+            count: detail.huge.length,
+          }),
+        ].join(' ');
   // Still focusable and announced with the reason (spec §9.3), drawn
   // like a disabled button.
   const blocked = fits
@@ -161,6 +189,14 @@ export function HugeItemDialog({
             {t('organize.huge.yes')}
           </AlertDialogAction>
         </AlertDialogFooter>
+        <p
+          data-testid="huge-announce"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {announcement}
+        </p>
       </AlertDialogContent>
     </AlertDialog>
   );

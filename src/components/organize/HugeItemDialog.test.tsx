@@ -130,6 +130,28 @@ describe('HugeItemDialog', () => {
     );
   });
 
+  it('announces each next item, even when «No» keeps the focus', async () => {
+    // Answering «No» leaves focus where it was, so nothing else would make
+    // a screen reader read the new question.
+    const user = userEvent.setup();
+    renderDialog();
+    const live = within(dialog()).getByTestId('huge-announce');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(live).toHaveAttribute('aria-atomic', 'true');
+    // The first item is read as the dialog opens.
+    expect(live).toBeEmptyDOMElement();
+    await user.click(screen.getByRole('button', { name: 'Sí' }));
+    expect(live).toHaveTextContent(
+      "¿Extraer Demon's Souls (BLUS-30443).zip? Ocupa 7,41 GB. Quedarán 52,6 GB libres en Juegos. Elemento 2 de 3",
+    );
+    await user.click(screen.getByRole('button', { name: 'No' }));
+    expect(screen.getByRole('button', { name: 'No' })).toHaveFocus();
+    // Bloodborne accepted, Demon's Souls declined: 6,92 + 52,4 + 61,2 GB.
+    expect(live).toHaveTextContent(
+      '¿Copiar Ghost of Tsushima? No cabe en Juegos: faltan 1,73 GB. Elemento 3 de 3',
+    );
+  });
+
   it('Escape is «No» for this item only', async () => {
     const user = userEvent.setup();
     const { onAnswer } = renderDialog();
