@@ -117,7 +117,9 @@ export function CreditsSection() {
             className="credits__group"
           >
             <h3 id={headId} className="credits__shelf">
-              <span>{t(`settings.credits.groups.${g.group}`)}</span>
+              <span>{t(`settings.credits.groups.${g.group}`)}</span>{' '}
+              {/* The space keeps «Libraries 12» two words for assistive
+                  tech; a flex container does not render it. */}
               <span className="font-mono tabular-nums credits__count">
                 {g.entries.length}
               </span>

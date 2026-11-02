@@ -59,14 +59,21 @@ describe('CreditsSection', () => {
       (g) => CREDITS.filter((c) => c.group === g).length,
     );
     expect(groupNames(panel)).toEqual([
-      `Cover and metadata sources${counts[0]}`,
-      `Databases and DATs${counts[1]}`,
-      `Technical docs and wikis${counts[2]}`,
-      `Frontend and firmware conventions${counts[3]}`,
-      `Libraries${counts[4]}`,
-      `Fonts and icons${counts[5]}`,
+      `Cover and metadata sources ${counts[0]}`,
+      `Databases and DATs ${counts[1]}`,
+      `Technical docs and wikis ${counts[2]}`,
+      `Frontend and firmware conventions ${counts[3]}`,
+      `Libraries ${counts[4]}`,
+      `Fonts and icons ${counts[5]}`,
     ]);
     expect(within(panel).getAllByRole('article')).toHaveLength(CREDITS.length);
+    // The name and the count read as two words, not «Libraries12».
+    expect(
+      within(panel).getByRole('heading', {
+        level: 3,
+        name: `Libraries ${counts[4]}`,
+      }),
+    ).toBeVisible();
   });
 
   it('filters as you type and announces the count', async () => {
@@ -134,7 +141,9 @@ describe('CreditsSection', () => {
 
   it('is in Spanish when the app is', async () => {
     const panel = await openCredits('es');
-    expect(groupNames(panel)[0]).toMatch(/^Fuentes de portadas y metadatos/);
+    expect(groupNames(panel)[0]).toMatch(
+      /^Fuentes de portadas y metadatos \d+$/,
+    );
     expect(
       within(panel).getByRole('searchbox', {
         name: 'Buscar en agradecimientos',

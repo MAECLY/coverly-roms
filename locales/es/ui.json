@@ -353,6 +353,7 @@
       }
     },
     "keywords": {
+      "credits": "agradecimientos, créditos, licencias, atribución, avisos, credits",
       "duplicates": "copias, repetidos",
       "hidden": "dotfiles, punto",
       "quarantine": "cuarentena, apartados, quarantine",

@@ -353,6 +353,7 @@
       }
     },
     "keywords": {
+      "credits": "credits, licences, licenses, attribution, notices, agradecimientos",
       "duplicates": "copies, duplicates",
       "hidden": "dotfiles, dot",
       "quarantine": "quarantine, set aside, cuarentena",
