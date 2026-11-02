@@ -78,6 +78,10 @@ pub enum KeepReason {
     CatalogueName {
         name: String,
     },
+    /// A Wii U `.wua` over a game folder with the same title id: the
+    /// archive can bundle the update and the DLC the folder may lack
+    /// (owner decision 2026-11-02). Not one of the user's rules.
+    WuaOverFolder,
     Tie,
 }
 
@@ -441,12 +445,48 @@ fn tie(a: &Candidate, b: &Candidate) -> Ordering {
         .then_with(|| b.member.cmp(&a.member))
 }
 
-/// `a` against `b` over the enabled rules, then the tie.
+/// The rules about what the user did with a copy (a save, play time, the
+/// library): they decide before [`wua_over_folder`].
+const USER_EVIDENCE: [KeepRule; 3] = [KeepRule::HasSave, KeepRule::Played, KeepRule::InLibrary];
+
+/// A Wii U `.wua` (Cemu's ZArchive) over a Wii U game folder (loadiine or
+/// NUS layout); the two only meet in one group by their title id. The
+/// archive stays: it can bundle the update and the DLC, and the base
+/// folder often lacks them (owner decision 2026-11-02).
+///
+/// Kept simple on purpose: a folder that already carries its update or
+/// DLC (an `Updates/` or `DLC/` subfolder, or sibling `0005000E…` /
+/// `0005000C…` title folders) still loses to the `.wua`; the user keeps
+/// it with a pick or `--keep`, which always comes first, and undo puts
+/// the folder back either way.
+fn wua_over_folder(a: &Candidate, b: &Candidate) -> Option<Verdict> {
+    let wua = |c: &Candidate| {
+        c.unit.system.eq_ignore_ascii_case("wiiu")
+            && c.unit.kind != UnitKind::Folder
+            && c.unit.ext.eq_ignore_ascii_case("wua")
+    };
+    let folder = |c: &Candidate| {
+        c.unit.system.eq_ignore_ascii_case("wiiu") && c.unit.kind == UnitKind::Folder
+    };
+    let side = |c: &Candidate| u8::from(wua(c)) * 2 + u8::from(folder(c));
+    match (side(a), side(b)) {
+        (2, 1) => Some((Ordering::Greater, KeepReason::WuaOverFolder)),
+        (1, 2) => Some((Ordering::Less, KeepReason::WuaOverFolder)),
+        _ => None,
+    }
+}
+
+/// `a` against `b` over the enabled rules, then the tie. A Wii U `.wua`
+/// against its folder: the enabled user-evidence rules, else the `.wua`.
 fn compare(a: &Candidate, b: &Candidate, ctx: &Ctx) -> Verdict {
-    ctx.rules
-        .iter()
-        .filter(|t| t.on)
-        .find_map(|t| rule(t.rule, a, b, ctx))
+    let mut on = ctx.rules.iter().filter(|t| t.on);
+    if let Some(wua) = wua_over_folder(a, b) {
+        return on
+            .filter(|t| USER_EVIDENCE.contains(&t.rule))
+            .find_map(|t| rule(t.rule, a, b, ctx))
+            .unwrap_or(wua);
+    }
+    on.find_map(|t| rule(t.rule, a, b, ctx))
         .unwrap_or_else(|| (tie(a, b), KeepReason::Tie))
 }
 
