@@ -15,7 +15,9 @@ use coverly_core::net::{NetConfig, NetError, PoliteHttp, UreqHttp};
 use coverly_core::profiles::Media;
 use coverly_core::progress::NoProgress;
 use coverly_core::scan::{scan_library, ScanOptions};
-use coverly_core::sources::{ArtQuery, ArtSource, Candidate, MatchKind, SourceError};
+use coverly_core::sources::{
+    ArtQuery, ArtSource, Candidate, MatchKind, SourceError, SourceTrouble, TroubleKind,
+};
 use coverly_core::systems::{System, SystemDb};
 
 fn cand(source: &str, name: &str, regions: &[Region], url: &str) -> Candidate {
@@ -270,4 +272,59 @@ fn per_rom_errors_of_several_sources_are_all_kept() {
         e.contains("no image at https://l/x") && e.contains("not JSON"),
         "{e}"
     );
+}
+
+#[test]
+fn source_wide_refusals_are_recorded_as_troubles_beside_unchanged_warnings() {
+    let lib = Fake::ok(
+        "libretro",
+        vec![cand("libretro", "Golden Sun (USA)", &[Usa], "https://l/1")],
+    );
+    let sgdb = Fake::failing("steamgriddb", || SourceError::MissingKey {
+        source: "steamgriddb".into(),
+    });
+    let ss = Fake::failing("screenscraper", || SourceError::Exhausted {
+        source: "screenscraper".into(),
+        status: 430,
+    });
+    let other = Fake::failing("thegamesdb", || SourceError::Auth {
+        source: "thegamesdb".into(),
+        status: 401,
+    });
+    let g = run(&[&lib, &sgdb, &ss, &other], false);
+    // Captured from the code before troubles existed: the strings stay.
+    let golden = [
+        "steamgriddb needs an API key; skipped",
+        "screenscraper daily quota used up (HTTP 430); skipped for this run",
+        "thegamesdb refused access (HTTP 401): check the key or account",
+    ];
+    assert_eq!(g.warnings, golden);
+    let trouble = |source: &str, kind| SourceTrouble {
+        source: source.into(),
+        kind,
+    };
+    assert_eq!(
+        g.troubles,
+        vec![
+            trouble("steamgriddb", TroubleKind::MissingKey),
+            trouble("screenscraper", TroubleKind::Exhausted),
+            trouble("thegamesdb", TroubleKind::Auth),
+        ],
+        "one per source, like the warnings"
+    );
+    assert_eq!(
+        g.answered.iter().map(String::as_str).collect::<Vec<_>>(),
+        ["libretro"]
+    );
+    let json = serde_json::to_value(&g).unwrap();
+    assert_eq!(json["troubles"][0]["kind"], "missing-key");
+}
+
+#[test]
+fn a_run_without_troubles_serialises_as_before() {
+    let lib = Fake::failing("libretro", || SourceError::NotFound("https://l/x".into()));
+    let g = run(&[&lib], false);
+    assert!(g.troubles.is_empty() && g.answered.is_empty());
+    let json = serde_json::to_value(&g).unwrap();
+    assert!(json.get("troubles").is_none() && json.get("answered").is_none());
 }
