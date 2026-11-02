@@ -1542,7 +1542,9 @@ impl AppState {
             titles: catalog.as_deref().map(|c| c as &dyn TitleNames),
             ..env
         };
-        let plan = plan_from_survey(&survey, &opts, decisions, &env)?;
+        let plan = plan_from_survey(&survey, &opts, decisions, &env);
+        self.release_catalog(catalog, &cfg.data_dir);
+        let plan = plan?;
         let stored = self.organize.store(
             plan_id,
             StoredPlan {
@@ -1597,12 +1599,9 @@ impl AppState {
             titles: catalog.as_deref().map(|c| c as &dyn TitleNames),
             now: SystemTime::now(),
         };
-        Ok(plan_from_survey(
-            &stored.survey,
-            &stored.opts,
-            decisions,
-            &env,
-        )?)
+        let plan = plan_from_survey(&stored.survey, &stored.opts, decisions, &env);
+        self.release_catalog(catalog, &cfg.data_dir);
+        Ok(plan?)
     }
 
     /// Takes the manual-write guard for an organise write: refused while a

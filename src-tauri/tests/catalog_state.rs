@@ -278,3 +278,48 @@ fn credit_links_resolve_from_the_compiled_credits_only() {
         CreditLink::Site
     );
 }
+
+#[test]
+fn turning_the_setting_off_while_a_plan_downloads_keeps_nothing() {
+    // Spec §11: «Catalogue toggled off during a download: download
+    // cancelled, tables cleared» — also when the download is a plan's.
+    let server = MockServer::start();
+    let hang = coverly_core::net::testing::HangingServer::start();
+    let config = TempDir::new().unwrap();
+    let mut base = FillConfig::new(config.path().join("cache"), config.path().join("data"));
+    base.endpoints.database = server.url("/db");
+    base.net.min_interval = Duration::ZERO;
+    let st = AppState::new(config.path().to_path_buf(), base).with_catalog_base(hang.base());
+    let view = st
+        .update_settings(&json!({
+            "catalogs": { "switch": { "enabled": true } },
+            "network": { "timeout_secs": 5, "retries": 0 }
+        }))
+        .unwrap();
+    assert!(view.errors.is_empty(), "{:?}", view.errors);
+    let pile = TempDir::new().unwrap();
+    write_old(pile.path(), "Quest [0100000000AA0000][v0].nsp", b"PFS0");
+
+    std::thread::scope(|s| {
+        let plan = s.spawn(|| {
+            st.organize_plan(
+                &request(pile.path(), false),
+                &[],
+                Arc::new(Quiet::default()),
+            )
+        });
+        let start = std::time::Instant::now();
+        while hang.connections() == 0 {
+            assert!(start.elapsed() < Duration::from_secs(20), "never asked");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        st.update_settings(&json!({ "catalogs": { "switch": { "enabled": false } } }))
+            .unwrap();
+        plan.join().unwrap().unwrap();
+    });
+    assert!(
+        !data_dir(&config).join(CATALOG_FILE).exists(),
+        "the catalogue the plan held is deleted once the plan lets it go"
+    );
+    assert_eq!(st.catalog_status(Some("en")), CatalogStatus::Off);
+}

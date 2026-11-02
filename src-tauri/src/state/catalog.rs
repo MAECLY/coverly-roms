@@ -140,10 +140,8 @@ impl AppState {
             None,
             &|done, total| progress(CatalogStatus::Downloading { done, total }),
         );
-        drop(catalog);
         // Turned off while it downloaded: nothing is kept (spec §11).
-        if !self.settings().catalogs.switch.enabled {
-            self.drop_catalog(&cfg.data_dir);
+        if self.release_catalog(Some(catalog), &cfg.data_dir) {
             return Ok(CatalogStatus::Off);
         }
         Ok(status)
@@ -196,6 +194,25 @@ impl AppState {
         Ok(catalog.remove(data_dir).is_ok())
     }
 
+    /// Lets go of `catalog` once a download, a plan or an icon is done
+    /// with it; when the setting went off meanwhile, the file is deleted
+    /// now (spec §11: nothing is kept). True when it was.
+    pub(super) fn release_catalog(
+        &self,
+        catalog: Option<Arc<SwitchCatalog>>,
+        data_dir: &Path,
+    ) -> bool {
+        let Some(catalog) = catalog else {
+            return false;
+        };
+        drop(catalog);
+        if self.settings().catalogs.switch.enabled {
+            return false;
+        }
+        self.drop_catalog(data_dir);
+        true
+    }
+
     /// Forgets the catalogue after the setting went off (D2: the data is
     /// a cache): a running download is stopped; a handle still in use is
     /// deleted when that use ends ([`Self::catalog_update`]).
@@ -245,11 +262,15 @@ impl AppState {
         }
         let catalog = self.switch_catalog(&cfg.data_dir)?;
         let http = catalog_http(&cfg.net, sw);
-        match catalog.icon(&http, sw, id) {
+        let icon = match catalog.icon(&http, sw, id) {
             Ok(Some(path)) => std::fs::read(path).map_err(|e| IpcError::Io(e.to_string())),
             Ok(None) => Err(IpcError::ArtMissing("icon".into())),
             Err(e) => Err(IpcError::Network(e.to_string())),
+        };
+        if self.release_catalog(Some(catalog), &cfg.data_dir) {
+            return Err(IpcError::ArtMissing("icon".into()));
         }
+        icon
     }
 
     /// The catalogue a plan of `survey` names Switch titles with (plan
@@ -291,6 +312,12 @@ impl AppState {
         if sw.fallback_on() {
             let ids = survey.switch_title_ids();
             catalog.ensure_nlib(&http, sw, locale, &ids, now, cancel, deadline);
+        }
+        // Turned off while it downloaded: the plan names nothing from it
+        // and the file goes (spec §11).
+        if !self.settings().catalogs.switch.enabled {
+            self.release_catalog(Some(catalog), data_dir);
+            return None;
         }
         Some(catalog)
     }
