@@ -14,8 +14,9 @@ use coverly_core::catalog::{CatalogTitle, TitleNames};
 use coverly_core::consoles::testing::{self as ct, SparseAt};
 use coverly_core::consoles::{IdSource, PartKind, TitleIdRef, TitleKind, TitleSource};
 use coverly_core::dedupe::testing::pin_mtime;
-use coverly_core::identify::evidence::Evidence;
+use coverly_core::identify::evidence::{Evidence, IdLevel};
 use coverly_core::identify::sniff::{sniff_named, NotARom};
+use coverly_core::organize::evidence::Verdict;
 use coverly_core::organize::inspect::inspect_file;
 use coverly_core::organize::{
     plan_from_survey, survey, Choice, Decision, ItemNote, LeftReason, MetaProbe, OrganizeAction,
@@ -440,6 +441,47 @@ fn a_retail_xbe_with_siblings_is_reviewed() {
         assert_eq!(item.system_id.as_deref(), Some("xbox"), "{name}");
         assert_eq!(item.action, OrganizeAction::Auto, "{name}: {item:?}");
     }
+}
+
+/// A retail XBE the user already filed (a remembered choice) is left as
+/// the user decided: no part and no review, even beside other files. A
+/// second copy elsewhere makes the survey hash both, so the choice is
+/// found by content.
+#[test]
+fn a_remembered_xbe_with_siblings_keeps_the_users_choice() {
+    let tmp = tempfile::tempdir().unwrap();
+    let game = tmp.path().join("Burnout 3");
+    let xbe = xbe_retail().bytes();
+    put(&game.join("Burnout 3.xbe"), &xbe, 1);
+    put(&game.join("media").join("intro.xmv"), &[7u8; 64], 2);
+    put(&tmp.path().join("Copy").join("Burnout 3 copy.xbe"), &xbe, 3);
+    let world = World::new();
+    let crc = format!("{:08X}", crc32fast::hash(&xbe));
+    world
+        .cache
+        .put_organize_choice(&crc, xbe.len() as u64, "xbox")
+        .unwrap();
+    let env = world.env();
+    let s = survey(
+        tmp.path(),
+        &options(),
+        &env,
+        &|_| {},
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    let entry = s
+        .entries
+        .iter()
+        .find(|e| {
+            e.sources.first().and_then(|p| p.file_name())
+                == Some(std::ffi::OsStr::new("Burnout 3.xbe"))
+        })
+        .expect("the XBE is surveyed");
+    let id = entry.identification.as_ref().unwrap();
+    assert_eq!(id.combined.method, Some(IdLevel::User), "{id:?}");
+    assert_eq!(id.combined.verdict, Verdict::Auto, "{id:?}");
+    assert_eq!(entry.console.as_ref().unwrap().part, None);
 }
 
 /// `code/*.rpx` beside `meta/` stays the loadiine probe's (§8.2): the

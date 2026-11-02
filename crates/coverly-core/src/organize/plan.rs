@@ -1462,7 +1462,12 @@ fn review_xbe_with_siblings(entry: &mut SurveyEntry) {
     let Some(c) = entry.console.as_mut() else {
         return;
     };
-    if entry.kind != ItemKind::File
+    let user_chose = entry
+        .identification
+        .as_ref()
+        .is_some_and(|id| id.combined.method == Some(IdLevel::User));
+    if user_chose
+        || entry.kind != ItemKind::File
         || c.system != "xbox"
         || c.id_source != Some(crate::consoles::IdSource::Xbe)
         || c.kind != TitleKind::Base
@@ -1487,7 +1492,7 @@ fn review_xbe_with_siblings(entry: &mut SurveyEntry) {
     }
     c.part = Some(PartKind::ExeFs);
     if let Some(id) = entry.identification.as_mut() {
-        if id.combined.verdict == Verdict::Auto && id.combined.method != Some(IdLevel::User) {
+        if id.combined.verdict == Verdict::Auto {
             id.combined.verdict = Verdict::Review;
         }
     }
