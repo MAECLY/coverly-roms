@@ -515,16 +515,20 @@ export function titleIdKey(r: TitleIdRef): KeyedText | null {
 
 /**
  * The «why» line of a title the optional Switch catalogue named (spec D7,
- * §10): `blawar/titledb` or its online fallback. `null` for any other
- * title, whose header or file-name line already tells.
+ * §10), with that name: `blawar/titledb` or its online fallback. `null`
+ * for any other title, whose header or file-name line already tells.
  */
 export function titleSourceKey(
-  item: Pick<OrganizeItem, 'title_source'>,
+  item: Pick<OrganizeItem, 'title_source' | 'catalogue_name'>,
 ): KeyedText | null {
+  // The line carries the name: with «Conservar los nombres» nothing else
+  // in the row shows it.
+  const name = item.catalogue_name;
+  if (!name) return null;
   if (item.title_source === 'titledb')
-    return { key: 'organize.why.titledb', vars: {} };
+    return { key: 'organize.why.titledb', vars: { name } };
   if (item.title_source === 'nlib')
-    return { key: 'organize.why.nlib', vars: {} };
+    return { key: 'organize.why.nlib', vars: { name } };
   return null;
 }
 

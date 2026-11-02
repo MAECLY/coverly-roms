@@ -1372,8 +1372,8 @@
       "titleIdName": "Title ID {id} tomado del nombre del archivo",
       "titleIdTicket": "Title ID {id} en el nombre del ticket",
       "contentId": "Content ID {id}",
-      "titledb": "Nombre del catálogo de blawar/titledb",
-      "nlib": "Nombre del respaldo en línea",
+      "titledb": "Nombre del catálogo de blawar/titledb: {name}",
+      "nlib": "Nombre del respaldo en línea: {name}",
       "ncaCatalog": "Title ID por el id del NCA en el catálogo"
     },
     "left": {

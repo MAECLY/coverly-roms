@@ -1360,12 +1360,15 @@ describe('adjustments copy (spec §10)', () => {
 
   it('a catalogue name and an NCA title id say where they came from', () => {
     const named = autoItem(0, 'Cartridge.xci', 'switch', 'switch', {
+      catalogue_name: 'Super Mario Odyssey',
       title_id: { id: '0100000000010000', source: 'nca-catalog' },
       title_source: 'titledb',
     });
+    // The name itself: with «Conservar los nombres» the row shows only the
+    // file name, so a line about a name it never shows would dangle.
     expect(text(titleSourceKey(named)!)).toEqual([
-      'Nombre del catálogo de blawar/titledb',
-      'Name from the blawar/titledb catalogue',
+      'Nombre del catálogo de blawar/titledb: Super Mario Odyssey',
+      'Name from the blawar/titledb catalogue: Super Mario Odyssey',
     ]);
     expect(text(titleIdKey(named.title_id!)!)).toEqual([
       'Title ID por el id del NCA en el catálogo',
@@ -1374,9 +1377,11 @@ describe('adjustments copy (spec §10)', () => {
     expect(
       text(titleSourceKey({ ...named, title_source: 'nlib' } as OrganizeItem)!),
     ).toEqual([
-      'Nombre del respaldo en línea',
-      'Name from the online fallback',
+      'Nombre del respaldo en línea: Super Mario Odyssey',
+      'Name from the online fallback: Super Mario Odyssey',
     ]);
+    // A source with no name to show says nothing.
+    expect(titleSourceKey({ ...named, catalogue_name: null })).toBeNull();
     expect(titleSourceKey(autoItem(1, 'x.nsp', 'switch', 'switch'))).toBeNull();
   });
 

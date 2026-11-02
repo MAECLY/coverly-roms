@@ -104,7 +104,8 @@ export function TitleIdLine({ item }: { item: OrganizeItem }) {
   if (!source && !keyed && !content) return null;
   return (
     <>
-      {source && <p className={hintText}>{tr(source.key, source.vars)}</p>}
+      {/* A game name, not a code: in the body face. */}
+      {source && <p className={hintText}>{tr(source.key, source.vars, [])}</p>}
       {keyed && <p className={hintText}>{tr(keyed.key, keyed.vars)}</p>}
       {content && <p className={hintText}>{tr(content.key, content.vars)}</p>}
     </>

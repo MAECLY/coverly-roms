@@ -1372,8 +1372,8 @@
       "titleIdName": "Title ID {id} taken from the file name",
       "titleIdTicket": "Title ID {id} in the ticket name",
       "contentId": "Content ID {id}",
-      "titledb": "Name from the blawar/titledb catalogue",
-      "nlib": "Name from the online fallback",
+      "titledb": "Name from the blawar/titledb catalogue: {name}",
+      "nlib": "Name from the online fallback: {name}",
       "ncaCatalog": "Title ID from the NCA id in the catalogue"
     },
     "left": {

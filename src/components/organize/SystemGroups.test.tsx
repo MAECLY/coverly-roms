@@ -714,9 +714,14 @@ describe('SystemGroups (adjustments)', () => {
       }),
     ]);
     expect(screen.getByText('Homebrew')).toBeInTheDocument();
-    expect(
-      screen.getByText('Nombre del catálogo de blawar/titledb'),
-    ).toBeInTheDocument();
+    const source = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'P' &&
+        el.textContent ===
+          'Nombre del catálogo de blawar/titledb: Super Mario Odyssey',
+    );
+    // A game name, not a number or a code: in the body face.
+    expect(source.querySelector('.mono')).toBeNull();
     expect(
       screen.getByText('Title ID por el id del NCA en el catálogo'),
     ).toBeInTheDocument();

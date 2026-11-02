@@ -332,7 +332,7 @@ Built on `alert-dialog`, **one dialog instance for the whole sequence**: answeri
 | `organize.review.ps4OrVita` | Hay que leer param.sfo para saber si es de PS4 o de Vita | param.sfo must be read to tell PS4 from Vita |
 | `organize.review.discSet` | Parece un juego de varios discos | Looks like a multi-disc game |
 | `organize.note.missingDisc` | Falta el disco {n} | Disc {n} is missing |
-| `organize.why.titledb` | Nombre del catálogo de blawar/titledb | Name from the blawar/titledb catalogue |
+| `organize.why.titledb` | Nombre del catálogo de blawar/titledb: {name} | Name from the blawar/titledb catalogue: {name} |
 | `organize.why.ncaCatalog` | Title ID por el id del NCA en el catálogo | Title ID from the NCA id in the catalogue |
 | `organize.huge.titleCopy` | ¿Copiar {name}? | Copy {name}? |
 | `organize.huge.titleMove` | ¿Mover {name} a otro disco? | Move {name} to another drive? |

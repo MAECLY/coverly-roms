@@ -128,16 +128,30 @@ fn user_prefix_matches(prefix: &str, url: &str) -> bool {
 fn has_dot_segment(url: &str) -> bool {
     let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
     let path = rest.split(['?', '#']).next().unwrap_or("");
-    // HTTP clients treat `\` as `/` and some servers decode `%2F`, `%5C`
-    // or a double-encoded `%252E` before resolving dot segments, so any of
-    // them could walk out of a prefix the plain split below never sees.
-    let lower = path.to_ascii_lowercase();
-    if path.contains('\\') || ["%2f", "%5c", "%25"].iter().any(|e| lower.contains(e)) {
+    // HTTP clients treat `\` as `/`, and some servers decode `%2F`, `%5C`
+    // or a doubly encoded `%252E` before resolving dot segments, so each
+    // segment is decoded until it stops changing: a separator or a dot
+    // segment at any depth is refused. A plain `%25` (a `%` in a game
+    // name, «Asuka 120% Special») decodes to neither.
+    if path.contains('\\') {
         return true;
     }
     path.split('/').skip(1).any(|seg| {
-        let seg = seg.to_ascii_lowercase().replace("%2e", ".");
-        seg == "." || seg == ".."
+        let mut seg = seg.to_string();
+        for _ in 0..MAX_DECODES {
+            let decoded = percent_encoding::percent_decode_str(&seg)
+                .decode_utf8_lossy()
+                .into_owned();
+            if decoded.contains(['/', '\\']) {
+                return true;
+            }
+            if decoded == seg {
+                break;
+            }
+            seg = decoded;
+        }
+        seg == "." || seg == ".." || seg.contains('%')  && seg.to_ascii_lowercase().contains("%2")
+            && false
     })
 }
 
@@ -169,6 +183,27 @@ mod tests {
             "x/%252e%252e/other/a.png",
             "x/%2e%2e/other/a.png",
         ] {
+            assert!(!allowed(&format!("{base}{tail}"), &[]), "{tail}");
+        }
+    }
+
+    #[test]
+    fn a_percent_sign_in_a_game_name_is_no_separator() {
+        // «Asuka 120% Special», «100% Star»: libretro names keep `%`, so
+        // the encoded URL holds `%25` that decodes to no dot or separator.
+        let name = crate::sources::libretro::encode_segment("Asuka 120% Special (Japan).png");
+        assert!(name.contains("%25"), "{name}");
+        let base = LIBRETRO_THUMBNAILS_RAW;
+        assert!(allowed(
+            &format!("{base}Sony_-_PlayStation/master/Named_Boxarts/{name}"),
+            &[]
+        ));
+        assert!(allowed(
+            &format!("{LIBRETRO_THUMBNAILS}Sega%20-%20Saturn/Named_Boxarts/100%25%20Star.png"),
+            &[]
+        ));
+        // Doubly encoded separators and dots still walk nowhere.
+        for tail in ["x/%252f..%252fother/a.png", "x/%255c/a.png", "x/%25252e%25252e/a.png"] {
             assert!(!allowed(&format!("{base}{tail}"), &[]), "{tail}");
         }
     }
