@@ -843,6 +843,59 @@ fn folder_games_with_one_tree_are_set_aside_whole_and_come_back() {
     }
 }
 
+/// A folder game that changed after the plan (a file added, or one
+/// rewritten) is no longer the tree the plan compared: it stays where it
+/// is, like a file unit that changed (spec D19).
+#[test]
+fn a_folder_game_changed_since_the_plan_is_not_set_aside() {
+    use coverly_core::dedupe::DedupeSkip;
+    for change in ["added", "rewritten"] {
+        let card = Card::with_profile("batocera");
+        let a = card.root.join("roms/ps3/Game.ps3");
+        let b = card.root.join("roms/ps3/Game (2).ps3");
+        ps3_jb(&a, "BLUS30001", "DG");
+        ps3_jb(&b, "BLUS30001", "DG");
+        pin_tree(&card.root);
+        let plan = card.plan();
+        let g = plan.groups.iter().find(|g| g.system == "ps3").unwrap();
+        assert_eq!(g.action, GroupAction::Act, "{g:#?}");
+        let extra = g.members.iter().find(|m| m.id != g.keeper).unwrap();
+        let dir = extra.unit.primary.clone();
+        match change {
+            "added" => {
+                let save = dir.join("PS3_GAME/USRDIR/new.dat");
+                fs::write(&save, b"new data").unwrap();
+                pin_mtime(&save, 5000);
+            }
+            _ => {
+                // Same size, new bytes and a new time.
+                let eboot = dir.join("PS3_GAME/USRDIR/EBOOT.BIN");
+                let mut bytes = fs::read(&eboot).unwrap();
+                bytes[0] ^= 0xFF;
+                fs::write(&eboot, &bytes).unwrap();
+                pin_mtime(&eboot, 5000);
+            }
+        }
+
+        let report = card.apply_with(&plan, &card.trash());
+        assert!(
+            report.outcomes.iter().any(|o| o.status
+                == DedupeItemStatus::Skipped {
+                    reason: DedupeSkip::ChangedSincePlan
+                }),
+            "{change}: {report:#?}"
+        );
+        assert!(
+            !report
+                .outcomes
+                .iter()
+                .any(|o| matches!(o.status, DedupeItemStatus::Quarantined { .. })),
+            "{change}: {report:#?}"
+        );
+        assert!(dir.join("PS3_GAME/PARAM.SFO").is_file(), "{change}");
+    }
+}
+
 #[test]
 fn equal_trees_with_other_content_ids_never_join() {
     let card = Card::with_profile("batocera");

@@ -612,10 +612,20 @@ enum Check {
 
 fn check_unit(m: &Member) -> Check {
     if m.unit.kind == UnitKind::Folder {
-        // A folder game is measured by its tree, which the plan checked;
-        // here it must still be a folder (not a link) at its place.
+        // A folder game is measured by its tree (metadata only): it must
+        // still be a folder (not a link) at its place, with the bytes and
+        // the newest file time the plan measured, so a file added or
+        // rewritten since keeps it where it is (spec D19).
         return match fs::symlink_metadata(&m.unit.primary) {
-            Ok(meta) if meta.is_dir() => Check::Same,
+            Ok(meta) if meta.is_dir() => {
+                let now = crate::organize::walk::tree_now(&m.unit.primary);
+                let same_time = now.files == 0 || now.newest_mtime_ns == m.unit.mtime_ns;
+                if now.bytes == m.size && same_time {
+                    Check::Same
+                } else {
+                    Check::Changed
+                }
+            }
             Ok(_) => Check::Changed,
             Err(_) => Check::Missing,
         };

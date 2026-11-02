@@ -187,6 +187,12 @@ pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
 /// The tree digest of the folder game `dir`, measured from metadata only
 /// as [`tree_summary`] does.
 pub fn tree_digest(dir: &Path) -> Option<String> {
+    tree_now(dir).digest
+}
+
+/// [`tree_summary`] of the folder game `dir` with the defaults a scan
+/// uses (no recent window): what a plan measured, measured again.
+pub fn tree_now(dir: &Path) -> TreeSummary {
     let opts = WalkOptions {
         skip_dirs: Vec::new(),
         roms_root: None,
@@ -198,7 +204,7 @@ pub fn tree_digest(dir: &Path) -> Option<String> {
         max_depth: MAX_DEPTH,
         profile: None,
     };
-    tree_summary(dir, &opts).digest
+    tree_summary(dir, &opts)
 }
 
 fn tree_walk(
