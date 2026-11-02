@@ -845,6 +845,71 @@ mod tests {
     }
 
     #[test]
+    fn off_and_unavailable_win_over_an_unreadable_keychain_and_quota_over_connected() {
+        let ss = get("screenscraper").unwrap();
+        let both: &[(CredentialKey, bool)] = &[
+            (CredentialKey::ScreenscraperUser, true),
+            (CredentialKey::ScreenscraperPassword, true),
+        ];
+        let now = 1_800_000_000;
+        let used = SsQuota {
+            requests_today: 20_000,
+            max_requests_per_day: 20_000,
+            max_threads: 1,
+        };
+        let base = StateInput {
+            entry: ss,
+            enabled: true,
+            built: true,
+            presence: Err(KeychainKind::Denied),
+            health: None,
+            quota: None,
+            now,
+        };
+        // A disabled or unbuildable integration never reads the keychain.
+        assert_eq!(
+            state(&StateInput {
+                enabled: false,
+                ..base
+            }),
+            (State::Off, None)
+        );
+        assert_eq!(
+            state(&StateInput {
+                built: false,
+                ..base
+            }),
+            (State::Unavailable, None)
+        );
+        // A used-up quota outranks a check that worked.
+        let fresh = Some(SeenQuota {
+            quota: used,
+            at: now - 1,
+        });
+        let ok = Some(Health {
+            verdict: KeyCheck::Ok,
+            at: now,
+        });
+        assert_eq!(
+            state(&StateInput {
+                presence: Ok(both),
+                quota: fresh,
+                health: ok,
+                ..base
+            }),
+            (State::Quota, None)
+        );
+        // The TTL is exclusive: exactly a day later the quota no longer counts.
+        let edge = |at| StateInput {
+            presence: Ok(both),
+            quota: Some(SeenQuota { quota: used, at }),
+            ..base
+        };
+        assert_eq!(state(&edge(now - QUOTA_TTL_SECS + 1)).0, State::Quota);
+        assert_eq!(state(&edge(now - QUOTA_TTL_SECS)).0, State::Saved);
+    }
+
+    #[test]
     fn a_memory_store_with_todays_keys_reads_as_saved() {
         use crate::credentials::{CredentialStore, MemoryStore};
         let store = MemoryStore::default();
