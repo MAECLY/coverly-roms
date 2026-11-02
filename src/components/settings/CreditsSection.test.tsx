@@ -177,6 +177,28 @@ describe('CreditsSection', () => {
     );
     expect(document.activeElement?.tagName).toBe('ARTICLE');
   });
+  it('the settings search reaches a credit the tab filter hides', async () => {
+    const panel = await openCredits();
+    await userEvent.type(
+      within(panel).getByRole('searchbox', { name: 'Search credits' }),
+      'retroarch',
+    );
+    expect(document.getElementById('credit-screenscraper')).toBeNull();
+    await userEvent.keyboard('{Control>}f{/Control}');
+    await userEvent.keyboard('ScreenScraper');
+    const option = await screen.findByRole('option', {
+      name: /ScreenScraper.*Credits/,
+    });
+    await userEvent.click(option);
+    await waitFor(() =>
+      expect(document.activeElement?.id).toBe('credit-screenscraper'),
+    );
+    expect(
+      within(screen.getByRole('tabpanel')).getByRole('searchbox', {
+        name: 'Search credits',
+      }),
+    ).toHaveValue('');
+  });
   it('opens the bundled third-party licences and returns focus', async () => {
     const panel = await openCredits();
     const button = within(panel).getByRole('button', {

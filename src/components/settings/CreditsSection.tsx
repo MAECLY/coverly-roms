@@ -14,6 +14,7 @@ import {
   searchCredits,
   type CreditView,
 } from '@/lib/credits';
+import { useNavStore } from '@/stores/navStore';
 
 import { Field, hintText } from './Field';
 import { NoticesDialog } from './NoticesDialog';
@@ -83,6 +84,19 @@ export function CreditsSection() {
   const locale = useContext(LocaleContext);
   const [query, setQuery] = useState('');
   const groups = useMemo(() => searchCredits(query, locale), [query, locale]);
+  // The settings search lands on `credit-<id>`: a row this tab's filter
+  // hides is shown again by clearing the filter in the same render, so the
+  // row is in the DOM when Settings looks for it.
+  const focusSetting = useNavStore((s) => s.focusSetting);
+  const [seenFocus, setSeenFocus] = useState(focusSetting);
+  if (focusSetting !== seenFocus) {
+    setSeenFocus(focusSetting);
+    const id = focusSetting?.startsWith('credit-')
+      ? focusSetting.slice('credit-'.length)
+      : null;
+    if (id && !groups.some((g) => g.entries.some((c) => c.id === id)))
+      setQuery('');
+  }
   const shown = creditCount(groups);
   return (
     <div className="credits">
