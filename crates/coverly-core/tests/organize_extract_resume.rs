@@ -730,3 +730,79 @@ fn undeletable_final_keeps_its_intent_for_undo() {
         .collect();
     assert!(left.is_empty(), "{left:?}");
 }
+
+/// Free bytes the fake volume reports (see
+/// `resume_of_a_same_volume_extraction_checks_only_what_is_left`).
+static FREE_LEFT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Adjustments spec D17: apply checks a same-volume extraction's bytes up
+/// front, so a resume must count only the entries still to extract. An
+/// entry already in place takes no more room: counting it again would
+/// refuse the resume of a big extraction that ran out of nothing.
+#[test]
+fn resume_of_a_same_volume_extraction_checks_only_what_is_left() {
+    use coverly_core::archive::testing::{zip_with, ZipMethod};
+    use coverly_core::organize::apply::{set_cluster_size_override, set_free_space_override};
+    use coverly_core::organize::plan::SPACE_RESERVE;
+    use coverly_core::organize::ApplyError;
+    use std::sync::atomic::Ordering;
+
+    let env = env();
+    let trash = FakeTrash::new(&env.trash);
+    // Bigger than the extraction reserve, so the up-front check is the one
+    // that binds; stored, so the fixture is cheap.
+    let big = vec![0x5a_u8; usize::try_from(SPACE_RESERVE).unwrap() + (8 << 20)];
+    let small = vec![0xa5_u8; 4096];
+    let archive = env.src.join("Game.zip");
+    fs::write(
+        &archive,
+        zip_with(&[
+            ("big.bin", &big, ZipMethod::Stored),
+            ("small.bin", &small, ZipMethod::Stored),
+        ]),
+    )
+    .unwrap();
+    let reader = open_archive(&archive, &Limits::default()).unwrap().unwrap();
+    let entries: Vec<ExtractEntry> = file_entries(reader.as_ref())
+        .map(|e| ExtractEntry {
+            index: e.index,
+            name: e.name.as_str().to_string(),
+            size: e.size,
+            crc32: e.crc32,
+            target: Path::new("PS").join(e.name.as_str()),
+        })
+        .collect();
+    drop(reader);
+    let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Keep, None);
+    let plan = plan_of(&env, vec![item], TransferMode::Move);
+    // Two intents and the big entry's completion: it is in place.
+    let job = apply_killed(&env, &plan, &trash, 2 + 1).job.unwrap();
+    let ps = env.root.join("PS");
+    assert_eq!(
+        fs::metadata(ps.join("big.bin")).unwrap().len(),
+        big.len() as u64
+    );
+    // Room for the small entry and the reserve, not for the whole archive.
+    let total = (big.len() + small.len()) as u64;
+    FREE_LEFT.store(total + total.div_ceil(100) - 1, Ordering::Relaxed);
+    set_cluster_size_override(Some(1));
+    set_free_space_override(Some(|_| Some(FREE_LEFT.load(Ordering::Relaxed))));
+    let aenv = ApplyEnv {
+        data_dir: &env.data,
+        progress: &|_| {},
+        cancel: &AtomicBool::new(false),
+        trash: &trash,
+        tools: Some(&[]),
+    };
+    let report = resume_organize(&job, &aenv);
+    set_free_space_override(None);
+    set_cluster_size_override(None);
+    let report = match report {
+        Ok(r) => r,
+        Err(e @ ApplyError::NoSpace { .. }) => panic!("counted what is in place: {e:?}"),
+        Err(e) => panic!("{e:?}"),
+    };
+    assert!(report.paused.is_none(), "{report:?}");
+    assert_eq!(report.items[0].status, ItemStatus::Extracted, "{report:?}");
+    assert_eq!(names_in(&ps), final_names(&entries));
+}

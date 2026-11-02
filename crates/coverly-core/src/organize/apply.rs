@@ -342,7 +342,7 @@ pub fn apply_organize(plan: &OrganizePlan, env: &ApplyEnv) -> Result<OrganizeRep
         pause(&mut report, reason, &pending);
         return Ok(report);
     }
-    check_space(plan, &pending)?;
+    check_space(plan, &pending, 0)?;
     let writer = Writer::begin_with(
         &plan.target_root,
         env.data_dir,
@@ -370,6 +370,9 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
     let applicable: Vec<&OrganizeItem> = plan.items.iter().filter(|i| applicable(i)).collect();
     let mut pending = Vec::new();
     let mut started = HashMap::new();
+    // Bytes of the entries earlier runs already extracted: they take no
+    // more room (adjustments spec D17 checks extractions up front).
+    let mut in_place: u64 = 0;
     for item in &applicable {
         if item.is_set_aside() {
             match set_aside_done(&plan, item, &records, &steps) {
@@ -386,9 +389,13 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
             continue;
         }
         if matches!(item.transfer, Transfer::Extract { .. }) {
-            match ExtractJournal::of(&plan, item, &records, &steps).done(&plan, item) {
+            let journal = ExtractJournal::of(&plan, item, &records, &steps);
+            match journal.done(&plan, item) {
                 Some((status, targets)) => record_outcome(&mut report, item.id, status, targets),
-                None => pending.push(*item),
+                None => {
+                    in_place = in_place.saturating_add(journal.completed_bytes(item));
+                    pending.push(*item);
+                }
             }
             continue;
         }
@@ -419,7 +426,7 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
         pause(&mut report, reason, &pending);
         return Ok(report);
     }
-    check_space(&plan, &pending)?;
+    check_space(&plan, &pending, in_place)?;
     let writer = Writer::resume(&plan.target_root, env.data_dir, job)?;
     writer.clean_temps(&target_dirs(&plan, &applicable));
     let mut run = Run::new(&plan, env, writer, true, records);
@@ -761,8 +768,13 @@ fn volume_name(target: &Path) -> String {
 /// extraction bytes in every mode, the item's size when copying or
 /// crossing volumes; a duplicate set aside stays on the pile's volume)
 /// needs that plus 1 % free on the target volume (adjustments spec D17).
-/// Unknown free space is not checked.
-fn check_space(plan: &OrganizePlan, items: &[&OrganizeItem]) -> Result<(), ApplyError> {
+/// `in_place` is what a resumed job already wrote of them (extracted
+/// entries journaled complete). Unknown free space is not checked.
+fn check_space(
+    plan: &OrganizePlan,
+    items: &[&OrganizeItem],
+    in_place: u64,
+) -> Result<(), ApplyError> {
     let crosses = crosses_volumes(plan);
     let sum: u64 = items
         .iter()
@@ -772,7 +784,8 @@ fn check_space(plan: &OrganizePlan, items: &[&OrganizeItem]) -> Result<(), Apply
             Transfer::AsIs if crosses => Some(i.size),
             Transfer::AsIs => None,
         })
-        .fold(0u64, u64::saturating_add);
+        .fold(0u64, u64::saturating_add)
+        .saturating_sub(in_place);
     if sum == 0 {
         return Ok(());
     }
@@ -1104,6 +1117,19 @@ impl ExtractJournal {
             .find(|s| s.item == Some(item.id))
             .map(|s| s.step.clone());
         ExtractJournal { entries, archive }
+    }
+
+    /// Bytes of the item's entries an earlier run journaled complete.
+    fn completed_bytes(&self, item: &OrganizeItem) -> u64 {
+        let Transfer::Extract { entries, .. } = &item.transfer else {
+            return 0;
+        };
+        entries
+            .iter()
+            .zip(&self.entries)
+            .filter(|(_, log)| matches!(log, EntryLog::Completed { .. }))
+            .map(|(e, _)| e.size)
+            .fold(0u64, u64::saturating_add)
     }
 
     /// An earlier run left something of the item behind.
