@@ -150,6 +150,10 @@ pub fn for_source(source: &str) -> Option<&'static Integration> {
     working().find(|e| e.source.as_deref() == Some(source))
 }
 
+/// The feature ids an integration may power (spec D3): what the notices
+/// and the card's «what it unlocks» line key on.
+pub const POWERS: &[&str] = &["fill", "organize-identify", "organize-names", "updates"];
+
 /// What is wrong with the registry against the credits and the network
 /// endpoints. Empty when all is well.
 pub fn problems(
@@ -176,6 +180,11 @@ pub fn problems(
                 out.push(format!("{id}: unknown credit {c}"));
             }
         }
+        for p in &e.powers {
+            if !POWERS.contains(&p.as_str()) {
+                out.push(format!("{id}: unknown power {p}"));
+            }
+        }
         match e.status {
             Status::Working => {
                 if e.kind != Kind::Link && e.credits.is_empty() {
@@ -197,8 +206,11 @@ pub fn problems(
                 }
             }
         }
-        if let Some(url) = &e.help_url {
-            out.extend(help_url_problem(e, url, credits));
+        match &e.help_url {
+            Some(url) => out.extend(help_url_problem(e, url, credits)),
+            // «Cómo conseguir la clave» needs somewhere official to go.
+            None if !e.fields.is_empty() => out.push(format!("{id}: needs a help_url")),
+            None => {}
         }
     }
     for key in CredentialKey::ALL {
@@ -215,10 +227,17 @@ pub fn problems(
         }
     }
     for ep in endpoints.iter().filter(|ep| ep.credentials) {
-        let credit = ep.credit.unwrap_or("none");
+        let Some(credit) = ep.credit else {
+            out.push(format!(
+                "{}: needs credentials but has no credit to find its integration",
+                ep.prefix
+            ));
+            continue;
+        };
+        // Covered only by a working entry the user can type credentials in.
         let covered = entries
             .iter()
-            .filter(|e| e.status == Status::Working)
+            .filter(|e| e.status == Status::Working && !e.fields.is_empty())
             .any(|e| e.credits.iter().any(|c| c == credit));
         if !covered {
             out.push(format!(
@@ -375,6 +394,135 @@ mod tests {
         assert!(problems(&i, &c, ENDPOINTS)
             .iter()
             .any(|m| m.contains("used twice")));
+    }
+
+    #[test]
+    fn a_credentialed_endpoint_covered_only_by_an_entry_without_fields_fails() {
+        // titledb belongs to the Switch catalogue, which takes no credentials:
+        // if its endpoint ever needed a key there would be nowhere to type it.
+        let (i, c) = shipped();
+        let eps: Vec<Endpoint> = ENDPOINTS
+            .iter()
+            .map(|ep| Endpoint {
+                credentials: ep.credentials || ep.credit == Some("titledb"),
+                ..*ep
+            })
+            .collect();
+        let p = problems(&i, &c, &eps);
+        assert!(
+            p.iter()
+                .any(|m| m.contains("titledb") && m.contains("needs credentials")),
+            "{p:?}"
+        );
+    }
+
+    #[test]
+    fn a_credentialed_endpoint_without_a_credit_fails() {
+        let (i, c) = shipped();
+        let mut eps = ENDPOINTS.to_vec();
+        eps.push(Endpoint {
+            prefix: "https://api.example.org/",
+            credit: None,
+            credentials: true,
+        });
+        let p = problems(&i, &c, &eps);
+        assert!(
+            p.iter()
+                .any(|m| m.starts_with("https://api.example.org/:") && m.contains("no credit")),
+            "{p:?}"
+        );
+    }
+
+    #[test]
+    fn an_entry_with_fields_needs_a_help_url() {
+        let (mut i, c) = shipped();
+        i[0].help_url = None;
+        let p = problems(&i, &c, ENDPOINTS);
+        assert!(
+            p.iter()
+                .any(|m| m.starts_with("steamgriddb:") && m.contains("needs a help_url")),
+            "{p:?}"
+        );
+    }
+
+    #[test]
+    fn datasets_and_links_take_no_help_url() {
+        for id in ["switch-catalog", "updates"] {
+            let (mut i, c) = shipped();
+            let at = i.iter().position(|e| e.id == id).unwrap();
+            i[at].help_url = Some("https://www.steamgriddb.com/".into());
+            let p = problems(&i, &c, ENDPOINTS);
+            assert!(
+                p.iter()
+                    .any(|m| m.starts_with(&format!("{id}:")) && m.contains("takes no help_url")),
+                "{id}: {p:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn planned_entries_need_a_roadmap_and_working_ones_take_no_needs() {
+        let (mut i, c) = shipped();
+        let rawg = i.iter().position(|e| e.id == "rawg").unwrap();
+        i[rawg].roadmap = None;
+        i[0].needs = vec![Input::ApiKey];
+        let p = problems(&i, &c, ENDPOINTS);
+        assert!(
+            p.iter()
+                .any(|m| m.starts_with("rawg:") && m.contains("roadmap")),
+            "{p:?}"
+        );
+        assert!(
+            p.iter()
+                .any(|m| m.starts_with("steamgriddb:") && m.contains("not needs")),
+            "{p:?}"
+        );
+    }
+
+    #[test]
+    fn a_test_needs_fields() {
+        let (mut i, c) = shipped();
+        let sw = i.iter().position(|e| e.id == "switch-catalog").unwrap();
+        i[sw].test = Some(TestKind::Screenscraper);
+        assert!(problems(&i, &c, ENDPOINTS)
+            .iter()
+            .any(|m| m.starts_with("switch-catalog:") && m.contains("a test needs fields")));
+    }
+
+    #[test]
+    fn powers_are_known_feature_ids() {
+        let (mut i, c) = shipped();
+        i[0].powers.push("fil".into());
+        let p = problems(&i, &c, ENDPOINTS);
+        assert!(
+            p.iter()
+                .any(|m| m.starts_with("steamgriddb:") && m.contains("unknown power fil")),
+            "{p:?}"
+        );
+    }
+
+    #[test]
+    fn the_file_refuses_unknown_fields_and_keychain_keys() {
+        assert!(parse(r#"{ "entries": [], "extra": 1 }"#).is_err());
+        let entry = |extra: &str| {
+            format!(
+                r#"{{ "entries": [{{ "id": "x", "name": "X", "kind": "api-key", "group": "art", "status": "working"{extra} }}] }}"#
+            )
+        };
+        assert!(parse(&entry("")).is_ok());
+        assert!(parse(&entry(r#", "colour": "red""#)).is_err());
+        assert!(parse(&entry(
+            r#", "fields": [{ "key": "igdb-secret", "input": "secret", "required": true }]"#
+        ))
+        .is_err());
+    }
+
+    #[test]
+    fn get_finds_entries_by_id() {
+        assert_eq!(get("screenscraper").map(|e| e.kind), Some(Kind::Account));
+        assert_eq!(get("igdb").map(|e| e.status), Some(Status::Planned));
+        assert!(get("nope").is_none());
+        assert!(working().all(|e| e.status == Status::Working));
     }
 
     #[test]
