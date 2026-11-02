@@ -2,7 +2,10 @@ import { DEDUPE_LEVELS } from '@/ipc/types';
 import type { SettingsSection } from '@/stores/navStore';
 
 export type SettingsFold =
-  'library-advanced' | 'organize-advanced' | 'duplicates-advanced';
+  | 'library-advanced'
+  | 'organize-advanced'
+  | 'duplicates-advanced'
+  | 'sources-advanced';
 
 export interface SettingEntry {
   /** DOM id to focus: settingId(path) of the control, or a list anchor (SP-1). */
@@ -290,6 +293,32 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     id: 'setting-matching-max-hash-mb',
     section: 'matching',
     label: 'settings.matching.maxHash',
+  },
+  // Fuentes: the optional Switch name catalogue (adjustments §9.2)
+  {
+    id: 'setting-sources-switch-catalog',
+    section: 'sources',
+    label: 'settings.sources.switchCatalog.label',
+    keywords: 'settings.keywords.switchCatalog',
+  },
+  {
+    id: 'setting-sources-switch-catalog-icons',
+    section: 'sources',
+    label: 'settings.sources.switchCatalog.icons',
+    hint: 'settings.sources.switchCatalog.iconsHint',
+  },
+  {
+    id: 'setting-sources-switch-catalog-fallback',
+    section: 'sources',
+    fold: 'sources-advanced',
+    label: 'settings.sources.switchCatalog.fallback',
+    hint: 'settings.sources.switchCatalog.fallbackHint',
+  },
+  {
+    id: 'setting-sources-switch-catalog-fallback-url',
+    section: 'sources',
+    fold: 'sources-advanced',
+    label: 'settings.sources.switchCatalog.fallbackUrl',
   },
   // Red
   {

@@ -205,6 +205,30 @@
         "offline": "No se pudo contactar con el servidor.",
         "rate-limited": "El servidor pide esperar; inténtalo más tarde.",
         "unavailable": "El servidor no pudo comprobarla ahora."
+      },
+      "switchCatalog": {
+        "title": "Catálogo de Switch",
+        "label": "Catálogo de nombres de Switch",
+        "hint": "Descarga la lista pública de blawar/titledb (unos {size}, se queda en tu equipo) para poner nombre a los juegos de Switch. No usa ni pide claves.",
+        "statusOff": "Desactivado",
+        "status": "{count} títulos, actualizado el {date}",
+        "statusFallback": "{count} títulos de la lista de Estados Unidos, actualizado el {date}",
+        "downloading": "Descargando {done} de {total}",
+        "downloadingUnknown": "Descargando {done}",
+        "pending": "Descarga del catálogo pendiente",
+        "failedOld": "No se pudo actualizar; se usan los datos del {date}.",
+        "failedNone": "No se pudo descargar; se usan los nombres de archivo.",
+        "rejected": "El catálogo trae datos que Coverly no acepta; se mantiene el anterior.",
+        "removeFailed": "No se pudo borrar; cierra otras ventanas de Coverly.",
+        "download": "Descargar ahora",
+        "check": "Buscar actualización",
+        "remove": "Borrar catálogo",
+        "icons": "Iconos de Switch",
+        "iconsHint": "Se descargan solo cuando se ven y solo se muestran en Coverly.",
+        "fallback": "Respaldo en línea",
+        "fallbackUrl": "Dirección del respaldo",
+        "fallbackHint": "Si un juego no está en el catálogo, se envía su title ID a este servicio para preguntar el nombre.",
+        "fallbackHttps": "Tiene que empezar por {scheme}"
       }
     },
     "network": {
@@ -333,13 +357,14 @@
       "quarantine": "cuarentena, apartados, quarantine",
       "rar": "unrar, 7-Zip, 7z, rar",
       "region": "región, país, idioma",
+      "switchCatalog": "titledb, nombres, Nintendo Switch, title ID, nlib",
       "symlinks": "symlink, alias, acceso directo",
       "trash": "papelera, borrar, eliminar, trash"
     }
   },
   "about": {
     "license": "Licencia: AGPL-3.0-only. Coverly ROMs es software libre; su nombre y su logotipo son marcas (ver Marcas).",
-    "noTelemetry": "Sin telemetría: Coverly ROMs solo contacta con las fuentes de arte que actives y, salvo que lo desactives, con el servidor de actualizaciones.",
+    "noTelemetry": "Sin telemetría: Coverly ROMs solo contacta con las fuentes de arte y de datos que actives (incluido el catálogo de Switch y su respaldo en línea) y, salvo que lo desactives, con el servidor de actualizaciones.",
     "updates": "Canal de actualizaciones: {channel}.",
     "link": {
       "repo": "Código fuente",

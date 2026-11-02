@@ -38,6 +38,19 @@ async function open(section: SettingsSection) {
 
 const saved = async () => (await backend.getSettings()).settings;
 
+/** The «Test» verdict: the panel's live region other than the Switch
+ * catalogue's status line. */
+const keyVerdict = (panel: HTMLElement) =>
+  within(panel)
+    .queryAllByRole('status')
+    .find((e) => e.dataset.testid !== 'switch-catalog-status') ?? null;
+const findKeyVerdict = (panel: HTMLElement) =>
+  waitFor(() => {
+    const v = keyVerdict(panel);
+    if (!v) throw new Error('no verdict yet');
+    return v;
+  });
+
 describe('settings sections', () => {
   beforeEach(() => {
     backend = createMockBackend({
@@ -58,11 +71,24 @@ describe('settings sections', () => {
     setBackend(null);
   });
 
-  it('about: the no-telemetry line names the update server too', async () => {
+  it('about: the no-telemetry line names the data sources, the Switch catalogue and the update server', async () => {
     const panel = await open('about');
     expect(
       within(panel).getByText(
-        'No telemetry: Coverly ROMs only contacts the art sources you enable and, unless you turn it off, the update server.',
+        'No telemetry: Coverly ROMs only contacts the art and data sources you enable (including the Switch catalogue and its online fallback) and, unless you turn it off, the update server.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('about: the no-telemetry line in Spanish', async () => {
+    await backend.updateSettings({ general: { language: 'es' } });
+    render(<Root />);
+    await screen.findByRole('button', { name: 'Configuración' });
+    act(() => useNavStore.getState().openSettings('about'));
+    const panel = await screen.findByRole('tabpanel');
+    expect(
+      within(panel).getByText(
+        'Sin telemetría: Coverly ROMs solo contacta con las fuentes de arte y de datos que actives (incluido el catálogo de Switch y su respaldo en línea) y, salvo que lo desactives, con el servidor de actualizaciones.',
       ),
     ).toBeInTheDocument();
   });
@@ -309,7 +335,7 @@ describe('settings sections', () => {
     );
     await within(panel).findByText('Saved in the system keychain.');
     await userEvent.click(test);
-    expect(await within(panel).findByRole('status')).toHaveTextContent(
+    expect(await findKeyVerdict(panel)).toHaveTextContent(
       'The key was refused.',
     );
     await userEvent.type(key, 'sk-good');
@@ -317,11 +343,9 @@ describe('settings sections', () => {
       within(panel).getByRole('button', { name: 'Save SteamGridDB API key' }),
     );
     // A new key forgets the previous result.
-    expect(within(panel).queryByRole('status')).not.toBeInTheDocument();
+    expect(keyVerdict(panel)).toBeNull();
     await userEvent.click(test);
-    expect(await within(panel).findByRole('status')).toHaveTextContent(
-      'The key works.',
-    );
+    expect(await findKeyVerdict(panel)).toHaveTextContent('The key works.');
     expect(document.body.innerHTML).not.toContain('sk-good');
     expect(document.body.innerHTML).not.toContain('bad-key');
   });
@@ -335,9 +359,7 @@ describe('settings sections', () => {
     await waitFor(() => expect(test).toBeEnabled());
     await backend.clearCredential('steamgriddb-api-key');
     await userEvent.click(test);
-    expect(await within(panel).findByRole('status')).toHaveTextContent(
-      'No key is stored.',
-    );
+    expect(await findKeyVerdict(panel)).toHaveTextContent('No key is stored.');
   });
 
   it('sources: an enabled source without its key can still be turned off', async () => {

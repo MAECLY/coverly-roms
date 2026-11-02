@@ -115,6 +115,9 @@ const NEEDS: Record<SourceId, readonly CredentialKey[]> = {
   embedded: [],
 };
 
+/** The simulated `titles.<REGION>.<lang>.json` + `ncas.json` download. */
+const MOCK_CATALOG_BYTES = 92_400_000;
+
 const CORRUPT = Symbol('corrupt');
 /** Larger stored values are treated as corrupt (like Rust's 1 MiB cap). */
 const MAX_STORED_CHARS = 1024 * 1024;
@@ -183,6 +186,9 @@ export function createMockSettings(opts: {
   /** The external archive tools "found on this machine" (default none,
    * like the organise mock, which leaves every `.rar`). */
   externalTools?: readonly FoundTool[];
+  /** How long the simulated Switch catalogue download takes (default
+   * 2 s; 0 in tests). */
+  catalogMs?: number;
 }): MockSettingsApi {
   const { storage, builtins } = opts;
   const toolsFound = (opts.externalTools ?? []).map((t) => ({ ...t }));
@@ -236,20 +242,32 @@ export function createMockSettings(opts: {
   const rejected = new Set<CredentialKey>();
   let cacheBytes = 48 * 1024 * 1024;
   /** The Switch catalogue (adjustments D2): downloaded once «Descargar
-   * ahora» ran; the Sources tab's simulated download comes with Task 19. */
+   * ahora» (or turning it on) ran, in `catalogMs` with progress events
+   * like Rust's `catalog-progress`. */
+  const catalogMs = opts.catalogMs ?? 2000;
   let catalogRows = false;
+  let catalogDownload: CatalogStatus | null = null;
+  /** Bumped by a cancel, a removal or turning it off: a running download
+   * whose number is no longer current stops and keeps nothing. */
+  let catalogRun = 0;
   const catalogListeners = new Set<(s: CatalogStatus) => void>();
+  const catalogStop = () => {
+    catalogRun += 1;
+    catalogDownload = null;
+  };
   const catalogStatus = (): CatalogStatus =>
     !settings.catalogs.switch.enabled
       ? { state: 'off' }
-      : catalogRows
-        ? {
-            state: 'ready',
-            count: 17_342,
-            updated: '2026-10-30',
-            fallback: false,
-          }
-        : { state: 'pending' };
+      : catalogDownload
+        ? { ...catalogDownload }
+        : catalogRows
+          ? {
+              state: 'ready',
+              count: 17_342,
+              updated: '2026-10-30',
+              fallback: false,
+            }
+          : { state: 'pending' };
 
   const save = () => write(storage, MOCK_STORAGE_KEYS.settings, settings);
   const emit = () => listeners.forEach((cb) => cb(cloneSettings(settings)));
@@ -329,6 +347,12 @@ export function createMockSettings(opts: {
       if (errors.length) return unchanged(errors);
       const next = normaliseSettings(merged);
       const reopen = needsReopen(settings, next);
+      // Turning the catalogue off deletes it (it is a cache) and stops a
+      // running download, like Rust's `catalog_settings_changed`.
+      if (settings.catalogs.switch.enabled && !next.catalogs.switch.enabled) {
+        catalogStop();
+        catalogRows = false;
+      }
       settings = next;
       notice = null;
       fixed = [];
@@ -378,6 +402,23 @@ export function createMockSettings(opts: {
     async catalogUpdate() {
       if (!settings.catalogs.switch.enabled)
         throw new BackendError('bad-request', 'the Switch catalogue is off');
+      if (catalogRows) return catalogStatus();
+      catalogStop();
+      const run = catalogRun;
+      const steps = 8;
+      for (let i = 1; i <= steps; i += 1) {
+        const s: CatalogStatus = {
+          state: 'downloading',
+          done: Math.round((MOCK_CATALOG_BYTES * (i - 1)) / steps),
+          total: MOCK_CATALOG_BYTES,
+        };
+        catalogDownload = s;
+        catalogListeners.forEach((cb) => cb({ ...s }));
+        await new Promise<void>((r) => setTimeout(r, catalogMs / steps));
+        // Cancelled, removed or turned off meanwhile: nothing is kept.
+        if (run !== catalogRun) return catalogStatus();
+      }
+      catalogDownload = null;
       catalogRows = true;
       return catalogStatus();
     },
@@ -387,8 +428,11 @@ export function createMockSettings(opts: {
         catalogListeners.delete(cb);
       });
     },
-    async catalogCancel() {},
+    async catalogCancel() {
+      catalogStop();
+    },
     async catalogRemove() {
+      catalogStop();
       catalogRows = false;
       return catalogStatus();
     },

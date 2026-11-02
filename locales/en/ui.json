@@ -205,6 +205,30 @@
         "offline": "Could not reach the server.",
         "rate-limited": "The server asks to wait; try again later.",
         "unavailable": "The server could not check it now."
+      },
+      "switchCatalog": {
+        "title": "Switch catalogue",
+        "label": "Switch name catalogue",
+        "hint": "Downloads the public blawar/titledb list (about {size}, kept on your computer) to name Switch games. It never uses or asks for keys.",
+        "statusOff": "Off",
+        "status": "{count} titles, updated {date}",
+        "statusFallback": "{count} titles from the United States list, updated {date}",
+        "downloading": "Downloading {done} of {total}",
+        "downloadingUnknown": "Downloading {done}",
+        "pending": "Catalogue download pending",
+        "failedOld": "Could not update; using the data from {date}.",
+        "failedNone": "Could not download; using file names.",
+        "rejected": "The catalogue holds data Coverly does not accept; the previous one is kept.",
+        "removeFailed": "Could not delete it; close other Coverly windows.",
+        "download": "Download now",
+        "check": "Check for update",
+        "remove": "Delete catalogue",
+        "icons": "Switch icons",
+        "iconsHint": "Fetched only when shown, and shown only in Coverly.",
+        "fallback": "Online fallback",
+        "fallbackUrl": "Fallback address",
+        "fallbackHint": "When a game is not in the catalogue, its title ID is sent to this service to ask for the name.",
+        "fallbackHttps": "It has to start with {scheme}"
       }
     },
     "network": {
@@ -333,13 +357,14 @@
       "quarantine": "quarantine, set aside, cuarentena",
       "rar": "unrar, 7-Zip, 7z, rar",
       "region": "region, country, language",
+      "switchCatalog": "titledb, names, Nintendo Switch, title ID, nlib",
       "symlinks": "symlink, alias, shortcut",
       "trash": "trash, bin, delete, papelera"
     }
   },
   "about": {
     "license": "Licence: AGPL-3.0-only. Coverly ROMs is free software; its name and logo are trademarks (see Trademarks).",
-    "noTelemetry": "No telemetry: Coverly ROMs only contacts the art sources you enable and, unless you turn it off, the update server.",
+    "noTelemetry": "No telemetry: Coverly ROMs only contacts the art and data sources you enable (including the Switch catalogue and its online fallback) and, unless you turn it off, the update server.",
     "updates": "Update channel: {channel}.",
     "link": {
       "repo": "Source code",

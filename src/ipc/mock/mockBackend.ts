@@ -515,6 +515,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     storage: opts.storage === undefined ? defaultStorage() : opts.storage,
     builtins: [...MOCK_BUILTIN_PROFILES],
     ...(opts.externalTools ? { externalTools: opts.externalTools } : {}),
+    catalogMs: delayMs > 0 ? 2000 : 0,
   });
   const jobs = createMockJobs(
     {

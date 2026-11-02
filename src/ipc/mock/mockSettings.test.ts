@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from '@/lib/settingsRules';
 import { MemoryStorage } from '@/test/storage';
 
 import { BackendError } from '../errors';
+import type { CatalogStatus } from '../types';
 import { FIXTURE_NOW } from './fixture';
 import { createMockBackend } from './mockBackend';
 
@@ -502,5 +503,30 @@ describe('mock settings', () => {
     await expect(m.catalogIcon('0100000000AA0000')).rejects.toMatchObject({
       code: 'art-missing',
     });
+  });
+
+  it('simulates the catalogue download with progress, and keeps nothing when it is turned off meanwhile', async () => {
+    const m = make();
+    await m.updateSettings({ catalogs: { switch: { enabled: true } } });
+    const seen: CatalogStatus[] = [];
+    const stop = await m.onCatalogProgress((s) => seen.push(s));
+    const done = await m.catalogUpdate('en');
+    stop();
+    expect(done).toMatchObject({ state: 'ready', count: 17_342 });
+    expect(seen.length).toBeGreaterThan(1);
+    expect(seen.every((s) => s.state === 'downloading')).toBe(true);
+    const bytes = seen.map((s) => (s.state === 'downloading' ? s.done : -1));
+    expect(bytes).toEqual([...bytes].sort((a, b) => a - b));
+    expect(seen[0]).toMatchObject({ done: 0, total: 92_400_000 });
+
+    // Off deletes it; on again, a download stopped half way keeps nothing.
+    await m.updateSettings({ catalogs: { switch: { enabled: false } } });
+    expect(await m.catalogStatus()).toEqual({ state: 'off' });
+    await m.updateSettings({ catalogs: { switch: { enabled: true } } });
+    expect(await m.catalogStatus()).toEqual({ state: 'pending' });
+    const running = m.catalogUpdate();
+    expect((await m.catalogStatus()).state).toBe('downloading');
+    await m.catalogCancel();
+    expect((await running).state).toBe('pending');
   });
 });
