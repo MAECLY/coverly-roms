@@ -496,6 +496,7 @@
     "volume-gone": "El volumen de la biblioteca se ha retirado o ya no está accesible: {detail}",
     "keychain-unavailable": "Este sistema no tiene un almacén de credenciales (llavero) que Coverly ROMs pueda usar.",
     "keychain-locked": "El llavero está bloqueado. Desbloquéalo y vuelve a intentarlo.",
+    "keychain-denied": "El sistema no dio permiso para usar el llavero.",
     "keychain-failed": "El llavero rechazó la petición: {detail}",
     "update-offline": "No se pudo contactar con el servidor de actualizaciones. Comprueba la conexión y reinténtalo.",
     "update-signature": "La actualización descargada no superó la comprobación de firma y NO se instaló. No se cambió nada.",

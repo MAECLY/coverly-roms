@@ -49,6 +49,9 @@ pub enum CredentialError {
     Unavailable,
     #[error("the credential store is locked")]
     Locked,
+    /// The system (or the person at a prompt) refused access.
+    #[error("access to the credential store was denied")]
+    Denied,
     #[error("credential store error: {0}")]
     Failed(String),
     #[error("the value is too long or holds control characters")]

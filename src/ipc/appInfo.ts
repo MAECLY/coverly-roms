@@ -3,6 +3,8 @@ export interface AppInfo {
   name: string;
   version: string;
   core_version: string;
+  /** `std::env::consts::OS`: `macos`, `windows`, `linux` or another OS. */
+  platform: string;
 }
 
 /**

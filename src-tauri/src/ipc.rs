@@ -70,6 +70,9 @@ pub struct AppInfo {
     pub name: String,
     pub version: String,
     pub core_version: String,
+    /// `std::env::consts::OS` (`macos`, `windows`, `linux`, …): picks the
+    /// per-OS keychain copy; other values get the generic one.
+    pub platform: &'static str,
 }
 
 /// Who we are and which versions are running.
@@ -79,6 +82,7 @@ pub fn app_info() -> AppInfo {
         name: APP_NAME.to_owned(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
         core_version: coverly_core::VERSION.to_owned(),
+        platform: std::env::consts::OS,
     }
 }
 

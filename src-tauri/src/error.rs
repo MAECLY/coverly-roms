@@ -62,6 +62,8 @@ pub enum IpcError {
     KeychainUnavailable,
     #[error("the keychain is locked")]
     KeychainLocked,
+    #[error("access to the keychain was denied")]
+    KeychainDenied,
     #[error("keychain error: {0}")]
     KeychainFailed(String),
     #[error("the update server could not be reached: {0}")]
@@ -159,6 +161,7 @@ impl From<coverly_core::credentials::CredentialError> for IpcError {
         match e {
             C::Unavailable => IpcError::KeychainUnavailable,
             C::Locked => IpcError::KeychainLocked,
+            C::Denied => IpcError::KeychainDenied,
             C::Failed(m) => IpcError::KeychainFailed(m),
             C::BadValue => {
                 IpcError::BadRequest("the value is too long or holds control characters".into())
@@ -197,6 +200,11 @@ mod tests {
             IpcError::KeychainUnavailable
         );
         assert_eq!(IpcError::from(C::Locked), IpcError::KeychainLocked);
+        assert_eq!(IpcError::from(C::Denied), IpcError::KeychainDenied);
+        assert_eq!(
+            serde_json::to_value(IpcError::from(C::Denied)).unwrap(),
+            serde_json::json!({ "code": "keychain-denied" })
+        );
         assert!(matches!(
             IpcError::from(C::BadValue),
             IpcError::BadRequest(_)

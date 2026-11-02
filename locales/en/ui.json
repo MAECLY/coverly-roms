@@ -496,6 +496,7 @@
     "volume-gone": "The library volume was removed or is no longer reachable: {detail}",
     "keychain-unavailable": "This system has no credential store (keychain) Coverly ROMs can use.",
     "keychain-locked": "The keychain is locked. Unlock it and try again.",
+    "keychain-denied": "The system did not allow access to the keychain.",
     "keychain-failed": "The keychain refused the request: {detail}",
     "update-offline": "Could not reach the update server. Check your connection and try again.",
     "update-signature": "The downloaded update failed its signature check and was NOT installed. Nothing was changed.",

@@ -73,6 +73,7 @@ export function createMockUpdates(opts: {
         name: 'Coverly ROMs',
         version: APP_VERSION,
         core_version: APP_VERSION,
+        platform: 'macos',
       }),
     async checkForUpdates(trigger) {
       opts.log.push(`check:${trigger}`);
