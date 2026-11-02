@@ -360,7 +360,15 @@ pub fn assign_targets_in(
         let shape = shapes.get(pos).and_then(Option::as_ref);
         let outcome = match (shape, &item.transfer) {
             (Some(ExtractShape::Folder { root, name }), Transfer::Extract { .. }) => {
-                extract_folder(item, (root, name), dir, layout, &comps, index)
+                extract_folder(
+                    item,
+                    (root, name),
+                    dir,
+                    layout,
+                    subdir.is_none(),
+                    &comps,
+                    index,
+                )
             }
             (Some(shape), Transfer::Extract { .. }) => {
                 assign_extract_targets(item, shape, dir, layout, &comps, index)
@@ -1006,7 +1014,8 @@ fn folder_game_name(
 
 /// A folder game out of an archive (adjustments spec D23): the folder is
 /// named as [`plan_folder`] names one on disk, and every entry below
-/// `root` lands at its path below the root inside it. Each component
+/// `root` lands at its path below the root inside it; `with_suffix` as
+/// for [`plan_folder`] (no suffix in a DLC folder). Each component
 /// must be stored unchanged and fit; the folder's name is claimed in
 /// `dir`, so no later item shares it.
 #[allow(clippy::too_many_arguments)]
@@ -1015,6 +1024,7 @@ fn extract_folder(
     (root, name): (&str, &str),
     dir: &Path,
     layout: &TargetLayout,
+    with_suffix: bool,
     comps: &[&Comp],
     index: &mut DirIndex,
 ) -> Planned {
@@ -1027,7 +1037,7 @@ fn extract_folder(
             name: name.to_string(),
         });
     }
-    let (folder_name, rename) = folder_game_name(item, name, dir, layout, true, index);
+    let (folder_name, rename) = folder_game_name(item, name, dir, layout, with_suffix, index);
     let folder = dir.join(&folder_name);
     let skip = if root.is_empty() {
         0
@@ -1102,29 +1112,46 @@ pub struct OverlayPair {
 }
 
 /// Every [`OverlayPair`] of `items`; `is_update(i)` says whether item `i`
-/// is a PS4 update by its header (the plan's survey knows). The base is
-/// the folder item beside the sibling named exactly like the sibling
-/// without its suffix, else one whose name differs only in ASCII case (a
-/// case-insensitive volume, where shadPS4 finds it the same way).
+/// is a PS4 update by its header (the plan's survey knows), and
+/// `archive_folder(i)` names the folder game item `i` extracts out of an
+/// archive (adjustments spec D23), which pairs like a folder of that
+/// name. The base is the folder item beside the sibling named exactly
+/// like the sibling without its suffix, else one whose name differs only
+/// in ASCII case (a case-insensitive volume, where shadPS4 finds it the
+/// same way).
 pub fn overlay_pairs(
     items: &[OrganizeItem],
     is_update: &dyn Fn(usize) -> bool,
+    archive_folder: &dyn Fn(usize) -> Option<String>,
 ) -> Vec<OverlayPair> {
-    let folder = |item: &OrganizeItem| item.kind == ItemKind::Folder && !item.sources.is_empty();
-    let mut by_name: HashMap<(PathBuf, String), Vec<usize>> = HashMap::new();
-    for (pos, item) in items.iter().enumerate().filter(|(_, i)| folder(i)) {
-        let name = file_name(&item.sources[0]).to_ascii_lowercase();
+    let folder_name = |pos: usize, item: &OrganizeItem| -> Option<String> {
+        if item.sources.is_empty() {
+            return None;
+        }
+        match item.kind {
+            ItemKind::Folder => Some(file_name(&item.sources[0])),
+            ItemKind::Archive => archive_folder(pos),
+            _ => None,
+        }
+    };
+    let mut by_name: HashMap<(PathBuf, String), Vec<(usize, String)>> = HashMap::new();
+    for (pos, item) in items.iter().enumerate() {
+        let Some(name) = folder_name(pos, item) else {
+            continue;
+        };
         by_name
-            .entry((parent(&item.sources[0]), name))
+            .entry((parent(&item.sources[0]), name.to_ascii_lowercase()))
             .or_default()
-            .push(pos);
+            .push((pos, name));
     }
     let mut pairs = Vec::new();
     for (pos, item) in items.iter().enumerate() {
-        if !folder(item) || !is_update(pos) {
+        if !is_update(pos) {
             continue;
         }
-        let name = file_name(&item.sources[0]);
+        let Some(name) = folder_name(pos, item) else {
+            continue;
+        };
         let Some((stem, suffix)) = crate::consoles::sony::UPDATE_SUFFIXES.iter().find_map(|s| {
             strip_suffix_ignoring_case(&name, s).map(|stem| (stem, &name[stem.len()..]))
         }) else {
@@ -1134,12 +1161,9 @@ pub fn overlay_pairs(
         let Some(found) = by_name.get(&key) else {
             continue;
         };
-        let candidates: Vec<usize> = found.iter().copied().filter(|&b| b != pos).collect();
-        let exact = candidates
-            .iter()
-            .copied()
-            .find(|&b| file_name(&items[b].sources[0]) == stem);
-        if let Some(base) = exact.or_else(|| candidates.first().copied()) {
+        let candidates: Vec<&(usize, String)> = found.iter().filter(|(b, _)| *b != pos).collect();
+        let exact = candidates.iter().find(|(_, n)| n == stem).map(|(b, _)| *b);
+        if let Some(base) = exact.or_else(|| candidates.first().map(|(b, _)| *b)) {
             pairs.push(OverlayPair {
                 base,
                 sibling: pos,
@@ -1265,7 +1289,18 @@ pub fn sibling_targets(items: &mut [OrganizeItem], pairs: &[OverlayPair], layout
                 }
                 _ => None,
             };
-            item.target = Some(dir.join(&name));
+            let folder = dir.join(&name);
+            // A folder extracted out of an archive takes its entries along.
+            if let (Some(before), Transfer::Extract { entries, .. }) =
+                (item.target.clone(), &mut item.transfer)
+            {
+                for e in entries.iter_mut() {
+                    if let Ok(rel) = e.target.strip_prefix(&before) {
+                        e.target = folder.join(rel);
+                    }
+                }
+            }
+            item.target = Some(folder);
             item.folder = base_folder.clone();
             // Only the base is listed by the frontend: the sibling's own
             // suffix note no longer applies.

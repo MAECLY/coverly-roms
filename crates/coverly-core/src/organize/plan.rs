@@ -2471,13 +2471,39 @@ pub fn plan_from_survey(
 
     // shadPS4 overlays follow their base's action, decisions included
     // (systems batch 3 D11 e, plan P-4).
-    let pairs = overlay_pairs(&items, &|i| {
-        survey
-            .entries
-            .get(i)
-            .and_then(|e| e.console.as_ref())
-            .is_some_and(|c| c.system == "ps4" && c.kind == TitleKind::Update)
-    });
+    let pairs = overlay_pairs(
+        &items,
+        &|i| {
+            survey
+                .entries
+                .get(i)
+                .and_then(|e| e.console.as_ref())
+                .is_some_and(|c| c.system == "ps4" && c.kind == TitleKind::Update)
+        },
+        &|i| {
+            // A PS4 folder game extracted out of an archive (adjustments
+            // spec D23) is known by its root folder's name, else the
+            // archive stem.
+            let entry = survey.entries.get(i)?;
+            let Some(ArchiveGame::One { root, system, .. }) =
+                entry.inspection.as_ref()?.folder_game.as_ref()
+            else {
+                return None;
+            };
+            if system != "ps4" {
+                return None;
+            }
+            match root.rsplit('/').next().filter(|r| !r.is_empty()) {
+                Some(last) => Some(last.to_string()),
+                None => items
+                    .get(i)?
+                    .sources
+                    .first()?
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned()),
+            }
+        },
+    );
     let titles: HashMap<usize, String> = pairs
         .iter()
         .map(|pair| {
@@ -2573,11 +2599,15 @@ pub fn plan_from_survey(
                     .first()
                     .and_then(|p| p.extension())
                     .is_some_and(|e| e.eq_ignore_ascii_case("zar"));
-            let placeable = item.kind == ItemKind::Folder || zar;
+            // A folder game extracted out of an archive lands as a folder
+            // too (adjustments spec D23).
+            let extracted = matches!(shapes.get(item.id), Some(Some(ExtractShape::Folder { .. })))
+                && matches!(item.transfer, Transfer::Extract { .. });
+            let placeable = item.kind == ItemKind::Folder || zar || extracted;
             if c.kind != TitleKind::Dlc
                 || !placeable
                 || item.system_id.as_deref() != Some(c.system.as_str())
-                || !matches!(item.transfer, Transfer::AsIs)
+                || !(matches!(item.transfer, Transfer::AsIs) || extracted)
             {
                 return None;
             }

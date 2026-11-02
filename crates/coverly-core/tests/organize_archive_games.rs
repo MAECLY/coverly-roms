@@ -68,8 +68,12 @@ impl World {
     }
 
     fn plan_with(&self, pile: &Path, target: &Path, limits: Limits) -> OrganizePlan {
+        self.plan_in("esde", pile, target, limits)
+    }
+
+    fn plan_in(&self, layout: &str, pile: &Path, target: &Path, limits: Limits) -> OrganizePlan {
         let opts = OrganizeOptions {
-            layout: "esde".into(),
+            layout: layout.into(),
             target: Some(target.to_path_buf()),
             offline: true,
             limits,
@@ -462,6 +466,47 @@ fn ps4_and_wiiu_zips_extract() {
     }
 }
 
+/// D23 with batch 3 D16: a zipped PS4 DLC extracts into the frontend's
+/// DLC folder like a DLC folder on disk, without the folder game suffix
+/// (only the base game is listed).
+#[test]
+fn a_zipped_ps4_dlc_extracts_into_the_dlc_folder_without_the_suffix() {
+    let world = World::new();
+    let sfo = t::ps4_sfo("CUSA00900", "ac", "UP9000-CUSA00900_00-OLDHUNTERS000000", 1);
+    let files = vec![
+        ("The Old Hunters/sce_sys/param.sfo".to_string(), sfo),
+        ("The Old Hunters/content.dat".to_string(), vec![7u8; 64]),
+    ];
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    write_zip(&pile.path().join("Old Hunters.zip"), &files, '/');
+    let p = world.plan_in("batocera", pile.path(), target.path(), Limits::default());
+    let item = only(&p);
+    assert_eq!(item.system_id.as_deref(), Some("ps4"), "{item:#?}");
+    assert!(
+        matches!(item.transfer, Transfer::Extract { .. }),
+        "{item:#?}"
+    );
+    let parts: Vec<String> = item
+        .target
+        .as_ref()
+        .unwrap()
+        .components()
+        .rev()
+        .take(4)
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(parts, ["The Old Hunters", "CUSA00900", "DLC", "ps4"]);
+    assert!(
+        !item
+            .notes
+            .iter()
+            .any(|n| matches!(n, ItemNote::FolderSuffix { .. })),
+        "{:?}",
+        item.notes
+    );
+}
+
 /// D23: a Vita game moves as it is; in a 7z it is noted that Vita3K only
 /// installs zip, vpk or vci.
 #[test]
@@ -604,4 +649,57 @@ fn a_cartridge_zip_is_no_folder_game() {
     let insp = inspect(&path);
     assert_eq!(insp.folder_game, None);
     assert_eq!(insp.payloads.len(), 1);
+}
+
+/// D23 with batch 3 D11: a zipped PS4 update follows its zipped base's
+/// final name in Batocera (`CUSA00900.ps4-UPDATE`, the sibling shadPS4
+/// reads), and every extracted entry lands below that folder.
+#[test]
+fn a_zipped_ps4_update_follows_its_base_name() {
+    let world = World::new();
+    let base = files_of(ps4, "CUSA00900", &[]);
+    let upd_sfo = t::ps4_sfo("CUSA00900", "gp", "UP9000-CUSA00900_00-BLOODBORNE000000", 1);
+    let upd = vec![
+        ("CUSA00900-UPDATE/sce_sys/param.sfo".to_string(), upd_sfo),
+        ("CUSA00900-UPDATE/eboot.bin".to_string(), vec![1u8; 64]),
+    ];
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    write_zip(&pile.path().join("CUSA00900.zip"), &base, '/');
+    write_zip(&pile.path().join("CUSA00900-UPDATE.zip"), &upd, '/');
+    let p = world.plan_in("batocera", pile.path(), target.path(), Limits::default());
+    let by = |name: &str| {
+        p.items
+            .iter()
+            .find(|i| last(&i.sources[0]) == name)
+            .unwrap_or_else(|| panic!("{name}: {:#?}", p.items))
+    };
+    let base = by("CUSA00900.zip");
+    assert_eq!(last(base.target.as_ref().unwrap()), "CUSA00900.ps4");
+    let update = by("CUSA00900-UPDATE.zip");
+    assert_eq!(update.action, OrganizeAction::Auto, "{update:#?}");
+    let folder = update.target.as_ref().unwrap();
+    assert_eq!(last(folder), "CUSA00900.ps4-UPDATE");
+    assert_eq!(folder.parent(), base.target.as_ref().unwrap().parent());
+    let Transfer::Extract { entries, .. } = &update.transfer else {
+        panic!("{update:#?}");
+    };
+    assert_eq!(entries.len(), 2);
+    let mut targets: Vec<&Path> = entries.iter().map(|e| e.target.as_path()).collect();
+    targets.sort();
+    assert_eq!(
+        targets,
+        [
+            folder.join("eboot.bin").as_path(),
+            folder.join("sce_sys").join("param.sfo").as_path()
+        ]
+    );
+    assert!(
+        !update
+            .notes
+            .iter()
+            .any(|n| matches!(n, ItemNote::FolderSuffix { .. })),
+        "{:?}",
+        update.notes
+    );
 }
