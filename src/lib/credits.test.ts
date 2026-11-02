@@ -31,6 +31,20 @@ describe('credits data', () => {
     }
   });
 
+  it('follows the Spanish copy rules', () => {
+    for (const c of CREDITS) {
+      const texts = [c.use.es, c.credit?.es ?? ''];
+      if (typeof c.name !== 'string') texts.push(c.name.es);
+      if (typeof c.license.name !== 'string') texts.push(c.license.name.es);
+      for (const t of texts) {
+        expect(t, `${c.id}: no exclamation marks`).not.toMatch(/[!¡]/);
+        expect(t, `${c.id}: contract «de el» and «a el»`).not.toMatch(
+          /\b(de|a) el\b/i,
+        );
+      }
+    }
+  });
+
   it('fills every group', () => {
     for (const locale of ['es', 'en'] as const) {
       const groups = groupCredits(locale);

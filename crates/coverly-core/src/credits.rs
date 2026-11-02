@@ -139,6 +139,26 @@ pub fn link(id: &str, which: CreditLink) -> Option<&'static str> {
 /// which needs a credit entry.
 pub const CATALOG_DATASETS: [&str; 4] = ["titledb", "titledb-ncas", "nlib", "eshop-icons"];
 
+/// Coverly's own endpoints (the updater), the only ones without a credit.
+pub const OWN_ENDPOINTS: &[&str] = &[crate::net::hosts::MAECLY_GITHUB];
+
+/// The emulators the research cites: credited by name, use and licence,
+/// never linked (`TODO.md` §7).
+pub const EMULATORS: &[&str] = &[
+    "dolphin",
+    "ppsspp",
+    "rpcs3",
+    "vita3k",
+    "cemu",
+    "xenia",
+    "xemu",
+    "azahar",
+    "duckstation",
+    "shadps4",
+    "cxbx-reloaded",
+    "decaf-emu",
+];
+
 /// Hosts and repositories no entry may link to: ROM, key and emulator
 /// sites (`TODO.md` §7), matched by host (without `www.`) and path prefix
 /// on a segment boundary.
@@ -268,6 +288,13 @@ fn schema_problems(entries: &[Credit]) -> Vec<String> {
             }
         }
     }
+    for e in EMULATORS {
+        match entries.iter().find(|c| c.id == *e) {
+            None => out.push(format!("{e}: emulator credit missing")),
+            Some(c) if c.url.is_some() => out.push(format!("{e}: emulators carry no link")),
+            Some(_) => {}
+        }
+    }
     for g in Group::ALL {
         if !entries.iter().any(|c| c.group == g) {
             out.push(format!("group {g:?} has no entry"));
@@ -314,31 +341,8 @@ fn coverage_problems(entries: &[Credit]) -> Vec<String> {
     let mut out = Vec::new();
     let by_id = |id: &str| entries.iter().find(|c| c.id == id);
 
-    // (a) Every endpoint with a credit names an entry listing its prefix.
-    for e in crate::net::hosts::ENDPOINTS {
-        let Some(credit) = e.credit else { continue };
-        match by_id(credit) {
-            None => out.push(format!("endpoint {}: no credit entry {credit}", e.prefix)),
-            Some(c) if !c.endpoints.iter().any(|p| p == e.prefix) => out.push(format!(
-                "endpoint {}: credit {credit} does not list it in endpoints",
-                e.prefix
-            )),
-            Some(_) => {}
-        }
-    }
-    for c in entries {
-        for p in &c.endpoints {
-            if !crate::net::hosts::ENDPOINTS
-                .iter()
-                .any(|e| e.prefix == p && e.credit == Some(c.id.as_str()))
-            {
-                out.push(format!(
-                    "{}: endpoint {p} is not registered for it in net/hosts.rs",
-                    c.id
-                ));
-            }
-        }
-    }
+    // (a) Endpoints.
+    out.extend(endpoint_problems(entries, crate::net::hosts::ENDPOINTS));
 
     // (b) Art sources and catalogues.
     for s in crate::settings::KNOWN_SOURCES {
@@ -378,6 +382,47 @@ fn coverage_problems(entries: &[Credit]) -> Vec<String> {
         }
         if needs_url && c.url.is_none() {
             out.push(format!("{id}: needs its link"));
+        }
+    }
+    out
+}
+
+/// D30 (a): every endpoint names an entry that lists its prefix, and every
+/// listed prefix is registered for that entry. Only Coverly's own
+/// endpoints ([`OWN_ENDPOINTS`]) may go without a credit, so a new
+/// provider cannot slip in with `credit: None`.
+fn endpoint_problems(entries: &[Credit], endpoints: &[crate::net::hosts::Endpoint]) -> Vec<String> {
+    let mut out = Vec::new();
+    for e in endpoints {
+        let Some(credit) = e.credit else {
+            if !OWN_ENDPOINTS.contains(&e.prefix) {
+                out.push(format!(
+                    "endpoint {}: no credit (only Coverly's own endpoints may go without)",
+                    e.prefix
+                ));
+            }
+            continue;
+        };
+        match entries.iter().find(|c| c.id == credit) {
+            None => out.push(format!("endpoint {}: no credit entry {credit}", e.prefix)),
+            Some(c) if !c.endpoints.iter().any(|p| p == e.prefix) => out.push(format!(
+                "endpoint {}: credit {credit} does not list it in endpoints",
+                e.prefix
+            )),
+            Some(_) => {}
+        }
+    }
+    for c in entries {
+        for p in &c.endpoints {
+            if !endpoints
+                .iter()
+                .any(|e| e.prefix == p && e.credit == Some(c.id.as_str()))
+            {
+                out.push(format!(
+                    "{}: endpoint {p} is not registered for it in net/hosts.rs",
+                    c.id
+                ));
+            }
         }
     }
     out
@@ -509,12 +554,45 @@ mod tests {
     }
 
     #[test]
-    fn emulators_have_no_link() {
-        for c in all() {
-            if c.use_.en.contains("emulator") || c.use_.es.contains("emulador") {
-                assert!(c.url.is_none(), "{}: emulators carry no link", c.id);
+    fn an_emulator_with_a_link_or_missing_fails() {
+        let mut entries = parse(CREDITS_JSON).unwrap();
+        for c in &mut entries {
+            if c.id == "dolphin" {
+                c.url = Some("https://example.org/".into());
             }
         }
+        entries.retain(|c| c.id != "xemu");
+        let problems = problems(&entries);
+        assert!(problems
+            .iter()
+            .any(|p| p == "dolphin: emulators carry no link"));
+        assert!(problems
+            .iter()
+            .any(|p| p == "xemu: emulator credit missing"));
+    }
+
+    #[test]
+    fn an_endpoint_without_a_credit_must_be_coverlys_own() {
+        use crate::net::hosts::{Endpoint, MAECLY_GITHUB};
+        let entries = parse(CREDITS_JSON).unwrap();
+        let endpoints = [
+            Endpoint {
+                prefix: MAECLY_GITHUB,
+                credit: None,
+            },
+            Endpoint {
+                prefix: "https://new-provider.example/",
+                credit: None,
+            },
+        ];
+        let problems = endpoint_problems(&entries, &endpoints);
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.starts_with("endpoint https://new-provider.example/: no credit")),
+            "{problems:#?}"
+        );
+        assert!(!problems.iter().any(|p| p.contains(MAECLY_GITHUB)));
     }
 
     #[test]
