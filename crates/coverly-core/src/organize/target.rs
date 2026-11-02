@@ -168,6 +168,11 @@ pub enum ExtractShape {
         title: String,
         multi_disc: bool,
     },
+    /// A folder game inside an archive (adjustments spec D23): the
+    /// entries below `root` land in one folder of the system folder,
+    /// named from `name` (the root folder's name, else the archive stem)
+    /// like a folder game on disk.
+    Folder { root: String, name: String },
 }
 
 /// `layout.roms_dir`, reusing an existing folder in another casing.
@@ -354,6 +359,9 @@ pub fn assign_targets_in(
         let comps: Vec<&Comp> = attached[pos].iter().collect();
         let shape = shapes.get(pos).and_then(Option::as_ref);
         let outcome = match (shape, &item.transfer) {
+            (Some(ExtractShape::Folder { root, name }), Transfer::Extract { .. }) => {
+                extract_folder(item, (root, name), dir, layout, &comps, index)
+            }
             (Some(shape), Transfer::Extract { .. }) => {
                 assign_extract_targets(item, shape, dir, layout, &comps, index)
             }
@@ -925,7 +933,31 @@ fn plan_folder(
     index: &mut DirIndex,
 ) -> Planned {
     let original = file_name(&item.sources[0]);
-    let safe = safe_file_name(&original).unwrap_or_else(|_| original.clone());
+    let (name, rename) = folder_game_name(item, &original, dir, layout, with_suffix, index);
+    Planned::Placed(Placed {
+        target: dir.join(&name),
+        set_targets: Vec::new(),
+        rename,
+        companions: Vec::new(),
+        claims: vec![(dir.to_path_buf(), name)],
+        entry_targets: Vec::new(),
+        m3u: None,
+    })
+}
+
+/// The name a folder game called `original` takes in `dir`: FAT-safe,
+/// with the layout's suffix for its system when it lacks it (noted
+/// [`ItemNote::FolderSuffix`]), and the next free ` (n)` before the
+/// suffix when the name is taken.
+fn folder_game_name(
+    item: &mut OrganizeItem,
+    original: &str,
+    dir: &Path,
+    layout: &TargetLayout,
+    with_suffix: bool,
+    index: &mut DirIndex,
+) -> (String, Option<RenameReason>) {
+    let safe = safe_file_name(original).unwrap_or_else(|_| original.to_string());
     let suffix = item
         .system_id
         .as_deref()
@@ -955,7 +987,9 @@ fn plan_folder(
             name: wanted.clone(),
         })
     } else if safe != original {
-        Some(RenameReason::SafeName { from: original })
+        Some(RenameReason::SafeName {
+            from: original.to_string(),
+        })
     } else {
         None
     };
@@ -967,14 +1001,59 @@ fn plan_folder(
             layout: layout.profile.name.clone(),
         });
     }
-    Planned::Placed(Placed {
-        target: dir.join(&name),
-        set_targets: Vec::new(),
-        rename,
-        companions: Vec::new(),
-        claims: vec![(dir.to_path_buf(), name)],
-        entry_targets: Vec::new(),
-        m3u: None,
+    (name, rename)
+}
+
+/// A folder game out of an archive (adjustments spec D23): the folder is
+/// named as [`plan_folder`] names one on disk, and every entry below
+/// `root` lands at its path below the root inside it. Each component
+/// must be stored unchanged and fit; the folder's name is claimed in
+/// `dir`, so no later item shares it.
+#[allow(clippy::too_many_arguments)]
+fn extract_folder(
+    item: &mut OrganizeItem,
+    (root, name): (&str, &str),
+    dir: &Path,
+    layout: &TargetLayout,
+    comps: &[&Comp],
+    index: &mut DirIndex,
+) -> Planned {
+    let Transfer::Extract { entries, .. } = &item.transfer else {
+        return Planned::Left(LeftReason::Unknown);
+    };
+    let entries = entries.clone();
+    if name.trim().is_empty() {
+        return Planned::Left(LeftReason::SetUnsafeName {
+            name: name.to_string(),
+        });
+    }
+    let (folder_name, rename) = folder_game_name(item, name, dir, layout, true, index);
+    let folder = dir.join(&folder_name);
+    let skip = if root.is_empty() {
+        0
+    } else {
+        root.split('/').count()
+    };
+    let mut targets = Vec::with_capacity(entries.len());
+    for e in &entries {
+        let mut target = folder.clone();
+        for part in e.name.split('/').filter(|p| !p.is_empty()).skip(skip) {
+            if name_too_long(part) {
+                return Planned::Left(LeftReason::PathTooLong);
+            }
+            if safe_file_name(part).ok().as_deref() != Some(part) {
+                return Planned::Left(LeftReason::SetUnsafeName {
+                    name: e.name.clone(),
+                });
+            }
+            target.push(part);
+        }
+        targets.push(target);
+    }
+    place_extracted(targets, None, dir, &folder, layout, comps, index).map_placed(|p| {
+        p.target = folder.clone();
+        p.rename = rename;
+        p.claims.push((dir.to_path_buf(), folder_name));
     })
 }
 
@@ -1296,6 +1375,7 @@ fn assign_extract_targets(
         return Planned::Left(LeftReason::Unknown);
     }
     match shape {
+        ExtractShape::Folder { .. } => Planned::Left(LeftReason::Unknown),
         ExtractShape::Roms if entries.len() == 1 => {
             extract_one_rom(item, &entries[0], dir, layout, comps, index)
         }

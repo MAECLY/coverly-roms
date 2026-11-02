@@ -37,6 +37,7 @@ pub mod wiiu;
 pub mod xbox;
 pub mod zarchive;
 
+pub(crate) use listing::MAX_CHILD_ENTRIES;
 pub use listing::{identify_dir_on_disk, on_disk, DirListing, DiskFs, EntryMeta, ListingFs};
 
 /// Most bytes read from one item (D24).

@@ -43,6 +43,12 @@ use crate::organize::plan::SheetCheck;
 use crate::scan::classify::{extension, is_appledouble, is_junk_file};
 use crate::systems::{ExtClass, SystemDb};
 
+mod folder_game;
+pub use folder_game::{
+    archive_folder_game, ArchiveFolderGame, ArchiveFs, ArchiveGame, ArchiveGameOutcome,
+    MAX_ROOT_DEPTH, VITA_STEROID,
+};
+
 /// Archives with more entries than this are too big to open safely (the
 /// archive reader's entry cap).
 pub const MAX_ZIP_ENTRIES: usize = archive::MAX_ENTRIES as usize;
@@ -336,6 +342,9 @@ pub struct Inspection {
     /// in volume order): the planner turns them into one item.
     #[serde(default)]
     pub volume_parts: Vec<PathBuf>,
+    /// A folder game inside the archive (adjustments spec D20–D23).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_game: Option<ArchiveGame>,
 }
 
 impl Inspection {
@@ -355,6 +364,7 @@ impl Inspection {
             decoded: 0,
             tool: None,
             volume_parts: Vec::new(),
+            folder_game: None,
         }
     }
 
@@ -596,22 +606,24 @@ pub const PACKAGE_EXTS: [&str; 6] = ["arduboy", "rpk", "solarus", "lutro", "uef"
 pub(crate) fn vpk_console(path: &Path, limits: &Limits) -> Option<crate::consoles::ConsoleId> {
     let mut reader = archive::open_archive_with(path, limits, Some(&[])).ok()??;
     let entries: Vec<Entry> = file_entries(reader.as_ref()).cloned().collect();
-    let named = |want: &str| {
-        entries
-            .iter()
-            .find(|e| e.unsafe_name.is_none() && e.name.as_str().eq_ignore_ascii_case(want))
-    };
-    let sfo = named("sce_sys/param.sfo").filter(|e| e.size <= crate::consoles::MAX_META_FILE)?;
-    let icon = named("sce_sys/icon0.png").map(|e| e.name.as_str().to_string());
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let mut budget = Budget::plan_head(limits);
-    let bytes = read_entry(
-        reader.as_mut(),
-        sfo.index,
-        crate::consoles::MAX_META_FILE,
-        &mut budget,
-    )
-    .ok()?;
-    crate::consoles::sony::from_vpk(&bytes, icon.as_deref())
+    // The folder-game probes on the package's listing (adjustments D20):
+    // a Vita app at its top is the VPK's game.
+    let ArchiveGameOutcome::One(game) =
+        archive_folder_game(reader.as_mut(), &entries, &[], &stem, &mut budget)
+    else {
+        return None;
+    };
+    let mut id = game.matched.id.clone();
+    if id.system != "psvita" || !game.root.is_empty() || game.structure_only {
+        return None;
+    }
+    id.detail = "VPK param.sfo".into();
+    Some(id)
 }
 
 /// The bytes of the file entry `name` (case-insensitive) of the VPK at
@@ -896,6 +908,16 @@ fn inspect_archive(
         }
         return Ok(());
     }
+    // A folder game inside the archive (adjustments spec D20–D23): the
+    // probes over the listing already in memory. Past an incomplete
+    // listing nothing is known.
+    if out.listing_complete && folder_game(reader.as_mut(), path, &entries, &mut budget, out) {
+        out.decoded = budget.spent();
+        if reader.is_poisoned() {
+            out.damaged();
+        }
+        return Ok(());
+    }
     let is_disc = inspect_discs(reader.as_mut(), &entries, &mut budget, out);
     out.decoded = budget.spent();
     if is_disc? {
@@ -1039,6 +1061,85 @@ fn ps5_app_archive(
     }
     let bytes = read_entry(reader, param.index, crate::consoles::MAX_META_FILE, budget).ok()?;
     Some((at, crate::consoles::orbis::param_json(&bytes, true)?))
+}
+
+/// Records the folder game of an archive on `out` (spec D20–D23): one
+/// game becomes the archive's only payload, carrying the probe's console
+/// id, and ends the inspection (`true`); a review outcome is recorded and
+/// the inspection goes on as for any archive (`false`).
+fn folder_game(
+    reader: &mut dyn ArchiveReader,
+    path: &Path,
+    entries: &[Entry],
+    budget: &mut Budget,
+    out: &mut Inspection,
+) -> bool {
+    let dirs: Vec<String> = reader
+        .entries()
+        .iter()
+        .filter(|e| e.kind == EntryKind::Dir && e.unsafe_name.is_none())
+        .map(|e| e.name.as_str().to_string())
+        .collect();
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    out.folder_game = match archive_folder_game(reader, entries, &dirs, &stem, budget) {
+        ArchiveGameOutcome::None => return false,
+        ArchiveGameOutcome::One(game) => {
+            let probe: Vec<String> = game
+                .matched
+                .probe
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect();
+            let probe = probe.join("/");
+            let name = if game.root.is_empty() {
+                probe.clone()
+            } else {
+                format!("{}/{probe}", game.root)
+            };
+            let game = *game;
+            let id = game.matched.id;
+            let steroid_name = if game.root.is_empty() {
+                VITA_STEROID.to_string()
+            } else {
+                format!("{}/{VITA_STEROID}", game.root)
+            };
+            let steroid = id.system == "psvita"
+                && entries
+                    .iter()
+                    .any(|e| e.name.as_str().eq_ignore_ascii_case(&steroid_name));
+            let size = entries
+                .iter()
+                .find(|e| e.name.as_str().eq_ignore_ascii_case(&name))
+                .map_or(0, |e| e.size);
+            out.folder_game = Some(ArchiveGame::One {
+                root: game.root,
+                system: id.system.clone(),
+                probe,
+                structure_only: game.structure_only,
+                steroid,
+            });
+            let mut sniff = Sniff::default();
+            sniff.hit(&id.system, id.confidence, id.detail.clone());
+            sniff.serial = id.serial.clone();
+            sniff.console = Some(id);
+            out.payloads.push(Payload {
+                ext: extension(Path::new(&name)),
+                name,
+                size,
+                crc32: None,
+                sniff,
+            });
+            return true;
+        }
+        ArchiveGameOutcome::Many(count) => Some(ArchiveGame::Many { count }),
+        ArchiveGameOutcome::Conflict(c) => Some(ArchiveGame::Conflict { systems: c.systems }),
+        ArchiveGameOutcome::CaseCollision => Some(ArchiveGame::CaseCollision),
+        ArchiveGameOutcome::Ps4OrVita { root } => Some(ArchiveGame::Ps4OrVita { root }),
+    };
+    false
 }
 
 // --- Disc archives (archives spec §6.2) ---
@@ -1967,6 +2068,31 @@ fn read_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// D20: the embedded art source reads an archive folder game's icon
+    /// entry by name from a zip and from a 7z alike.
+    #[test]
+    fn an_icon_entry_is_read_from_a_zip_and_a_7z() {
+        use crate::archive::testing::{sevenz, zip_with, SevenZShape, ZipMethod};
+        let tmp = tempfile::TempDir::new().unwrap();
+        let icon = [0x89, b'P', b'N', b'G', 1, 2, 3, 4];
+        let files: [(&str, &[u8]); 2] = [
+            ("CUSA00900/sce_sys/param.sfo", b"PSF"),
+            ("CUSA00900/sce_sys/icon0.png", &icon),
+        ];
+        let zip = tmp.path().join("g.zip");
+        let entries: Vec<(&str, &[u8], ZipMethod)> = files
+            .iter()
+            .map(|(n, b)| (*n, *b, ZipMethod::Stored))
+            .collect();
+        std::fs::write(&zip, zip_with(&entries)).unwrap();
+        let sz = tmp.path().join("g.7z");
+        std::fs::write(&sz, sevenz(&files, SevenZShape::non_solid_lzma())).unwrap();
+        for path in [&zip, &sz] {
+            let got = vpk_entry(path, "CUSA00900/sce_sys/ICON0.PNG", 1024);
+            assert_eq!(got.as_deref(), Some(&icon[..]), "{}", path.display());
+        }
+    }
 
     /// Systems batch 2 D4: a Switch dump is inspected by its own reader
     /// only, with no head CRC over its first bytes (its NCAs and tickets

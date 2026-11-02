@@ -1282,8 +1282,12 @@ describe('adjustments contract', () => {
       'vita7z',
       'missing-disc',
       'encrypted-name',
+      'archive-games',
+      'ps4-or-vita',
+      'archive-case-collision',
     ]);
     expect(notes[2]).toEqual({ kind: 'missing-disc', n: 2 });
+    expect(notes[4]).toEqual({ kind: 'archive-games', count: 2 });
     const decisions = sample.adjustments_decisions as OrganizeDecision[];
     expect(decisions).toEqual([{ item: 4, choice: 'decline' }]);
     expect(sample.adjustments_part_kinds).toEqual(PART_KINDS);

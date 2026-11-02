@@ -276,7 +276,11 @@ fn json_match(
 ) -> Option<FolderMatch> {
     let probe = PathBuf::from(sys).join(find(names, "param.json")?);
     let bytes = l.read_small(&probe, MAX_META_FILE)?;
-    let mut id = super::orbis::param_json(&bytes, find(l.names, "eboot.bin").is_some())?;
+    // `eboot.bin` must be a file, not a folder of that name (systems
+    // batch 3 D13), on disk and inside an archive alike.
+    let eboot = find(l.names, "eboot.bin")
+        .is_some_and(|n| l.plain_file(std::path::Path::new(n), u64::MAX).is_some());
+    let mut id = super::orbis::param_json(&bytes, eboot)?;
     id.art.extend(art.cloned());
     Some(FolderMatch {
         id,

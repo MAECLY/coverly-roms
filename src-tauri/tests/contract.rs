@@ -1391,6 +1391,9 @@ fn adjustment_values_match_the_shared_sample() {
             ItemNote::Vita7z,
             ItemNote::MissingDisc { n: 2 },
             ItemNote::EncryptedName,
+            ItemNote::ArchiveGames { count: 2 },
+            ItemNote::Ps4OrVita,
+            ItemNote::ArchiveCaseCollision,
         ],
         "adjustments_decisions": [Decision {
             item: 4,

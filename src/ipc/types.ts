@@ -913,7 +913,13 @@ export type ItemNote =
   /** Disc `n` of a multi-disc set is not in the pile. */
   | { kind: 'missing-disc'; n: number }
   /** The title cannot be read without decrypting it («Cifrado»). */
-  | { kind: 'encrypted-name' };
+  | { kind: 'encrypted-name' }
+  /** The archive holds the folders of `count` games: review. */
+  | { kind: 'archive-games'; count: number }
+  /** PS4 and Vita share the structure; param.sfo was not read: review. */
+  | { kind: 'ps4-or-vita' }
+  /** Two names in the archive differ only in case: review. */
+  | { kind: 'archive-case-collision' };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =

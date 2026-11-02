@@ -750,6 +750,7 @@ fn pile_units_come_from_organise_facts() {
             decoded: 0,
             tool: None,
             volume_parts: Vec::new(),
+            folder_game: None,
         },
         raw_crcs: Vec::new(),
         hashed: false,

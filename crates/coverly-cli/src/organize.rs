@@ -909,6 +909,11 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::EncryptedName => {
             "encrypted; the name cannot be read without decrypting it".into()
         }
+        ItemNote::ArchiveGames { count } => format!("the archive holds {count} games"),
+        ItemNote::Ps4OrVita => "param.sfo must be read to tell PS4 from Vita".into(),
+        ItemNote::ArchiveCaseCollision => {
+            "two names in the archive differ only in case; extracting them would collide".into()
+        }
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })

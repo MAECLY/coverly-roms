@@ -251,6 +251,11 @@ type WriteArchive = fn(&Path);
 const ARCHIVE_GAMES: &[(&str, WriteArchive, &str)] = &[
     // Today's VPK reader (`vpk_console`), the template of D20.
     ("Persona 4 Golden.vpk", persona_vpk, "psvita"),
+    // Folder games found by the probes over the archive's listing (D20).
+    ("Demon's Souls.zip", ps3_disc_zip, "ps3"),
+    ("Bloodborne.7z", ps4_7z, "ps4"),
+    ("Mario Kart 8.zip", loadiine_zip, "wiiu"),
+    ("Halo.zip", xbe_zip, "xbox"),
 ];
 
 /// Writes a pile's files into a folder.
@@ -385,6 +390,85 @@ fn empty_nca() -> SparseAt {
 
 fn persona_vpk(path: &Path) {
     ct::vpk(path, "PCSE00120");
+}
+
+/// The files of the fixture folder `make` writes, below `root`.
+fn folder_files(make: impl FnOnce(&Path), root: &str) -> Vec<(String, Vec<u8>)> {
+    fn walk(top: &Path, dir: &Path, root: &str, out: &mut Vec<(String, Vec<u8>)>) {
+        for e in fs::read_dir(dir).unwrap() {
+            let path = e.unwrap().path();
+            if path.is_dir() {
+                walk(top, &path, root, out);
+                continue;
+            }
+            let mut parts = vec![root.to_string()];
+            parts.extend(
+                path.strip_prefix(top)
+                    .unwrap()
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+            );
+            out.push((parts.join("/"), fs::read(&path).unwrap()));
+        }
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    let dir = tmp.path().join("game");
+    make(&dir);
+    let mut out = Vec::new();
+    walk(&dir, &dir, root, &mut out);
+    out.sort();
+    out
+}
+
+fn zip_files(path: &Path, files: &[(String, Vec<u8>)]) {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
+    let opts = zip::write::SimpleFileOptions::default();
+    for (name, bytes) in files {
+        zip.start_file(name.as_str(), opts).unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.finish().unwrap();
+}
+
+fn ps3_disc_zip(path: &Path) {
+    zip_files(
+        path,
+        &folder_files(|d| ct::ps3_jb(d, "BLES00932", "DG"), "Demon's Souls"),
+    );
+}
+
+fn ps4_7z(path: &Path) {
+    use coverly_core::archive::testing::{sevenz, SevenZShape};
+    let files = folder_files(
+        |d| ct::ps4_app(d, "CUSA00900", "gd", "UP9000-CUSA00900_00-BLOODBORNE000000"),
+        "CUSA00900",
+    );
+    let refs: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(n, b)| (n.as_str(), b.as_slice()))
+        .collect();
+    fs::write(path, sevenz(&refs, SevenZShape::non_solid_lzma())).unwrap();
+}
+
+fn loadiine_zip(path: &Path) {
+    zip_files(
+        path,
+        &folder_files(
+            |d| ct::wiiu_folder(d, "000500001010EC00", "WUP-P-AMKP", "Mario Kart 8"),
+            "Mario Kart 8",
+        ),
+    );
+}
+
+fn xbe_zip(path: &Path) {
+    zip_files(
+        path,
+        &folder_files(
+            |d| ct::put_file(d, "default.xbe", &ct::xbe(0x4D53_0004, "Halo")),
+            "Halo",
+        ),
+    );
 }
 
 fn put(path: &Path, bytes: &[u8], n: u64) {

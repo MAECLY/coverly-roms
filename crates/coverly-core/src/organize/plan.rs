@@ -41,8 +41,8 @@ use crate::organize::evidence::{
     Verdict, MAX_DAT_DOWNLOADS,
 };
 use crate::organize::inspect::{
-    inspect_file_with, inspect_set_primary, is_metadata_entry, ArchiveIssue, Container, Inspection,
-    Payload, ZipEntryInfo, NOTE_TOOL_FAILED,
+    inspect_file_with, inspect_set_primary, is_metadata_entry, ArchiveGame, ArchiveIssue,
+    Container, Inspection, Payload, ZipEntryInfo, NOTE_TOOL_FAILED,
 };
 use crate::organize::target::{
     assign_targets_in, attach_set_aside_companions, default_companion_exts, dlc_target,
@@ -351,6 +351,14 @@ pub enum ItemNote {
     /// The title could not be read without keys and the catalogue did not
     /// name it: shown as «Cifrado» (spec D11).
     EncryptedName,
+    /// The archive holds the folders of `count` games (spec D21): review.
+    ArchiveGames { count: usize },
+    /// An `sce_sys/param.sfo` game whose SFO was not read within budget:
+    /// PS4 and Vita share the structure (spec D22), so review.
+    Ps4OrVita,
+    /// Two names in the archive differ only in case: extracting them
+    /// collides on macOS and Windows (spec D20), so review.
+    ArchiveCaseCollision,
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -2228,6 +2236,7 @@ fn name_only_facts(c: &WalkCandidate) -> Facts {
             decoded: 0,
             tool: None,
             volume_parts: Vec::new(),
+            folder_game: None,
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -2269,6 +2278,7 @@ fn set_facts(c: &WalkCandidate, entry: &SurveyEntry, sniff: Option<Sniff>) -> Fa
             decoded: 0,
             tool: None,
             volume_parts: Vec::new(),
+            folder_game: None,
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -3247,6 +3257,10 @@ fn plan_transfer(
     if !insp.listing_complete {
         return Ok(None);
     }
+    // A folder game inside the archive (adjustments spec D23).
+    if let Some(root) = insp.folder_game.as_ref().and_then(ArchiveGame::root) {
+        return plan_folder_extract(item, insp, root, system, mode);
+    }
     let by_name = |name: &str| insp.entries.iter().find(|e| e.name == name);
     let (chosen, shape, sheet_check): (Vec<&ZipEntryInfo>, ExtractShape, SheetCheck) =
         match &insp.disc_set {
@@ -3291,8 +3305,78 @@ fn plan_transfer(
                 (chosen, ExtractShape::Roms, SheetCheck::Read)
             }
         };
+    set_extract(item, insp, &chosen, sheet_check, mode)?;
+    Ok(Some(shape))
+}
+
+/// How a folder game found inside an archive at `root` reaches `system`'s
+/// folder (adjustments spec D23): a PS3 disc (JB), PS4 or Wii U game
+/// extracts the root's subtree into a folder named like a disk folder
+/// game of that system (entries outside the root are leftovers); a Vita
+/// game, a PS3 HDD/PSN title, an Xbox, Xbox 360 or PS5 game, or a game
+/// the user filed under another system moves as it is.
+fn plan_folder_extract(
+    item: &mut OrganizeItem,
+    insp: &Inspection,
+    root: &str,
+    system: &System,
+    mode: TransferMode,
+) -> Result<Option<ExtractShape>, LeftReason> {
+    let extracts = match insp.folder_game.as_ref() {
+        Some(ArchiveGame::One {
+            system: found,
+            probe,
+            ..
+        }) if *found == system.id => match found.as_str() {
+            "ps3" => super::evidence::is_ps3_disc_probe(probe),
+            "ps4" | "wiiu" => true,
+            _ => false,
+        },
+        Some(ArchiveGame::Ps4OrVita { .. }) => system.id == "ps4",
+        _ => false,
+    };
+    if !extracts {
+        return Ok(None);
+    }
+    let prefix = format!("{}/", root.to_lowercase());
+    let chosen: Vec<&ZipEntryInfo> = insp
+        .entries
+        .iter()
+        .filter(|e| root.is_empty() || e.name.to_lowercase().starts_with(&prefix))
+        .filter(|e| e.unsafe_why.is_some() || !is_metadata_entry(&e.name))
+        .collect();
+    if chosen.is_empty() {
+        return Ok(None);
+    }
+    let name = match root.rsplit_once('/') {
+        Some((_, last)) => last.to_string(),
+        None if !root.is_empty() => root.to_string(),
+        None => item
+            .sources
+            .first()
+            .and_then(|p| p.file_stem())
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    };
+    set_extract(item, insp, &chosen, SheetCheck::Read, mode)?;
+    Ok(Some(ExtractShape::Folder {
+        root: root.to_string(),
+        name,
+    }))
+}
+
+/// Sets `item.transfer` to the extraction of `chosen` (targets assigned
+/// later): the archive goes to the Trash in move mode only when nothing
+/// else is left in it.
+fn set_extract(
+    item: &mut OrganizeItem,
+    insp: &Inspection,
+    chosen: &[&ZipEntryInfo],
+    sheet_check: SheetCheck,
+    mode: TransferMode,
+) -> Result<(), LeftReason> {
     let mut entries = Vec::with_capacity(chosen.len());
-    for e in &chosen {
+    for e in chosen {
         if let Some(why) = e.unsafe_why {
             return Err(LeftReason::UnsafeArchiveEntry {
                 name: e.name.clone(),
@@ -3356,7 +3440,7 @@ fn plan_transfer(
         sheet_check,
         m3u: None,
     };
-    Ok(Some(shape))
+    Ok(())
 }
 
 /// Whether the user may settle this item: it moves, or nothing placed it.

@@ -1966,10 +1966,15 @@ fn a_ps5_app_archive_is_read_through_its_param_json() {
     assert_eq!(c.kind, TitleKind::Base);
     assert!(i.decoded <= param.len() as u64, "{}", i.decoded);
 
-    // Without `eboot.bin`, or with an oversized `param.json`: not one.
+    // Without `eboot.bin` it is no app archive; the folder probes over
+    // the listing (adjustments D20) see a PS5 DLC folder, moved as is
+    // (D23, Q16). An oversized `param.json` names nothing.
     let no_eboot = tmp.path().join("NoEboot.zip");
     zip_file(&no_eboot, &[("sce_sys/param.json", &param, false)]);
-    assert!(header_hits(&inspect(&no_eboot)).is_empty());
+    let i = inspect(&no_eboot);
+    assert_eq!(header_hits(&i), [("ps5".to_string(), 0.95)]);
+    let c = i.payloads[0].sniff.console.as_ref().unwrap();
+    assert_eq!(c.kind, TitleKind::Dlc);
     let mut big = param.clone();
     big.resize(64 * 1024 + 1, b' ');
     let oversized = tmp.path().join("Big.zip");
@@ -1982,8 +1987,9 @@ fn a_ps5_app_archive_is_read_through_its_param_json() {
     );
     assert!(header_hits(&inspect(&oversized)).is_empty());
 
-    // The same shape holding a PS4 app keeps batch 2's behaviour: no
-    // header, no payload.
+    // The same shape holding a PS4 app is no PS5 app archive: it is a
+    // PS4 folder game inside an archive (adjustments D20), extracted at
+    // plan time (D23).
     let ps4 = tmp.path().join("CUSA00900.zip");
     let sfo = ps4_sfo("CUSA00900", "gd", "UP9000-CUSA00900_00-BLOODBORNE000000", 1);
     zip_file(
@@ -1994,13 +2000,15 @@ fn a_ps5_app_archive_is_read_through_its_param_json() {
         ],
     );
     let i = inspect(&ps4);
-    assert!(header_hits(&i).is_empty());
-    assert!(i.payloads.is_empty(), "{:?}", i.payloads);
+    assert_eq!(header_hits(&i), [("ps4".to_string(), 0.95)]);
+    assert_eq!(i.payloads.len(), 1, "{:?}", i.payloads);
+    assert_eq!(i.payloads[0].name, "CUSA00900/sce_sys/param.sfo");
 }
 
 #[test]
 fn a_zip_of_two_ps5_apps_or_a_folder_named_eboot_is_not_an_app_archive() {
     use coverly_core::consoles::testing::ps5_param_json;
+    use coverly_core::consoles::TitleKind;
     use std::io::Write;
     // Systems batch 3 D13: one app per archive. Two app folders would name
     // the archive after whichever comes first (and dedupe it as that game),
@@ -2020,8 +2028,13 @@ fn a_zip_of_two_ps5_apps_or_a_folder_named_eboot_is_not_an_app_archive() {
     );
     let i = inspect(&two);
     assert!(header_hits(&i).is_empty(), "{:?}", i.payloads);
+    assert_eq!(
+        i.folder_game,
+        Some(coverly_core::organize::inspect::ArchiveGame::Many { count: 2 })
+    );
 
-    // `eboot.bin` must be a file, not a folder of that name.
+    // `eboot.bin` must be a file, not a folder of that name: no app
+    // archive, and the folder probe sees DLC, not a game.
     let dir = tmp.path().join("DirEboot.zip");
     let mut zip = zip::ZipWriter::new(std::fs::File::create(&dir).unwrap());
     let opts = zip::write::SimpleFileOptions::default();
@@ -2031,5 +2044,6 @@ fn a_zip_of_two_ps5_apps_or_a_folder_named_eboot_is_not_an_app_archive() {
     zip.write_all(&a).unwrap();
     zip.finish().unwrap();
     let i = inspect(&dir);
-    assert!(header_hits(&i).is_empty(), "{:?}", i.payloads);
+    let c = i.payloads[0].sniff.console.as_ref().unwrap();
+    assert_eq!((c.system.as_str(), c.kind), ("ps5", TitleKind::Dlc));
 }

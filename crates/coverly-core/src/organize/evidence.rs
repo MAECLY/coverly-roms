@@ -18,7 +18,9 @@ use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::{hash_rom, HashOutcome, HeaderRule, DEFAULT_HASH_MAX_BYTES};
 use crate::identify::names::{parse_name, score, strip_numbering_prefix};
 use crate::identify::sniff::{Sniff, DECISIVE};
-use crate::organize::inspect::{Container, DiscSetInfo, FoundSystem, Inspection, NOTE_ENCRYPTED};
+use crate::organize::inspect::{
+    ArchiveGame, Container, DiscSetInfo, FoundSystem, Inspection, NOTE_ENCRYPTED,
+};
 use crate::organize::plan::SheetCheck;
 use crate::organize::plan::{ItemNote, LeftReason};
 use crate::systems::{ExtClass, SystemDb};
@@ -1412,8 +1414,102 @@ pub fn identify_candidate(
     }) {
         id.notes.push(ItemNote::NoEmulator);
     }
+    archive_game(&insp, &mut combined, &mut id.notes, env.thresholds);
     id.combined = combined;
     id
+}
+
+/// Whether a PS3 folder game's probe is a disc's (`PS3_GAME/PARAM.SFO`),
+/// not an HDD/PSN title's (`PARAM.SFO` at its root).
+pub(crate) fn is_ps3_disc_probe(probe: &str) -> bool {
+    probe
+        .split('/')
+        .next()
+        .is_some_and(|first| first.eq_ignore_ascii_case("PS3_GAME"))
+}
+
+/// What a folder game inside an archive changes about its verdict and
+/// notes (adjustments spec D21–D23): several games, a case collision, two
+/// probes that disagree or a PS4/Vita structure without its SFO go to
+/// review; a Vita game in a 7z gets a note, one with the module Vita3K
+/// aborts on goes to review; a PS3 HDD/PSN title goes to review, to be
+/// installed in RPCS3. The emulator names are fixed strings.
+fn archive_game(
+    insp: &Inspection,
+    combined: &mut Combined,
+    notes: &mut Vec<ItemNote>,
+    thresholds: Thresholds,
+) {
+    let Some(game) = &insp.folder_game else {
+        return;
+    };
+    let mut note = |n: ItemNote| {
+        if !notes.contains(&n) {
+            notes.push(n);
+        }
+    };
+    let review = |combined: &mut Combined| {
+        if combined.verdict != Verdict::Review {
+            combined.verdict = Verdict::Review;
+        }
+    };
+    let undecided = |combined: &mut Combined, systems: &[&str]| {
+        combined.verdict = Verdict::Review;
+        combined.system = None;
+        combined.confidence = 0.0;
+        combined.method = Some(IdLevel::Header);
+        combined.why.clear();
+        combined.alternatives = systems
+            .iter()
+            .map(|s| ((*s).to_string(), thresholds.review))
+            .collect();
+    };
+    match game {
+        ArchiveGame::One {
+            system,
+            probe,
+            steroid,
+            ..
+        } => {
+            if combined.system.as_deref() != Some(system.as_str()) {
+                return;
+            }
+            match system.as_str() {
+                "psvita" => {
+                    if insp.container == Container::SevenZip {
+                        note(ItemNote::Vita7z);
+                    }
+                    if *steroid {
+                        review(combined);
+                        note(ItemNote::NoEmulator);
+                    }
+                }
+                "ps3" if !is_ps3_disc_probe(probe) => {
+                    review(combined);
+                    note(ItemNote::InstallFirst {
+                        emulator: "RPCS3".into(),
+                    });
+                }
+                _ => {}
+            }
+        }
+        ArchiveGame::Many { count } => {
+            review(combined);
+            note(ItemNote::ArchiveGames { count: *count });
+        }
+        ArchiveGame::CaseCollision => {
+            review(combined);
+            note(ItemNote::ArchiveCaseCollision);
+        }
+        ArchiveGame::Conflict { systems } => {
+            let systems: Vec<&str> = systems.iter().map(String::as_str).collect();
+            undecided(combined, &systems);
+        }
+        ArchiveGame::Ps4OrVita { .. } => {
+            undecided(combined, &["ps4", "psvita"]);
+            note(ItemNote::Ps4OrVita);
+        }
+    }
 }
 
 #[cfg(test)]
