@@ -163,12 +163,22 @@ impl ExactKey {
     }
 
     /// Acts although not a byte proof (spec D19): a title key whose id
-    /// came from the content (never from the file name alone, Q14), and a
-    /// folder tree. A group acts on title keys only when every member's
-    /// key does.
+    /// came from the content (never from the file name alone, Q14) and,
+    /// for an update or DLC, whose version is known (a ticket names the
+    /// title, not its version: two update NSPs of one game may be two
+    /// versions), and a folder tree. A group acts on title keys only when
+    /// every member's key does.
     pub fn acts_unconfirmed(&self) -> bool {
         match self {
-            ExactKey::Title { by_name, .. } => !by_name,
+            ExactKey::Title {
+                by_name,
+                kind,
+                version,
+                ..
+            } => {
+                !by_name
+                    && (version.is_some() || !matches!(kind, TitleKind::Update | TitleKind::Dlc))
+            }
             ExactKey::FolderTree { .. } => true,
             _ => false,
         }

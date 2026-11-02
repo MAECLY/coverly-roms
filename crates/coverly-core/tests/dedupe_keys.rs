@@ -1867,3 +1867,37 @@ fn a_switch_ticket_id_is_the_contents_not_the_names() {
     }
     assert!(exact(&keys[0]).acts_unconfirmed());
 }
+
+#[test]
+fn an_update_or_dlc_of_unknown_version_never_acts() {
+    // A ticket names the title, but nothing says the version: two update
+    // NSPs of one game named without `[vN]` may be two versions, so the
+    // group stays reported (adjustments spec D19: title id and version).
+    for kind in [TitleKind::Update, TitleKind::Dlc] {
+        let unknown = ExactKey::Title {
+            title_id: "0100000000010800".into(),
+            kind,
+            version: None,
+            disc: None,
+            by_name: false,
+        };
+        assert!(!unknown.acts_unconfirmed(), "{kind:?} without a version");
+        let known = ExactKey::Title {
+            title_id: "0100000000010800".into(),
+            kind,
+            version: Some("65536".into()),
+            disc: None,
+            by_name: false,
+        };
+        assert!(known.acts_unconfirmed(), "{kind:?} with a version");
+    }
+    // A base game's id alone still acts (its updates are other titles).
+    let base = ExactKey::Title {
+        title_id: "0100000000010000".into(),
+        kind: TitleKind::Base,
+        version: None,
+        disc: None,
+        by_name: false,
+    };
+    assert!(base.acts_unconfirmed());
+}
