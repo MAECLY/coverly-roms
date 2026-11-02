@@ -564,7 +564,7 @@ Detalle con archivo y línea: [`docs/02-research/source-capabilities.md`](docs/0
 Vídeo, manual, mapas y flyer van aparte, como adjuntos bajo demanda. Tareas, por valor:
 
 - [ ] Ampliar `Media` con los huecos del §4.1, cada uno con su propio límite de tamaño.
-- [ ] **ScreenScraper, fallo:** `parse_game` descarta los medios sin región o con región desconocida (`screenscraper.rs`), y por eso nunca llegan el fanart, el steamgrid, el vídeo ni la marquesina. Corregirlo antes que nada de ScreenScraper.
+- [x] **ScreenScraper, fallo:** `parse_game` descarta los medios sin región o con región desconocida (`screenscraper.rs`), y por eso nunca llegan el fanart, el steamgrid, el vídeo ni la marquesina. Corregirlo antes que nada de ScreenScraper. Hecho en PR #35 (`8f05b86`).
 - [ ] Hueco logo, en este orden:
   1. `Named_Logos` de libretro, gratis y sin clave;
   2. `wheel-hd` y `wheel` de ScreenScraper;
@@ -760,7 +760,7 @@ Algunos frontends lanzan juegos de PS3, Vita y otros sistemas «instalados» en 
 
 ### De la auditoría de fuentes (2026-11-01)
 
-- [ ] **Fallo en el perfil RetroArch:** `{stem}` no cambia por `_` los caracteres ``&*/:`"<>?\|`` y RetroArch sí lo hace al buscar las miniaturas. Por eso no encuentra la de «Mario & Luigi». Aplicar `sanitise_libretro` en ese perfil.
+- [x] **Fallo en el perfil RetroArch:** `{stem}` no cambia por `_` los caracteres ``&*/:`"<>?\|`` y RetroArch sí lo hace al buscar las miniaturas. Por eso no encuentra la de «Mario & Luigi». Aplicar `sanitise_libretro` en ese perfil. Hecho en PR #35 (`8f05b86`): token `{libretro_stem}`.
 - [ ] Escribir los huecos nuevos en cada frontend: el logo en `marquees/` de ES-DE, en `marquee` de Batocera y en `Named_Logos/`; el fondo, la caja 3D y el disco donde los admita cada uno.
 - [ ] Exportar los metadatos (género, jugadores, fecha, desarrolladora, editora, descripción) a `gamelist.xml`, Pegasus y LaunchBox, solo los campos que la licencia permita:
   - nunca los de RAWG;
