@@ -25,6 +25,7 @@
   <a href="https://github.com/MAECLY/coverly-roms/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/MAECLY/coverly-roms?style=flat-square&color=0E5E6F&labelColor=1B1E1B"></a>
   <a href="https://github.com/MAECLY/coverly-roms/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/MAECLY/coverly-roms/ci.yml?branch=main&style=flat-square&label=CI&labelColor=1B1E1B"></a>
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
+  <a href="#supported-systems"><img alt="131 systems" src="https://img.shields.io/badge/systems-131-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
   <a href="#install"><img alt="macOS, Windows and Linux" src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-desktop%20%2B%20CLI-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
   <a href="README.es.md"><img alt="English and Spanish" src="https://img.shields.io/badge/English%20%C2%B7%20Espa%C3%B1ol-UI-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
   <a href="#privacy-and-safety"><img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
@@ -35,6 +36,8 @@
   <a href="#install">Download</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#questions">FAQ</a> ·
+  <a href="https://coverly-roms.maecly.com/features/">Features</a> ·
+  <a href="https://coverly-roms.maecly.com/roadmap/">Roadmap</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <b>English</b> · <a href="README.es.md">Español</a>
 </p>
@@ -49,7 +52,7 @@
 </p>
 
 > [!NOTE]
-> **Early days, said plainly.** v0.1.0 is the first release. Coverly ROMs has
+> **Early days, said plainly.** v0.3.0 is the current release. Coverly ROMs has
 > not been tested on real handhelds yet. The builds are not signed with an
 > Apple or Microsoft certificate yet, so the first launch shows a warning (see
 > [Install](#install)). If you try it on a handheld, an
@@ -106,6 +109,23 @@ pages saved as `.zip` and damaged or multi-game archives stay where they are.
 Nothing is clobbered, copies across drives are verified, and an interrupted job
 can be resumed or undone.
 
+**131 systems, from cartridges to current consoles.** From the Atari 2600 to
+the PlayStation 5, each under the folder names the layouts use. Disc images and
+archives are identified from what is inside them. GameCube, Wii, Wii U, 3DS,
+Switch, PS Vita, PS3, PS4, PS5, Xbox, Xbox 360 and Xbox One games are recognised
+from the plain header of their own format, reading a few kilobytes; nothing
+encrypted is read, and Coverly never reads, asks for, downloads or ships
+console keys. Switch names come from the title ID, without keys, through an
+optional catalogue (blawar/titledb, MIT) that stays off until you turn it on in
+Settings → Sources; with no network the file name is used, and a game whose
+name cannot be read without keys is labelled "Encrypted" instead of guessed.
+A game that is a folder (PS3, PS Vita, Wii U, PS4, Xbox…) moves as one item and
+is never split, also from inside a zip or 7z, where it is recognised from the
+listing without extracting. Loose multi-disc games are grouped into one set
+with an `.m3u`, with a note when a disc is missing. Each item that writes 10 GB
+or more asks first ("Yes / Yes to all / No"), with its size and the free space
+left on the target.
+
 **Find duplicates.** Coverly finds the same game stored more than once in a
 system by its content, never by its name: the exact same data whatever the
 name, container, copier header or compression (`Tetris.gb` and
@@ -116,7 +136,9 @@ each game it picks the copy that stays, with a reason ("Stays: it has your
 save"), and you can pick another. The other copies are set aside in
 `_Duplicados/` inside the library, keeping their folders, together with their
 saves and art; or they go to the Trash if you prefer. Copies with different
-saves are never touched. Every job can be undone, and nothing is deleted.
+saves are never touched. Updates and DLC are listed under their game, and the
+same game stored twice under one title ID is found too, with the newer version
+kept. Every job can be undone, and nothing is deleted.
 
 **Browse the library.** Folder, system, date and flat views; filters for
 missing art, system, extension and region; search; and a detail panel where you
@@ -137,14 +159,26 @@ a short label where no neutral drawing exists.
 Jobs can be paused, resumed, cancelled and undone.
 
 **Settings.** General, Library, Organise, Duplicates, Profiles, Art, Matching,
-Sources, Network, Safety, Advanced and About, in three groups. Common options
-come first and the rest wait under _Advanced options_. Search with ⌘F (Ctrl+F
-on Windows and Linux) and land on the setting. The Duplicates and Organise
-screens open their own tab and come back with your choices kept. Custom layout
-profiles have a live path preview. API keys are kept in the OS keychain.
+Sources, Network, Safety, Advanced, Credits and About, in three groups. Common
+options come first and the rest wait under _Advanced options_. Search with ⌘F
+(Ctrl+F on Windows and Linux) and land on the setting. The Duplicates and
+Organise screens open their own tab and come back with your choices kept.
+Custom layout profiles have a live path preview. API keys are kept in the OS
+keychain.
+
+**Credits.** Settings → Credits lists every cover and metadata source,
+database, technical reference, library and font Coverly uses, with its licence,
+link and the credit it asks for, and shows the full third-party licence texts.
+The same list is in [Acknowledgements](#acknowledgements) and
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 **Also:** a command-line tool, `coverly`; English and Spanish interface; light
 and dark themes; in-app updates.
+
+Every feature, one by one, is on the [features
+page](https://coverly-roms.maecly.com/features/), and what comes next is on the
+[roadmap](https://coverly-roms.maecly.com/roadmap/). Both pages go live with
+the next update of the website.
 
 ## How it works
 
@@ -201,14 +235,15 @@ override the detection, and build a custom profile for any other firmware.
 
 ## Supported systems
 
-54 systems, each under the folder names the layouts use (`GBA`, `gba` and
+131 systems, each under the folder names the layouts use (`GBA`, `gba` and
 `gameboyadvance` are the same system). Among them: Game Boy, Game Boy Color,
 Game Boy Advance, NES/Famicom, Super Nintendo, Mega Drive, Master System, Game
-Gear, PlayStation, PSP, Nintendo 64, Nintendo DS, Dreamcast, Saturn, Neo Geo,
-CPS1–3, MAME, FinalBurn Neo, PICO-8, ScummVM and DOS.
+Gear, PlayStation 1 to 5, PSP, PS Vita, Nintendo 64, GameCube, Wii, Wii U,
+Nintendo DS, 3DS, Switch, Dreamcast, Saturn, Xbox, Xbox 360, Xbox One, Neo Geo,
+CPS1–3, MAME, FinalBurn Neo, ZX Spectrum, Amstrad CPC, PICO-8, ScummVM and DOS.
 
 <details>
-<summary>All 54 systems and their folder aliases (<code>coverly systems</code>)</summary>
+<summary>All 131 systems and their folder aliases (<code>coverly systems</code>)</summary>
 
 | ID                | Name                          | Folder aliases                                           |
 | ----------------- | ----------------------------- | -------------------------------------------------------- |
@@ -239,10 +274,10 @@ CPS1–3, MAME, FinalBurn Neo, PICO-8, ScummVM and DOS.
 | `mame`            | MAME                          | `MAME`, `arcade`, `mame2003`, `mame2003plus`, `mame2010` |
 | `megadrive`       | Sega Mega Drive / Genesis     | `MD`, `megadrive`, `genesis`, `Mega Drive`               |
 | `segacd`          | Sega CD / Mega-CD             | `MDCD`, `segacd`, `megacd`, `Mega CD`                    |
-| `msx`             | MSX                           | `MSX`, `msx1`, `msx2`                                    |
+| `msx`             | MSX                           | `MSX`, `msx1`                                            |
 | `n64`             | Nintendo 64                   | `N64`, `nintendo64`                                      |
 | `naomi`           | Sega NAOMI                    | `NAOMI`                                                  |
-| `nds`             | Nintendo DS                   | `NDS`, `nintendods`                                      |
+| `nds`             | Nintendo DS                   | `NDS`, `nintendods`, `dsi`, `nintendodsi`                |
 | `neocd`           | Neo Geo CD                    | `NEOCD`, `neogeocd`                                      |
 | `neogeo`          | Neo Geo                       | `NEOGEO`, `Neo Geo`                                      |
 | `ngp`             | Neo Geo Pocket                | `NGP`, `neogeopocket`                                    |
@@ -266,6 +301,83 @@ CPS1–3, MAME, FinalBurn Neo, PICO-8, ScummVM and DOS.
 | `vic20`           | Commodore VIC-20              | `VIC20`, `vic-20`                                        |
 | `wonderswan`      | WonderSwan                    | `WS`, `wonderswan`                                       |
 | `wonderswancolor` | WonderSwan Color              | `WSC`, `wonderswancolor`                                 |
+| `ps2`             | Sony PlayStation 2            | `PS2`, `playstation2`                                    |
+| `3do`             | 3DO Interactive Multiplayer   | `3DO`, `3d0`                                             |
+| `pcfx`            | NEC PC-FX                     | `PCFX`, `pc-fx`                                          |
+| `cdi`             | Philips CD-i                  | `CDI`, `cdimono1`, `cd-i`                                |
+| `amigacd32`       | Commodore Amiga CD32          | `CD32`, `amigacd32`                                      |
+| `cdtv`            | Commodore CDTV                | `CDTV`, `amigacdtv`                                      |
+| `jaguarcd`        | Atari Jaguar CD               | `JAGUARCD`, `atarijaguarcd`                              |
+| `fmtowns`         | Fujitsu FM Towns              | `FMTOWNS`, `fm-towns`                                    |
+| `colecovision`    | ColecoVision                  | `COLECO`, `colecovision`                                 |
+| `intellivision`   | Mattel Intellivision          | `INTELLIVISION`, `intv`                                  |
+| `vectrex`         | GCE Vectrex                   | `VECTREX`, `gcevectrex`                                  |
+| `odyssey2`        | Magnavox Odyssey² / Videopac  | `ODYSSEY`, `odyssey2`, `videopac`, `o2em`                |
+| `channelf`        | Fairchild Channel F           | `FAIRCHILD`, `channelf`                                  |
+| `arcadia`         | Emerson Arcadia 2001          | `ARCADIA`, `arcadia2001`                                 |
+| `scv`             | Epoch Super Cassette Vision   | `SCV`, `supercassettevision`                             |
+| `jaguar`          | Atari Jaguar                  | `JAGUAR`, `atarijaguar`                                  |
+| `sg1000`          | Sega SG-1000 / SC-3000        | `SEGASGONE`, `sg1000`, `sg-1000`, `sc3000`               |
+| `pico`            | Sega Pico                     | `SEGAPICO`                                               |
+| `supergrafx`      | PC Engine SuperGrafx          | `SGFX`, `supergrafx`                                     |
+| `n64dd`           | Nintendo 64DD                 | `N64DD`, `64dd`                                          |
+| `satellaview`     | Nintendo Satellaview          | `SATELLAVIEW`, `bsx`, `bs-x`                             |
+| `sufami`          | Bandai Sufami Turbo           | `SUFAMI`, `sufamiturbo`                                  |
+| `supervision`     | Watara Supervision            | `SUPERVISION`                                            |
+| `gamecom`         | Tiger Game.com                | `GAMECOM`                                                |
+| `megaduck`        | Mega Duck / Cougar Boy        | `MEGADUCK`, `cougarboy`                                  |
+| `zxspectrum`      | Sinclair ZX Spectrum          | `ZXS`, `zxspectrum`, `spectrum`                          |
+| `zx81`            | Sinclair ZX81                 | `ZX81`                                                   |
+| `amstradcpc`      | Amstrad CPC                   | `CPC`, `amstradcpc`                                      |
+| `bbcmicro`        | Acorn BBC Micro               | `BBCMICRO`, `bbc`                                        |
+| `thomson`         | Thomson MO/TO                 | `THOMSON`, `moto`, `to8`, `thomsonmoto`, `theodore`      |
+| `dragon`          | Dragon 32/64                  | `DRAGON`, `dragon32`, `dragon64`                         |
+| `coco`            | Tandy TRS-80 Color Computer   | `COCO`, `trs80coco`                                      |
+| `ti99`            | Texas Instruments TI-99/4A    | `TI99`, `ti994a`                                         |
+| `x68000`          | Sharp X68000                  | `X68000`, `x68k`                                         |
+| `x1`              | Sharp X1                      | `X1`                                                     |
+| `pc98`            | NEC PC-98                     | `PC98`, `pc9800`                                         |
+| `pc88`            | NEC PC-88                     | `PC88`, `pc8800`, `pc8000`                               |
+| `plus4`           | Commodore Plus/4              | `PLUS4`, `cplus4`, `commodoreplus4`                      |
+| `pet`             | Commodore PET                 | `PET`, `commodorepet`                                    |
+| `c128`            | Commodore 128                 | `C128`, `commodore128`                                   |
+| `atarixe`         | Atari XE / XEGS               | `ATARIXE`, `xegs`                                        |
+| `msx2`            | MSX2                          | `MSX2`                                                   |
+| `msxturbor`       | MSX turbo R                   | `MSXTURBOR`, `turbor`                                    |
+| `apple2`          | Apple II                      | `APPLE2`, `appleii`                                      |
+| `tic80`           | TIC-80                        | `TIC`, `tic80`                                           |
+| `wasm4`           | WASM-4                        | `WASM4`                                                  |
+| `arduboy`         | Arduboy                       | `ARDUBOY`                                                |
+| `uzebox`          | Uzebox                        | `UZEBOX`                                                 |
+| `lowresnx`        | LowRes NX                     | `LOWRESNX`                                               |
+| `vircon32`        | Vircon32                      | `VIRCON32`                                               |
+| `doom`            | Doom (PrBoom)                 | `PRBOOM`, `doom`                                         |
+| `quake`           | Quake                         | `QUAKE`, `tyrquake`                                      |
+| `cavestory`       | Cave Story (NXEngine)         | `CAVESTORY`, `nxengine`                                  |
+| `wolf3d`          | Wolfenstein 3D (ECWolf)       | `ECWOLF`, `wolf3d`, `wolfenstein3d`                      |
+| `mrboom`          | Mr. Boom                      | `MRBOOM`                                                 |
+| `dinothawr`       | Dinothawr                     | `DINOTHAWR`                                              |
+| `lutro`           | Lutro                         | `LUTRO`                                                  |
+| `solarus`         | Solarus                       | `SOLARUS`                                                |
+| `flashback`       | Flashback (REminiscence)      | `REMINISCENCE`, `flashback`                              |
+| `xrick`           | Rick Dangerous (XRick)        | `XRICK`, `rickdangerous`                                 |
+| `model2`          | Sega Model 2                  | `MODEL2`                                                 |
+| `model3`          | Sega Model 3                  | `MODEL3`                                                 |
+| `naomi2`          | Sega NAOMI 2                  | `NAOMI2`                                                 |
+| `triforce`        | Namco Sega Nintendo Triforce  | `TRIFORCE`                                               |
+| `gamecube`        | Nintendo GameCube             | `GAMECUBE`, `gc`, `ngc`, `gcn`                           |
+| `wii`             | Nintendo Wii                  | `WII`                                                    |
+| `3ds`             | Nintendo 3DS                  | `3DS`, `n3ds`, `nintendo3ds`                             |
+| `wiiu`            | Nintendo Wii U                | `WIIU`                                                   |
+| `switch`          | Nintendo Switch               | `SWITCH`, `nintendoswitch`, `nsw`                        |
+| `psvita`          | Sony PlayStation Vita         | `PSVITA`, `vita`                                         |
+| `ps3`             | Sony PlayStation 3            | `PS3`, `playstation3`                                    |
+| `xbox`            | Microsoft Xbox                | `XBOX`                                                   |
+| `xbox360`         | Microsoft Xbox 360            | `XBOX360`, `x360`                                        |
+| `ps4`             | Sony PlayStation 4            | `PS4`, `playstation4`                                    |
+| `ps5`             | Sony PlayStation 5            | `PS5`, `playstation5`                                    |
+| `xboxone`         | Microsoft Xbox One            | `XBOXONE`, `xb1`                                         |
+| `xboxseries`      | Microsoft Xbox Series X\|S    | `XBOXSERIES`, `xsx`, `xboxseriesx`                       |
 
 </details>
 
@@ -295,7 +407,7 @@ Download the file for your computer from the
 | macOS 11 or later, Apple silicon (M1 or newer) | `Coverly-ROMs_<version>_mac_arm.dmg`                                                                                                                                             |
 | macOS 11 or later, Intel                       | `Coverly-ROMs_<version>_mac_intel.dmg`                                                                                                                                           |
 | Windows 10/11 (x64)                            | `Coverly-ROMs_<version>_windows_x64-setup.exe` (recommended); stable releases also `Coverly-ROMs_<version>_windows_x64.msi`                                                      |
-| Windows 11 (ARM64)                             | `Coverly-ROMs_<version>_windows_arm-setup.exe` (recommended); stable releases may also have `Coverly-ROMs_<version>_windows_arm.msi`                                                      |
+| Windows 11 (ARM64)                             | `Coverly-ROMs_<version>_windows_arm-setup.exe` (recommended); stable releases may also have `Coverly-ROMs_<version>_windows_arm.msi`                                             |
 | Linux x64                                      | `Coverly-ROMs_<version>_linux_x64.AppImage` or `Coverly-ROMs_<version>_linux_x64.deb`                                                                                            |
 | Linux ARM64                                    | `Coverly-ROMs_<version>_linux_arm.AppImage` or `Coverly-ROMs_<version>_linux_arm.deb`                                                                                            |
 | Command line                                   | `coverly_<version>_<system>` (`mac_arm`, `mac_intel`, `windows_x64.exe`, `windows_arm.exe`, `linux_x64`, `linux_arm`); once installed, `coverly update install` keeps it current |
@@ -380,16 +492,17 @@ There are stable and beta channels.
 `coverly` is the same engine as the app, for the terminal. Like the app, it
 writes nothing unless you pass `--apply`.
 
-| Command    | What it does                                                                   |
-| ---------- | ------------------------------------------------------------------------------ |
-| `audit`    | Report which ROMs of a library lack cover, screenshot or title art (read-only) |
-| `fill`     | Fill missing art from the enabled sources (dry run unless --apply)             |
-| `organize` | Sort a pile of loose ROMs into one folder per system (dry run unless --apply)  |
-| `dedupe`   | Find the same game stored twice in a system and set the copies aside (dry run) |
-| `profiles` | List the built-in and custom layout profiles                                   |
-| `systems`  | List the known systems and their folder aliases                                |
-| `undo`     | Undo the last job (fill, organise or duplicates), or the one given with --job  |
-| `update`   | Check for a newer coverly, or install it (verified with minisign)              |
+| Command    | What it does                                                                    |
+| ---------- | ------------------------------------------------------------------------------- |
+| `audit`    | Report which ROMs of a library lack cover, screenshot or title art (read-only)  |
+| `catalog`  | Manage the optional Switch name catalogue (`switch status`, `update`, `remove`) |
+| `fill`     | Fill missing art from the enabled sources (dry run unless --apply)              |
+| `organize` | Sort a pile of loose ROMs into one folder per system (dry run unless --apply)   |
+| `dedupe`   | Find the same game stored twice in a system and set the copies aside (dry run)  |
+| `profiles` | List the built-in and custom layout profiles                                    |
+| `systems`  | List the known systems and their folder aliases                                 |
+| `undo`     | Undo the last job (fill, organise or duplicates), or the one given with --job   |
+| `update`   | Check for a newer coverly, or install it (verified with minisign)               |
 
 ```bash
 coverly audit /Volumes/SD --missing-only --format csv --output report.csv
@@ -401,6 +514,7 @@ coverly organize ~/Downloads/roms --target /Volumes/SD --copy --apply
 coverly dedupe /Volumes/SD                    # dry run: which copy stays, where the rest go
 coverly dedupe /Volumes/SD --apply            # set them aside in /Volumes/SD/_Duplicados
 coverly dedupe /Volumes/SD --apply --trash    # or send them to the Trash
+coverly catalog switch update                 # download the optional Switch name catalogue
 coverly undo --list
 coverly undo                                  # undo the last job
 ```
@@ -417,7 +531,11 @@ candidates and indexes), `--report table|json`, `--output FILE`.
 `--copy`/`--move`, `--names keep|catalogue`, `--assign FILE=SYSTEM_ID`
 (repeatable), `--resume JOB_ID`, `--include-review`, `--offline`,
 `--no-external-tools` (do not use unrar, 7-Zip or bsdtar),
-`--duplicates set-aside|report|off` (copies already in the library).
+`--duplicates set-aside|report|off` (copies already in the library),
+`--yes-large` (confirm an apply that writes 10 GB or more), `--skip-large`
+(leave those items where they are).
+
+**`catalog switch`:** `status`, `update`, `remove`, `--data-dir DIR`.
 
 **`dedupe`:** `--system gb,psx`, `--level exact,format,version`,
 `--one-game-one-rom`, `--keep PATH` (this copy stays; repeatable),
@@ -439,7 +557,10 @@ the newer jobs that touched the same folder, newest first).
 ## Privacy and safety
 
 - **No telemetry, no account.** The app only talks to the art sources you
-  enable and, unless you turn it off, to the update check.
+  enable, to the Switch name catalogue if you turn it on and, unless you turn
+  it off, to the update check.
+- **No console keys.** Coverly never reads, asks for, downloads or ships
+  them; key and licence files on the card are left untouched.
 - **Images are re-encoded** before they are written, so they carry no metadata.
 - **Your SteamGridDB key stays in the OS keychain** and is sent only to
   SteamGridDB, as an `Authorization: Bearer` header.
@@ -484,6 +605,16 @@ AGPL-3.0.
 No. Coverly ROMs bundles no ROMs, BIOS files or game art. Images are downloaded
 from libretro-thumbnails and, if you add your own key, SteamGridDB. Every image
 belongs to its owners.
+
+</details>
+
+<details>
+<summary><b>Does it need console keys?</b></summary>
+
+No. Every system is identified from what is readable without keys: plain
+headers, file tables, the title ID and the file name. A Switch or 3DS game
+whose name cannot be read that way is labelled "Encrypted". Files such as
+`prod.keys` or `title.keys` are never opened or moved.
 
 </details>
 
