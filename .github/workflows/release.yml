@@ -232,14 +232,21 @@ jobs:
           $ok = Test-NetFx3
           if (-not $ok) {
             Write-Output 'Enabling .NET Framework 3.5 (NetFx3) with DISM, at most 10 minutes'
-            $dism = Start-Process -FilePath dism.exe -NoNewWindow -PassThru `
-              -ArgumentList '/Online', '/Enable-Feature', '/FeatureName:NetFx3', '/All', '/NoRestart', '/Quiet'
-            if ($dism.WaitForExit(600000)) {
-              # 3010: enabled, a restart is pending (the build does not need it).
-              Write-Output "dism.exe exited with $($dism.ExitCode)"
-            } else {
-              $dism.Kill($true)
-              Write-Output 'dism.exe did not finish within 10 minutes'
+            # Any error here (DISM missing, no feature source, the kill
+            # racing an exit) only means no .msi: never fail the step.
+            try {
+              $dism = Start-Process -FilePath dism.exe -NoNewWindow -PassThru `
+                -ArgumentList '/Online', '/Enable-Feature', '/FeatureName:NetFx3', '/All', '/NoRestart', '/Quiet'
+              $null = $dism.Handle  # keeps ExitCode readable after the wait
+              if ($dism.WaitForExit(600000)) {
+                # 3010: enabled, a restart is pending (the build does not need it).
+                Write-Output "dism.exe exited with $($dism.ExitCode)"
+              } else {
+                $dism.Kill($true)
+                Write-Output 'dism.exe did not finish within 10 minutes'
+              }
+            } catch {
+              Write-Output "dism.exe failed: $($_.Exception.Message)"
             }
             $ok = Test-NetFx3
           }
@@ -318,7 +325,8 @@ jobs:
             # unable to run: the ARM64 .msi is optional, the -setup.exe is not.
             [ "$arm_msi" = true ] || exit 1
             echo "::warning::the Windows ARM64 build with the .msi failed: building the NSIS -setup.exe only"
-            rm -rf target/release/bundle/msi
+            # Drop whatever WiX left behind, in either target layout.
+            rm -rf target/release/bundle/msi target/*/release/bundle/msi
             # shellcheck disable=SC2086
             pnpm tauri build $ARGS --bundles nsis --config "$RUNNER_TEMP/updater-overlay.json"
           fi
