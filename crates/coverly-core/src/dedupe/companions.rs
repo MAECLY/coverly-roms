@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::art::target_path;
+use crate::art::{target_path, unsanitised_target_path};
 use crate::gamelist::{game_fields, gamelist_path, rel_slash};
 use crate::organize::target::companion_ext_matches;
 use crate::profiles::{Media, Profile};
@@ -173,7 +173,10 @@ pub fn companions_with(
         for (path, _) in same_stem(n, ctx, &unit_files, dirs) {
             outside.insert(path_key(&path));
         }
-        for (_, path) in art_of(n, ctx, dirs) {
+        for (_, path) in art_of(n, ctx, dirs)
+            .into_iter()
+            .chain(old_art_of(n, ctx, dirs))
+        {
             outside.insert(path_key(&path));
         }
     }
@@ -188,6 +191,9 @@ pub fn companions_with(
         for (media, path) in art_of(k, ctx, dirs) {
             kept.insert(path_key(&path));
             keeper_art.insert(media, path);
+        }
+        for (_, path) in old_art_of(k, ctx, dirs) {
+            kept.insert(path_key(&path));
         }
     }
 
@@ -233,6 +239,13 @@ pub fn companions_with(
                 {
                     leaves.media.push(media);
                 }
+            }
+            // A thumbnail under the name used before RetroArch names were
+            // sanitised is the copy's too: it leaves with it (and comes
+            // back on undo) rather than staying behind as an orphan. It is
+            // not art the keeper loses: RetroArch never showed it.
+            for (media, path) in old_art_of(unit, ctx, dirs) {
+                take(path, TravelKind::Art(media), &mut travels);
             }
 
             // `._` twins of the copy's own files and of what travels.
@@ -355,6 +368,23 @@ fn kind_of(suffix: &str, companion_exts: &[String]) -> Option<TravelKind> {
 /// The art of `unit` on disk, per media slot of the profile. The rendered
 /// file is found ignoring case, in PNG or JPEG.
 fn art_of(unit: &Unit, ctx: &CompanionCtx, dirs: &mut DirListings) -> Vec<(Media, PathBuf)> {
+    art_at(unit, ctx, dirs, target_path)
+}
+
+/// The thumbnails of `unit` on disk under the name used before the slot
+/// sanitised it ([`unsanitised_target_path`]): the ROM's, never its art.
+fn old_art_of(unit: &Unit, ctx: &CompanionCtx, dirs: &mut DirListings) -> Vec<(Media, PathBuf)> {
+    art_at(unit, ctx, dirs, unsanitised_target_path)
+}
+
+/// The files on disk at the paths `path_of` renders for `unit`, per media
+/// slot, found ignoring case, in PNG or JPEG.
+fn art_at(
+    unit: &Unit,
+    ctx: &CompanionCtx,
+    dirs: &mut DirListings,
+    path_of: ArtPathFn,
+) -> Vec<(Media, PathBuf)> {
     let Some(system) = ctx.db.get(&unit.system) else {
         return Vec::new();
     };
@@ -362,7 +392,7 @@ fn art_of(unit: &Unit, ctx: &CompanionCtx, dirs: &mut DirListings) -> Vec<(Media
     Media::ALL
         .iter()
         .filter_map(|&media| {
-            let want = target_path(
+            let want = path_of(
                 ctx.root,
                 ctx.profile,
                 &system_dir,
@@ -392,6 +422,10 @@ fn art_of(unit: &Unit, ctx: &CompanionCtx, dirs: &mut DirListings) -> Vec<(Media
         })
         .collect()
 }
+
+/// [`target_path`] or [`unsanitised_target_path`].
+type ArtPathFn =
+    fn(&Path, &Profile, &Path, &crate::systems::System, &Path, &str, Media) -> Option<PathBuf>;
 
 /// The `._` twin of `path`, ignoring case.
 fn apple_double(path: &Path, dirs: &mut DirListings) -> Option<PathBuf> {

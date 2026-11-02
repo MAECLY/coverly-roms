@@ -312,6 +312,37 @@ pub fn target_path(
     )
 }
 
+/// Where a slot that sanitises names (`{libretro_stem}`, RetroArch) put
+/// `media` for this ROM before names were sanitised: the same path under
+/// `{stem}`. Such a file is not the slot's art (RetroArch never finds it)
+/// but it belongs to the ROM. `None` when the slot does not sanitise or
+/// both names are the same.
+pub fn unsanitised_target_path(
+    root: &Path,
+    profile: &Profile,
+    system_dir: &Path,
+    system: &System,
+    rel_dir: &Path,
+    stem: &str,
+    media: Media,
+) -> Option<PathBuf> {
+    let template = &profile.slot(media)?.template;
+    if !template.contains("{libretro_stem}") {
+        return None;
+    }
+    let old = render_slot(
+        root,
+        profile,
+        system_dir,
+        system,
+        &template.replace("{libretro_stem}", "{stem}"),
+        rel_dir,
+        stem,
+    )?;
+    let new = target_path(root, profile, system_dir, system, rel_dir, stem, media)?;
+    (old != new).then_some(old)
+}
+
 /// Renders a slot `template` for the ROM `rel_dir`/`stem`: `None` when
 /// the template needs a libretro name the system lacks. `rel_dir` is used
 /// only when the profile mirrors subfolders.
