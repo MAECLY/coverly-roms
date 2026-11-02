@@ -709,8 +709,9 @@ están en [Instalar](#instalar).
 <details>
 <summary><b>¿Envía datos a algún sitio?</b></summary>
 
-No hay telemetría. La app solo se conecta a las fuentes de arte y, si no lo
-desactivas, a la comprobación de actualizaciones al arrancar. Las imágenes se
+No hay telemetría. La app solo se conecta a las fuentes de imágenes que
+actives, al catálogo de nombres de Switch si lo activas y, si no lo desactivas,
+a la comprobación de actualizaciones al arrancar. Las imágenes se
 recodifican, así que no llevan metadatos.
 
 </details>

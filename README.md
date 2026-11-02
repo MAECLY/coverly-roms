@@ -680,8 +680,9 @@ project's releases. The steps are under [Install](#install).
 <details>
 <summary><b>Does it send data anywhere?</b></summary>
 
-There is no telemetry. The app only talks to the art sources and, unless you
-turn it off, to the update check at startup. Images are re-encoded, so they
+There is no telemetry. The app only talks to the art sources you enable, to
+the Switch name catalogue if you turn it on and, unless you turn it off, to the
+update check at startup. Images are re-encoded, so they
 carry no metadata.
 
 </details>
