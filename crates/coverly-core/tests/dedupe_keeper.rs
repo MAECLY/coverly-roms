@@ -846,6 +846,51 @@ fn wua_preference_is_only_between_a_wua_and_a_wii_u_folder() {
 }
 
 #[test]
+fn wua_stays_whatever_the_order_of_the_other_rules() {
+    let (wua, folder) = wiiu_pair();
+    // The folder wins on cover and catalogue, and those rules come first.
+    let mut rules = all_rules();
+    rules.sort_by_key(|t| !matches!(t.rule, KeepRule::Cover | KeepRule::Verified));
+    let mut cf = cand(1, &folder);
+    cf.has_cover = true;
+    cf.dat_name = Some("New Super Mario Bros. U + New Super Luigi U");
+    let (k, reason, _) = pick(&[cand(0, &wua), cf], &rules, &no_order());
+    assert_eq!((k, reason), (0, KeepReason::WuaOverFolder));
+}
+
+#[test]
+fn wua_stays_over_two_folders_in_any_member_order() {
+    let (wua, folder) = wiiu_pair();
+    let mut folder2 = folder.clone();
+    folder2.id = 2;
+    folder2.mtime_ns = 3;
+    folder2.primary = PathBuf::from("wiiu/New SUPER MARIO BROS U [000500001014b700]");
+    let (w, f1, f2) = (cand(0, &wua), cand(1, &folder), cand(2, &folder2));
+    let orders = [
+        [&w, &f1, &f2],
+        [&w, &f2, &f1],
+        [&f1, &w, &f2],
+        [&f1, &f2, &w],
+        [&f2, &w, &f1],
+        [&f2, &f1, &w],
+    ];
+    for order in orders {
+        let cands: Vec<Candidate> = order.iter().map(|c| (*c).clone()).collect();
+        let (k, reason, runner, tie) = choose(
+            &cands,
+            &all_rules(),
+            &default_regions(),
+            &no_order(),
+            None,
+            None,
+        );
+        assert_eq!((k, reason, tie), (0, KeepReason::WuaOverFolder, false));
+        // The older folder is the runner-up.
+        assert_eq!(runner, Some((1, KeepReason::WuaOverFolder)));
+    }
+}
+
+#[test]
 fn wua_reason_wire_spelling() {
     assert_eq!(
         serde_json::to_value(KeepReason::WuaOverFolder).unwrap(),
