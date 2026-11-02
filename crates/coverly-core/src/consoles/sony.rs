@@ -37,7 +37,7 @@ use std::io;
 use std::path::PathBuf;
 
 use super::psf::{self, Psf};
-use super::wiiu::{find, list_child, plain_file, read_head};
+use super::wiiu::find;
 use super::{
     ArtFormat, ArtLocator, Budgeted, ConsoleId, DirListing, FolderMatch, IdSource, TitleKind,
     MAX_META_FILE,
@@ -164,9 +164,7 @@ pub fn from_psf(psf: &Psf, system: &str, detail: &str) -> ConsoleId {
 /// Reads and parses the `PARAM.SFO` at `rel` inside the probed folder
 /// (a regular file of at most [`MAX_META_FILE`] bytes, never a link).
 fn folder_psf(l: &DirListing, rel: &std::path::Path) -> Option<Psf> {
-    let path = l.dir.join(rel);
-    let len = plain_file(&path, MAX_META_FILE)?;
-    psf::parse(&read_head(&path, len, MAX_META_FILE as usize)?)
+    psf::parse(&l.read_small(rel, MAX_META_FILE)?)
 }
 
 /// The art locator of `name` among `names` under `dir` (relative), when
@@ -177,11 +175,8 @@ fn icon(l: &DirListing, dir: Option<&str>, names: &[String], name: &str) -> Opti
         Some(d) => PathBuf::from(d).join(found),
         None => PathBuf::from(found),
     };
-    plain_file(&l.dir.join(&rel), u64::MAX)?;
-    Some(ArtLocator::File {
-        rel,
-        format: ArtFormat::Png,
-    })
+    l.plain_file(&rel, u64::MAX)?;
+    Some(l.art(&rel, ArtFormat::Png))
 }
 
 /// A PS3 JB (disc) folder (spec D12): `PS3_GAME` among its names, a
@@ -189,7 +184,7 @@ fn icon(l: &DirListing, dir: Option<&str>, names: &[String], name: &str) -> Opti
 /// `PS3_GAME/ICON0.PNG`.
 pub fn probe_ps3_jb(l: &DirListing) -> Option<FolderMatch> {
     let game = find(l.names, "PS3_GAME")?;
-    let names = list_child(&l.dir.join(game))?;
+    let names = l.list(std::path::Path::new(game))?;
     let probe = PathBuf::from(game).join(find(&names, "PARAM.SFO")?);
     let psf = folder_psf(l, &probe)?;
     let mut id = from_psf(&psf, "ps3", "PARAM.SFO");
@@ -208,7 +203,7 @@ pub fn probe_ps3_jb(l: &DirListing) -> Option<FolderMatch> {
 /// (psdevwiki «PARAM.SFO»).
 pub fn probe_ps3_hdd(l: &DirListing) -> Option<FolderMatch> {
     let usrdir = find(l.names, "USRDIR")?;
-    if !std::fs::symlink_metadata(l.dir.join(usrdir)).ok()?.is_dir() {
+    if !l.is_dir(std::path::Path::new(usrdir)) {
         return None;
     }
     let probe = PathBuf::from(find(l.names, "PARAM.SFO")?);
@@ -262,7 +257,7 @@ pub fn sce_matches(l: &DirListing) -> Vec<FolderMatch> {
     let Some(sys) = find(l.names, "sce_sys") else {
         return Vec::new();
     };
-    let Some(names) = list_child(&l.dir.join(sys)) else {
+    let Some(names) = l.list(std::path::Path::new(sys)) else {
         return Vec::new();
     };
     let art = icon(l, Some(sys), &names, "icon0.png");
@@ -280,9 +275,7 @@ fn json_match(
     art: Option<&ArtLocator>,
 ) -> Option<FolderMatch> {
     let probe = PathBuf::from(sys).join(find(names, "param.json")?);
-    let path = l.dir.join(&probe);
-    let len = plain_file(&path, MAX_META_FILE)?;
-    let bytes = read_head(&path, len, MAX_META_FILE as usize)?;
+    let bytes = l.read_small(&probe, MAX_META_FILE)?;
     let mut id = super::orbis::param_json(&bytes, find(l.names, "eboot.bin").is_some())?;
     id.art.extend(art.cloned());
     Some(FolderMatch {
@@ -306,16 +299,12 @@ fn psf_matches(
     let Some(psf) = folder_psf(l, &probe) else {
         return Vec::new();
     };
-    let folder = l
-        .dir
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let folder = l.name;
     let name_tid = psf
         .text("TITLE_ID")
         .and_then(title_id)
         .is_none()
-        .then(|| cusa_in_name(&folder))
+        .then(|| cusa_in_name(folder))
         .flatten();
     let systems: &[&str] = match psf_systems(&psf) {
         ["psvita"]
@@ -338,7 +327,7 @@ fn psf_matches(
                         id.id_source = Some(IdSource::FileName);
                     }
                 }
-                if psf.text("CATEGORY").is_none() && update_overlay_name(&folder) {
+                if psf.text("CATEGORY").is_none() && update_overlay_name(folder) {
                     id.kind = TitleKind::Update;
                 }
             }
@@ -528,6 +517,7 @@ fn ps3_iso(b: &mut Budgeted) -> Option<ConsoleId> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::on_disk;
     use super::super::testing::{self, RangeLog, SparseAt};
     use super::*;
 
@@ -846,7 +836,7 @@ mod tests {
 
         fn probe(dir: &Path, p: super::super::super::DirProbe) -> Option<FolderMatch> {
             let names = listing_of(dir);
-            p(&DirListing { dir, names: &names })
+            on_disk(dir, &names, p)
         }
 
         #[test]
@@ -974,17 +964,14 @@ mod tests {
             let tmp = tempfile::TempDir::new().unwrap();
             let dir = tmp.path().join("CUSA00900");
             testing::ps4_app(&dir, "CUSA00900", "gd", CID);
-            super::super::super::wiiu::list_count::take();
+            super::super::super::listing::list_count::take();
             assert!(probe(&dir, probe_sce_app).is_some());
-            assert_eq!(super::super::super::wiiu::list_count::take(), 1);
+            assert_eq!(super::super::super::listing::list_count::take(), 1);
             // Through every built-in probe, still one listing.
             let names = listing_of(&dir);
-            let found = super::super::super::identify_dir(&DirListing {
-                dir: &dir,
-                names: &names,
-            });
+            let found = on_disk(&dir, &names, super::super::super::identify_dir);
             assert_eq!(found.unwrap().unwrap().id.system, "ps4");
-            assert_eq!(super::super::super::wiiu::list_count::take(), 1);
+            assert_eq!(super::super::super::listing::list_count::take(), 1);
         }
 
         #[test]
@@ -1052,14 +1039,13 @@ mod tests {
             );
             testing::put_file(&dir, "sce_sys/param.sfo", &sfo);
             let names = listing_of(&dir);
-            let l = DirListing {
-                dir: &dir,
-                names: &names,
-            };
-            let systems: Vec<String> = sce_matches(&l).into_iter().map(|m| m.id.system).collect();
+            let systems: Vec<String> = on_disk(&dir, &names, sce_matches)
+                .into_iter()
+                .map(|m| m.id.system)
+                .collect();
             assert_eq!(systems, ["ps4", "psvita"]);
             assert_eq!(
-                super::super::super::identify_dir(&l),
+                on_disk(&dir, &names, super::super::super::identify_dir),
                 Err(super::super::super::DirConflict {
                     systems: vec!["ps4".into(), "psvita".into()]
                 })
@@ -1088,9 +1074,9 @@ mod tests {
                 &testing::ps5_param_json("PPSA01284", "Returnal", true),
                 true,
             );
-            super::super::super::wiiu::list_count::take();
+            super::super::super::listing::list_count::take();
             let m = probe(&dir, probe_sce_app).unwrap();
-            assert_eq!(super::super::super::wiiu::list_count::take(), 1);
+            assert_eq!(super::super::super::listing::list_count::take(), 1);
             assert_eq!(m.probe, Path::new("sce_sys").join("param.json"));
             assert_eq!(m.id.system, "ps5");
             assert_eq!(
@@ -1128,12 +1114,8 @@ mod tests {
                 &testing::ps5_param_json("PPSA01284", "Returnal", false),
             );
             let names = listing_of(&dir);
-            let l = DirListing {
-                dir: &dir,
-                names: &names,
-            };
             assert_eq!(
-                super::super::super::identify_dir(&l),
+                on_disk(&dir, &names, super::super::super::identify_dir),
                 Err(super::super::super::DirConflict {
                     systems: vec!["ps4".into(), "ps5".into()]
                 })

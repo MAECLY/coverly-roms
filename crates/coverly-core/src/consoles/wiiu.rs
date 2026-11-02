@@ -18,7 +18,6 @@
 //! extension only, and a WUX by its own header without a serial, since
 //! its sector 0 is a WUD's.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use quick_xml::events::Event;
@@ -26,13 +25,10 @@ use quick_xml::Reader;
 
 use super::zarchive::{self, Archive, Node};
 use super::{
-    kind_wiiu, ArtFormat, ArtLocator, Budgeted, ConsoleId, DirListing, FolderMatch, IdSource,
-    PartKind, TitleKind, MAX_META_FILE,
+    kind_wiiu, ArtFormat, Budgeted, ConsoleId, DirListing, FolderMatch, IdSource, PartKind,
+    TitleKind, MAX_META_FILE,
 };
-use crate::identify::sniff::FileAt;
 
-/// Most entries read from the one child folder a probe lists (D24).
-const MAX_CHILD_ENTRIES: usize = 256;
 /// A TMD read up to the title version of its longest signature (RSA-4096:
 /// header at 0x240, version at 0x2DC).
 const TMD_HEAD: usize = 0x2E0;
@@ -220,60 +216,6 @@ pub(super) fn find<'a>(names: &'a [String], want: &str) -> Option<&'a str> {
         .map(String::as_str)
 }
 
-/// A regular file (never a symlink) of at most `max` bytes.
-pub(super) fn plain_file(path: &Path, max: u64) -> Option<u64> {
-    let meta = fs::symlink_metadata(path).ok()?;
-    (meta.file_type().is_file() && meta.len() <= max).then_some(meta.len())
-}
-
-/// The first `n` bytes of `path` (or all of it when shorter), through
-/// [`Budgeted`]; `path` was checked by [`plain_file`].
-pub(super) fn read_head(path: &Path, len: u64, n: usize) -> Option<Vec<u8>> {
-    let file = super::open_rom(path).ok()?;
-    let mut src = FileAt(file);
-    let mut b = Budgeted::new(&mut src, len);
-    let n = usize::try_from(len).ok()?.min(n);
-    b.read(0, n).ok()
-}
-
-/// Up to [`MAX_CHILD_ENTRIES`] names of the directory `dir` (never a
-/// symlinked one).
-pub(super) fn list_child(dir: &Path) -> Option<Vec<String>> {
-    if !fs::symlink_metadata(dir).ok()?.file_type().is_dir() {
-        return None;
-    }
-    #[cfg(test)]
-    list_count::bump();
-    Some(
-        fs::read_dir(dir)
-            .ok()?
-            .flatten()
-            .take(MAX_CHILD_ENTRIES)
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .collect(),
-    )
-}
-
-/// How many directories [`list_child`] listed on this thread (unit tests
-/// of the one-listing rule, systems batch 3 D5).
-#[cfg(test)]
-pub(super) mod list_count {
-    use std::cell::Cell;
-
-    thread_local! {
-        static COUNT: Cell<usize> = const { Cell::new(0) };
-    }
-
-    pub(in super::super) fn bump() {
-        COUNT.with(|c| c.set(c.get() + 1));
-    }
-
-    /// The count since the last call, then zero.
-    pub(in super::super) fn take() -> usize {
-        COUNT.with(|c| c.replace(0))
-    }
-}
-
 /// A decrypted (loadiine) title folder (spec D12): `code` and `meta` or
 /// `content` among its names. `meta/meta.xml` is read (one listing of
 /// `meta`), else `code/app.xml`; the icon is `meta/iconTex.tga`.
@@ -283,17 +225,13 @@ pub fn probe_loadiine(l: &DirListing) -> Option<FolderMatch> {
     if meta.is_none() && find(l.names, "content").is_none() {
         return None;
     }
-    let meta_names = meta.and_then(|m| list_child(&l.dir.join(m)));
+    let meta_names = meta.and_then(|m| l.list(Path::new(m)));
     let in_meta = |want: &str| -> Option<PathBuf> {
         let m = meta?;
         let name = find(meta_names.as_deref()?, want)?;
         Some(PathBuf::from(m).join(name))
     };
-    let read = |rel: &Path| -> Option<Vec<u8>> {
-        let path = l.dir.join(rel);
-        let len = plain_file(&path, MAX_META_FILE)?;
-        read_head(&path, len, MAX_META_FILE as usize)
-    };
+    let read = |rel: &Path| -> Option<Vec<u8>> { l.read_small(rel, MAX_META_FILE) };
     let from_meta = in_meta("meta.xml").and_then(|rel| Some((parse_meta_xml(&read(&rel)?)?, rel)));
     let (mut id, probe) = match from_meta {
         Some(found) => found,
@@ -303,11 +241,8 @@ pub fn probe_loadiine(l: &DirListing) -> Option<FolderMatch> {
         }
     };
     if let Some(rel) = in_meta("iconTex.tga") {
-        if plain_file(&l.dir.join(&rel), u64::MAX).is_some() {
-            id.art.push(ArtLocator::File {
-                rel,
-                format: ArtFormat::Tga,
-            });
+        if l.plain_file(&rel, u64::MAX).is_some() {
+            id.art.push(l.art(&rel, ArtFormat::Tga));
         }
     }
     Some(FolderMatch {
@@ -323,9 +258,7 @@ pub fn probe_loadiine(l: &DirListing) -> Option<FolderMatch> {
 /// TMD header is read; `title.tik` and the `.app` contents never are.
 pub fn probe_nus(l: &DirListing) -> Option<FolderMatch> {
     let name = find(l.names, "title.tmd")?;
-    let path = l.dir.join(name);
-    let len = plain_file(&path, 1 << 20)?;
-    let h = read_head(&path, len, TMD_HEAD)?;
+    let h = l.read_head(Path::new(name), 1 << 20, TMD_HEAD as u64)?;
     let id = tmd_id(&h, "NUS title.tmd")?;
     Some(FolderMatch {
         id,
@@ -565,7 +498,10 @@ pub fn wua(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::super::testing::{self as t, RangeLog, SparseAt};
+    use super::super::{on_disk, ArtLocator};
     use super::*;
 
     fn budget(s: &mut SparseAt) -> Budgeted<'_> {
@@ -645,11 +581,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         t::wiiu_folder(dir.path(), "0005000010145D00", "WUP-P-ARDP", "Game");
         let names = ["code".to_string(), "content".into(), "meta".into()];
-        let found = probe_loadiine(&DirListing {
-            dir: dir.path(),
-            names: &names,
-        })
-        .unwrap();
+        let found = on_disk(dir.path(), &names, probe_loadiine).unwrap();
         assert_eq!(found.probe, Path::new("meta").join("meta.xml"));
         assert_eq!(found.id.id_source, Some(IdSource::MetaXml));
         assert_eq!(
@@ -662,21 +594,13 @@ mod tests {
         // Without `meta`, `code/app.xml` answers.
         fs::remove_dir_all(dir.path().join("meta")).unwrap();
         let names = ["code".to_string(), "content".into()];
-        let found = probe_loadiine(&DirListing {
-            dir: dir.path(),
-            names: &names,
-        })
-        .unwrap();
+        let found = on_disk(dir.path(), &names, probe_loadiine).unwrap();
         assert_eq!(found.probe, Path::new("code").join("app.xml"));
         assert_eq!(found.id.id_source, Some(IdSource::AppXml));
         assert!(found.id.art.is_empty());
         // `code` alone is not a title folder.
         let names = ["code".to_string()];
-        assert!(probe_loadiine(&DirListing {
-            dir: dir.path(),
-            names: &names
-        })
-        .is_none());
+        assert!(on_disk(dir.path(), &names, probe_loadiine).is_none());
     }
 
     #[test]
@@ -688,11 +612,7 @@ mod tests {
             "title.tik".into(),
             "title.tmd".into(),
         ];
-        let found = probe_nus(&DirListing {
-            dir: dir.path(),
-            names: &names,
-        })
-        .unwrap();
+        let found = on_disk(dir.path(), &names, probe_nus).unwrap();
         assert_eq!(found.probe, Path::new("title.tmd"));
         assert_eq!(found.id.title_id.as_deref(), Some("000500001010ED00"));
         assert_eq!(found.id.version.as_deref(), Some("32"));
@@ -705,11 +625,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             t::nus_folder(dir.path(), tid);
             let names = ["title.tmd".to_string()];
-            assert!(probe_nus(&DirListing {
-                dir: dir.path(),
-                names: &names
-            })
-            .is_none());
+            assert!(on_disk(dir.path(), &names, probe_nus).is_none());
         }
     }
 

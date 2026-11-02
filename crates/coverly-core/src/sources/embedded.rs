@@ -23,7 +23,7 @@ use std::time::UNIX_EPOCH;
 use serde::{Deserialize, Serialize};
 
 use super::{ArtQuery, ArtSource, Candidate, MatchKind, SourceError};
-use crate::consoles::{self, ArtFormat, ArtLocator, Budgeted, DirListing};
+use crate::consoles::{self, ArtFormat, ArtLocator, Budgeted};
 use crate::identify::sniff::FileAt;
 use crate::organize::walk::{list_dir, MetaProbe, OsMetaProbe};
 use crate::profiles::Media;
@@ -210,7 +210,7 @@ fn dir_art(dir: &Path) -> Vec<ArtLocator> {
         return Vec::new();
     }
     let names: Vec<String> = listed.into_iter().map(|(n, _, _)| n).collect();
-    match consoles::identify_dir(&DirListing { dir, names: &names }) {
+    match consoles::identify_dir_on_disk(dir, &names) {
         Ok(Some(found)) => found.id.art,
         _ => Vec::new(),
     }

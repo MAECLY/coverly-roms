@@ -17,7 +17,7 @@ use walkdir::WalkDir;
 
 use super::plan::LeftReason;
 use crate::archive::detect::multi_volume_part;
-use crate::consoles::{identify_dir, is_key_material, ConsoleId, DirListing, FolderLeave};
+use crate::consoles::{identify_dir_on_disk, is_key_material, ConsoleId, FolderLeave};
 use crate::identify::sniff::is_doom_wad;
 use crate::organize::inspect::names_an_archive;
 use crate::profiles::naming::system_folder;
@@ -349,11 +349,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 return false;
             }
             let names: Vec<String> = listed.iter().map(|(n, _, _)| n.clone()).collect();
-            let listing = DirListing {
-                dir: entry.path(),
-                names: &names,
-            };
-            match identify_dir(&listing) {
+            match identify_dir_on_disk(entry.path(), &names) {
                 Ok(Some(found)) => {
                     if let Some(leave) = found.leave {
                         let reason = match leave {

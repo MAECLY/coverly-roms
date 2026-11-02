@@ -22,15 +22,14 @@
 //! Only plaintext headers are read, within the D24 budgets. No reader
 //! decrypts, derives or takes a key (D1); a `.psvimg` is never read.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use super::wiiu::{find, plain_file};
+use super::wiiu::find;
 use super::{
     psf, sony, Budgeted, ConsoleId, DirListing, FolderMatch, IdSource, PartKind, TitleKind,
     MAX_META_FILE,
 };
 use crate::disc::serial::normalise_console_serial;
-use crate::identify::sniff::FileAt;
 
 /// Detail of a Vita backup recognised by its name.
 pub const PSVIMG_DETAIL: &str = "PSVIMG name";
@@ -201,16 +200,11 @@ fn dol(b: &mut Budgeted) -> Option<ConsoleId> {
 /// whole to the DOL's system with the homebrew note (D13). Only the
 /// DOL's header and text are read, within the D24 budgets.
 pub fn probe_apps(l: &DirListing) -> Option<FolderMatch> {
-    let parent = l.dir.parent()?.file_name()?.to_str()?;
-    if !parent.eq_ignore_ascii_case("apps") {
+    if !l.parent.eq_ignore_ascii_case("apps") {
         return None;
     }
     let name = find(l.names, "boot.dol")?;
-    let path = l.dir.join(name);
-    let len = plain_file(&path, u64::MAX)?;
-    let mut src = FileAt(super::open_rom(&path).ok()?);
-    let mut b = Budgeted::new(&mut src, len);
-    let mut id = dol(&mut b)?;
+    let mut id = l.with_file(Path::new(name), dol)?;
     id.detail = "apps boot.dol".into();
     Some(FolderMatch {
         id,

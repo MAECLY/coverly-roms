@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
 use crate::cache::{Cache, ContentRow};
-use crate::consoles::{self, Budgeted, ConsoleId, DirListing, TitleKind};
+use crate::consoles::{self, Budgeted, ConsoleId, TitleKind};
 use crate::identify::dat::normalise_serial;
 use crate::identify::hash::{
     hash_stream, hex_upper, n64_to_z64, HashOutcome, HeaderRule, N64Order, RomHashes,
@@ -1285,13 +1285,10 @@ fn title_key(u: &Unit, ctx: &KeyCtx) -> Option<ExactKey> {
                 .into_iter()
                 .map(|(n, _, _)| n)
                 .collect();
-            consoles::identify_dir(&DirListing {
-                dir: &u.primary,
-                names: &names,
-            })
-            .ok()
-            .flatten()
-            .map(|m| m.id)
+            consoles::identify_dir_on_disk(&u.primary, &names)
+                .ok()
+                .flatten()
+                .map(|m| m.id)
         }
         // An XVC header gives one verdict per Xbox system (systems batch 3
         // D19): the one of the unit's own system.

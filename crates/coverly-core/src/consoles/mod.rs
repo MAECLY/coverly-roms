@@ -23,6 +23,7 @@ use crate::identify::names::Region;
 use crate::identify::sniff::{NotARom, ReadAt};
 
 pub mod ctr;
+mod listing;
 pub mod loose;
 pub mod nintendo_disc;
 pub mod nx;
@@ -35,6 +36,8 @@ pub mod wad;
 pub mod wiiu;
 pub mod xbox;
 pub mod zarchive;
+
+pub use listing::{identify_dir_on_disk, on_disk, DirListing, DiskFs, EntryMeta, ListingFs};
 
 /// Most bytes read from one item (D24).
 pub const MAX_READ: u64 = 4 << 20;
@@ -541,17 +544,10 @@ fn identify_one(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> 
         .or_else(|| xbox::identify(src, ext))
 }
 
-/// The names the walk already listed for one directory (spec D12): every
-/// entry, files and folders, AppleDouble twins and OS junk left out.
-pub struct DirListing<'a> {
-    pub dir: &'a Path,
-    pub names: &'a [String],
-}
-
-/// A folder probe (spec D12): looks only at `names`, may
-/// `symlink_metadata` named sub-paths, may `read_dir` one named child
-/// (at most 256 entries) and read one probe file (at most
-/// [`MAX_META_FILE`]) through [`Budgeted`].
+/// A folder probe (spec D12, adjustments D20): looks only at `names`,
+/// and through the listing's [`ListingFs`] may look at named sub-paths,
+/// list one named child (at most 256 entries) and read one probe file
+/// (at most [`MAX_META_FILE`]) through [`Budgeted`].
 pub type DirProbe = fn(&DirListing) -> Option<FolderMatch>;
 
 /// Why a probe that recognised a folder leaves it in place (systems
@@ -1036,26 +1032,28 @@ mod tests {
     fn identify_dir_first_match_wins_and_systems_conflict() {
         let dir = Path::new("x");
         let names = ["A".to_string(), "B".to_string()];
-        let listing = DirListing { dir, names: &names };
         set_extra_probe(None);
-        assert_eq!(identify_dir(&listing), Ok(None));
+        assert_eq!(identify_dir_on_disk(dir, &names), Ok(None));
         set_extra_probe(Some(probe_gb));
         add_extra_probe(probe_gb_too);
-        let found = identify_dir(&listing).unwrap().unwrap();
+        let found = identify_dir_on_disk(dir, &names).unwrap().unwrap();
         assert_eq!((found.id.detail.as_str(), found.probe), ("a", "A".into()));
         add_extra_probe(probe_gba);
         assert_eq!(
-            identify_dir(&listing),
+            identify_dir_on_disk(dir, &names),
             Err(DirConflict {
                 systems: vec!["gb".into(), "gba".into()]
             })
         );
         let only_a = ["A".to_string()];
-        let listing = DirListing {
-            dir,
-            names: &only_a,
-        };
-        assert_eq!(identify_dir(&listing).unwrap().unwrap().id.system, "gb");
+        assert_eq!(
+            identify_dir_on_disk(dir, &only_a)
+                .unwrap()
+                .unwrap()
+                .id
+                .system,
+            "gb"
+        );
         set_extra_probe(None);
     }
 

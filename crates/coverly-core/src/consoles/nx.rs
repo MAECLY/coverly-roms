@@ -34,14 +34,14 @@
 //! - Any format: `[0100…]` (16 hex) and `[vN]` tokens of the file name.
 //! - Nothing here downloads anything, and no key is ever needed.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use super::wiiu::{find, get, plain_file, xml_fields};
+use super::wiiu::{find, get, xml_fields};
 use super::{
     clean_title, kind_switch, ArtFormat, ArtLocator, Budgeted, ConsoleId, DirListing, FolderMatch,
     IdSource, PartKind, TitleKind, TitleSource, MAX_META_FILE,
 };
-use crate::identify::sniff::{FileAt, ReadAt};
+use crate::identify::sniff::ReadAt;
 
 /// Most entries a PFS0/HFS0 table may declare before it is distrusted.
 const MAX_ENTRIES: u32 = 1024;
@@ -491,7 +491,12 @@ pub fn identify_first(
 /// (or `.nsz`/`.xcz`) holding `00`, `01`… The `00` part's head is read
 /// through [`identify`] with the folder's name; nothing else is opened.
 pub fn probe_split(l: &DirListing) -> Option<FolderMatch> {
-    let folder = l.dir.file_name()?.to_string_lossy().into_owned();
+    // A split file is a FAT folder with the archive attribute; an
+    // archive's entries have no such attribute (D20).
+    if l.meta(Path::new(""))?.fat_archive_bit != Some(true) {
+        return None;
+    }
+    let folder = l.name;
     let (_, ext) = folder.rsplit_once('.')?;
     let ext = ext.to_ascii_lowercase();
     if !matches!(ext.as_str(), "nsp" | "nsz" | "xci" | "xcz") {
@@ -499,11 +504,7 @@ pub fn probe_split(l: &DirListing) -> Option<FolderMatch> {
     }
     let first = find(l.names, "00")?;
     find(l.names, "01")?;
-    let path = l.dir.join(first);
-    let len = plain_file(&path, u64::MAX)?;
-    let mut src = FileAt(super::open_rom(&path).ok()?);
-    let mut b = Budgeted::new(&mut src, len);
-    let mut id = identify(&mut b, &ext, &folder)?;
+    let mut id = l.with_file(Path::new(first), |b| identify(b, &ext, folder))?;
     id.detail = if ext.starts_with("ns") {
         "split NSP folder".into()
     } else {
@@ -520,6 +521,7 @@ pub fn probe_split(l: &DirListing) -> Option<FolderMatch> {
 mod tests {
     use std::ops::Range;
 
+    use super::super::on_disk;
     use super::super::testing::{self, RangeLog, SparseAt};
     use super::*;
 
@@ -934,28 +936,16 @@ mod tests {
             fs::write(dir.join("00"), f.bytes()).unwrap();
             fs::write(dir.join("01"), [0u8; 16]).unwrap();
             let names = vec!["00".to_string(), "01".to_string()];
-            let found = probe_split(&DirListing {
-                dir: &dir,
-                names: &names,
-            })
-            .unwrap();
+            let found = on_disk(&dir, &names, probe_split).unwrap();
             assert_eq!(found.id.detail, "split NSP folder");
             assert_eq!(found.id.title_id.as_deref(), Some("0100000000010000"));
             assert_eq!(found.probe, PathBuf::from("00"));
             // Not a split file: one part only, or another folder name.
             let one = vec!["00".to_string()];
-            assert!(probe_split(&DirListing {
-                dir: &dir,
-                names: &one
-            })
-            .is_none());
+            assert!(on_disk(&dir, &one, probe_split).is_none());
             let other = tmp.path().join("Mario");
             fs::create_dir(&other).unwrap();
-            assert!(probe_split(&DirListing {
-                dir: &other,
-                names: &names
-            })
-            .is_none());
+            assert!(on_disk(&other, &names, probe_split).is_none());
         }
     }
 }
