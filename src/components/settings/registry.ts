@@ -418,6 +418,12 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     label: 'settings.credits.search',
     keywords: 'settings.keywords.credits',
   },
+  {
+    id: 'setting-credits-notices',
+    section: 'credits',
+    label: 'settings.credits.notices',
+    keywords: 'settings.keywords.credits',
+  },
   // One entry per credit, generated: a new credit needs no hand edit here.
   ...CREDITS.map((c): SettingEntry => ({
     id: `credit-${c.id}`,

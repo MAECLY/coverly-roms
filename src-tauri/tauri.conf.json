@@ -45,7 +45,11 @@
     ],
     "resources": {
       "../LICENSE": "LICENSE",
-      "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
+      "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md",
+      "../LICENSES/": "LICENSES/",
+      "../src/assets/fonts/OFL-Archivo.txt": "LICENSES/fonts/OFL-Archivo.txt",
+      "../src/assets/fonts/OFL-AtkinsonHyperlegibleMono.txt": "LICENSES/fonts/OFL-AtkinsonHyperlegibleMono.txt",
+      "../src/assets/fonts/OFL-AtkinsonHyperlegibleNext.txt": "LICENSES/fonts/OFL-AtkinsonHyperlegibleNext.txt"
     },
     "category": "Utility",
     "shortDescription": "ROM cover art auditor",

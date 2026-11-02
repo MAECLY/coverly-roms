@@ -16,6 +16,7 @@ import {
 } from '@/lib/credits';
 
 import { Field, hintText } from './Field';
+import { NoticesDialog } from './NoticesDialog';
 
 /** The one «opens in your browser» line every credit link points at. */
 const OPENS_ID = 'credits-opens-browser';
@@ -130,7 +131,18 @@ export function CreditsSection() {
           </section>
         );
       })}
-      <p className="credits__footer">{t('settings.credits.noContent')}</p>
+      <div className="credits__footer">
+        <NoticesDialog>
+          <Button
+            id="setting-credits-notices"
+            variant="secondary"
+            className="credits__notices"
+          >
+            {t('settings.credits.notices')}
+          </Button>
+        </NoticesDialog>
+        <p className="m-0">{t('settings.credits.noContent')}</p>
+      </div>
     </div>
   );
 }

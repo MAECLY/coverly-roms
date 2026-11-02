@@ -380,6 +380,7 @@
       "opensBrowser": "Se abre en el navegador",
       "license": "Licencia de {name}",
       "noLicense": "Sin licencia declarada",
+      "notices": "Ver licencias de terceros",
       "noContent": "Coverly no incluye ROMs, BIOS, claves ni arte de juegos."
     }
   },
@@ -395,6 +396,18 @@
       "releases": "Versiones publicadas",
       "issues": "Informar de un problema"
     }
+  },
+  "notices": {
+    "title": "Licencias de terceros",
+    "description": "Las licencias de las bibliotecas que Coverly incluye, tal y como las publican sus autores.",
+    "find": "Buscar en el texto",
+    "tabRust": "Rust ({count})",
+    "tabJs": "JavaScript ({count})",
+    "matches": "{index} de {count}",
+    "noMatches": "Sin coincidencias",
+    "previous": "Coincidencia anterior",
+    "next": "Coincidencia siguiente",
+    "loading": "Cargando las licencias"
   },
   "update": {
     "checkNow": "Buscar actualizaciones",

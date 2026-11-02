@@ -228,6 +228,10 @@ jobs:
           for t in $TARGETS; do rustup target add "$t"; done
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Third-party notices match the locks
+        # The bundle ships LICENSES/generated/; this job has no cargo-about
+        # and must never regenerate them (spec D28).
+        run: pnpm notices:check
       - name: Throwaway updater key (the real one never reaches a build)
         shell: bash
         run: |

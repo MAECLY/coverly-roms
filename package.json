@@ -23,12 +23,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "check-all": "pnpm tokens:check && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test",
+    "check-all": "pnpm tokens:check && pnpm notices:check && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test",
     "prepare": "husky",
     "icons": "node scripts/icons/generate.mjs",
     "tokens": "node scripts/brand/build_tokens.mjs",
     "tokens:check": "node scripts/brand/build_tokens.mjs --check",
-    "system-icons": "node scripts/icons/systems.mjs"
+    "system-icons": "node scripts/icons/systems.mjs",
+    "notices": "node scripts/licenses/notices.mjs",
+    "notices:check": "node scripts/licenses/notices.mjs --check"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "1.2.1",

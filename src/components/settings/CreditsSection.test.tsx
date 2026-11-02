@@ -177,4 +177,26 @@ describe('CreditsSection', () => {
     );
     expect(document.activeElement?.tagName).toBe('ARTICLE');
   });
+  it('opens the bundled third-party licences and returns focus', async () => {
+    const panel = await openCredits();
+    const button = within(panel).getByRole('button', {
+      name: 'View third-party licences',
+    });
+    await userEvent.click(button);
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Third-party licences',
+    });
+    // The real generated files: crates and npm packages, with counts.
+    expect(
+      await within(dialog).findByRole('tab', { name: /^Rust \(\d+\)$/ }),
+    ).toBeVisible();
+    expect(
+      await within(dialog).findByRole('tab', {
+        name: /^JavaScript \(\d+\)$/,
+      }),
+    ).toBeVisible();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(button).toHaveFocus();
+  });
 });

@@ -2034,6 +2034,9 @@ time {
 }
 
 .credits__footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-3);
   margin: var(--cr-space-3) 0 0;
   padding-top: var(--cr-space-3);
   border-top: var(--cr-border-width-hairline) solid var(--cr-border);
@@ -2041,9 +2044,129 @@ time {
   color: var(--cr-text-secondary);
 }
 
+.credits__notices {
+  align-self: flex-start;
+}
+
+/* Notices viewer (spec §9.1): licence text is the content, so this is the
+   one place set in mono. Blocks are virtualised; each opens with its
+   packages in the body face and the licence at the trailing edge. */
+.notices {
+  height: min(44rem, calc(100dvh - 48px));
+}
+
+.notices__find {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+}
+
+.notices__find-label {
+  font: var(--cr-type-app-caption);
+  font-weight: 500;
+  color: var(--cr-text-secondary);
+}
+
+.notices__find-row {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-1);
+}
+
+.notices__find-row input {
+  flex: 1 1 auto;
+  max-width: 28rem;
+}
+
+.notices__status {
+  margin: 0 0 0 var(--cr-space-2);
+  min-width: 7rem;
+  font: var(--cr-type-app-caption);
+  color: var(--cr-text-secondary);
+}
+
+.notices__scroll {
+  min-height: 8rem;
+  flex: 1 1 auto;
+  margin: 0 calc(-1 * var(--cr-space-5));
+  padding: 0 var(--cr-space-5);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.notices__loading {
+  padding-top: var(--cr-space-3);
+  color: var(--cr-text-secondary);
+}
+
+.notices__block {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  padding: var(--cr-space-3) 0;
+  border-bottom: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.notices__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 var(--cr-space-3);
+  margin-bottom: var(--cr-space-2);
+}
+
+.notices__packages {
+  flex: 1 1 24rem;
+  margin: 0;
+  font: var(--cr-type-app-dense);
+  font-weight: 600;
+  color: var(--cr-text);
+  overflow-wrap: anywhere;
+}
+
+.notices__license {
+  margin: 0 0 0 auto;
+  font: var(--cr-type-app-caption);
+  color: var(--cr-text-secondary);
+  text-align: right;
+}
+
+.notices__text {
+  max-width: 80ch;
+  font: var(--cr-type-app-mono);
+  color: var(--cr-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.notices__mark {
+  border-radius: 2px;
+  background: var(--cr-primary-subtle);
+  color: var(--cr-primary-subtle-fg);
+}
+
+.notices__mark[data-current] {
+  background: var(--cr-primary);
+  color: var(--cr-primary-fg);
+}
+
 @media (forced-colors: active) {
   .credits__shelf::after {
     background-color: CanvasText;
+  }
+
+  .notices__mark {
+    background: Mark;
+    color: MarkText;
+  }
+
+  .notices__mark[data-current] {
+    background: Highlight;
+    color: HighlightText;
   }
 }
 
