@@ -2001,6 +2001,42 @@ mod nx_names {
         assert!(c.part.is_some());
     }
 
+    /// A cartridge's secure partition often carries a bundled update:
+    /// its meta NCA (here sorting first) must not turn the cartridge into
+    /// an update; the base game's id wins over any other hit.
+    #[test]
+    fn nx_a_cartridge_with_a_bundled_update_keeps_the_base_id() {
+        struct Bundled;
+        impl TitleNames for Bundled {
+            fn title(&self, tid: u64) -> Option<CatalogTitle> {
+                Names.title(tid)
+            }
+            fn by_nca(&self, nca: &[u8; 16]) -> Option<(u64, u8)> {
+                match nca[0] {
+                    0x0A => Some((ODYSSEY | 0x800, 1)),
+                    0x0B => Some((ODYSSEY | 0x800, 0)),
+                    0xC0 => Some((ODYSSEY, 0)),
+                    0xFE => Some((ODYSSEY, 1)),
+                    _ => None,
+                }
+            }
+        }
+        let names: Vec<String> = ["0a", "0b", "c0", "fe"]
+            .iter()
+            .map(|p| format!("{p}{}.cnmt.nca", "0".repeat(30)))
+            .collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let c = read(&mut ct::xci_with_secure(&refs), "xci", "Game.xci");
+        let c = resolved(c, Some(&Bundled), "Game.xci");
+        assert_eq!(c.title_id.as_deref(), Some("0100000000010000"));
+        assert_eq!(c.kind, TitleKind::Base);
+        // Only the update's NCAs: the update it is.
+        let c = read(&mut ct::xci_with_secure(&refs[..2]), "xci", "Game.xci");
+        let c = resolved(c, Some(&Bundled), "Game.xci");
+        assert_eq!(c.title_id.as_deref(), Some("0100000000010800"));
+        assert_eq!(c.kind, TitleKind::Update);
+    }
+
     #[test]
     fn nx_without_a_catalogue_the_file_name_gives_the_title() {
         let name = "Super Mario Odyssey (USA) [0100000000010000][v0].nsp";

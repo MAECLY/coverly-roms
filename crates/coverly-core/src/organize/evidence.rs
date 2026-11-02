@@ -535,20 +535,24 @@ fn is_set_archive(rom_name: &str) -> bool {
 const NCA_META: u8 = 1;
 
 /// The title id an NCA id list gives through the catalogue (spec §6 step
-/// 2): the first id with a hit, a meta NCA's preferred.
+/// 2): the first id with a hit, a meta NCA's preferred. A base game's id
+/// is preferred over any other: a cartridge's secure partition often
+/// carries a bundled update (or DLC) whose NCAs must not make the whole
+/// cartridge that update.
 fn title_by_nca(ids: &[String], names: &dyn crate::catalog::TitleNames) -> Option<u64> {
-    let mut first = None;
+    use crate::consoles::{kind_switch, TitleKind};
+    let mut best: Option<((bool, bool), u64)> = None;
     for id in ids {
         let Some(bytes) = nca_bytes(id) else { continue };
         let Some((tid, content)) = names.by_nca(&bytes) else {
             continue;
         };
-        if content == NCA_META {
-            return Some(tid);
+        let rank = (kind_switch(tid) == TitleKind::Base, content == NCA_META);
+        if best.is_none_or(|(r, _)| rank > r) {
+            best = Some((rank, tid));
         }
-        first.get_or_insert(tid);
     }
-    first
+    best.map(|(_, tid)| tid)
 }
 
 /// `0123…ef` (32 hex) → 16 bytes.
