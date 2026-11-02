@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::credentials::CredentialKey;
 use crate::credits::Credit;
 use crate::net::hosts::Endpoint;
+use crate::sources::KeyCheck;
 
 /// The registry file, compiled in.
 pub const INTEGRATIONS_JSON: &str = include_str!("../../../integrations/integrations.json");
@@ -276,6 +277,126 @@ fn host_of(url: &str) -> String {
     let host = rest.split(['/', '?', '#']).next().unwrap_or("");
     let host = host.to_ascii_lowercase();
     host.strip_prefix("www.").map(str::to_owned).unwrap_or(host)
+}
+
+/// ScreenScraper's quota as its `ssuserInfos` answer gives it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SsQuota {
+    pub requests_today: u64,
+    pub max_requests_per_day: u64,
+    pub max_threads: u64,
+}
+
+/// An integration card's state (spec D6). Precedence, strongest first:
+/// `off` > `unavailable` > `not-configured` > `quota` > `error` >
+/// `connected` > `saved`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum State {
+    /// Disabled by the user.
+    Off,
+    /// This build cannot use it (ScreenScraper without developer credentials).
+    Unavailable,
+    /// A required field is not stored.
+    NotConfigured,
+    /// Stored, not checked this session.
+    Saved,
+    /// The last check or job this session succeeded.
+    Connected,
+    /// The last check or job failed, or the keychain could not be read.
+    Error,
+    /// The daily quota is used up.
+    Quota,
+}
+
+/// What the last check or job said, and when (unix seconds).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Health {
+    pub verdict: KeyCheck,
+    pub at: i64,
+}
+
+/// The last quota seen, and when (unix seconds).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SeenQuota {
+    pub quota: SsQuota,
+    pub at: i64,
+}
+
+/// Why a card is in `error` or `not-configured`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "detail", rename_all = "kebab-case")]
+pub enum Reason {
+    /// The last check or job said this.
+    Check(KeyCheck),
+    /// The keychain could not be read (D16).
+    Keychain(KeychainKind),
+    /// This required field is not stored.
+    Missing(Input),
+}
+
+/// Why the keychain could not be read (D16), without its message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum KeychainKind {
+    Unavailable,
+    Locked,
+    Denied,
+    Failed,
+}
+
+/// Everything [`state`] looks at; no I/O, so callers gather it first.
+#[derive(Clone, Copy, Debug)]
+pub struct StateInput<'a> {
+    pub entry: &'a Integration,
+    pub enabled: bool,
+    pub built: bool,
+    /// Per field: stored or not; `Err` = the keychain could not be read.
+    pub presence: Result<&'a [(CredentialKey, bool)], KeychainKind>,
+    pub health: Option<Health>,
+    pub quota: Option<SeenQuota>,
+    pub now: i64,
+}
+
+/// How long a used-up quota counts: ScreenScraper resets it daily and we
+/// do not guess its timezone, so a day after it was seen the card falls
+/// back to what it was.
+pub const QUOTA_TTL_SECS: i64 = 24 * 60 * 60;
+
+/// The card state of one integration and, for `error` and
+/// `not-configured`, why (spec D6).
+pub fn state(i: &StateInput) -> (State, Option<Reason>) {
+    if !i.enabled {
+        return (State::Off, None);
+    }
+    if !i.built {
+        return (State::Unavailable, None);
+    }
+    let presence = match i.presence {
+        Ok(p) => p,
+        // «we could not look» is not «nothing stored».
+        Err(kind) => return (State::Error, Some(Reason::Keychain(kind))),
+    };
+    let stored = |key: CredentialKey| presence.iter().any(|&(k, set)| k == key && set);
+    if let Some(f) = i.entry.fields.iter().find(|f| f.required && !stored(f.key)) {
+        return (State::NotConfigured, Some(Reason::Missing(f.input)));
+    }
+    if i.quota.is_some_and(|q| quota_used_up(q, i.now)) {
+        return (State::Quota, None);
+    }
+    match i.health.map(|h| h.verdict) {
+        Some(KeyCheck::Ok) => (State::Connected, None),
+        // Presence already says whether a key is missing.
+        Some(KeyCheck::Missing) | None => (State::Saved, None),
+        Some(v) => (State::Error, Some(Reason::Check(v))),
+    }
+}
+
+/// The quota was used up when last seen, less than a day ago.
+fn quota_used_up(q: SeenQuota, now: i64) -> bool {
+    q.quota.max_requests_per_day > 0
+        && q.quota.requests_today >= q.quota.max_requests_per_day
+        && now - q.at < QUOTA_TTL_SECS
 }
 
 #[cfg(test)]
@@ -545,5 +666,228 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn state_follows_the_precedence_of_d6() {
+        let ss = get("screenscraper").unwrap();
+        let both: &[(CredentialKey, bool)] = &[
+            (CredentialKey::ScreenscraperUser, true),
+            (CredentialKey::ScreenscraperPassword, true),
+        ];
+        let half: &[(CredentialKey, bool)] = &[
+            (CredentialKey::ScreenscraperUser, true),
+            (CredentialKey::ScreenscraperPassword, false),
+        ];
+        let now = 1_800_000_000;
+        let used = SeenQuota {
+            quota: SsQuota {
+                requests_today: 20_000,
+                max_requests_per_day: 20_000,
+                max_threads: 1,
+            },
+            at: now - 60,
+        };
+        let quota = Some(used);
+        let bad = Some(Health {
+            verdict: KeyCheck::Invalid,
+            at: now - 5,
+        });
+        let ok = Some(Health {
+            verdict: KeyCheck::Ok,
+            at: now - 5,
+        });
+        let base = |p| StateInput {
+            entry: ss,
+            enabled: true,
+            built: true,
+            presence: p,
+            health: None,
+            quota: None,
+            now,
+        };
+        let s = |i: StateInput| state(&i).0;
+        assert_eq!(
+            s(StateInput {
+                enabled: false,
+                built: false,
+                ..base(Ok(half))
+            }),
+            State::Off
+        );
+        assert_eq!(
+            s(StateInput {
+                built: false,
+                ..base(Ok(half))
+            }),
+            State::Unavailable
+        );
+        assert_eq!(
+            s(StateInput {
+                quota,
+                ..base(Ok(half))
+            }),
+            State::NotConfigured
+        );
+        assert_eq!(
+            s(StateInput {
+                quota,
+                health: bad,
+                ..base(Ok(both))
+            }),
+            State::Quota
+        );
+        assert_eq!(
+            s(StateInput {
+                health: bad,
+                ..base(Ok(both))
+            }),
+            State::Error
+        );
+        assert_eq!(
+            s(StateInput {
+                health: ok,
+                ..base(Ok(both))
+            }),
+            State::Connected
+        );
+        assert_eq!(s(base(Ok(both))), State::Saved);
+        // «we could not look» is not «nothing stored»
+        assert_eq!(
+            state(&base(Err(KeychainKind::Locked))),
+            (State::Error, Some(Reason::Keychain(KeychainKind::Locked)))
+        );
+        // the missing field is named
+        assert_eq!(
+            state(&base(Ok(half))).1,
+            Some(Reason::Missing(Input::Password))
+        );
+        // quota expires 24 h after it was seen
+        let old = Some(SeenQuota {
+            at: now - QUOTA_TTL_SECS - 1,
+            ..used
+        });
+        assert_eq!(
+            s(StateInput {
+                quota: old,
+                ..base(Ok(both))
+            }),
+            State::Saved
+        );
+        // a quota not used up is no state
+        let fine = Some(SeenQuota {
+            quota: SsQuota {
+                requests_today: 3,
+                ..used.quota
+            },
+            ..used
+        });
+        assert_eq!(
+            s(StateInput {
+                quota: fine,
+                ..base(Ok(both))
+            }),
+            State::Saved
+        );
+        // a quota with no known maximum is no state either
+        let unknown = Some(SeenQuota {
+            quota: SsQuota {
+                max_requests_per_day: 0,
+                ..used.quota
+            },
+            ..used
+        });
+        assert_eq!(
+            s(StateInput {
+                quota: unknown,
+                ..base(Ok(both))
+            }),
+            State::Saved
+        );
+        // rate-limited from a check is an error with that reason, not «quota» (D9)
+        let rl = Some(Health {
+            verdict: KeyCheck::RateLimited,
+            at: now,
+        });
+        assert_eq!(
+            state(&StateInput {
+                health: rl,
+                ..base(Ok(both))
+            }),
+            (State::Error, Some(Reason::Check(KeyCheck::RateLimited)))
+        );
+        // every failing verdict carries itself as the reason
+        for v in [KeyCheck::Invalid, KeyCheck::Offline, KeyCheck::Unavailable] {
+            let h = Some(Health {
+                verdict: v,
+                at: now,
+            });
+            assert_eq!(
+                state(&StateInput {
+                    health: h,
+                    ..base(Ok(both))
+                }),
+                (State::Error, Some(Reason::Check(v)))
+            );
+        }
+        // `missing` from a check is ignored: presence already says it
+        let m = Some(Health {
+            verdict: KeyCheck::Missing,
+            at: now,
+        });
+        assert_eq!(
+            state(&StateInput {
+                health: m,
+                ..base(Ok(both))
+            }),
+            (State::Saved, None)
+        );
+    }
+
+    #[test]
+    fn a_memory_store_with_todays_keys_reads_as_saved() {
+        use crate::credentials::{CredentialStore, MemoryStore};
+        let store = MemoryStore::default();
+        for k in CredentialKey::ALL {
+            store.set(k, "x").unwrap();
+        }
+        for e in working().filter(|e| !e.fields.is_empty()) {
+            let presence: Vec<_> = e
+                .fields
+                .iter()
+                .map(|f| (f.key, store.get(f.key).unwrap().is_some()))
+                .collect();
+            let i = StateInput {
+                entry: e,
+                enabled: true,
+                built: true,
+                presence: Ok(&presence),
+                health: None,
+                quota: None,
+                now: 0,
+            };
+            assert_eq!(state(&i).0, State::Saved, "{}", e.id);
+        }
+    }
+
+    #[test]
+    fn states_and_reasons_serialise_as_the_ui_expects() {
+        let j = |v: serde_json::Value| v.to_string();
+        assert_eq!(
+            j(serde_json::to_value(State::NotConfigured).unwrap()),
+            r#""not-configured""#
+        );
+        assert_eq!(
+            j(serde_json::to_value(Reason::Check(KeyCheck::RateLimited)).unwrap()),
+            r#"{"detail":"rate-limited","kind":"check"}"#
+        );
+        assert_eq!(
+            j(serde_json::to_value(Reason::Keychain(KeychainKind::Denied)).unwrap()),
+            r#"{"detail":"denied","kind":"keychain"}"#
+        );
+        assert_eq!(
+            j(serde_json::to_value(Reason::Missing(Input::ApiKey)).unwrap()),
+            r#"{"detail":"api-key","kind":"missing"}"#
+        );
     }
 }
