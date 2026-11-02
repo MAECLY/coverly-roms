@@ -121,7 +121,8 @@ pub enum ArtLocator {
     },
     /// A zip entry (VPK `sce_sys/icon0.png`).
     ZipEntry { name: String, format: ArtFormat },
-    /// A file inside a folder game, relative to the folder.
+    /// A file inside a folder game, relative to its listing's file
+    /// system root (the folder itself on disk, D20).
     File { rel: PathBuf, format: ArtFormat },
 }
 

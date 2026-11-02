@@ -497,6 +497,51 @@ mod tests {
         );
     }
 
+    /// A listing root below the file system's root (an archive's root
+    /// folder): every call is made under it, the probe path stays
+    /// relative to the folder and art is located from the fs root.
+    #[test]
+    fn a_nested_listing_root_prefixes_every_call() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path().join("CUSA00900");
+        t::ps4_app(
+            &dir,
+            "CUSA00900",
+            "gd",
+            "UP9000-CUSA00900_00-BLOODBORNE000000",
+        );
+        let names = names_of(&dir);
+        let disk = identify_dir_on_disk(&dir, &names).unwrap().unwrap();
+        let fs = RecordingFs::new(tmp.path());
+        let root = Path::new("CUSA00900");
+        let m = identify_dir(&DirListing {
+            fs: &fs,
+            dir: root,
+            name: "CUSA00900",
+            parent: "",
+            names: &names,
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(m.probe, disk.probe);
+        assert_eq!(
+            (m.id.system.as_str(), m.id.title_id.as_deref()),
+            ("ps4", Some("CUSA00900"))
+        );
+        assert_eq!(
+            m.id.art,
+            [ArtLocator::File {
+                rel: root.join("sce_sys").join("icon0.png"),
+                format: ArtFormat::Png
+            }]
+        );
+        let calls = fs.calls.borrow();
+        assert!(!calls.is_empty());
+        for (op, rel) in calls.iter() {
+            assert!(rel.starts_with(root), "{op} {}", rel.display());
+        }
+    }
+
     /// Without the archive attribute (an archive's entries) a split
     /// folder is no match; on disk it is.
     #[test]
