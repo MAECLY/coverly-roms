@@ -580,6 +580,7 @@ mod extract {
             source: Default::default(),
             sheet_check: SheetCheck::Read,
             m3u: None,
+            folder_game: false,
         };
         it
     }

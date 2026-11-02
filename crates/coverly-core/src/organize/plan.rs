@@ -384,6 +384,11 @@ pub enum Transfer {
         sheet_check: SheetCheck,
         #[serde(default)]
         m3u: Option<PathBuf>,
+        /// A folder game extracted out of an archive (adjustments spec
+        /// D23): always asked one by one before apply (D15). Plans from
+        /// before the adjustments have none.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        folder_game: bool,
     },
 }
 
@@ -2983,8 +2988,12 @@ pub fn plan_from_survey(
         duplicates: dups.groups,
         updates,
     };
-    // Informational: the gate runs on the decided plan at apply time.
-    if let Some(t) = large_transfer(&plan) {
+    // Informational: the gate runs on the decided plan at apply time; a
+    // folder game extraction under the threshold is asked then, with no
+    // warning (adjustments spec D15).
+    if let Some(t) =
+        large_transfer(&plan).filter(|t| t.bytes >= super::apply::large_transfer_threshold())
+    {
         plan.warnings.push(PlanWarning::LargeTransfer {
             bytes: t.bytes,
             items: t.items,
@@ -3616,6 +3625,9 @@ fn plan_folder_extract(
             .unwrap_or_default(),
     };
     set_extract(item, insp, &chosen, SheetCheck::Read, mode)?;
+    if let Transfer::Extract { folder_game, .. } = &mut item.transfer {
+        *folder_game = true;
+    }
     Ok(Some(ExtractShape::Folder {
         root: root.to_string(),
         name,
@@ -3696,6 +3708,7 @@ fn set_extract(
         },
         sheet_check,
         m3u: None,
+        folder_game: false,
     };
     Ok(())
 }

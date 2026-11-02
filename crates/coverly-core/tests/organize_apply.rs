@@ -662,6 +662,7 @@ mod plans {
             source: ExtractSource::Builtin,
             sheet_check: SheetCheck::Read,
             m3u: None,
+            folder_game: false,
         };
 
         let report = apply(&plan, &data);

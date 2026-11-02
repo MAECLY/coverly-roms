@@ -22,8 +22,8 @@ use coverly_core::dedupe::{KeepReason, Relation};
 use coverly_core::organize::apply::set_free_space_override;
 use coverly_core::organize::{
     large_transfer, plan_from_survey, survey, ArchiveAfter, Choice, Decision, ExtractSource,
-    ItemKind, LargeTransfer, MetaProbe, OrganizeAction, OrganizeEnv, OrganizeOptions, OrganizePlan,
-    PlanWarning, SheetCheck, Survey, Transfer, TransferMode, LARGE_TRANSFER,
+    HugeItem, ItemKind, LargeTransfer, MetaProbe, OrganizeAction, OrganizeEnv, OrganizeOptions,
+    OrganizePlan, PlanWarning, SheetCheck, Survey, Transfer, TransferMode, LARGE_TRANSFER,
 };
 use coverly_core::profiles::{builtin_profiles, Profile};
 use coverly_core::systems::SystemDb;
@@ -201,6 +201,17 @@ fn a_copy_of_twelve_gigabytes_is_large() {
             copies: true,
             free: Some(412_100_000_000),
             volume: last(&p.target_root),
+            // Alone over the threshold: asked on its own (adjustments
+            // spec D15).
+            huge: vec![HugeItem {
+                item: big.id,
+                name: "Big".into(),
+                system: "gb".into(),
+                bytes: 12 * GB + 16,
+                extract: false,
+                followers: Vec::new(),
+            }],
+            rest: 0,
         }
     );
     assert!(p.warnings.contains(&PlanWarning::LargeTransfer {
@@ -341,6 +352,7 @@ fn an_extraction_counts_its_extracted_bytes_even_when_moving() {
         source: ExtractSource::Builtin,
         sheet_check: SheetCheck::default(),
         m3u: None,
+        folder_game: false,
     };
     let t = large_transfer(&p).expect("11 GB extracted");
     assert_eq!((t.bytes, t.items, t.copies), (11 * GB, 1, false));

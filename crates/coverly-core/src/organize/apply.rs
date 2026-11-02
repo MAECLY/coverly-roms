@@ -513,6 +513,39 @@ pub struct LargeTransfer {
     /// [`crate::volumes::mounted_volumes`]), else the target folder's own
     /// name.
     pub volume: String,
+    /// The items asked one by one (adjustments spec D15), in plan order.
+    pub huge: Vec<HugeItem>,
+    /// Bytes of every non-huge item (D16b: the aggregate question asks for
+    /// these only when they alone reach [`LARGE_TRANSFER`]).
+    pub rest: u64,
+}
+
+/// One item asked on its own before apply (adjustments spec D15): it
+/// alone, with the overlays that follow it, writes [`LARGE_TRANSFER`] or
+/// more to the target, or it extracts a folder game out of an archive.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct HugeItem {
+    /// [`OrganizeItem::id`].
+    pub item: usize,
+    /// The item's file or folder name in the pile.
+    pub name: String,
+    pub system: String,
+    /// Bytes this item writes, its followers included (shadPS4 overlays,
+    /// systems batch 3 D11 e).
+    pub bytes: u64,
+    /// The item is extracted out of an archive.
+    pub extract: bool,
+    /// The items that follow it (they are left with it when it is
+    /// declined), in plan order.
+    pub followers: Vec<usize>,
+}
+
+/// What the user confirmed (adjustments spec D16): every huge item they
+/// accepted and the bytes they were shown for the decided plan.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct LargeConfirm {
+    pub bytes: u64,
+    pub items: Vec<usize>,
 }
 
 #[cfg(feature = "test-util")]
@@ -534,7 +567,7 @@ pub fn set_large_transfer_override(bytes: Option<u64>) {
     LARGE_TRANSFER_AT.with(|c| c.set(bytes));
 }
 
-fn large_transfer_threshold() -> u64 {
+pub(crate) fn large_transfer_threshold() -> u64 {
     #[cfg(feature = "test-util")]
     {
         if let Some(bytes) = LARGE_TRANSFER_AT.with(std::cell::Cell::get) {
@@ -550,39 +583,159 @@ fn large_transfer_threshold() -> u64 {
     LARGE_TRANSFER
 }
 
+/// The bytes `item` of `plan` writes to its target, `None` when it writes
+/// nothing there (systems batch 3 D23, [`check_space`]'s rule): the
+/// items apply writes (automatic, with a target; an undecided review item
+/// is skipped, a duplicate set aside stays on the pile's volume), as they
+/// are in copy mode or across volumes, plus the bytes extractions write
+/// in any mode. A same-volume move is a rename and counts nothing.
+fn written_bytes(item: &OrganizeItem, crosses: bool) -> Option<u64> {
+    if item.action != OrganizeAction::Auto || item.target.is_none() {
+        return None;
+    }
+    match &item.transfer {
+        Transfer::Extract { bytes, .. } => Some(*bytes),
+        Transfer::AsIs if crosses => Some(item.size),
+        Transfer::AsIs => None,
+    }
+}
+
+/// Whether `plan` copies (copy mode, or a move across volumes).
+fn crosses_volumes(plan: &OrganizePlan) -> bool {
+    plan.mode == TransferMode::Copy || !same_volume(&plan.source_root, &plan.target_root)
+}
+
+/// For each item of `plan` that moves in, the shadPS4 overlays that
+/// follow it (systems batch 3 D11): a PS4 item whose target sits beside
+/// the base's, named like it plus an update suffix (what
+/// `sibling_targets` gave it). Keyed by item position.
+fn overlay_followers(plan: &OrganizePlan) -> HashMap<usize, Vec<usize>> {
+    let ps4 = |i: &OrganizeItem| i.system_id.as_deref() == Some("ps4") && i.moves_in();
+    let mut by_target: HashMap<(PathBuf, String), usize> = HashMap::new();
+    for (pos, item) in plan.items.iter().enumerate().filter(|(_, i)| ps4(i)) {
+        if let Some(t) = &item.target {
+            let name = t
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            let dir = t.parent().map(Path::to_path_buf).unwrap_or_default();
+            by_target.insert((dir, name), pos);
+        }
+    }
+    let mut followers: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (pos, item) in plan.items.iter().enumerate().filter(|(_, i)| ps4(i)) {
+        let Some(t) = &item.target else { continue };
+        let Some(name) = t.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let dir = t.parent().map(Path::to_path_buf).unwrap_or_default();
+        let base = crate::consoles::sony::UPDATE_SUFFIXES.iter().find_map(|s| {
+            let stem = crate::organize::target::strip_suffix_ignoring_case(&name, s)?;
+            by_target
+                .get(&(dir.clone(), stem.to_lowercase()))
+                .copied()
+                .filter(|&b| b != pos)
+        });
+        if let Some(base) = base {
+            followers.entry(base).or_default().push(pos);
+        }
+    }
+    followers
+}
+
 /// What `plan` writes to its target, when that reaches
-/// [`LARGE_TRANSFER`] (systems batch 3 D23, [`check_space`]'s rule): the
-/// items apply writes (automatic, with a target; an undecided review
-/// item is skipped, a duplicate set aside stays on the pile's volume), in
-/// copy mode or across volumes, plus the bytes extractions write in any
-/// mode. A same-volume move is a rename and counts nothing.
+/// [`LARGE_TRANSFER`] or when an item has to be asked on its own
+/// (systems batch 3 D23, adjustments spec D15): the items apply writes
+/// (automatic, with a target; an undecided review item is skipped, a
+/// duplicate set aside stays on the pile's volume), in copy mode or
+/// across volumes, plus the bytes extractions write in any mode. A
+/// same-volume move is a rename and counts nothing. An item is huge when
+/// it alone, with the overlays that follow it, writes the threshold or
+/// more, or when it extracts a folder game out of an archive (any size);
+/// `rest` is what every other item writes.
 pub fn large_transfer(plan: &OrganizePlan) -> Option<LargeTransfer> {
-    let crosses =
-        plan.mode == TransferMode::Copy || !same_volume(&plan.source_root, &plan.target_root);
+    let crosses = crosses_volumes(plan);
+    let threshold = large_transfer_threshold();
+    let followers = overlay_followers(plan);
+    let following: std::collections::HashSet<usize> =
+        followers.values().flatten().copied().collect();
     let mut bytes: u64 = 0;
     let mut items = 0usize;
-    for item in plan
-        .items
-        .iter()
-        .filter(|i| i.action == OrganizeAction::Auto && i.target.is_some())
-    {
-        let add = match &item.transfer {
-            Transfer::Extract { bytes, .. } => Some(*bytes),
-            Transfer::AsIs if crosses => Some(item.size),
-            Transfer::AsIs => None,
-        };
-        if let Some(add) = add {
+    let mut huge = Vec::new();
+    let mut huge_bytes: u64 = 0;
+    for (pos, item) in plan.items.iter().enumerate() {
+        if let Some(add) = written_bytes(item, crosses) {
             bytes = bytes.saturating_add(add);
             items += 1;
         }
+        if following.contains(&pos) || !item.moves_in() {
+            continue;
+        }
+        let Some(own) = written_bytes(item, crosses) else {
+            continue;
+        };
+        let follow: Vec<usize> = followers.get(&pos).cloned().unwrap_or_default();
+        let with_followers = follow
+            .iter()
+            .filter_map(|&f| plan.items.get(f))
+            .filter_map(|f| written_bytes(f, crosses))
+            .fold(own, u64::saturating_add);
+        let extract = matches!(item.transfer, Transfer::Extract { .. });
+        let folder_game = matches!(
+            item.transfer,
+            Transfer::Extract {
+                folder_game: true,
+                ..
+            }
+        );
+        if with_followers >= threshold || folder_game {
+            huge_bytes = huge_bytes.saturating_add(with_followers);
+            huge.push(HugeItem {
+                item: item.id,
+                name: item
+                    .sources
+                    .first()
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                system: item.system_id.clone().unwrap_or_default(),
+                bytes: with_followers,
+                extract,
+                followers: follow
+                    .iter()
+                    .filter_map(|&f| plan.items.get(f))
+                    .map(|f| f.id)
+                    .collect(),
+            });
+        }
     }
-    (bytes >= large_transfer_threshold()).then(|| LargeTransfer {
+    (bytes >= threshold || !huge.is_empty()).then(|| LargeTransfer {
         bytes,
         items,
         copies: plan.mode == TransferMode::Copy,
         free: user_available(&plan.target_root),
         volume: volume_name(&plan.target_root),
+        rest: bytes.saturating_sub(huge_bytes),
+        huge,
     })
+}
+
+/// The apply gate shared by the app and the CLI (adjustments spec D16):
+/// `plan` (the decided plan) may start when it writes nothing to confirm,
+/// or when `confirm` names every huge item and at least the bytes the
+/// plan writes. Otherwise the numbers to confirm. Declined items are
+/// already left in the decided plan, so they are not asked again.
+pub fn gate(plan: &OrganizePlan, confirm: Option<&LargeConfirm>) -> Result<(), LargeTransfer> {
+    let Some(t) = large_transfer(plan) else {
+        return Ok(());
+    };
+    let ok = confirm
+        .is_some_and(|c| t.huge.iter().all(|h| c.items.contains(&h.item)) && c.bytes >= t.bytes);
+    if ok {
+        Ok(())
+    } else {
+        Err(t)
+    }
 }
 
 /// The name of the mounted volume holding `target` (the longest mount
@@ -597,20 +750,25 @@ fn volume_name(target: &Path) -> String {
         .unwrap_or_else(|| target.display().to_string())
 }
 
-/// A copy, or a move across volumes, needs the items' bytes plus 1 %
-/// free on the target volume. Unknown free space is not checked.
+/// What the items write to the target (what [`large_transfer`] counts:
+/// extraction bytes in every mode, the item's size when copying or
+/// crossing volumes; a duplicate set aside stays on the pile's volume)
+/// needs that plus 1 % free on the target volume (adjustments spec D17).
+/// Unknown free space is not checked.
 fn check_space(plan: &OrganizePlan, items: &[&OrganizeItem]) -> Result<(), ApplyError> {
-    let copies =
-        plan.mode == TransferMode::Copy || !same_volume(&plan.source_root, &plan.target_root);
-    if !copies || items.is_empty() {
-        return Ok(());
-    }
-    // A duplicate set aside stays on the pile's volume.
+    let crosses = crosses_volumes(plan);
     let sum: u64 = items
         .iter()
         .filter(|i| !i.is_set_aside())
-        .map(|i| i.size)
-        .sum();
+        .filter_map(|i| match &i.transfer {
+            Transfer::Extract { bytes, .. } => Some(*bytes),
+            Transfer::AsIs if crosses => Some(i.size),
+            Transfer::AsIs => None,
+        })
+        .fold(0u64, u64::saturating_add);
+    if sum == 0 {
+        return Ok(());
+    }
     let needed = sum.saturating_add(sum.div_ceil(100));
     match free_space(&plan.target_root) {
         Some(free) if free < needed => Err(ApplyError::NoSpace { needed, free }),

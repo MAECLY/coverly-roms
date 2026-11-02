@@ -1250,6 +1250,7 @@ mod extract_types {
             },
             sheet_check: SheetCheck::Deferred,
             m3u: Some(PathBuf::from("ROMS/PS/Game.m3u")),
+            folder_game: false,
         };
         round_trip(&transfer, "extract");
         let json = serde_json::to_value(&transfer).unwrap();
@@ -1271,6 +1272,7 @@ mod extract_types {
                 source: ExtractSource::Builtin,
                 sheet_check: SheetCheck::Read,
                 m3u: None,
+                folder_game: false,
             }
         );
         let disc = DiscId {

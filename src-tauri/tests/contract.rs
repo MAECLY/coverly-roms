@@ -554,6 +554,7 @@ fn organize_extract_item_sample() -> coverly_core::organize::OrganizeItem {
             source: ExtractSource::Builtin,
             sheet_check: SheetCheck::Read,
             m3u: None,
+            folder_game: false,
         },
         disc: Some(DiscId {
             serials: vec!["SLUS-00862".into()],

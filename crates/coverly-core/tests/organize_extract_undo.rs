@@ -130,6 +130,7 @@ fn extract_item(
             source: ExtractSource::Builtin,
             sheet_check: SheetCheck::Read,
             m3u,
+            folder_game: false,
         },
         disc: None,
         action: OrganizeAction::Auto,
