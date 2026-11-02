@@ -1,12 +1,18 @@
-import { Folder } from 'lucide-react';
-import { useContext } from 'react';
+import { Folder, Lock } from 'lucide-react';
+import { useContext, useId, type ReactNode } from 'react';
 
+import { Badge } from '@/components/ui/badge';
 import { LocaleContext } from '@/i18n/core';
 import { useRichT } from '@/i18n/rich';
 import { useT } from '@/i18n/useT';
 import type { OrganizeItem } from '@/ipc/types';
 import { formatDecimalSize } from '@/lib/format';
-import { contentIdKey, titleIdKey } from '@/lib/organize';
+import {
+  contentIdKey,
+  encryptedName,
+  titleIdKey,
+  titleSourceKey,
+} from '@/lib/organize';
 
 import { hintText, pathText } from './styles';
 
@@ -15,6 +21,11 @@ import { hintText, pathText } from './styles';
  * a visually hidden «Game folder» before its name, so the glyph carries no
  * information alone, and its size in mono right after it; `target` follows
  * as `→ path`. Any other item is its name (and target) as one path line.
+ *
+ * A Switch or 3DS title nothing could read without decrypting it (spec
+ * D11) carries the «Cifrado» label after its name, described by a visible
+ * line under it that says why; the label is a word, never a glyph alone,
+ * and the row says «Cifrado» only there.
  */
 export function ItemName({
   item,
@@ -26,6 +37,35 @@ export function ItemName({
   target?: string | null;
   className?: string;
 }) {
+  const t = useT();
+  const detail = useId();
+  if (!encryptedName(item))
+    return <Name item={item} target={target} className={className} />;
+  return (
+    <span className={`grid min-w-0 gap-0.5 ${className}`}>
+      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+        <Name item={item} target={target} className="min-w-0" />
+        <Badge variant="outline" aria-describedby={detail}>
+          <Lock aria-hidden />
+          {t('organize.encryptedLabel')}
+        </Badge>
+      </span>
+      <span id={detail} className={hintText}>
+        {t('organize.encryptedUnresolved')}
+      </span>
+    </span>
+  );
+}
+
+function Name({
+  item,
+  target,
+  className,
+}: {
+  item: OrganizeItem;
+  target?: string | null | undefined;
+  className: string;
+}): ReactNode {
   const t = useT();
   const locale = useContext(LocaleContext);
   const name = item.sources[0] ?? '';
@@ -53,15 +93,18 @@ export function ItemName({
   );
 }
 
-/** Where the row's console title id was read, then its content id, each
- * its own line with the codes in mono (§10). */
+/** Where the row's catalogue name came from, where its console title id
+ * was read, then its content id, each its own line with the codes in mono
+ * (§10). */
 export function TitleIdLine({ item }: { item: OrganizeItem }) {
   const tr = useRichT();
+  const source = titleSourceKey(item);
   const keyed = item.title_id ? titleIdKey(item.title_id) : null;
   const content = contentIdKey(item);
-  if (!keyed && !content) return null;
+  if (!source && !keyed && !content) return null;
   return (
     <>
+      {source && <p className={hintText}>{tr(source.key, source.vars)}</p>}
       {keyed && <p className={hintText}>{tr(keyed.key, keyed.vars)}</p>}
       {content && <p className={hintText}>{tr(content.key, content.vars)}</p>}
     </>

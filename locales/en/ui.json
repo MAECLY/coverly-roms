@@ -1302,7 +1302,10 @@
       "extractFirst": "This package does not open as is: it has to be extracted first",
       "noEmulator": "No emulator opens it in this form",
       "proEnhanced": "Enhanced for PS5 Pro",
-      "dlcFolder": "Goes to the DLC folder, where {layout} looks for downloadable content"
+      "dlcFolder": "Goes to the DLC folder, where {layout} looks for downloadable content",
+      "homebrew": "Homebrew",
+      "vita7z": "Vita3K only installs .zip, .vpk or .vci",
+      "missingDisc": "Disc {n} is missing"
     },
     "pause": {
       "diskFull": "Disk full: {needed} more needed; the half-extracted game was undone"
@@ -1334,7 +1337,10 @@
       "titleIdFile": "Title ID {id} in {file}",
       "titleIdName": "Title ID {id} taken from the file name",
       "titleIdTicket": "Title ID {id} in the ticket name",
-      "contentId": "Content ID {id}"
+      "contentId": "Content ID {id}",
+      "titledb": "Name from the blawar/titledb catalogue",
+      "nlib": "Name from the online fallback",
+      "ncaCatalog": "Title ID from the NCA id in the catalogue"
     },
     "left": {
       "archiveNeedsMemory": "Needs {mib} MB of memory to decompress",
@@ -1385,7 +1391,9 @@
       "gameOverlay": "Mods or patch folder of {title}: left where it is",
       "notConfirmed": "Not confirmed; stays where it is",
       "title": "Staying where they are",
-      "inLibrary": "Already in your library as {path}"
+      "inLibrary": "Already in your library as {path}",
+      "gamePart": "Part of a game; not moved on its own",
+      "backup": "Encrypted Vita backup"
     },
     "planning": "Identifying {done} of {total}…",
     "walking": "Looking for files…",
@@ -1437,7 +1445,11 @@
       "likelyThen": ", then ",
       "choose": "Choose a system…",
       "systemFor": "System for {name}",
-      "items": "Files: {count}"
+      "items": "Files: {count}",
+      "archiveGames": "The archive holds {count} games",
+      "ps4OrVita": "param.sfo must be read to tell PS4 from Vita",
+      "discSet": "Looks like a multi-disc game",
+      "caseCollision": "Two names in the archive differ only in case"
     },
     "renamed": "Will be saved as {name} because a different file already exists",
     "renamedFrom": "Renamed; it was {name}",
@@ -1590,7 +1602,9 @@
       "cancelNote": "If you cancel, what was extracted of this game is removed and the archive stays as it was. Games already extracted stay.",
       "stageLabel": "Extraction of {name} into the {system} folder",
       "movingLabel": "Moving into {folder}"
-    }
+    },
+    "encryptedLabel": "Encrypted",
+    "encryptedUnresolved": "The name cannot be read without decrypting it"
   },
   "ui": {
     "close": "Close",

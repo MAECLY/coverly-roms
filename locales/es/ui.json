@@ -1302,7 +1302,10 @@
       "extractFirst": "Este paquete no se abre así: hay que extraerlo antes",
       "noEmulator": "Ningún emulador lo abre así",
       "proEnhanced": "Mejorado para PS5 Pro",
-      "dlcFolder": "Va a la carpeta DLC, donde {layout} busca el contenido descargable"
+      "dlcFolder": "Va a la carpeta DLC, donde {layout} busca el contenido descargable",
+      "homebrew": "Homebrew",
+      "vita7z": "Vita3K solo instala .zip, .vpk o .vci",
+      "missingDisc": "Falta el disco {n}"
     },
     "pause": {
       "diskFull": "Disco lleno: faltan {needed}; se ha deshecho el juego a medias"
@@ -1334,7 +1337,10 @@
       "titleIdFile": "Title ID {id} en {file}",
       "titleIdName": "Title ID {id} tomado del nombre del archivo",
       "titleIdTicket": "Title ID {id} en el nombre del ticket",
-      "contentId": "Content ID {id}"
+      "contentId": "Content ID {id}",
+      "titledb": "Nombre del catálogo de blawar/titledb",
+      "nlib": "Nombre del respaldo en línea",
+      "ncaCatalog": "Title ID por el id del NCA en el catálogo"
     },
     "left": {
       "archiveNeedsMemory": "Necesita {mib} MB de memoria para descomprimirse",
@@ -1385,7 +1391,9 @@
       "gameOverlay": "Carpeta de mods o parches de {title}: se deja donde está",
       "notConfirmed": "No confirmado; se queda donde está",
       "title": "Se quedan donde están",
-      "inLibrary": "Ya está en tu biblioteca como {path}"
+      "inLibrary": "Ya está en tu biblioteca como {path}",
+      "gamePart": "Parte de un juego; no se mueve suelta",
+      "backup": "Copia de seguridad cifrada de Vita"
     },
     "planning": "Identificando {done} de {total}…",
     "walking": "Buscando archivos…",
@@ -1437,7 +1445,11 @@
       "likelyThen": "; luego, ",
       "choose": "Elige un sistema…",
       "systemFor": "Sistema para {name}",
-      "items": "Archivos: {count}"
+      "items": "Archivos: {count}",
+      "archiveGames": "El comprimido contiene {count} juegos",
+      "ps4OrVita": "Hay que leer param.sfo para saber si es de PS4 o de Vita",
+      "discSet": "Parece un juego de varios discos",
+      "caseCollision": "Dos nombres del comprimido solo cambian en mayúsculas"
     },
     "renamed": "Se guardará como {name} porque ya existe otro distinto",
     "renamedFrom": "Renombrado; antes era {name}",
@@ -1590,7 +1602,9 @@
       "cancelNote": "Si cancelas, se borra lo extraído de este juego y el comprimido queda como estaba. Los juegos ya extraídos se quedan.",
       "stageLabel": "Extracción de {name} hacia la carpeta de {system}",
       "movingLabel": "Moviendo a {folder}"
-    }
+    },
+    "encryptedLabel": "Cifrado",
+    "encryptedUnresolved": "No se puede leer el nombre sin descifrarlo"
   },
   "ui": {
     "close": "Cerrar",

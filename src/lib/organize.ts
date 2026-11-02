@@ -397,9 +397,9 @@ export function leftReasonKey(
       return k('gameOverlay', { title: r.of });
     case 'not-confirmed':
       return k('notConfirmed');
-    // Worded in its own key by the adjustments UI; generic until then.
+    // A Vita backup is its own sentence; every other part stays alike.
     case 'game-part':
-      return k('unknown');
+      return r.part === 'backup' ? k('backup') : k('gamePart');
   }
 }
 
@@ -508,7 +508,42 @@ export function titleIdKey(r: TitleIdRef): KeyedText | null {
     return { key: 'organize.why.titleIdTicket', vars: { id: r.id } };
   if (r.source === 'file-name')
     return { key: 'organize.why.titleIdName', vars: { id: r.id } };
+  if (r.source === 'nca-catalog')
+    return { key: 'organize.why.ncaCatalog', vars: {} };
   return null;
+}
+
+/**
+ * The «why» line of a title the optional Switch catalogue named (spec D7,
+ * §10): `blawar/titledb` or its online fallback. `null` for any other
+ * title, whose header or file-name line already tells.
+ */
+export function titleSourceKey(
+  item: Pick<OrganizeItem, 'title_source'>,
+): KeyedText | null {
+  if (item.title_source === 'titledb')
+    return { key: 'organize.why.titledb', vars: {} };
+  if (item.title_source === 'nlib')
+    return { key: 'organize.why.nlib', vars: {} };
+  return null;
+}
+
+/** The title nothing could read without decrypting it («Cifrado», D11). */
+export function encryptedName(item: Pick<OrganizeItem, 'notes'>): boolean {
+  return item.notes.some((n) => n.kind === 'encrypted-name');
+}
+
+/**
+ * The `.m3u` a loose multi-disc set gets (spec D24), by its file name;
+ * `null` when it gets none.
+ */
+export function playlistKey(
+  item: Pick<OrganizeItem, 'playlist'>,
+): KeyedText | null {
+  const path = item.playlist?.path;
+  return path
+    ? { key: 'organize.extract.m3u', vars: { name: baseName(path) } }
+    : null;
 }
 
 /**
@@ -657,7 +692,8 @@ function noteText(
         level: t(`organize.level.${item.method ?? 'extension'}`),
       });
     case 'encrypted':
-      return t('organize.encrypted');
+      // The «Cifrado» label already says it (D11): never twice.
+      return encryptedName(item) ? null : t('organize.encrypted');
     default: {
       const keyed = noteKey(n);
       return keyed ? t(keyed.key, keyed.vars) : null;
@@ -710,15 +746,23 @@ export function noteKey(n: ItemNote): KeyedText | null {
       return k('proEnhanced');
     case 'dlc-folder':
       return k('dlcFolder', { layout: n.layout });
-    // Shown by the adjustments UI; not listed until then.
     case 'homebrew':
+      return k('homebrew');
     case 'vita7z':
+      return k('vita7z');
     case 'missing-disc':
-    case 'encrypted-name':
+      return k('missingDisc', { n: n.n });
+    // Why an item is in review (spec §10).
     case 'archive-games':
+      return { key: 'organize.review.archiveGames', vars: { count: n.count } };
     case 'ps4-or-vita':
+      return { key: 'organize.review.ps4OrVita', vars: {} };
     case 'archive-case-collision':
+      return { key: 'organize.review.caseCollision', vars: {} };
     case 'disc-set':
+      return { key: 'organize.review.discSet', vars: {} };
+    // A label on the name (`ItemName`), not a line.
+    case 'encrypted-name':
       return null;
     case 'multi-rom-zip':
     case 'no-folder-on-device':
