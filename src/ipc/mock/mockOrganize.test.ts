@@ -6,7 +6,15 @@ import type {
   OrganizeJobState,
   OrganizeProgressEvent,
 } from '../types';
-import { MOCK_HUGE, MOCK_HUGE_TARGET } from './adjustFixture';
+import {
+  MOCK_DISCS,
+  MOCK_DUPES_TITLE,
+  MOCK_HUGE,
+  MOCK_HUGE_TARGET,
+  MOCK_ODD,
+  MOCK_SWITCH,
+  MOCK_SWITCH_TITLES,
+} from './adjustFixture';
 import { FIXTURE_NOW } from './fixture';
 import {
   createMockBackend,
@@ -1975,5 +1983,185 @@ describe('mock huge pile (adjustments D15–D17, ?mockPick=huge)', () => {
         action: 'left',
         reason: { kind: 'not-confirmed' },
       });
+  });
+});
+
+describe('mock adjustments piles (spec §9.4)', () => {
+  const by = (items: OrganizeItem[], name: string) =>
+    items.find((i) => i.sources[0] === name)!;
+  const notes = (i: OrganizeItem) => i.notes.map((n) => n.kind);
+
+  it('?mockPick names every adjustments pile', () => {
+    onTestFinished(() => window.history.replaceState(null, '', '/'));
+    for (const [pick, path] of [
+      ['switch', MOCK_SWITCH],
+      ['odd', MOCK_ODD],
+      ['discs', MOCK_DISCS],
+      ['dupes-title', MOCK_DUPES_TITLE],
+    ] as const) {
+      window.history.replaceState(null, '', `/?mockPick=${pick}`);
+      expect(readMockPick()).toBe(path);
+    }
+  });
+
+  it('switch: catalogue names, an NCA-resolved cartridge, a part, homebrew and one «Cifrado»', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({
+      source: MOCK_SWITCH,
+      layout: 'esde',
+    });
+    const zelda = by(plan.items, 'Zelda BotW [01007EF00011E000][v0].nsp');
+    expect(zelda).toMatchObject({
+      action: 'auto',
+      system_id: 'switch',
+      catalogue_name: MOCK_SWITCH_TITLES['01007EF00011E000'],
+      title_source: 'titledb',
+    });
+    const cart = by(plan.items, 'Cartridge.xci');
+    expect(cart).toMatchObject({
+      catalogue_name: 'Super Mario Odyssey',
+      title_id: { id: '0100000000010000', source: 'nca-catalog' },
+      title_source: 'titledb',
+    });
+    const update = by(
+      plan.items,
+      'Zelda BotW Update [01007EF00011E800][v786432].nsp',
+    );
+    expect(update.notes).toContainEqual({
+      kind: 'update',
+      of: 'The Legend of Zelda Breath of the Wild',
+    });
+    expect(
+      plan.items.find((i) => i.sources[0]!.endsWith('.nca')),
+    ).toMatchObject({
+      action: 'left',
+      reason: { kind: 'game-part', part: 'nca', system: 'switch' },
+    });
+    expect(notes(by(plan.items, 'hbmenu.nro'))).toEqual(['homebrew']);
+    const encrypted = plan.items.filter((i) =>
+      i.notes.some((n) => n.kind === 'encrypted-name'),
+    );
+    expect(encrypted.map((i) => i.sources[0])).toEqual([
+      '0100F2C0115B6000.nsp',
+    ]);
+    expect(encrypted[0]!.title_source).toBeUndefined();
+  });
+
+  it('odd: one row per loose format, homebrew moves and parts stay', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({ source: MOCK_ODD, layout: 'esde' });
+    expect(plan.items).toHaveLength(18);
+    const homebrew = plan.items
+      .filter((i) => notes(i).includes('homebrew'))
+      .map((i) => [i.sources[0], i.system_id, i.action]);
+    expect(homebrew).toEqual([
+      ['boot.dol', 'wii', 'auto'],
+      ['Checkpoint.nro', 'switch', 'auto'],
+      ['FBI.3dsx', '3ds', 'auto'],
+      ['Homebrew Launcher.rpx', 'wiiu', 'auto'],
+      ['Swiss.dol', 'gamecube', 'auto'],
+      ['VitaShell.self', 'psvita', 'auto'],
+      ['XBMC4Xbox.xbe', 'xbox', 'auto'],
+    ]);
+    const parts = plan.items.flatMap((i) =>
+      i.action === 'left' && i.reason.kind === 'game-part'
+        ? [[i.sources[0], i.reason.part]]
+        : [],
+    );
+    expect(parts).toEqual([
+      ['9a3f1c2d4e5b6a7980a1b2c3d4e5f607.nca', 'nca'],
+      ['eboot.bin', 'exe-fs'],
+      ['kernel_util.prx', 'module'],
+      ['libgui.rpl', 'library'],
+      ['main.npdm', 'exe-fs'],
+      ['main.nso', 'exe-fs'],
+      ['PCSE00120/game.psvimg', 'backup'],
+      ['title.tmd', 'title-meta'],
+      ['xam.xex', 'module'],
+    ]);
+    expect(by(plan.items, 'Crash Bandicoot.pbp')).toMatchObject({
+      action: 'auto',
+      system_id: 'psx',
+      title_id: { id: 'SCUS94900', source: 'pbp' },
+    });
+    expect(notes(by(plan.items, 'Halo 3 TU3.xex'))).toEqual(['update']);
+  });
+
+  it('discs: sets move with their m3u, the name-only set waits, a missing disc says so', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_DISCS,
+      layout: 'esde',
+    });
+    const saga = by(plan.items, 'Panzer Dragoon Saga (USA) (Disc 1).chd');
+    expect(saga).toMatchObject({
+      action: 'auto',
+      kind: 'set',
+      system_id: 'saturn',
+      target: 'ROMs/saturn/Panzer Dragoon Saga (USA) (Disc 1).chd',
+      playlist: { path: 'ROMs/saturn/Panzer Dragoon Saga (USA).m3u' },
+    });
+    expect(saga.sources).toHaveLength(4);
+    expect(saga.set_targets).toHaveLength(3);
+    expect(saga.playlist!.discs).toEqual([saga.target, ...saga.set_targets]);
+    const tales = by(plan.items, 'Tales of Symphonia (USA) (Disc 1).rvz');
+    expect(tales.playlist!.path).toBe('ROMs/gc/Tales of Symphonia (USA).m3u');
+    expect(by(plan.items, 'Grandia (Japan) (Disc 1).chd').notes).toEqual([
+      { kind: 'missing-disc', n: 2 },
+    ]);
+    expect(
+      by(plan.items, 'Lunar - The Silver Star (USA) (Disc 1).chd'),
+    ).toMatchObject({ action: 'review', notes: [{ kind: 'disc-set' }] });
+
+    const done = ended(b);
+    await b.organizeApply(plan_id, []);
+    const view = await done;
+    expect(view.state).toBe('done');
+    const written = view.report!.items.flatMap((o) => o.targets);
+    expect(written).toContain(
+      `${plan.target_root}/ROMs/saturn/Panzer Dragoon Saga (USA).m3u`,
+    );
+    expect(written).toContain(
+      `${plan.target_root}/ROMs/saturn/Panzer Dragoon Saga (USA) (Disc 4).chd`,
+    );
+  });
+
+  it('dupes-title: copies matched by title id and by folder are set aside and undo brings them back', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_DUPES_TITLE,
+    });
+    const aside = plan.items
+      .filter((i) => i.action === 'set-aside')
+      .map((i) => i.sources[0]);
+    expect(aside).toEqual([
+      'Bloodborne (CUSA00900)',
+      'Zelda (copia) [01007EF00011E000][v0].nsp',
+    ]);
+    expect(plan.duplicates.map((g) => g.basis).sort()).toEqual([
+      'folder-tree',
+      'title-id',
+    ]);
+    const title = plan.duplicates.find((g) => g.basis === 'title-id')!;
+    expect(title.action).toEqual({ kind: 'act' });
+
+    // Moved on its own volume: no size question.
+    const done = ended(b);
+    expect((await b.organizeApply(plan_id, [])).state).toBe('applying');
+    const view = await done;
+    expect(view.state).toBe('done');
+    expect(view.report).toMatchObject({ set_aside: 2 });
+    const undo = await b.organizeUndo(view.job!, false);
+    expect(undo.report[0]?.restored).toEqual(
+      expect.arrayContaining([
+        `${MOCK_DUPES_TITLE}/Bloodborne (CUSA00900)`,
+        `${MOCK_DUPES_TITLE}/Zelda (copia) [01007EF00011E000][v0].nsp`,
+      ]),
+    );
+    const again = await b.organizePlan({
+      source: MOCK_DUPES_TITLE,
+      rescan: true,
+    });
+    expect(again.plan.counts.set_aside).toBe(2);
   });
 });
