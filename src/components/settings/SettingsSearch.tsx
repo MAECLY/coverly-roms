@@ -1,14 +1,16 @@
 import { Search, X } from 'lucide-react';
-import { forwardRef, type KeyboardEvent } from 'react';
+import { forwardRef, useContext, type KeyboardEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
+import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { isMac, modKeyLabel } from '@/lib/keyboard';
 
 import { MonoIn } from './Field';
 import type { SettingEntry } from './registry';
+import { entryLabel } from './search';
 
 export const RESULTS_ID = 'settings-results';
 const optionId = (i: number) => `settings-result-${i}`;
@@ -122,6 +124,7 @@ export function SettingsResults({
   onChoose,
 }: ResultsProps) {
   const t = useT();
+  const locale = useContext(LocaleContext);
   let count: React.ReactNode = null;
   if (settled !== '') {
     if (n === 0) count = t('settings.search.none', { query: settled });
@@ -165,7 +168,9 @@ export function SettingsResults({
             onMouseMove={() => i !== active && onActive(i)}
             onClick={() => onChoose(e)}
           >
-            <span className="settings-results__label">{t(e.label)}</span>
+            <span className="settings-results__label">
+              {entryLabel(locale, e.label)}
+            </span>
             <span className="settings-results__where">
               {e.fold
                 ? t('settings.search.where', {

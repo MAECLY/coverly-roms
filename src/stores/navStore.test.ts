@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { resetNavStore, useNavStore } from './navStore';
+import {
+  resetNavStore,
+  SETTINGS_GROUPS,
+  SETTINGS_SECTIONS,
+  useNavStore,
+} from './navStore';
 
 const nav = () => useNavStore.getState();
 
@@ -78,5 +83,19 @@ describe('navStore settings round trip', () => {
     nav().setFold('x', true);
     resetNavStore();
     expect(nav().openFolds).toEqual([]);
+  });
+});
+
+describe('settings tabs', () => {
+  it('has Credits as the last tab, after About, outside any group', () => {
+    expect(SETTINGS_SECTIONS).toHaveLength(13);
+    expect(SETTINGS_SECTIONS.slice(-2)).toEqual(['about', 'credits']);
+    expect(SETTINGS_GROUPS.credits).toBeNull();
+  });
+
+  it('opens the Credits tab', () => {
+    resetNavStore();
+    nav().openSettings('credits');
+    expect(nav().section).toBe('credits');
   });
 });

@@ -103,3 +103,17 @@ describe('searchSettings', () => {
     );
   });
 });
+
+describe('credit entries', () => {
+  it('finds a credit by its name, in the Credits tab', () => {
+    const hit = searchSettings('ScreenScraper', 'es')[0];
+    expect(hit?.id).toBe('credit-screenscraper');
+    expect(hit?.section).toBe('credits');
+  });
+
+  it('keeps a setting ahead of a credit that only shares a word start', () => {
+    expect(searchSettings('trash', 'en')[0]?.id).toBe(
+      'setting-dedupe-action-trash',
+    );
+  });
+});

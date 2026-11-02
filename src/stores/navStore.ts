@@ -14,7 +14,8 @@ export type SettingsSection =
   | 'safety'
   | 'advanced'
   | 'profiles'
-  | 'about';
+  | 'about'
+  | 'credits';
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'general',
   'library',
@@ -28,6 +29,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'safety',
   'advanced',
   'about',
+  'credits',
 ];
 
 export type SettingsGroup = 'collection' | 'covers' | 'app';
@@ -48,6 +50,7 @@ export const SETTINGS_GROUPS: Readonly<
   safety: 'app',
   advanced: 'app',
   about: null,
+  credits: null,
 };
 
 export type Screen = 'main' | 'settings' | 'organize' | 'duplicates';

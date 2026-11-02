@@ -87,7 +87,8 @@
       "safety": "Seguridad",
       "advanced": "Avanzado",
       "profiles": "Perfiles",
-      "about": "Acerca de"
+      "about": "Acerca de",
+      "credits": "Agradecimientos"
     },
     "general": {
       "language": "Idioma",
@@ -360,6 +361,25 @@
       "switchCatalog": "titledb, nombres, Nintendo Switch, title ID, nlib",
       "symlinks": "symlink, alias, acceso directo",
       "trash": "papelera, borrar, eliminar, trash"
+    },
+    "credits": {
+      "intro": "Coverly se apoya en el trabajo de estos proyectos. Aquí tienes qué usa de cada uno, su licencia y el crédito que piden.",
+      "search": "Buscar en agradecimientos",
+      "results": "{count} de {total}",
+      "empty": "Nada coincide con «{query}».",
+      "groups": {
+        "art-sources": "Fuentes de portadas y metadatos",
+        "databases": "Bases de datos y DAT",
+        "docs": "Documentación y wikis técnicos",
+        "conventions": "Convenciones de frontends y firmwares",
+        "libraries": "Bibliotecas",
+        "fonts-icons": "Tipografías e iconos"
+      },
+      "site": "Web oficial de {name}",
+      "opensBrowser": "Se abre en el navegador",
+      "license": "Licencia de {name}",
+      "noLicense": "Sin licencia declarada",
+      "noContent": "Coverly no incluye ROMs, BIOS, claves ni arte de juegos."
     }
   },
   "about": {

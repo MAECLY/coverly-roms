@@ -1,4 +1,5 @@
 import { DEDUPE_LEVELS } from '@/ipc/types';
+import { CREDITS, type LocalText } from '@/lib/credits';
 import type { SettingsSection } from '@/stores/navStore';
 
 export type SettingsFold =
@@ -13,8 +14,9 @@ export interface SettingEntry {
   section: SettingsSection;
   /** The AdvancedFold id that holds it, if any. */
   fold?: SettingsFold;
+  /** An i18n key, or the text itself in both languages (a credit's name). */
+  label: string | LocalText;
   /** i18n keys. */
-  label: string;
   hint?: string;
   keywords?: string;
   /** The id is a prefix: dynamic rows (container order per profile/kind). */
@@ -409,6 +411,18 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     label: 'settings.advanced.customDir',
     hint: 'settings.advanced.customDirHint',
   },
+  // Agradecimientos
+  {
+    id: 'setting-credits-search',
+    section: 'credits',
+    label: 'settings.credits.search',
+  },
+  // One entry per credit, generated: a new credit needs no hand edit here.
+  ...CREDITS.map((c): SettingEntry => ({
+    id: `credit-${c.id}`,
+    section: 'credits',
+    label: typeof c.name === 'string' ? { es: c.name, en: c.name } : c.name,
+  })),
 ];
 
 /** Entries inside a fold (the trigger's count). */

@@ -84,6 +84,7 @@ describe('Settings screen', () => {
       'Safety',
       'Advanced',
       'About',
+      'Credits',
     ]);
     expect(
       screen.getByRole('tabpanel', { name: 'General' }),
@@ -256,11 +257,11 @@ describe('Settings screen', () => {
     await userEvent.keyboard('{ArrowDown}');
     expect(screen.getByRole('tab', { name: 'Organise' })).toHaveFocus();
     await userEvent.keyboard('{ArrowUp}{ArrowUp}{ArrowUp}');
-    expect(screen.getByRole('tab', { name: 'About' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Credits' })).toHaveFocus();
     await userEvent.keyboard('{Home}');
     expect(screen.getByRole('tab', { name: 'General' })).toHaveFocus();
     await userEvent.keyboard('{End}');
-    expect(screen.getByRole('tab', { name: 'About' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Credits' })).toHaveFocus();
   });
 
   it('groups the tabs without leaving the tab list', async () => {
@@ -319,7 +320,7 @@ describe('Settings screen', () => {
       await userEvent.keyboard('{ArrowRight}');
       expect(screen.getByRole('tab', { name: 'Library' })).toHaveFocus();
       await userEvent.keyboard('{ArrowLeft}{ArrowLeft}');
-      expect(screen.getByRole('tab', { name: 'About' })).toHaveFocus();
+      expect(screen.getByRole('tab', { name: 'Credits' })).toHaveFocus();
     } finally {
       vi.unstubAllGlobals();
     }

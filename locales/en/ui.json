@@ -87,7 +87,8 @@
       "safety": "Safety",
       "advanced": "Advanced",
       "profiles": "Profiles",
-      "about": "About"
+      "about": "About",
+      "credits": "Credits"
     },
     "general": {
       "language": "Language",
@@ -360,6 +361,25 @@
       "switchCatalog": "titledb, names, Nintendo Switch, title ID, nlib",
       "symlinks": "symlink, alias, shortcut",
       "trash": "trash, bin, delete, papelera"
+    },
+    "credits": {
+      "intro": "Coverly builds on the work of these projects. Here is what it uses from each, its licence and the credit it asks for.",
+      "search": "Search credits",
+      "results": "{count} of {total}",
+      "empty": "Nothing matches “{query}”.",
+      "groups": {
+        "art-sources": "Cover and metadata sources",
+        "databases": "Databases and DATs",
+        "docs": "Technical docs and wikis",
+        "conventions": "Frontend and firmware conventions",
+        "libraries": "Libraries",
+        "fonts-icons": "Fonts and icons"
+      },
+      "site": "{name} official site",
+      "opensBrowser": "Opens in your browser",
+      "license": "{name} licence",
+      "noLicense": "No declared licence",
+      "noContent": "Coverly ships no ROMs, BIOS files, keys or game art."
     }
   },
   "about": {

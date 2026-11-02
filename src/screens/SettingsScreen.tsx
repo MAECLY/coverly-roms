@@ -10,6 +10,7 @@ import {
 
 import { AboutSection } from '@/components/settings/AboutSection';
 import { AdvancedSection } from '@/components/settings/AdvancedSection';
+import { CreditsSection } from '@/components/settings/CreditsSection';
 import { ArtSection } from '@/components/settings/ArtSection';
 import { DuplicatesSection } from '@/components/settings/DuplicatesSection';
 import { GeneralSection } from '@/components/settings/GeneralSection';
@@ -63,7 +64,11 @@ export const SECTION_COMPONENTS: Record<
   advanced: AdvancedSection,
   profiles: ProfilesSection,
   about: AboutSection,
+  credits: CreditsSection,
 };
+
+/** Tabs that need no settings: they show while the settings load or fail. */
+const STANDALONE: ReadonlySet<SettingsSection> = new Set(['about', 'credits']);
 
 /** The pending unmark of each marked row: a second arrival restarts it. */
 const unmark = new WeakMap<HTMLElement, number>();
@@ -188,7 +193,8 @@ export function SettingsScreen() {
   // Land on the setting it was opened for once its panel is on screen.
   useEffect(() => {
     if (!focusSetting) return;
-    if (status !== 'ready' && section !== 'about' && status !== 'error') return;
+    if (status !== 'ready' && !STANDALONE.has(section) && status !== 'error')
+      return;
     const land = (): boolean => {
       const nav = useNavStore.getState();
       const el = document.getElementById(focusSetting);
@@ -219,7 +225,7 @@ export function SettingsScreen() {
   }, [focusSetting, section, status, openFolds]);
 
   let body: React.JSX.Element;
-  if (status === 'ready' || section === 'about') body = <Panel />;
+  if (status === 'ready' || STANDALONE.has(section)) body = <Panel />;
   else if (status === 'error' && loadError)
     body = (
       <div className="settings-group">
