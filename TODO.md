@@ -775,25 +775,25 @@ Petición de Miguel (2026-11-01): una pestaña nueva en Ajustes, **«Agradecimie
 
 > **Dependencias:** ninguna para empezar. Cada fuente nueva (titledb en la tanda de ajustes, las del 3.1) añade aquí su entrada al integrarse. Inventario completo de lo que se usa hoy, con licencias, textos de crédito obligatorios y lo que falta verificar: [`docs/02-research/credits-inventory.md`](docs/02-research/credits-inventory.md). **Autorizado por Miguel dentro de la tanda de ajustes (ajuste 7).**
 
-- [ ] Pestaña «Agradecimientos» en Ajustes (es/en), con el lenguaje visual de la app, agrupada por tipo:
+- [x] Pestaña «Agradecimientos» en Ajustes (es/en), con el lenguaje visual de la app, agrupada por tipo:
   - fuentes de portadas y metadatos;
   - bases de datos y DAT;
   - documentación y wikis técnicos;
   - convenciones de frontends y firmwares;
   - bibliotecas;
   - tipografías e iconos.
-- [ ] Cada entrada lleva el nombre, para qué la usa Coverly en una línea, un enlace a su web o repo oficial, su licencia y el texto de crédito exacto cuando la licencia o los términos lo exijan.
+- [x] Cada entrada lleva el nombre, para qué la usa Coverly en una línea, un enlace a su web o repo oficial, su licencia y el texto de crédito exacto cuando la licencia o los términos lo exijan.
   - Nunca enlaces a ROMs, claves ni emuladores.
-- [ ] Una fuente única de datos (un archivo de créditos en el repo) que alimenta la pestaña, el README y la landing, para no repetir la lista.
-- [ ] Un test que falle si un proveedor de red o un conjunto de datos nuevo no tiene su entrada de crédito.
-- [ ] Avisos de terceros de las dependencias (Rust y JS) generados al compilar, para cumplir con MIT, BSD, Apache y las demás. Se muestran desde la misma pestaña («Ver licencias de terceros»).
-- [ ] Buscable desde el buscador de Ajustes, como el resto de secciones.
+- [x] Una fuente única de datos (un archivo de créditos en el repo) que alimenta la pestaña, el README y la landing, para no repetir la lista. Hecho para la pestaña y el README (`credits/credits.json`); la landing vive en su propio repo y aún no lo lee.
+- [x] Un test que falle si un proveedor de red o un conjunto de datos nuevo no tiene su entrada de crédito.
+- [x] Avisos de terceros de las dependencias (Rust y JS) generados al compilar, para cumplir con MIT, BSD, Apache y las demás. Se muestran desde la misma pestaña («Ver licencias de terceros»).
+- [x] Buscable desde el buscador de Ajustes, como el resto de secciones.
 - [ ] Créditos que añade la auditoría de fuentes:
   - «ScreenScraper y sus fuentes», que cubra textos, vídeos y manuales;
   - libretro-database «y metadatos»;
   - autor de cada imagen de SteamGridDB;
   - filas para RAWG, Steam/Valve, xdb (con MobyGames como origen), x360db, Microsoft Store, RetroAchievements, rcheevos y `blawar/nut`.
-- [ ] Corregir a la vez los fallos de cumplimiento que encontró el inventario:
+- [x] Corregir a la vez los fallos de cumplimiento que encontró el inventario:
   - el bundle no incluye `LICENSES/*.txt` ni los OFL de las tipografías;
   - `THIRD-PARTY-NOTICES.md` cita TheGamesDB, que no se usa, y remite a términos en `docs/09-legal/` que no existen;
   - faltan los avisos de las dependencias JS y de varios crates (MPL de option-ext, CDLA de webpki-roots, ISC/BoringSSL de ring, Unicode-3.0);
