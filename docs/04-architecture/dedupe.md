@@ -99,6 +99,7 @@ Rules compare members pairwise **in order**. The first rule that tells two membe
 | `has_save` | the copy with a real save or state | `has-save { path }` |
 | `played` | the copy the frontend's `gamelist.xml` says you played | `played { playcount }` |
 | `in_library` | a copy already in a system folder over a pile copy (organise step) | `in-library` |
+| Wii U `.wua` (fixed, not a setting) | a Cemu `.wua` over a Wii U game folder (loadiine/NUS) with the same title id: the archive can bundle the update and DLC the base folder may lack. Weighed after the enabled `has_save`/`played`/`in_library` rules and before every other rule, whatever their order | `wua-over-folder` |
 | `verified` | DAT hit, good dump over `[b]`/`[o]`, headerless over a copier header (never a headerless NES/Lynx/A7800) | `verified { kept, other }` |
 | `retail` | retail > beta > proto > demo/sample (level 2) | `retail { other }` |
 | `region` | first match in the Matching region order (level 2) | `region { kept, other }` |
@@ -109,6 +110,7 @@ Rules compare members pairwise **in order**. The first rule that tells two membe
 | tie | oldest modified time, then path order | `tie` |
 
 - **Container order defaults** (spec §6.3): handheld profiles (`anbernic-stock`, `garlicos`, `onion`, `muos`, `minui`) `chd > pbp > cue > iso > img > bin` for discs; frontends (`esde`, `batocera`, `retroarch`) `chd > cue > pbp > iso > img > bin`; arcade `zip` only; cartridges no preference (raw = zip).
+- **Wii U `.wua` over a folder** (owner decision 2026-11-02): kept simple on purpose. A folder that already carries its update or DLC (an `Updates/` or `DLC/` subfolder, or sibling `0005000E…` update / `0005000C…` DLC title folders) still loses to the `.wua`; keep it with a pick or `--keep` (always first, and remembered as usual). Two folders, two `.wua`, or a `.wux`/`.wud` against a folder fall to the usual rules. Undo puts the folder back like any other extra.
 - **A remembered pick never outranks a new save.** It is dropped, with a note, when a non-keeper gained a real save the keeper lacks or any member's save changed since the pick.
 - **Remembered picks** live in `dedupe_choices` (cache schema v3), keyed by system + the keeper's content key, with the group signature and a saves fingerprint. A pick follows a renamed file through the file id on Unix. **On Windows a pick is remembered by path** (`file_id: None`, std has no file id there): renaming or moving that copy falls back to the rules. The keeper never moves, so apply never invalidates a pick. "Apply the rules again" in the screen and `--reset-choices` clear them.
 
