@@ -928,6 +928,54 @@ pub struct Survey {
     pub walked: Walked,
 }
 
+/// Extensions of Switch files (the catalogue is only worth fetching for a
+/// pile that has one; plan P-2).
+const SWITCH_EXTS: [&str; 8] = ["xci", "xcz", "nsp", "nsz", "nro", "nso", "nca", "ncz"];
+
+impl Survey {
+    /// Whether an entry is a Switch title, by its header or its
+    /// extension: callers fetch the optional catalogue only then (plan
+    /// P-2, spec D10).
+    pub fn has_switch(&self) -> bool {
+        self.entries.iter().any(|e| {
+            e.console.as_ref().is_some_and(|c| c.system == "switch")
+                || e.sources
+                    .first()
+                    .and_then(|p| p.extension())
+                    .is_some_and(|x| {
+                        SWITCH_EXTS
+                            .iter()
+                            .any(|s| x.to_string_lossy().eq_ignore_ascii_case(s))
+                    })
+        })
+    }
+
+    /// Whether a Switch entry has NCA ids but no title id: only then is
+    /// the catalogue's `ncas.json` fetched (spec D6).
+    pub fn wants_ncas(&self) -> bool {
+        self.entries.iter().any(|e| {
+            e.console.as_ref().is_some_and(|c| {
+                c.system == "switch" && c.title_id.is_none() && !c.nca_ids.is_empty()
+            })
+        })
+    }
+
+    /// The Switch title ids the readers found, sorted and without
+    /// repeats: what the optional nlib fallback may be asked about (D9).
+    pub fn switch_title_ids(&self) -> Vec<u64> {
+        let mut ids: Vec<u64> = self
+            .entries
+            .iter()
+            .filter_map(|e| e.console.as_ref())
+            .filter(|c| c.system == "switch")
+            .filter_map(|c| u64::from_str_radix(c.title_id.as_deref()?, 16).ok())
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+}
+
 /// What a quick, name-only look at a folder found.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FolderProbe {
@@ -1394,6 +1442,43 @@ fn updates_after_bases(entries: Vec<SurveyEntry>) -> Vec<SurveyEntry> {
     out
 }
 
+/// A title the optional Switch catalogue gave (titledb or nlib, D7).
+fn catalogue_title(c: &crate::consoles::ConsoleId) -> Option<String> {
+    use crate::consoles::TitleSource;
+    matches!(
+        c.title_source,
+        Some(TitleSource::Titledb | TitleSource::Nlib)
+    )
+    .then(|| c.title.clone())
+    .flatten()
+}
+
+/// The survey with every Switch header verdict completed from the
+/// catalogue, or from the file name without one (adjustments D7); `None`
+/// when no entry is a Switch title, so other piles are never copied.
+fn with_switch_names(
+    survey: &Survey,
+    titles: Option<&dyn crate::catalog::TitleNames>,
+) -> Option<Survey> {
+    let is_switch = |e: &SurveyEntry| e.console.as_ref().is_some_and(|c| c.system == "switch");
+    if !survey.entries.iter().any(is_switch) {
+        return None;
+    }
+    let mut named = survey.clone();
+    for entry in named.entries.iter_mut() {
+        let name = entry
+            .sources
+            .first()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if let Some(c) = entry.console.as_mut() {
+            super::evidence::resolve_switch_title(c, titles, &name);
+        }
+    }
+    Some(named)
+}
+
 /// The title of the base game an update or DLC belongs to, for its note:
 /// the header's title, else the base's file (or folder) name without its
 /// tags, else the base title id.
@@ -1493,13 +1578,19 @@ fn note_updates(items: &mut [OrganizeItem], entries: &[SurveyEntry]) -> usize {
         let base = bases
             .get(&(system.clone(), base_id.clone()))
             .and_then(|&b| Some((entries.get(b)?, items.get(b)?)));
+        // With no base in the pile, the catalogue's base name (D7) before
+        // the bare title id.
+        let of = match base {
+            Some(_) => base_title(base, &base_id),
+            None => entry
+                .console
+                .as_ref()
+                .and_then(catalogue_title)
+                .unwrap_or_else(|| base_id.clone()),
+        };
         let note = match kind {
-            TitleKind::Update => ItemNote::Update {
-                of: base_title(base, &base_id),
-            },
-            TitleKind::Dlc => ItemNote::Dlc {
-                of: base_title(base, &base_id),
-            },
+            TitleKind::Update => ItemNote::Update { of },
+            TitleKind::Dlc => ItemNote::Dlc { of },
             _ => continue,
         };
         notes.push((i, note));
@@ -2074,6 +2165,10 @@ pub fn plan_from_survey(
     let roms_dir = roms_dir_of(&target_root, &profile, opts.flat);
     let src = &survey.source_root;
 
+    // Switch names from the optional catalogue (adjustments D7, plan P-1).
+    let named = with_switch_names(survey, env.titles);
+    let survey = named.as_ref().unwrap_or(survey);
+
     // Items from the survey.
     let mut items: Vec<OrganizeItem> = Vec::with_capacity(survey.entries.len());
     let mut keys: Vec<Option<(String, u64)>> = Vec::with_capacity(survey.entries.len());
@@ -2141,6 +2236,13 @@ pub fn plan_from_survey(
                     .as_ref()
                     .filter(|con| c.system.as_deref() == Some(con.system.as_str()));
                 item.title_id = header.and_then(crate::consoles::TitleIdRef::of);
+                // A base game's catalogue name stands for a DAT name (D7);
+                // the target-name sanitiser cleans it like any other.
+                if item.catalogue_name.is_none() {
+                    item.catalogue_name = header
+                        .filter(|con| con.kind == TitleKind::Base && con.part.is_none())
+                        .and_then(catalogue_title);
+                }
                 // The content id the same header read (systems batch 3 §10).
                 item.content_id = header.and_then(|con| con.content_id.clone());
             }

@@ -101,6 +101,8 @@ pub enum ArtFormat {
     Tga,
     /// A 3DS SMDH block (48×48 RGB565 tiles).
     Smdh,
+    /// A Switch NRO's asset-section icon.
+    Jpeg,
 }
 
 /// Where an embedded icon is; never the bytes (spec D17).

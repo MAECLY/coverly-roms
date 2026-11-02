@@ -10,15 +10,16 @@ use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
 use coverly_core::cache::Cache;
+use coverly_core::catalog::{CatalogTitle, TitleNames};
 use coverly_core::consoles::testing::{self as ct, SparseAt};
-use coverly_core::consoles::{PartKind, TitleKind};
+use coverly_core::consoles::{IdSource, PartKind, TitleIdRef, TitleKind, TitleSource};
 use coverly_core::dedupe::testing::pin_mtime;
 use coverly_core::identify::evidence::Evidence;
 use coverly_core::identify::sniff::sniff_named;
 use coverly_core::organize::inspect::inspect_file;
 use coverly_core::organize::{
-    plan_from_survey, survey, Choice, Decision, LeftReason, MetaProbe, OrganizeAction, OrganizeEnv,
-    OrganizeOptions, OrganizePlan, Transfer,
+    plan_from_survey, survey, Choice, Decision, ItemNote, LeftReason, MetaProbe, OrganizeAction,
+    OrganizeEnv, OrganizeOptions, OrganizePlan, Transfer,
 };
 use coverly_core::profiles::{builtin_profiles, Profile};
 use coverly_core::systems::SystemDb;
@@ -43,6 +44,30 @@ const LOOSE: &[Loose] = &[
         "3ds",
         TitleKind::Base,
         None,
+    ),
+    // Switch homebrew with a NACP (§8.2).
+    (
+        "Checkpoint.nro",
+        checkpoint_nro,
+        "switch",
+        TitleKind::Homebrew,
+        None,
+    ),
+    // A game's ExeFS executable.
+    (
+        "main.nso",
+        ct::nso,
+        "switch",
+        TitleKind::Unknown,
+        Some(PartKind::ExeFs),
+    ),
+    // A loose content archive, by its name only (D6).
+    (
+        "0123456789abcdef0123456789abcdef.nca",
+        empty_nca,
+        "switch",
+        TitleKind::Unknown,
+        Some(PartKind::Nca),
     ),
 ];
 
@@ -74,6 +99,17 @@ const DISC_SETS: &[(&str, WritePile, usize, usize)] = &[
 
 fn mario_kart_7() -> SparseAt {
     ct::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, true)
+}
+
+fn checkpoint_nro() -> SparseAt {
+    ct::nro("Checkpoint", "3.8.0", &[])
+}
+
+/// Any bytes: a loose NCA is never read.
+fn empty_nca() -> SparseAt {
+    let mut f = SparseAt::new(0x400);
+    f.put(0x200, b"NCA3");
+    f
 }
 
 fn persona_vpk(path: &Path) {
@@ -201,6 +237,13 @@ impl World {
             now: SystemTime::now(),
         }
     }
+
+    fn env_with<'a>(&'a self, titles: &'a dyn TitleNames) -> OrganizeEnv<'a> {
+        OrganizeEnv {
+            titles: Some(titles),
+            ..self.env()
+        }
+    }
 }
 
 fn options() -> OrganizeOptions {
@@ -272,4 +315,99 @@ fn a_declined_item_is_left_not_confirmed_and_not_remembered() {
     assert_eq!(left.target, None);
     let again = plan(tmp.path(), &[], &world);
     assert_eq!(again.items[0].action, before);
+}
+
+/// One Switch game (adjustments D6, D7): its meta NCA names it.
+struct Odyssey;
+
+const ODYSSEY: u64 = 0x0100_0000_0001_0000;
+const ODYSSEY_META_NCA: &str = "fedcba9876543210fedcba9876543210";
+
+impl TitleNames for Odyssey {
+    fn title(&self, tid: u64) -> Option<CatalogTitle> {
+        (tid == ODYSSEY).then(|| CatalogTitle {
+            name: "Super Mario Odyssey".into(),
+            publisher: None,
+            release: None,
+            region: None,
+            source: TitleSource::Titledb,
+        })
+    }
+
+    fn by_nca(&self, nca: &[u8; 16]) -> Option<(u64, u8)> {
+        (nca[0] == 0xFE).then_some((ODYSSEY, 1))
+    }
+}
+
+fn switch_pile(dir: &Path) {
+    put(
+        &dir.join("Odyssey Update [0100000000010800][v65536].nsp"),
+        &ct::nsp_pfs0(&["a.nca"]).bytes(),
+        1,
+    );
+    let meta = format!("{ODYSSEY_META_NCA}.cnmt.nca");
+    put(
+        &dir.join("Cartridge.xci"),
+        &ct::xci_with_secure(&[&meta]).bytes(),
+        2,
+    );
+}
+
+fn item_named<'a>(plan: &'a OrganizePlan, name: &str) -> &'a coverly_core::organize::OrganizeItem {
+    plan.items
+        .iter()
+        .find(|i| i.sources[0].file_name().is_some_and(|n| n == name))
+        .unwrap_or_else(|| panic!("{name} not in the plan"))
+}
+
+/// D7 through the planner: the catalogue names an update whose base is
+/// not in the pile, and gives an NCA-only cartridge its title id and
+/// catalogue name; without the catalogue the same survey keeps the file
+/// names and ids.
+#[test]
+fn switch_catalogue_names_reach_the_plan() {
+    let tmp = tempfile::tempdir().unwrap();
+    switch_pile(tmp.path());
+    let world = World::new();
+    let plain = world.env();
+    let s = survey(
+        tmp.path(),
+        &options(),
+        &plain,
+        &|_| {},
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    assert!(s.has_switch());
+    assert!(s.wants_ncas());
+    assert_eq!(s.switch_title_ids(), vec![0x0100_0000_0001_0800]);
+
+    let without = plan_from_survey(&s, &options(), &[], &plain).unwrap();
+    let update = item_named(&without, "Odyssey Update [0100000000010800][v65536].nsp");
+    assert!(update.notes.contains(&ItemNote::Update {
+        of: "0100000000010000".into()
+    }));
+    let cart = item_named(&without, "Cartridge.xci");
+    assert_eq!((&cart.title_id, &cart.catalogue_name), (&None, &None));
+
+    let names = Odyssey;
+    let with = plan_from_survey(&s, &options(), &[], &world.env_with(&names)).unwrap();
+    let update = item_named(&with, "Odyssey Update [0100000000010800][v65536].nsp");
+    assert!(
+        update.notes.contains(&ItemNote::Update {
+            of: "Super Mario Odyssey".into()
+        }),
+        "{:?}",
+        update.notes
+    );
+    assert_eq!(update.catalogue_name, None);
+    let cart = item_named(&with, "Cartridge.xci");
+    assert_eq!(
+        cart.title_id,
+        Some(TitleIdRef {
+            id: "0100000000010000".into(),
+            source: IdSource::NcaCatalog,
+        })
+    );
+    assert_eq!(cart.catalogue_name.as_deref(), Some("Super Mario Odyssey"));
 }

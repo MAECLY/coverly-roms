@@ -1913,3 +1913,136 @@ fn an_xvc_header_ties_xbox_one_and_series() {
     assert_eq!(alts, ["xboxseries"]);
     assert_eq!(c.alternatives[0].1, c.confidence);
 }
+
+// --- Switch names (adjustments D6, D7) ---
+
+mod nx_names {
+    use coverly_core::catalog::{CatalogTitle, TitleNames};
+    use coverly_core::consoles::testing::{self as ct, SparseAt};
+    use coverly_core::consoles::{Budgeted, ConsoleId, IdSource, TitleKind, TitleSource};
+    use coverly_core::organize::evidence::resolve_switch_title;
+
+    const ODYSSEY: u64 = 0x0100_0000_0001_0000;
+    const PROGRAM_NCA: &str = "0123456789abcdef0123456789abcdef";
+    const META_NCA: &str = "fedcba9876543210fedcba9876543210";
+
+    /// A catalogue of one game: its program NCA wrongly points at another
+    /// title, its meta NCA at the game (the meta one is preferred).
+    struct Names;
+
+    impl TitleNames for Names {
+        fn title(&self, tid: u64) -> Option<CatalogTitle> {
+            (tid == ODYSSEY).then(|| CatalogTitle {
+                name: "Super Mario Odyssey".into(),
+                publisher: Some("Nintendo".into()),
+                release: Some("2017-10-27".into()),
+                region: Some("US".into()),
+                source: TitleSource::Titledb,
+            })
+        }
+
+        fn by_nca(&self, nca: &[u8; 16]) -> Option<(u64, u8)> {
+            match nca[0] {
+                0x01 => Some((0x0100_0000_0002_0000, 0)),
+                0xFE => Some((ODYSSEY, 1)),
+                _ => None,
+            }
+        }
+    }
+
+    fn read(f: &mut SparseAt, ext: &str, name: &str) -> ConsoleId {
+        let len = f.len;
+        coverly_core::consoles::identify(&mut Budgeted::new(f, len), ext, name).unwrap()
+    }
+
+    fn resolved(mut c: ConsoleId, names: Option<&dyn TitleNames>, file: &str) -> ConsoleId {
+        resolve_switch_title(&mut c, names, file);
+        c
+    }
+
+    #[test]
+    fn nx_a_base_game_takes_its_catalogue_name() {
+        let name = "Odyssey [0100000000010000][v0].nsp";
+        let c = read(&mut ct::nsp_pfs0(&["a.nca"]), "nsp", name);
+        let c = resolved(c, Some(&Names), name);
+        assert_eq!(c.title.as_deref(), Some("Super Mario Odyssey"));
+        assert_eq!(c.title_source, Some(TitleSource::Titledb));
+        assert_eq!(c.id_source, Some(IdSource::FileName));
+    }
+
+    #[test]
+    fn nx_an_update_and_a_dlc_take_their_base_name() {
+        for tid in ["0100000000010800", "0100000000011001"] {
+            let name = format!("x [{tid}].nsp");
+            let c = read(&mut ct::nsp_pfs0(&["a.nca"]), "nsp", &name);
+            let c = resolved(c, Some(&Names), &name);
+            assert_eq!(c.title.as_deref(), Some("Super Mario Odyssey"), "{tid}");
+            assert_eq!(c.title_source, Some(TitleSource::Titledb));
+            assert_ne!(c.kind, TitleKind::Base);
+        }
+    }
+
+    #[test]
+    fn nx_an_nca_only_xci_takes_its_title_id_from_the_catalogue() {
+        let a = format!("{PROGRAM_NCA}.nca");
+        let b = format!("{META_NCA}.cnmt.nca");
+        let c = read(&mut ct::xci_with_secure(&[&a, &b]), "xci", "Game.xci");
+        assert_eq!(c.title_id, None);
+        let c = resolved(c, Some(&Names), "Game.xci");
+        assert_eq!(c.title_id.as_deref(), Some("0100000000010000"));
+        assert_eq!(c.id_source, Some(IdSource::NcaCatalog));
+        assert_eq!(c.kind, TitleKind::Base);
+        assert_eq!(c.title.as_deref(), Some("Super Mario Odyssey"));
+        // A loose NCA takes the id and the name too, and stays a part.
+        let mut f = SparseAt::new(0x100);
+        let c = read(&mut f, "nca", &b);
+        let c = resolved(c, Some(&Names), &b);
+        assert_eq!(c.id_source, Some(IdSource::NcaCatalog));
+        assert!(c.part.is_some());
+    }
+
+    #[test]
+    fn nx_without_a_catalogue_the_file_name_gives_the_title() {
+        let name = "Super Mario Odyssey (USA) [0100000000010000][v0].nsp";
+        let c = read(&mut ct::nsp_pfs0(&["a.nca"]), "nsp", name);
+        let c = resolved(c, None, name);
+        assert_eq!(c.title.as_deref(), Some("Super Mario Odyssey"));
+        assert_eq!(c.title_source, Some(TitleSource::FileName));
+        // An unknown id in the catalogue falls back the same way.
+        let name = "Other [0100000000090000].nsp";
+        let c = read(&mut ct::nsp_pfs0(&["a.nca"]), "nsp", name);
+        let c = resolved(c, Some(&Names), name);
+        assert_eq!(
+            (c.title.as_deref(), c.title_source),
+            (Some("Other"), Some(TitleSource::FileName))
+        );
+    }
+
+    #[test]
+    fn nx_a_header_title_wins_over_the_catalogue() {
+        let cnmt =
+            b"<ContentMeta><Type>Application</Type><Id>0x0100000000010000</Id></ContentMeta>";
+        let mut c = read(&mut ct::nsp(&[("a.cnmt.xml", cnmt)]), "nsp", "x.nsp");
+        assert_eq!(c.id_source, Some(IdSource::CnmtXml));
+        c.title = Some("From the header".into());
+        let c = resolved(c, Some(&Names), "x.nsp");
+        assert_eq!(c.title.as_deref(), Some("From the header"));
+        assert_eq!(c.title_source, Some(TitleSource::Header));
+        // An NRO's NACP title is a header title too.
+        let c = read(&mut ct::nro("Checkpoint", "3.8.0", &[]), "nro", "a.nro");
+        let c = resolved(c, Some(&Names), "a.nro");
+        assert_eq!(
+            (c.title.as_deref(), c.title_source),
+            (Some("Checkpoint"), Some(TitleSource::Header))
+        );
+    }
+
+    #[test]
+    fn nx_other_systems_are_untouched() {
+        let mut c = ConsoleId::magic("3ds", "NCSD");
+        c.title_id = Some("0100000000010000".into());
+        let before = c.clone();
+        let c = resolved(c, Some(&Names), "Odyssey.3ds");
+        assert_eq!(c, before);
+    }
+}

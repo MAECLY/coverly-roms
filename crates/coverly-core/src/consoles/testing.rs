@@ -827,6 +827,113 @@ pub fn xci(names: &[&str]) -> SparseAt {
     s
 }
 
+/// An NSP whose PFS0 lists `names`, each a 0x200-byte filler body (no
+/// ticket, no `cnmt.xml` unless named): the NCA-ids-by-name case (D6).
+pub fn nsp_pfs0(names: &[&str]) -> SparseAt {
+    let body = [0x55u8; 0x200];
+    let entries: Vec<(&str, &[u8])> = names.iter().map(|n| (*n, &body[..])).collect();
+    nsp(&entries)
+}
+
+/// An XCI whose root HFS0 holds `update`, `normal` and `secure`, the
+/// `secure` body being an HFS0 of `names` (each a 0x200-byte filler NCA
+/// body). `s.entries` holds the three root bodies' ranges, then the secure
+/// entries' bodies (adjustments D6).
+pub fn xci_with_secure(names: &[&str]) -> SparseAt {
+    let body = [0xA5u8; 0x200];
+    let mut inner = SparseAt::new(u64::MAX);
+    let inner_entries: Vec<(&str, &[u8])> = names.iter().map(|n| (*n, &body[..])).collect();
+    let inner_end = partition(&mut inner, 0, b"HFS0", 0x40, &inner_entries);
+    inner.len = inner_end;
+    let secure = inner.bytes();
+    let mut s = SparseAt::new(u64::MAX);
+    let mut head = vec![0u8; 0x200];
+    head[..0x100].fill(0x5A);
+    head[0x100..0x104].copy_from_slice(b"HEAD");
+    head[0x10D] = 0xE0;
+    head[0x130..0x138].copy_from_slice(&XCI_HFS0.to_le_bytes());
+    head[0x190..0x200].fill(0xC3);
+    let root: Vec<(&str, &[u8])> = vec![
+        ("update", &body[..]),
+        ("normal", &body[..]),
+        ("secure", &secure[..]),
+    ];
+    let end = partition(&mut s, XCI_HFS0, b"HFS0", 0x40, &root);
+    head[0x138..0x140].copy_from_slice(&(0x10u64 + 0x40 * 3).to_le_bytes());
+    s.put(0, &head);
+    let at = s.entries[2].start;
+    s.entries
+        .extend(inner.entries.iter().map(|r| at + r.start..at + r.end));
+    s.len = end.max(0x1_0000);
+    s
+}
+
+/// Where [`nro`] puts its asset section (the NRO's own size).
+pub const NRO_SIZE: u64 = 0x1000;
+/// Offset of the NACP's `DisplayVersion` (switchbrew «NACP»).
+const NACP_DISPLAY_VERSION: usize = 0x3060;
+const NACP_LEN: usize = 0x4000;
+
+/// A homebrew NRO (switchbrew «NRO»): `NRO0` at 0x10, its size at 0x18,
+/// then an `ASET` asset section with `icon` (when not empty) and a NACP
+/// whose first language entry is empty and the second holds `title`, with
+/// `DisplayVersion` = `version`.
+pub fn nro(title: &str, version: &str, icon: &[u8]) -> SparseAt {
+    let mut s = SparseAt::new(u64::MAX);
+    let mut h = vec![0u8; 0x20];
+    h[0x10..0x14].copy_from_slice(b"NRO0");
+    h[0x18..0x1C].copy_from_slice(&le32(NRO_SIZE as u32));
+    s.put(0, &h);
+    let mut aset = vec![0u8; 0x38];
+    aset[..4].copy_from_slice(b"ASET");
+    let icon_at = 0x38u64;
+    let nacp_at = icon_at + icon.len() as u64;
+    if !icon.is_empty() {
+        aset[0x08..0x10].copy_from_slice(&icon_at.to_le_bytes());
+        aset[0x10..0x18].copy_from_slice(&(icon.len() as u64).to_le_bytes());
+    }
+    aset[0x18..0x20].copy_from_slice(&nacp_at.to_le_bytes());
+    aset[0x20..0x28].copy_from_slice(&(NACP_LEN as u64).to_le_bytes());
+    s.put(NRO_SIZE, &aset);
+    if !icon.is_empty() {
+        s.put(NRO_SIZE + icon_at, icon);
+    }
+    let mut nacp = vec![0u8; NACP_LEN];
+    nacp[0x300..0x300 + title.len()].copy_from_slice(title.as_bytes());
+    nacp[NACP_DISPLAY_VERSION..NACP_DISPLAY_VERSION + version.len()]
+        .copy_from_slice(version.as_bytes());
+    s.put(NRO_SIZE + nacp_at, &nacp);
+    s.len = NRO_SIZE + nacp_at + NACP_LEN as u64;
+    s
+}
+
+/// A Switch executable (`NSO0` at 0) of a game's ExeFS.
+pub fn nso() -> SparseAt {
+    let mut s = SparseAt::new(0x100);
+    s.put(0, b"NSO0");
+    s
+}
+
+/// A source that panics on any read touching one of `ranges` (D1, D6
+/// tests: a ticket, an NCA body, the XCI gamecard info).
+pub struct PanicOn<'a> {
+    pub inner: &'a mut dyn ReadAt,
+    pub ranges: Vec<std::ops::Range<u64>>,
+}
+
+impl ReadAt for PanicOn<'_> {
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+        let end = offset.saturating_add(buf.len() as u64);
+        for r in &self.ranges {
+            assert!(
+                !(offset < r.end && r.start < end),
+                "read {offset:#x}..{end:#x} touches the forbidden {r:?}"
+            );
+        }
+        self.inner.read_at(offset, buf)
+    }
+}
+
 // ---------------------------------------------------------------------
 // PS3 and PS Vita (spec §8.4). Synthetic metadata only.
 // ---------------------------------------------------------------------

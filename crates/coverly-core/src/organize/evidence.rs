@@ -528,6 +528,118 @@ fn is_set_archive(rom_name: &str) -> bool {
         .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("zip") || ext.eq_ignore_ascii_case("7z"))
 }
 
+// --- Switch names (adjustments spec §6, D6, D7) ---
+
+/// `contentType` of a meta NCA in `ncas.json` (the NCA header's content
+/// type: 0 program, 1 meta, 2 control…; switchbrew «NCA»).
+const NCA_META: u8 = 1;
+
+/// The title id an NCA id list gives through the catalogue (spec §6 step
+/// 2): the first id with a hit, a meta NCA's preferred.
+fn title_by_nca(ids: &[String], names: &dyn crate::catalog::TitleNames) -> Option<u64> {
+    let mut first = None;
+    for id in ids {
+        let Some(bytes) = nca_bytes(id) else { continue };
+        let Some((tid, content)) = names.by_nca(&bytes) else {
+            continue;
+        };
+        if content == NCA_META {
+            return Some(tid);
+        }
+        first.get_or_insert(tid);
+    }
+    first
+}
+
+/// `0123…ef` (32 hex) → 16 bytes.
+fn nca_bytes(id: &str) -> Option<[u8; 16]> {
+    let b = id.as_bytes();
+    if b.len() != 32 {
+        return None;
+    }
+    let mut out = [0u8; 16];
+    for (i, o) in out.iter_mut().enumerate() {
+        let pair = std::str::from_utf8(b.get(2 * i..2 * i + 2)?).ok()?;
+        *o = u8::from_str_radix(pair, 16).ok()?;
+    }
+    Some(out)
+}
+
+/// Completes a Switch header verdict from the optional catalogue (spec
+/// §6, D6, D7, plan P-1); any other system is left as it is.
+///
+/// - No title id but NCA ids: the catalogue's `ncas` table gives it
+///   ([`IdSource::NcaCatalog`](crate::consoles::IdSource::NcaCatalog)),
+///   and the kind follows from the id.
+/// - Title: a header title (`cnmt.xml`, NRO NACP) stays
+///   ([`TitleSource::Header`]); else the catalogue's name, looked up by
+///   the base id (`& 0xFFFF_FFFF_FFFF_E000`) for an update or DLC, so its
+///   note reads «Actualización de {name}» / «DLC de {name}»; else the
+///   file name's title ([`TitleSource::FileName`]).
+///
+/// Local lookups only: nothing here reads a file or the network, and the
+/// names are kept as the catalogue cleaned them (the target-name
+/// sanitiser applies when one reaches a file name).
+pub fn resolve_switch_title(
+    c: &mut crate::consoles::ConsoleId,
+    names: Option<&dyn crate::catalog::TitleNames>,
+    file_name: &str,
+) {
+    use crate::consoles::{kind_switch, switch_base, IdSource, TitleKind, TitleSource};
+    if c.system != "switch" {
+        return;
+    }
+    if c.title_id.is_none() && !c.nca_ids.is_empty() {
+        if let Some(tid) = names.and_then(|n| title_by_nca(&c.nca_ids, n)) {
+            c.title_id = Some(format!("{tid:016X}"));
+            c.id_source = Some(IdSource::NcaCatalog);
+            c.kind = kind_switch(tid);
+        }
+    }
+    // A title an earlier pass derived is derived again (the catalogue may
+    // have arrived since): only a reader's own title is kept.
+    if matches!(
+        c.title_source,
+        Some(TitleSource::Titledb | TitleSource::Nlib | TitleSource::FileName)
+    ) {
+        c.title = None;
+        c.title_source = None;
+    }
+    if c.title.is_some() {
+        c.title_source.get_or_insert(TitleSource::Header);
+        return;
+    }
+    let tid = c
+        .title_id
+        .as_deref()
+        .and_then(|t| u64::from_str_radix(t, 16).ok());
+    let catalogue = tid.zip(names).and_then(|(tid, names)| {
+        let lookup = match c.kind {
+            TitleKind::Update | TitleKind::Dlc => switch_base(tid),
+            _ => tid,
+        };
+        names.title(lookup)
+    });
+    if let Some(found) = catalogue.filter(|t| !t.name.trim().is_empty()) {
+        c.title = Some(found.name);
+        c.title_source = Some(found.source);
+        return;
+    }
+    // A loose NCA's name is its content id, not a title.
+    if crate::consoles::nx::nca_id_from_name(file_name).is_some() {
+        return;
+    }
+    let stem = file_name
+        .rsplit_once('.')
+        .map_or(file_name, |(stem, _)| stem);
+    let title = parse_name(stem, false).title;
+    let title = title.trim();
+    if !title.is_empty() {
+        c.title = Some(title.to_string());
+        c.title_source = Some(TitleSource::FileName);
+    }
+}
+
 // --- The identification ladder per file (organise spec §6) ---
 
 /// What is known about one candidate before any DAT is consulted:

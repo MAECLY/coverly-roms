@@ -286,7 +286,7 @@ fn read_inside(dir: &Path, rel: &Path) -> Result<Vec<u8>, ()> {
 }
 
 /// Decodes an icon: SMDH through the 3DS tile decoder (always 48×48),
-/// PNG and TGA through `image` under [`MAX_SIDE`] and [`MAX_ALLOC`].
+/// PNG, TGA and JPEG through `image` under [`MAX_SIDE`] and [`MAX_ALLOC`].
 fn decode(bytes: &[u8], format: ArtFormat) -> Result<::image::DynamicImage, ()> {
     let format = match format {
         ArtFormat::Smdh => {
@@ -296,6 +296,7 @@ fn decode(bytes: &[u8], format: ArtFormat) -> Result<::image::DynamicImage, ()> 
         }
         ArtFormat::Png => ::image::ImageFormat::Png,
         ArtFormat::Tga => ::image::ImageFormat::Tga,
+        ArtFormat::Jpeg => ::image::ImageFormat::Jpeg,
     };
     let mut limits = ::image::Limits::default();
     limits.max_image_width = Some(MAX_SIDE);
