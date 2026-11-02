@@ -864,3 +864,38 @@ fn a_pile_folder_twin_is_set_aside_whole_and_undo_restores_it() {
         assert_eq!(tree(pile.path()), before, "trash {trash}");
     }
 }
+
+/// Adjustments D19: equal trees act only when the title ids agree. A
+/// zipped Vita game and a Vita folder of another title whose files have
+/// the same paths and sizes are two games: both move in, none is set
+/// aside; the zip's title id comes from its listing's `param.sfo`.
+#[test]
+fn an_archive_tree_of_another_title_is_no_copy() {
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let folder = pile.path().join("PCSB00245");
+    t::vita_app(&folder, "PCSB00245");
+    let zipped = files_of(|d| t::vita_app(d, "PCSE00120"), "PCSE00120", &[]);
+    write_zip(&pile.path().join("Persona 4 Golden.zip"), &zipped, '/');
+    // Same paths and sizes on both sides: one tree digest.
+    let on_disk: Vec<(String, u64)> = tree(&folder)
+        .into_iter()
+        .map(|(rel, bytes)| (rel, bytes.len() as u64))
+        .collect();
+    let in_zip: Vec<(String, u64)> = zipped
+        .iter()
+        .map(|(rel, bytes)| {
+            (
+                rel.trim_start_matches("PCSE00120/").to_string(),
+                bytes.len() as u64,
+            )
+        })
+        .collect();
+    assert_eq!(on_disk, in_zip);
+
+    let p = world.plan(pile.path(), target.path());
+    assert!(p.items.iter().all(|i| !i.is_set_aside()), "{:#?}", p.items);
+    assert_eq!(p.items.iter().filter(|i| i.moves_in()).count(), 2);
+    assert!(p.duplicates.iter().all(|g| g.system != "psvita"));
+}

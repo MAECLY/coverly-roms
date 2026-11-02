@@ -1450,6 +1450,12 @@ pub fn remember_title_key(cache: &Cache, u: &Unit, id: &ConsoleId) {
     let _ = cache.put_json(TITLE_NS, &title_cache_key(u), &found, None);
 }
 
+/// The key string of the title key `id` gives in `system`, as the folder
+/// tree links compare it (spec D19); `None` when it gives none.
+pub fn title_key_string(id: &ConsoleId, system: &str) -> Option<String> {
+    title_of(id, system).map(|k| k.key_string(system))
+}
+
 /// The title key a reader's answer gives in `system`. PS4/PS5: the full
 /// content id when there is one (`UP9000-CUSA00900_00-BLOODBORNE000000`),
 /// so another region or another DLC label is another key (systems batch 3

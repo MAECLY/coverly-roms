@@ -368,10 +368,19 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
         }
         // The whole title key: a base and its update, or two versions,
         // may share a tree in a synthetic dump, never a copy.
-        let title_of = |u: usize| match keyed[u].and_then(|k| k.exact.as_ref()) {
-            Some(t @ ExactKey::Title { .. }) => Some(t.key_string(self.system)),
-            _ => None,
-        };
+        // An archive folder game has no title key of its own: the one its
+        // listing gave stands in, so it never joins another title's tree.
+        let titles: BTreeMap<usize, Option<String>> = members
+            .iter()
+            .map(|&u| {
+                let id = match keyed[u].and_then(|k| k.exact.as_ref()) {
+                    Some(t @ ExactKey::Title { .. }) => Some(t.key_string(self.system)),
+                    _ => self.units[u].tree_title.clone(),
+                };
+                (u, id)
+            })
+            .collect();
+        let title_of = |u: usize| titles.get(&u).cloned().flatten();
         for (key, list) in by_tree {
             if list.len() < 2 {
                 continue;

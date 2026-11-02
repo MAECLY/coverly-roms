@@ -36,6 +36,7 @@ fn unit(id: usize, system: &str, file: &str, kind: UnitKind, mtime_ns: i64) -> U
             .unwrap_or_default(),
         in_library: true,
         tree_digest: None,
+        tree_title: None,
     }
 }
 

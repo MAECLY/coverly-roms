@@ -54,6 +54,7 @@ fn unit(id: usize, system: &str, system_dir: &Path, files: &[&str], kind: UnitKi
             .unwrap_or_default(),
         in_library: true,
         tree_digest: None,
+        tree_title: None,
     }
 }
 

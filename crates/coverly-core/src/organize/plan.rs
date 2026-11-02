@@ -3113,6 +3113,13 @@ fn duplicates_step(
             (None, Some(f)) => crate::organize::inspect::archive_tree_digest(&f.inspection),
             _ => None,
         };
+        // An archive folder game: the title its listing's probe read.
+        if u.kind != crate::dedupe::UnitKind::Folder && u.tree_digest.is_some() {
+            u.tree_title = entry
+                .console
+                .as_ref()
+                .and_then(|c| crate::dedupe::keys::title_key_string(c, &u.system));
+        }
     }
     // What the survey's readers found stands for level 1's title keys: a
     // header or folder probe is opened once (systems batch 3 D24).

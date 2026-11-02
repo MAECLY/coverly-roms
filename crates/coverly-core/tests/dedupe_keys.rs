@@ -84,6 +84,7 @@ fn unit_of(system: &str, kind: UnitKind, files: &[PathBuf], payload_size: Option
         ext: ext_of(&primary),
         in_library: true,
         tree_digest: None,
+        tree_title: None,
     }
 }
 
@@ -767,6 +768,7 @@ fn paper_unit(id: usize, system: &str, path: &str, kind: UnitKind) -> Unit {
         ext: ext_of(&primary),
         in_library: true,
         tree_digest: None,
+        tree_title: None,
     }
 }
 

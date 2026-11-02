@@ -109,6 +109,13 @@ pub struct Unit {
     /// folder game itself when another unit of its system has a tree.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree_digest: Option<String>,
+    /// The title key ([`title_key_string`](super::keys::title_key_string))
+    /// of an archive folder game, read from its listing by the caller: an
+    /// archive is never read for a title key, so without it its tree
+    /// would join a folder game of another title (spec D19: equal trees
+    /// act only when the title ids, if both have one, agree).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree_title: Option<String>,
 }
 
 impl Unit {
@@ -353,6 +360,7 @@ pub fn units_from_folders(folders: &[(PathBuf, String, u64, i64)]) -> UnitSet {
                     ext: String::new(),
                     in_library: false,
                     tree_digest: None,
+                    tree_title: None,
                 },
                 sizes: vec![*size],
                 // Folders cannot be hard links: no twin to drop.
@@ -426,6 +434,7 @@ fn draft_from_set(
             ext,
             in_library: false,
             tree_digest: None,
+            tree_title: None,
         },
         sizes,
         dev_ino: dev_ino(&meta),
@@ -556,6 +565,7 @@ fn draft_from_rom(
             ext,
             in_library: true,
             tree_digest: None,
+            tree_title: None,
         },
         sizes,
         dev_ino: dev_ino(&meta),
@@ -593,6 +603,7 @@ fn draft_from_folder(rom: &RomEntry, system: &System) -> Result<Draft, Option<Ex
             ext: rom.ext.clone(),
             in_library: true,
             tree_digest: None,
+            tree_title: None,
         },
         sizes: vec![rom.size],
         // Folders cannot be hard links: no twin to drop.
@@ -664,6 +675,7 @@ fn draft_from_facts(
             ext,
             in_library: false,
             tree_digest: None,
+            tree_title: None,
         },
         sizes,
         dev_ino: dev_ino(&meta),
