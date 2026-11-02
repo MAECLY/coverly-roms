@@ -653,6 +653,9 @@ pub(crate) fn reason_text(reason: &KeepReason) -> String {
         ),
         KeepReason::HasCover => "has a cover".into(),
         KeepReason::CatalogueName { name } => format!("catalogue name ({name})"),
+        KeepReason::WuaOverFolder => {
+            "a .wua can bundle the update and DLC the folder may lack".into()
+        }
         KeepReason::Tie => "tie: the oldest file stays".into(),
         _ => "chosen by the rules".into(),
     }
@@ -1108,6 +1111,13 @@ mod tests {
         assert_eq!(table::human_bytes(512), "512 B");
         assert_eq!(table::human_bytes(79_600_000), "79.6 MB");
         assert_eq!(table::human_bytes(1_900_000_000), "1.9 GB");
+    }
+
+    #[test]
+    fn wua_reason_says_why_it_stays() {
+        let text = reason_text(&KeepReason::WuaOverFolder);
+        assert!(text.contains(".wua"), "{text}");
+        assert!(text.contains("update") && text.contains("DLC"), "{text}");
     }
 
     #[test]
