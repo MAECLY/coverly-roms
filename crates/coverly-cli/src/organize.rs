@@ -403,7 +403,7 @@ fn rest_question(t: &LargeTransfer, used: u64) -> String {
 /// each huge item is asked on its own (`answer_all` answers them all:
 /// `All` for `--yes-large`, `No` for `--skip-large`), declined ones are
 /// left through [`Choice::Decline`] and the plan is made again with
-/// `replan`; then, only when what the other items write reaches the
+/// `replan` (an item that became huge through it is asked in turn); then, only when what the other items write reaches the
 /// threshold, one question for that rest. Without a prompt, anything still
 /// unconfirmed is refused exactly as before (`--yes-large` hint); EOF at a
 /// question refuses too. Returns the plan to apply, which the shared gate
@@ -422,21 +422,30 @@ fn confirm_large(
     if answer_all.is_none() && prompt.is_none() {
         return Err(large_failure(&t));
     }
-    let Some(Answers {
+    // Declining an item can make another one huge (the copy a duplicate
+    // set aside becomes the keeper): the plan is made again and every item
+    // not answered yet is asked, until no answer declines anything new.
+    let mut answers = Answers::default();
+    let mut plan = plan;
+    let mut left = Some(t);
+    while let Some(t) = &left {
+        let Some(round) = answer_items(t, answer_all, &mut prompt, &answers) else {
+            return Err(large_failure(t));
+        };
+        answers.all |= round.all;
+        answers.accepted.extend(round.accepted);
+        if round.declined.is_empty() {
+            break;
+        }
+        answers.declined.extend(round.declined);
+        plan = replan(&answers.declined)?;
+        left = large_transfer(&plan);
+    }
+    let Answers {
         accepted,
-        declined,
+        declined: _,
         all,
-    }) = answer_items(&t, answer_all, &mut prompt)
-    else {
-        return Err(large_failure(&t));
-    };
-    let (plan, left) = if declined.is_empty() {
-        (plan, Some(t))
-    } else {
-        let plan = replan(&declined)?;
-        let left = large_transfer(&plan);
-        (plan, left)
-    };
+    } = answers;
     let Some(left) = left else {
         return Ok(plan);
     };
@@ -473,20 +482,30 @@ struct Answers {
     all: bool,
 }
 
-/// Asks each huge item of `t` in turn (or answers them all with
-/// `answer_all`); an item that does not fit takes only «no». `None` when
-/// the prompt ends (EOF) or there is none to ask.
+/// Asks each huge item of `t` not in `before` (the answers of earlier
+/// rounds) in turn, or answers them all with `answer_all` (or with
+/// «yes» once «all» was answered); an item that does not fit takes only
+/// «no». `None` when the prompt ends (EOF) or there is none to ask.
 fn answer_items(
     t: &LargeTransfer,
     answer_all: Option<Answer>,
     prompt: &mut Option<Box<dyn Prompt>>,
+    before: &Answers,
 ) -> Option<Answers> {
     let mut out = Answers::default();
     // Bytes already counted against the free space: the rest, then each
-    // item accepted.
-    let mut used = t.rest;
-    for h in &t.huge {
-        let answer = match (answer_all, out.all) {
+    // item accepted (in an earlier round too).
+    let mut used = t
+        .huge
+        .iter()
+        .filter(|h| before.accepted.contains(&h.item))
+        .map(|h| h.bytes)
+        .fold(t.rest, u64::saturating_add);
+    let answered = |item: usize| {
+        before.accepted.contains(&item) || before.declined.iter().any(|d| d.item == item)
+    };
+    for h in t.huge.iter().filter(|h| !answered(h.item)) {
+        let answer = match (answer_all, out.all || before.all) {
             (Some(a), _) => a,
             (None, true) => Answer::Yes,
             (None, false) => {
@@ -1804,10 +1823,10 @@ mod tests {
         // «Yes» and «all» are asked again; then EOF.
         let mut p: Option<Box<dyn Prompt>> =
             Some(Box::new(Script(vec![Answer::Yes, Answer::All], Vec::new())));
-        assert!(answer_items(&t, None, &mut p).is_none());
+        assert!(answer_items(&t, None, &mut p, &Answers::default()).is_none());
         let mut p: Option<Box<dyn Prompt>> =
             Some(Box::new(Script(vec![Answer::Yes, Answer::No], Vec::new())));
-        let got = answer_items(&t, None, &mut p).unwrap();
+        let got = answer_items(&t, None, &mut p, &Answers::default()).unwrap();
         assert!(got.accepted.is_empty());
         assert_eq!(got.declined.len(), 1);
         assert_eq!(got.declined[0].item, 7);
@@ -1827,13 +1846,55 @@ mod tests {
         );
         let mut p: Option<Box<dyn Prompt>> =
             Some(Box::new(Script(vec![Answer::No, Answer::All], Vec::new())));
-        let got = answer_items(&t, None, &mut p).unwrap();
+        let got = answer_items(&t, None, &mut p, &Answers::default()).unwrap();
         assert_eq!(got.accepted, vec![2, 3]);
         assert!(got.all);
         // `--skip-large` asks nothing, even without a prompt.
-        let got = answer_items(&t, Some(Answer::No), &mut None).unwrap();
+        let got = answer_items(&t, Some(Answer::No), &mut None, &Answers::default()).unwrap();
         assert_eq!(got.declined.len(), 3);
-        assert!(answer_items(&t, None, &mut None).is_none());
+        assert!(answer_items(&t, None, &mut None, &Answers::default()).is_none());
+    }
+
+    #[test]
+    fn a_later_round_asks_only_the_items_not_answered_yet() {
+        let t = transfer(
+            Some(100),
+            vec![
+                huge(1, "A", 30, false),
+                huge(2, "B", 30, false),
+                huge(3, "C", 30, false),
+            ],
+            0,
+        );
+        let before = Answers {
+            accepted: vec![1],
+            declined: vec![Decision {
+                item: 2,
+                choice: Choice::Decline,
+            }],
+            all: false,
+        };
+        // One answer only: a second question would read EOF (`None`).
+        let mut p: Option<Box<dyn Prompt>> = Some(Box::new(Script(vec![Answer::Yes], Vec::new())));
+        let got = answer_items(&t, None, &mut p, &before).unwrap();
+        assert_eq!(got.accepted, vec![3]);
+        assert!(got.declined.is_empty());
+        // C is weighed after A: 60 B + 1 % of 100 B leaves 39 B; with B
+        // too it would not fit and take only «no».
+        let c = &t.huge[2];
+        assert!(
+            item_question(&t, c, 30).0.contains("39 B free"),
+            "{}",
+            item_question(&t, c, 30).0
+        );
+        let mut p: Option<Box<dyn Prompt>> = None;
+        // «All» in an earlier round answers the new items without asking.
+        let before = Answers {
+            all: true,
+            ..before
+        };
+        let got = answer_items(&t, None, &mut p, &before).unwrap();
+        assert_eq!(got.accepted, vec![3]);
     }
 
     #[test]

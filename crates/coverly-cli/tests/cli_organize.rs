@@ -1346,6 +1346,62 @@ fn skip_large_leaves_every_huge_item_and_the_rest_still_needs_confirming() {
     assert!(tree_digest(other.path()).is_empty());
 }
 
+/// Two copies of one huge GBA: the plan keeps one and sets the other
+/// aside. Declining the keeper leaves it, so the other copy becomes the
+/// keeper and is huge too: it is asked (or skipped) as well, not refused.
+fn twin_pile() -> TempDir {
+    let tmp = TempDir::new().unwrap();
+    write_old(&tmp.path().join("Twin.gba"), &fx::gba_tagged(30));
+    write_old(&tmp.path().join("Twin (1).gba"), &fx::gba_tagged(30));
+    tmp
+}
+
+#[test]
+fn an_item_that_becomes_huge_after_a_decline_is_asked_or_skipped_too() {
+    let cache = TempDir::new().unwrap();
+    // --skip-large: both copies stay where they are, nothing is refused.
+    let (p, data, other) = (
+        twin_pile(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let out = run_big(
+        p.path(),
+        other.path(),
+        data.path(),
+        cache.path(),
+        &["--skip-large"],
+        None,
+    )
+    .success()
+    .get_output()
+    .clone();
+    assert!(asked(&out.stderr).is_empty());
+    assert!(!other.path().join("ROMS/GBA").exists(), "both copies left");
+    assert!(p.path().join("Twin.gba").is_file());
+    assert!(p.path().join("Twin (1).gba").is_file());
+
+    // Asked: «no» to the keeper, then the copy that takes its place is
+    // asked on its own; «yes» copies it.
+    let (data, other) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let out = run_big(
+        p.path(),
+        other.path(),
+        data.path(),
+        cache.path(),
+        &[],
+        Some("n,y"),
+    )
+    .success()
+    .get_output()
+    .clone();
+    let names = asked(&out.stderr);
+    assert_eq!(names.len(), 2, "{}", String::from_utf8_lossy(&out.stderr));
+    assert_ne!(names[0], names[1]);
+    assert!(other.path().join("ROMS/GBA").join(&names[1]).is_file());
+    assert!(!other.path().join("ROMS/GBA").join(&names[0]).exists());
+}
+
 #[test]
 fn skip_large_with_no_huge_item_changes_nothing() {
     let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
