@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "credits.schema.json",
+  "title": "Coverly credits",
+  "description": "Everything Coverly uses that is not its own (adjustments D25, D26). Read by the Agradecimientos tab, the README script and the landing. Checked by crates/coverly-core/src/credits.rs and src/lib/credits.test.ts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entries"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["es", "en"],
+      "properties": {
+        "es": {
+          "type": "string",
+          "minLength": 1
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "url": {
+      "description": "Official HTTPS site or repository: no query or fragment, never a ROM, key or emulator site (denylist in credits.rs).",
+      "type": "string",
+      "pattern": "^https://[^?#@\\s]+$"
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "group", "name", "use", "license", "required"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "group": {
+          "enum": [
+            "art-sources",
+            "databases",
+            "docs",
+            "conventions",
+            "libraries",
+            "fonts-icons"
+          ]
+        },
+        "name": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/text"
+            }
+          ]
+        },
+        "url": {
+          "$ref": "#/$defs/url"
+        },
+        "use": {
+          "$ref": "#/$defs/text"
+        },
+        "license": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "spdx": {
+              "type": "string"
+            },
+            "name": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "$ref": "#/$defs/text"
+                }
+              ]
+            },
+            "url": {
+              "$ref": "#/$defs/url"
+            }
+          }
+        },
+        "credit": {
+          "$ref": "#/$defs/text"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "endpoints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^https://.+/$"
+          }
+        },
+        "datasets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "required": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": ["credit"]
+      }
+    }
+  }
+}

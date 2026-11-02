@@ -25,6 +25,6 @@
     },
     "types": ["vite/client", "@testing-library/jest-dom"]
   },
-  "include": ["src", "locales"],
+  "include": ["src", "locales", "credits"],
   "exclude": ["node_modules", "dist", "src-tauri", "target"]
 }

@@ -604,7 +604,7 @@ impl DedupeSettings {
 }
 
 /// Default nlib API base (adjustments D9).
-pub const DEFAULT_NLIB_URL: &str = "https://api.nlib.cc";
+pub const DEFAULT_NLIB_URL: &str = crate::net::hosts::NLIB_BASE;
 
 /// The optional Switch name catalogue (adjustments D2, D4, D8, D9):
 /// `blawar/titledb`, downloaded on demand only while `enabled`.

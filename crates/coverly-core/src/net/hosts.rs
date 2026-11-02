@@ -77,6 +77,9 @@ pub const DATABASE_BASE: &str =
 pub const TITLEDB_BASE: &str = "https://raw.githubusercontent.com/blawar/titledb/master";
 pub const STEAMGRIDDB_BASE: &str = "https://www.steamgriddb.com/api/v2";
 pub const SCREENSCRAPER_BASE: &str = "https://api.screenscraper.fr/api2";
+/// Default base of the optional nlib fallback (adjustments D9); the user
+/// may replace it in the settings.
+pub const NLIB_BASE: &str = "https://api.nlib.cc";
 pub const UPDATE_STABLE: &str =
     "https://github.com/MAECLY/coverly-roms/releases/latest/download/latest.json";
 pub const UPDATE_BETA: &str =
@@ -192,6 +195,7 @@ mod tests {
             TITLEDB_BASE,
             STEAMGRIDDB_BASE,
             SCREENSCRAPER_BASE,
+            NLIB_BASE,
         ] {
             assert!(allowed(&format!("{base}/x"), &[]), "{base}");
         }

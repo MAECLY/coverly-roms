@@ -10,6 +10,7 @@ pub mod cache;
 pub mod catalog;
 pub mod consoles;
 pub mod credentials;
+pub mod credits;
 mod csv_util;
 pub mod dedupe;
 pub mod disc;
