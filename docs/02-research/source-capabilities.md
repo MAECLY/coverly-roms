@@ -124,7 +124,7 @@ No se ha escrito nada en el repo.
 - **No usamos:**
   - Los `.lpl`: favoritos e historial.
   - Los `.lrtl`: tiempo jugado y última partida.
-- **Fallo confirmado en el código:** `profiles/template.rs:75` no cambia los caracteres ``&*/:`<>?\|"`` por `_`, y RetroArch los cambia al buscar (`gfx_thumbnail.c:2728`). Por eso no encuentra esas miniaturas.
+- **Fallo corregido:** `profiles/template.rs` no cambiaba los caracteres ``&*/:`<>?\|"`` por `_`, y RetroArch los cambia al buscar (`gfx_thumbnail.c:2728`). Ahora el perfil RetroArch usa el token `{libretro_stem}` (`sanitise_libretro`). Las miniaturas antiguas con el nombre sin cambiar no cuentan como arte, pero tampoco como huérfanas, y no se borran.
 - **Licencia:** es solo un formato de datos y no se copia código GPLv3.
 
 **ScreenScraper**
@@ -141,7 +141,7 @@ No se ha escrito nada en el repo.
   - El hash de la imagen local para recibir `CRCOK`.
   - La cuota ko (`requestskotoday`, `maxrequestskoperday`) y el reintento ante un 429.
 - **Fallos:**
-  - `parse_game` descarta los medios sin región (`:187-188`). Así se perderían fanart, steamgrid, video y marquee aunque se añadieran a la lista.
+  - **Corregido:** `parse_game` descartaba los medios sin región y el constructor de candidatos, las regiones que `ss_region` no conoce (`ss`, `cus`…). Ahora se aceptan sin región de Coverly (después de todas las regiones del orden del usuario) y los medios sin región se piden con `media=<tipo>`, sin el sufijo `(región)`, como en las respuestas reales.
   - Organizar solo manda CRC (`organize/online.rs:39-50`).
 - **Licencia:**
   - La API solo vale para aplicaciones gratuitas y distribuidas.
@@ -284,7 +284,7 @@ Están deduplicadas entre fuentes, cada una en una línea y ordenadas por valor.
 2. Hueco Logo:
    - fuentes, en este orden: `Named_Logos` de libretro, `wheel-hd` > `wheel` de ScreenScraper, `/logos` de SteamGridDB (en el idioma del usuario), IGDB `logos` con `alpha_channel`, y GDK/ERA locales;
    - quitar `Logo` del mapeo de la Microsoft Store.
-3. ScreenScraper: que `parse_game` acepte medios sin región (`screenscraper.rs:187-188`) y no descarte región desconocida (`:587`). Sin esto no llegan fanart, steamgrid, video ni marquee.
+3. **Hecho:** ScreenScraper: que `parse_game` acepte medios sin región y no descarte región desconocida. Falta añadir fanart, steamgrid, video y marquee a `MEDIA_TYPES`.
 4. Hueco Fondo, en este orden: heroes de SteamGridDB, fanart de ScreenScraper, artworks de IGDB, fanart de TheGamesDB, hero de Steam, background de x360db, SuperHero de la Store y `background_image` de RAWG.
 5. SteamGridDB:
    - portadas ancha y cuadrada, icons, `types=animated` (con límite propio frente a los 16 MB de hoy), `styles`/`oneoftag`, `page`/`thumb`;
@@ -360,7 +360,7 @@ Están deduplicadas entre fuentes, cada una en una línea y ordenadas por valor.
 
 ### 6 Exportar a frontends
 
-1. **Fallo:** aplicar `sanitise_libretro` (`identify/names.rs:398`) al `{stem}` del perfil RetroArch (`profiles/template.rs:75`).
+1. **Hecho:** aplicar `sanitise_libretro` (`identify/names.rs:398`) al `{stem}` del perfil RetroArch, con el token `{libretro_stem}`.
 2. Escribir los huecos nuevos en cada frontend: el logo en `marquees/` de ES-DE, `marquee` de Batocera y `Named_Logos/`; el fondo, la caja 3D y el disco donde cada frontend los admita.
 3. Exportar metadatos (`genre`, `players`, `releasedate`, `developer`, `publisher`, `desc`) a `gamelist.xml`, Pegasus y LaunchBox. Solo campos con licencia que lo permita:
    - **nunca** datos de RAWG;
