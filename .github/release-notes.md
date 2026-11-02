@@ -2,6 +2,8 @@
 
 Coverly ROMs <version>. **Download** the file for your computer below and check it against `SHA256SUMS`: `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS), `sha256sum -c SHA256SUMS --ignore-missing` (Linux) or `Get-FileHash <file>` (Windows PowerShell).
 
+What's new in <version>: the `[<version>]` section of [CHANGELOG.md](https://github.com/MAECLY/coverly-roms/blob/v<version>/CHANGELOG.md).
+
 | System                                         | File                                                                                                                                                                             |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | macOS 11 or later, Apple silicon (M1 or newer) | `Coverly-ROMs_<version>_mac_arm.dmg`                                                                                                                                             |
@@ -43,6 +45,8 @@ Installed apps update themselves (Settings → About). Every update is verified 
 ## Español
 
 Coverly ROMs <versión>. **Descarga** el archivo para tu ordenador y compruébalo con `SHA256SUMS`: `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS), `sha256sum -c SHA256SUMS --ignore-missing` (Linux) o `Get-FileHash <archivo>` (PowerShell en Windows).
+
+Novedades de la <versión>: la sección `[<versión>]` de [CHANGELOG.md](https://github.com/MAECLY/coverly-roms/blob/v<versión>/CHANGELOG.md) (en inglés).
 
 | Sistema                                              | Archivo                                                                                                                                                                      |
 | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
