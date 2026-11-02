@@ -1805,3 +1805,158 @@ pub fn xvd_head(ctype: u32) -> SparseAt {
         0x1_0000,
     )
 }
+
+// ---------------------------------------------------------------------
+// Loose executables (adjustments §8.2). Synthetic headers only.
+// ---------------------------------------------------------------------
+
+/// A Switch `main.npdm` (switchbrew «NPDM»): `META`, AciOffset 0x80 at
+/// 0x70, then `ACI0` with `program_id` at +0x10.
+pub fn npdm(program_id: u64) -> Vec<u8> {
+    let mut out = vec![0u8; 0xC0];
+    out[..4].copy_from_slice(b"META");
+    out[0x20..0x2B].copy_from_slice(b"Application");
+    out[0x70..0x74].copy_from_slice(&le32(0x80));
+    out[0x74..0x78].copy_from_slice(&le32(0x40));
+    out[0x80..0x84].copy_from_slice(b"ACI0");
+    out[0x90..0x98].copy_from_slice(&program_id.to_le_bytes());
+    out
+}
+
+/// Size of each text section of [`dol`].
+pub const DOL_TEXT: u32 = 0x100;
+
+/// A DOL (wiibrew «DOL») with `texts` text sections of [`DOL_TEXT`]
+/// bytes of `nop` and one data section, every address in main RAM; the
+/// last text word is `mtspr HID4, r3` when `wii_word`.
+pub fn dol(texts: usize, wii_word: bool) -> Vec<u8> {
+    let mut h = vec![0u8; 0x100];
+    let mut body = Vec::new();
+    let mut at = 0x100u32;
+    for i in 0..texts {
+        h[i * 4..i * 4 + 4].copy_from_slice(&be32(at));
+        h[0x48 + i * 4..0x4C + i * 4].copy_from_slice(&be32(0x8000_3100 + i as u32 * 0x1000));
+        h[0x90 + i * 4..0x94 + i * 4].copy_from_slice(&be32(DOL_TEXT));
+        let mut text: Vec<u8> = std::iter::repeat_n(be32(0x6000_0000), DOL_TEXT as usize / 4)
+            .flatten()
+            .collect();
+        if wii_word && i + 1 == texts {
+            let n = text.len();
+            text[n - 4..].copy_from_slice(&be32(0x7C73_FBA6));
+        }
+        body.extend(text);
+        at += DOL_TEXT;
+    }
+    // One data section.
+    h[0x1C..0x20].copy_from_slice(&be32(at));
+    h[0x64..0x68].copy_from_slice(&be32(0x8040_0000));
+    h[0xAC..0xB0].copy_from_slice(&be32(0x40));
+    body.extend([0xD0u8; 0x40]);
+    h[0xE0..0xE4].copy_from_slice(&be32(0x8000_3100));
+    h.extend(body);
+    h
+}
+
+/// A SELF head (scetool `sce.h`, vita-make-fself): `SCE\0`, the four
+/// `version` bytes (`00 00 00 02` PS3 big-endian, `03 00 00 00` Vita
+/// little-endian), header type 1 and an app info at 0x70 with `authid`
+/// and `self_type`.
+pub fn self_header(version: [u8; 4], self_type: u32, authid: u64) -> Vec<u8> {
+    let big = version == [0, 0, 0, 2];
+    let mut out = vec![0u8; 0x100];
+    out[..4].copy_from_slice(b"SCE\0");
+    out[4..8].copy_from_slice(&version);
+    let u16b = |v: u16| {
+        if big {
+            v.to_be_bytes()
+        } else {
+            v.to_le_bytes()
+        }
+    };
+    let u32b = |v: u32| {
+        if big {
+            v.to_be_bytes()
+        } else {
+            v.to_le_bytes()
+        }
+    };
+    let u64b = |v: u64| {
+        if big {
+            v.to_be_bytes()
+        } else {
+            v.to_le_bytes()
+        }
+    };
+    out[0xA..0xC].copy_from_slice(&u16b(1));
+    let info_field = if big { 0x28 } else { 0x38 };
+    out[info_field..info_field + 8].copy_from_slice(&u64b(0x70));
+    out[0x70..0x78].copy_from_slice(&u64b(authid));
+    out[0x78..0x7C].copy_from_slice(&u32b(0x0100_0002));
+    out[0x7C..0x80].copy_from_slice(&u32b(self_type));
+    out
+}
+
+/// A PS3 NPDRM SELF (`self_type` 8) whose control info at 0x100 holds
+/// one type 3 entry with `NPD\0` and `content_id`.
+pub fn ps3_npdrm_self(content_id: &str) -> Vec<u8> {
+    let mut out = self_header([0, 0, 0, 2], 8, 0x1010_0000_0100_0003);
+    out.resize(0x100, 0);
+    out[0x58..0x60].copy_from_slice(&0x100u64.to_be_bytes());
+    out[0x60..0x68].copy_from_slice(&0x90u64.to_be_bytes());
+    let mut e = vec![0u8; 0x90];
+    e[0..4].copy_from_slice(&be32(3));
+    e[4..8].copy_from_slice(&be32(0x90));
+    e[0x10..0x14].copy_from_slice(b"NPD\0");
+    e[0x20..0x20 + content_id.len()].copy_from_slice(content_id.as_bytes());
+    out.extend(e);
+    out
+}
+
+/// A PSP `EBOOT.PBP` (PPSSPP `PBPReader.cpp`): `\0PBP`, a `PARAM.SFO`
+/// with `CATEGORY`, `DISC_ID` and a title, then a PSAR opening with
+/// `psar_magic` (none when empty).
+pub fn pbp(category: &str, disc_id: &str, psar_magic: &[u8]) -> Vec<u8> {
+    let sfo = param_sfo(&[
+        ("CATEGORY", category),
+        ("DISC_ID", disc_id),
+        ("TITLE", "Test Game"),
+    ]);
+    let sfo_at = 0x28u32;
+    let after = sfo_at + sfo.len() as u32;
+    let mut out = vec![0u8; 0x28];
+    out[..4].copy_from_slice(b"\0PBP");
+    out[4..8].copy_from_slice(&le32(0x0001_0000));
+    out[8..12].copy_from_slice(&le32(sfo_at));
+    // ICON0 … DATA.PSP all empty, right after the SFO; PSAR last.
+    for i in 1..7 {
+        out[8 + i * 4..12 + i * 4].copy_from_slice(&le32(after));
+    }
+    out[0x24..0x28].copy_from_slice(&le32(after));
+    out.extend(sfo);
+    out.extend_from_slice(psar_magic);
+    out.resize(out.len() + 0x40, 0);
+    out
+}
+
+/// A PBP whose `PARAM.SFO` spans 128 KiB, over the metadata budget.
+pub fn pbp_big_sfo() -> SparseAt {
+    let mut h = vec![0u8; 0x28];
+    h[..4].copy_from_slice(b"\0PBP");
+    h[8..12].copy_from_slice(&le32(0x28));
+    for i in 1..8 {
+        h[8 + i * 4..12 + i * 4].copy_from_slice(&le32(0x2_0028));
+    }
+    let mut s = SparseAt::new(0x2_0100);
+    s.put(0, &h);
+    s.put(0x28, b"\0PSF");
+    s
+}
+
+/// A PSP module (PPSSPP `PrxDecrypter.h`): `~PSP`, then `modname` at
+/// 0x0A.
+pub fn prx(modname: &str) -> Vec<u8> {
+    let mut out = vec![0u8; 0x150];
+    out[..4].copy_from_slice(b"~PSP");
+    out[0x0A..0x0A + modname.len()].copy_from_slice(modname.as_bytes());
+    out
+}

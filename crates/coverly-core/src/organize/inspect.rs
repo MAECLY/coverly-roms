@@ -402,6 +402,18 @@ pub fn inspect_file_with(
     tools: Option<&ToolsOnDemand>,
 ) -> io::Result<Inspection> {
     let ext = extension(path);
+    // A Vita backup is told by its name: never opened (adjustments §8.2).
+    if let Some(sniff) = crate::identify::sniff::sniff_by_name(&ext) {
+        let mut out = Inspection::new(Container::Raw);
+        out.payloads.push(Payload {
+            name: file_name(path),
+            ext,
+            size: len,
+            crc32: None,
+            sniff,
+        });
+        return Ok(out);
+    }
     let mut at = FileAt(crate::consoles::open_rom(path)?);
     // An Xbox package, under an XVC extension or a GUID name (systems
     // batch 3 D19, §8.3): its XVD header only, magic window first; no

@@ -23,6 +23,7 @@ use crate::identify::names::Region;
 use crate::identify::sniff::{NotARom, ReadAt};
 
 pub mod ctr;
+pub mod loose;
 pub mod nintendo_disc;
 pub mod nx;
 pub mod orbis;
@@ -487,7 +488,8 @@ pub fn take_open_log() -> Vec<PathBuf> {
 /// title-id tokens, spec D10); `""` when unknown.
 ///
 /// The readers join this list, in this order, as their systems land:
-/// `nx`, `nintendo_disc`, `wad`, `ctr`, `wiiu`, `sony`, `xbox`. Each is
+/// `nx`, `nintendo_disc`, `wad`, `ctr`, `wiiu`, `sony`, `loose`
+/// (adjustments D12), `orbis`, `xbox`. Each is
 /// called only when its magic or extension can apply.
 ///
 /// `nx` goes first and reads only 0x10 bytes before it knows: the other
@@ -519,6 +521,10 @@ pub fn identify_all(src: &mut Budgeted, ext: &str, name: &str) -> Vec<ConsoleId>
 }
 
 fn identify_one(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
+    // A Vita backup is told by its name and never read (adjustments §8.2).
+    if let Some(id) = loose::by_name(ext) {
+        return Some(id);
+    }
     if let Some(id) = nx::identify(src, ext, name) {
         return Some(id);
     }
@@ -530,6 +536,7 @@ fn identify_one(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> 
         .or_else(|| ctr::identify(src, ext))
         .or_else(|| wiiu::identify(src, ext))
         .or_else(|| sony::identify(src, ext))
+        .or_else(|| loose::identify(src, ext, name))
         .or_else(|| orbis::identify(src, ext, name))
         .or_else(|| xbox::identify(src, ext))
 }
@@ -594,7 +601,8 @@ enum ProbeFn {
 /// probe), Wii U loadiine then NUS, then Xbox (`default.xbe`), Xbox 360
 /// (`default.xex`, GOD/XBLA), Xbox One and Series (GDK
 /// `MicrosoftGame.config`, ERA `AppxManifest.xml`), then split Switch
-/// files.
+/// files, then a Wii Homebrew Channel `apps/<name>/boot.dol` (adjustments
+/// D13).
 const DIR_PROBES: &[ProbeFn] = &[
     ProbeFn::One(sony::probe_ps3_jb),
     ProbeFn::One(sony::probe_ps3_hdd),
@@ -607,6 +615,7 @@ const DIR_PROBES: &[ProbeFn] = &[
     ProbeFn::Many(xbox::probe_gdk),
     ProbeFn::One(xbox::probe_era),
     ProbeFn::One(nx::probe_split),
+    ProbeFn::One(loose::probe_apps),
 ];
 
 #[cfg(any(test, feature = "test-util"))]

@@ -269,6 +269,9 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
 /// readers may use (Switch title-id tokens, spec D10); `""` when unknown.
 pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sniff {
     let ext = ext.to_ascii_lowercase();
+    if let Some(s) = sniff_by_name(&ext) {
+        return s;
+    }
     if let Some(s) = sniff_switch_first(src, len, &ext, name) {
         return s;
     }
@@ -335,6 +338,15 @@ pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sni
         cartridges(src, &head, len, &ext, &mut s);
     }
     s
+}
+
+/// A file told by its extension alone and never read (adjustments §8.2:
+/// a Vita content-manager backup); `ext` is lower-case.
+pub fn sniff_by_name(ext: &str) -> Option<Sniff> {
+    let id = crate::consoles::loose::by_name(ext)?;
+    let mut s = Sniff::default();
+    s.add_console(vec![id]);
+    Some(s)
 }
 
 /// A Switch dump, recognised before any generic head read (spec D4): the

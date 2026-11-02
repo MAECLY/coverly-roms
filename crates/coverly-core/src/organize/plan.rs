@@ -1386,6 +1386,7 @@ pub fn survey(
                     .find_map(|p| p.sniff.console.clone())
             });
         }
+        leave_game_part(entry);
         review_xbe_with_siblings(entry);
     }
     let entries = updates_after_bases(entries);
@@ -1452,6 +1453,48 @@ fn catalogue_title(c: &crate::consoles::ConsoleId) -> Option<String> {
     )
     .then(|| c.title.clone())
     .flatten()
+}
+
+/// A piece of a game that cannot play alone (adjustments D13: an ExeFS
+/// file, a loose NCA, a library, title metadata, a module, a Vita
+/// backup) is left with [`LeftReason::GamePart`], whatever else named
+/// it. The title id is the piece's own, or for a backup the nearest
+/// folder of its path named like a Sony title id (`PCSE00123`). Folder
+/// games and sets are never parts.
+fn leave_game_part(entry: &mut SurveyEntry) {
+    let (Some(c), Some(id)) = (entry.console.as_ref(), entry.identification.as_mut()) else {
+        return;
+    };
+    let Some(part) = c.part else {
+        return;
+    };
+    if matches!(entry.kind, ItemKind::Folder | ItemKind::Set) || id.left.is_some() {
+        return;
+    }
+    let title_id = if part == PartKind::Backup {
+        entry.sources.first().and_then(|p| backup_title_id(p))
+    } else {
+        c.title_id.clone()
+    };
+    id.left = Some(LeftReason::GamePart {
+        part,
+        system: c.system.clone(),
+        title_id,
+    });
+}
+
+/// The nearest folder above `path` named like a Sony title id (four
+/// letters, five digits): a Vita backup's only title id (psvimgtools,
+/// `PS Vita/PGAME/<account>/NPJH00053/game/game.psvimg`).
+fn backup_title_id(path: &Path) -> Option<String> {
+    path.ancestors().skip(1).find_map(|dir| {
+        let name = dir.file_name()?.to_str()?;
+        let b = name.as_bytes();
+        (b.len() == 9
+            && b[..4].iter().all(u8::is_ascii_uppercase)
+            && b[4..].iter().all(u8::is_ascii_digit))
+        .then(|| name.to_owned())
+    })
 }
 
 /// A loose retail XBE beside other files (adjustments §8.2) is the
@@ -2299,6 +2342,24 @@ pub fn plan_from_survey(
                 }
                 // The content id the same header read (systems batch 3 §10).
                 item.content_id = header.and_then(|con| con.content_id.clone());
+                // Homebrew goes to its system folder with a note (D13).
+                if !item.is_left()
+                    && header.is_some_and(|con| con.kind == TitleKind::Homebrew)
+                    && !item.notes.contains(&ItemNote::Homebrew)
+                {
+                    item.notes.push(ItemNote::Homebrew);
+                }
+                // A part's title id, once the catalogue had its say (D6).
+                if let OrganizeAction::Left {
+                    reason:
+                        LeftReason::GamePart {
+                            title_id: title_id @ None,
+                            ..
+                        },
+                } = &mut item.action
+                {
+                    *title_id = entry.console.as_ref().and_then(|con| con.title_id.clone());
+                }
             }
             (None, None) => {}
         }

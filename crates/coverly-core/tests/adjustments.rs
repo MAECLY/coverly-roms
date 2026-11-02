@@ -130,6 +130,66 @@ const LOOSE: &[Loose] = &[
         TitleKind::Unknown,
         None,
     ),
+    // `consoles/loose.rs` (Task 9): a Switch ExeFS metadata file.
+    (
+        "main.npdm",
+        npdm_odyssey,
+        "switch",
+        TitleKind::Unknown,
+        Some(PartKind::ExeFs),
+    ),
+    // DOLs by structure: GameCube, and Wii by `mtspr HID4`.
+    ("swiss.dol", dol_gc, "gamecube", TitleKind::Homebrew, None),
+    ("boot.dol", dol_wii, "wii", TitleKind::Homebrew, None),
+    // SELFs: a lone PS3 APP and a Vita homebrew authid are homebrew; an
+    // `eboot.bin` is a game's executable.
+    (
+        "multiman.self",
+        self_ps3_app,
+        "ps3",
+        TitleKind::Homebrew,
+        None,
+    ),
+    (
+        "vitashell.self",
+        self_vita_homebrew,
+        "psvita",
+        TitleKind::Homebrew,
+        None,
+    ),
+    (
+        "eboot.bin",
+        self_ps3_app,
+        "ps3",
+        TitleKind::Unknown,
+        Some(PartKind::ExeFs),
+    ),
+    // PBPs: a PS1 classic, a PSN ISO, a PSP game, PSP homebrew.
+    (
+        "Final Fantasy VII (USA).pbp",
+        pbp_ps1,
+        "psx",
+        TitleKind::Base,
+        None,
+    ),
+    ("EBOOT.PBP", pbp_psn, "psp", TitleKind::Base, None),
+    ("Lumines (USA).pbp", pbp_psp, "psp", TitleKind::Base, None),
+    ("hbl.pbp", pbp_homebrew, "psp", TitleKind::Homebrew, None),
+    // A PSP module and a Vita backup (by name, never read).
+    (
+        "cxmb.prx",
+        prx_module,
+        "psp",
+        TitleKind::Unknown,
+        Some(PartKind::Module),
+    ),
+    (
+        "game.psvimg",
+        empty_backup,
+        "psvita",
+        TitleKind::Unknown,
+        Some(PartKind::Backup),
+    ),
 ];
 
 /// (title id, system, kind): a `.tmd` by its full title-id high word (D14).
@@ -269,6 +329,51 @@ fn xex_title() -> SparseAt {
 
 fn xex_dev_id() -> SparseAt {
     bytes(ct::xex_loose(ct::XEX_MODULE_TITLE, 0xFFFE_07D1, 1, 1))
+}
+
+fn npdm_odyssey() -> SparseAt {
+    bytes(ct::npdm(0x0100_0000_0001_0000))
+}
+
+fn dol_gc() -> SparseAt {
+    bytes(ct::dol(2, false))
+}
+
+fn dol_wii() -> SparseAt {
+    bytes(ct::dol(2, true))
+}
+
+fn self_ps3_app() -> SparseAt {
+    bytes(ct::self_header([0, 0, 0, 2], 4, 0x1010_0000_0100_0003))
+}
+
+fn self_vita_homebrew() -> SparseAt {
+    bytes(ct::self_header([3, 0, 0, 0], 8, 0x2F00_0000_0000_0001))
+}
+
+fn pbp_ps1() -> SparseAt {
+    bytes(ct::pbp("ME", "SLUS00594", b"PSISOIMG0000"))
+}
+
+fn pbp_psn() -> SparseAt {
+    bytes(ct::pbp("EG", "NPUH10001", b"NPUMDIMG"))
+}
+
+fn pbp_psp() -> SparseAt {
+    bytes(ct::pbp("UG", "ULUS10041", b""))
+}
+
+fn pbp_homebrew() -> SparseAt {
+    bytes(ct::pbp("MG", "000000001", b""))
+}
+
+fn prx_module() -> SparseAt {
+    bytes(ct::prx("cxmb"))
+}
+
+/// Any bytes: a Vita backup is never read.
+fn empty_backup() -> SparseAt {
+    SparseAt::new(0x8000)
 }
 
 /// Any bytes: a loose NCA is never read.

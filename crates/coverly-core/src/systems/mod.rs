@@ -496,11 +496,16 @@ const EVERYDAY_EXTS: [&str; 4] = ["png", "exe", "bat", "conf"];
 /// or the `xar!` magic of a macOS installer can name it, and a loose
 /// `.exfat` is one so its boot sector and a `PPSA` token in its name can
 /// make it a PS5 image (systems batch 3 D10; without both it stays
-/// unknown). A loose `.xbe`, `.tmd` or `.rpl` is one so its header can
-/// say what it is (adjustments §8.2: homebrew, a game, title metadata, a
-/// library). Their class stays [`ExtClass::Unknown`]: the extension alone
-/// is no evidence.
-const HEADER_DECIDED_EXTS: [&str; 5] = ["pkg", "exfat", "xbe", "tmd", "rpl"];
+/// unknown). A loose `.xbe`, `.tmd`, `.rpl`, `.nro`, `.nso`, `.nca`,
+/// `.ncz`, `.npdm`, `.dol`, `.self`, `.prx`, `.psvimg` or `.psvmd` is one
+/// so its header (or, for an NCA and a Vita backup, its name) can say
+/// what it is (adjustments §8.2: homebrew, a game, title metadata, a
+/// library, a part of a game). Their class stays [`ExtClass::Unknown`]:
+/// the extension alone is no evidence.
+const HEADER_DECIDED_EXTS: [&str; 15] = [
+    "pkg", "exfat", "xbe", "tmd", "rpl", "nro", "nso", "nca", "ncz", "npdm", "dol", "self", "prx",
+    "psvimg", "psvmd",
+];
 
 /// How much an extension says about the system (spec §6.4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1206,6 +1211,13 @@ mod tests {
         }
         // A weak-only `.pkg` is a candidate, but no evidence by itself.
         assert_eq!(db.extension_class("pkg"), ExtClass::Unknown);
+        // Loose files whose header or name decides (adjustments §8.2).
+        for ext in [
+            "nro", "nso", "nca", "ncz", "npdm", "dol", "self", "prx", "psvimg", "psvmd",
+        ] {
+            assert!(db.is_rom_like_extension(ext), "{ext}");
+            assert_eq!(db.extension_class(ext), ExtClass::Unknown, "{ext}");
+        }
         for ext in ["txt", "jpg", "docx", "dmg", ""] {
             assert!(!db.is_rom_like_extension(ext), "{ext}");
         }
