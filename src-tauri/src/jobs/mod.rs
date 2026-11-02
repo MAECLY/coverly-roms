@@ -26,6 +26,7 @@ use coverly_core::plan::{Decision, Plan, PlanAction};
 use coverly_core::profiles::Media;
 use coverly_core::progress::{PauseKind, Phase, ProgressEvent, ProgressSink};
 use coverly_core::settings::Settings;
+use coverly_core::sources::SourceTrouble;
 use coverly_core::systems::SystemDb;
 use coverly_core::write::OverwritePolicy;
 
@@ -80,6 +81,9 @@ pub trait JobEvents: Send + Sync {
     /// Art was written for `ids` of library `generation` (sent before the
     /// final `changed`).
     fn written(&self, generation: u64, ids: Vec<u32>);
+    /// A gather ended: which sources refused it and which answered
+    /// (sent before the `changed` that shows the plan).
+    fn gathered(&self, _troubles: &[SourceTrouble], _answered: &BTreeSet<String>) {}
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -343,6 +347,9 @@ fn spawn_gather(job: Arc<Job>, events: Arc<dyn JobEvents>) {
                 ))
             })
         });
+        if let Ok(plan) = &planned {
+            events.gathered(&plan.troubles, &plan.answered);
+        }
         {
             let mut d = lock(&job.data);
             d.progress = None;

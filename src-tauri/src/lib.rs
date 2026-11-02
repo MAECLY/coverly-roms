@@ -2,6 +2,7 @@
 
 pub mod dedupe;
 pub mod error;
+pub mod integrations;
 pub mod ipc;
 pub mod jobs;
 pub mod library;
@@ -47,6 +48,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ipc::app_info,
+            integrations::integrations_view,
+            integrations::test_integration,
+            integrations::forget_integration,
+            integrations::open_integration_help,
             ipc::open_library,
             ipc::recent_libraries,
             ipc::forget_recent_library,

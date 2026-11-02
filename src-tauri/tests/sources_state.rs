@@ -195,3 +195,28 @@ fn test_key_uses_a_short_timeout() {
     };
     assert_eq!(key_check_net(&short).timeout, Duration::from_secs(5));
 }
+
+#[test]
+fn sources_info_needs_come_from_the_integrations_registry() {
+    use coverly_core::integrations::for_source;
+    use coverly_core::settings::KNOWN_SOURCES;
+    let server = MockServer::start();
+    let (st, _d) = state(&server, Arc::new(MemoryStore::default()));
+    let info = st.sources_info();
+    for id in KNOWN_SOURCES {
+        let want: Vec<CredentialKey> = for_source(id)
+            .map(|e| e.fields.iter().map(|f| f.key).collect())
+            .unwrap_or_default();
+        let got = &info.iter().find(|i| i.id == id).unwrap().needs;
+        assert_eq!(got, &want, "{id}");
+    }
+    let ss = info.iter().find(|i| i.id == "screenscraper").unwrap();
+    assert_eq!(
+        ss.needs,
+        [
+            CredentialKey::ScreenscraperUser,
+            CredentialKey::ScreenscraperPassword
+        ]
+    );
+    assert!(!ss.ready, "no account stored");
+}

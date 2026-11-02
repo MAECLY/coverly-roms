@@ -2,6 +2,7 @@
 //! answers are presence flags and a `KeyCheck`.
 
 use coverly_core::credentials::{CredentialKey, DevCredentials};
+use coverly_core::integrations::{self, SsQuota};
 use std::time::Duration;
 
 use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
@@ -53,11 +54,11 @@ impl AppState {
         KNOWN_SOURCES
             .iter()
             .map(|&id| {
-                let (built, needs) = match id {
-                    "steamgriddb" => (true, vec![CredentialKey::SteamgriddbApiKey]),
-                    "screenscraper" => (DevCredentials::from_build().is_some(), vec![]),
-                    _ => (true, vec![]),
-                };
+                let built = id != "screenscraper" || DevCredentials::from_build().is_some();
+                // What it needs comes from the integrations registry (D3).
+                let needs: Vec<CredentialKey> = integrations::for_source(id)
+                    .map(|e| e.fields.iter().map(|f| f.key).collect())
+                    .unwrap_or_default();
                 let ready = built && needs.iter().all(usable);
                 SourceInfoView {
                     id: id.to_string(),
@@ -72,23 +73,38 @@ impl AppState {
     /// One cheap authenticated request with the stored key ("Test key").
     /// Only the verdict comes back; the key is never returned or logged.
     pub fn test_source_key(&self, source: &str) -> Result<KeyCheck, IpcError> {
+        let (check, _) = self.check_source(source)?;
+        log::info!("source key checked: {source} -> {check:?}");
+        Ok(check)
+    }
+
+    /// The connection test of `source` with the stored keys: the verdict
+    /// and, for ScreenScraper, the quota its answer reported.
+    pub(crate) fn check_source(
+        &self,
+        source: &str,
+    ) -> Result<(KeyCheck, Option<SsQuota>), IpcError> {
         let cfg = self.fill_config();
         let net = key_check_net(&cfg.net);
         let http = PoliteHttp::new(UreqHttp::new(&net), &net);
         let check = match source {
-            "steamgriddb" => steamgriddb::check_key(
-                &http,
-                &cfg.endpoints.steamgriddb,
-                cfg.keys.steamgriddb.as_ref(),
+            "steamgriddb" => (
+                steamgriddb::check_key(
+                    &http,
+                    &cfg.endpoints.steamgriddb,
+                    cfg.keys.steamgriddb.as_ref(),
+                ),
+                None,
             ),
             "screenscraper" => match &cfg.keys.screenscraper_dev {
-                None => KeyCheck::Unavailable,
+                None => (KeyCheck::Unavailable, None),
                 Some(dev) => {
                     let ss = SsConfig {
                         base: cfg.endpoints.screenscraper.clone(),
                         ..SsConfig::default()
                     };
-                    check_account(&http, &ss, dev, cfg.keys.screenscraper_user.as_ref()).verdict
+                    let c = check_account(&http, &ss, dev, cfg.keys.screenscraper_user.as_ref());
+                    (c.verdict, c.quota)
                 }
             },
             _ => {
@@ -97,7 +113,6 @@ impl AppState {
                 ))
             }
         };
-        log::info!("source key checked: {source} -> {check:?}");
         Ok(check)
     }
 }

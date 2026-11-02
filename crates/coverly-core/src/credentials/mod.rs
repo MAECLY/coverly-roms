@@ -237,6 +237,9 @@ pub const SS_PASSWORD_ENV: &str = "COVERLY_SS_PASSWORD";
 
 /// Every credential a fill may use, read once when the job starts (the
 /// app: keychain; the CLI: environment). Workers never touch the keychain.
+/// Per key, whether a usable value is stored; `Err` = the store failed.
+pub type Presence = Result<Vec<(CredentialKey, bool)>, CredentialError>;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SourceKeys {
     pub steamgriddb: Option<Secret>,
@@ -262,18 +265,31 @@ impl SourceKeys {
     /// [`Self::from_store`] and whether every read succeeded (a locked or
     /// failing store gives empty keys that are not worth remembering).
     pub fn read_store(store: &dyn CredentialStore) -> (SourceKeys, bool) {
-        let mut complete = true;
-        let mut get = |k| match store.get(k) {
+        let (keys, presence) = SourceKeys::read_with_presence(store);
+        (keys, presence.is_ok())
+    }
+
+    /// One pass over the store: the usable keys and, per key, whether a
+    /// usable value is stored (never the values). The presence is the
+    /// first error when any read failed: «could not look» is not «unset».
+    pub fn read_with_presence(store: &dyn CredentialStore) -> (SourceKeys, Presence) {
+        let mut first_error = None;
+        let values = CredentialKey::ALL.map(|k| match store.get(k) {
             Ok(v) => usable(v),
-            Err(_) => {
-                complete = false;
+            Err(e) => {
+                first_error.get_or_insert(e);
                 None
             }
+        });
+        let presence = match first_error {
+            Some(e) => Err(e),
+            None => Ok(CredentialKey::ALL
+                .into_iter()
+                .zip(values.iter().map(Option::is_some))
+                .collect()),
         };
-        let sgdb = get(CredentialKey::SteamgriddbApiKey);
-        let user = get(CredentialKey::ScreenscraperUser);
-        let password = get(CredentialKey::ScreenscraperPassword);
-        (SourceKeys::assemble(sgdb, user, password), complete)
+        let [sgdb, user, password] = values;
+        (SourceKeys::assemble(sgdb, user, password), presence)
     }
 
     /// The keys in the environment (`lookup` is `std::env::var` in the CLI).
@@ -379,5 +395,25 @@ mod tests {
         let user = k.screenscraper_user.clone().unwrap();
         assert_eq!((user.user.expose(), user.password.expose()), ("me", "pw"));
         assert!(!format!("{k:?}").contains("pw"));
+    }
+
+    #[test]
+    fn one_pass_gives_the_keys_and_what_is_stored_without_values() {
+        let store = MemoryStore::default();
+        store.set(CredentialKey::SteamgriddbApiKey, "sk-1").unwrap();
+        store.set(CredentialKey::ScreenscraperUser, "   ").unwrap();
+        let (keys, presence) = SourceKeys::read_with_presence(&store);
+        assert_eq!(store.reads(), CredentialKey::ALL.len());
+        assert!(keys.steamgriddb.is_some());
+        assert_eq!(
+            presence.unwrap(),
+            vec![
+                (CredentialKey::SteamgriddbApiKey, true),
+                (CredentialKey::ScreenscraperUser, false),
+                (CredentialKey::ScreenscraperPassword, false),
+            ]
+        );
+        let (_, failed) = SourceKeys::read_with_presence(&MemoryStore::unavailable());
+        assert_eq!(failed, Err(CredentialError::Unavailable));
     }
 }

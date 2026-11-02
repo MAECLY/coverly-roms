@@ -3,7 +3,7 @@
 //! the settings (loaded once, saved on every change; each job keeps the
 //! snapshot it started with). Free of Tauri types so it is unit-testable.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
@@ -16,7 +16,8 @@ use coverly_core::audit::{build_report, write_csv};
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::catalog::TitleNames;
 use coverly_core::credentials::{
-    store_secret, CredentialKey, CredentialStatus, CredentialStore, MemoryStore, SourceKeys,
+    store_secret, CredentialKey, CredentialStatus, CredentialStore, MemoryStore, Presence,
+    SourceKeys,
 };
 use coverly_core::fill::{remove_art, write_local_image, FillSettings, RomRef};
 use coverly_core::gather::Scope;
@@ -45,7 +46,7 @@ use coverly_core::settings::{
     RecentLibrary, Settings,
 };
 use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig};
-use coverly_core::sources::Candidate;
+use coverly_core::sources::{Candidate, SourceTrouble, TroubleKind};
 use coverly_core::systems::SystemDb;
 use coverly_core::write::{
     later_jobs, list_jobs, undo_job, undo_jobs_in_order_with, JobKind, OverwritePolicy,
@@ -102,6 +103,9 @@ pub struct AppState {
     /// The source keys last read from `credentials`, so drawing thumbnails
     /// or listing history never goes back to the keychain.
     keys: Mutex<KeyCache>,
+    /// What the last connection test or job said about each integration
+    /// and the last ScreenScraper quota seen (memory only, spec §12.4).
+    integrations: Mutex<crate::integrations::HealthBook>,
     /// Organise plans by id and the survey in progress.
     organize: OrganizeManager,
     /// Duplicates plans by id, the plan being made and the apply.
@@ -133,6 +137,8 @@ pub struct AppState {
 struct KeyCache {
     generation: u64,
     keys: Option<SourceKeys>,
+    /// Which keys hold a usable value, from the same read as `keys`.
+    presence: Vec<(CredentialKey, bool)>,
 }
 
 /// The settings in use and what loading them had to do.
@@ -353,6 +359,7 @@ impl AppState {
             searches: Mutex::new(None),
             credentials: Arc::new(MemoryStore::default()),
             keys: Mutex::new(KeyCache::default()),
+            integrations: Mutex::new(crate::integrations::HealthBook::default()),
             organize: OrganizeManager::default(),
             dedupe: DedupeManager::default(),
             trash: Arc::new(OsTrash),
@@ -406,22 +413,41 @@ impl AppState {
     /// ready): read from the store once, then remembered until a
     /// credential is saved or removed. A failing read is not remembered.
     pub fn source_keys(&self) -> SourceKeys {
+        self.read_keys().0
+    }
+
+    /// Per credential key, whether a usable value is stored (never the
+    /// value), from the same cached read as [`Self::source_keys`]; `Err`
+    /// when the keychain could not be read.
+    pub fn key_presence(&self) -> Presence {
+        self.read_keys().1
+    }
+
+    fn read_keys(&self) -> (SourceKeys, Presence) {
         let generation = {
             let cache = lock(&self.keys);
             if let Some(k) = &cache.keys {
-                return k.clone();
+                return (k.clone(), Ok(cache.presence.clone()));
             }
             cache.generation
         };
-        let (keys, complete) = SourceKeys::read_store(self.credentials.as_ref());
+        let (keys, presence) = SourceKeys::read_with_presence(self.credentials.as_ref());
         let mut cache = lock(&self.keys);
-        if complete && cache.generation == generation {
+        if let (Ok(p), true) = (&presence, cache.generation == generation) {
             cache.keys = Some(keys.clone());
+            cache.presence = p.clone();
         }
-        keys
+        (keys, presence)
     }
 
-    fn forget_keys(&self) {
+    /// The in-memory integration health (connection tests, job troubles).
+    pub(crate) fn integration_book(
+        &self,
+    ) -> std::sync::MutexGuard<'_, crate::integrations::HealthBook> {
+        lock(&self.integrations)
+    }
+
+    pub(crate) fn forget_keys(&self) {
         let mut cache = lock(&self.keys);
         cache.generation += 1;
         cache.keys = None;
@@ -1360,7 +1386,7 @@ fn recent_views(settings: &Settings) -> Vec<RecentView> {
         .collect()
 }
 
-fn now_unix() -> i64 {
+pub(crate) fn now_unix() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
@@ -1375,6 +1401,33 @@ fn existing_folder(path: &Path) -> Result<(), IpcError> {
         Ok(_) => Err(IpcError::NotAFolder(shown)),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Err(IpcError::NotFound(shown)),
         Err(_) => Err(IpcError::Unreadable(shown)),
+    }
+}
+
+impl AppState {
+    /// What an organise survey learned about ScreenScraper (D29): a
+    /// reported quota, a used-up quota, or an answer (the account works).
+    fn note_online_lookup(&self, ss: &ScreenScraperSource<'_>) {
+        let quota = ss.last_quota();
+        if let Some(q) = quota {
+            self.note_ss_quota(q);
+        }
+        let exhausted = ss.is_exhausted();
+        let troubles: Vec<SourceTrouble> = exhausted
+            .then(|| SourceTrouble {
+                source: "screenscraper".into(),
+                kind: TroubleKind::Exhausted,
+            })
+            .into_iter()
+            .collect();
+        // `ssuser` comes only with an answer the account was accepted for.
+        let answered: BTreeSet<String> = quota
+            .map(|_| "screenscraper".to_string())
+            .into_iter()
+            .collect();
+        if !troubles.is_empty() || !answered.is_empty() {
+            self.note_troubles(&troubles, &answered);
+        }
     }
 }
 
@@ -1520,6 +1573,9 @@ impl AppState {
                 let throttle = Throttle::new(plan_id, events);
                 let found = survey(&source, &opts, &env, &|p| throttle.progress(p), &cancel);
                 self.organize.finish(plan_id);
+                if let Some(ss) = &screenscraper {
+                    self.note_online_lookup(ss);
+                }
                 let found = found?;
                 log::info!(
                     "organise plan {plan_id}: surveyed {} items",

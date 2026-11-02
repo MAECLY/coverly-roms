@@ -303,6 +303,11 @@ impl<'a> ScreenScraperSource<'a> {
         self.thread_limiter().capacity()
     }
 
+    /// The service said this run's daily quota is used up.
+    pub fn is_exhausted(&self) -> bool {
+        self.exhausted.load(Ordering::SeqCst)
+    }
+
     /// The quota the latest JSON answer of this run reported, if any.
     pub fn last_quota(&self) -> Option<SsQuota> {
         *self.last_quota.lock().unwrap_or_else(|p| p.into_inner())
