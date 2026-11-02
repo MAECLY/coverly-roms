@@ -19,6 +19,7 @@ pub mod gamelist;
 pub mod gather;
 pub mod identify;
 pub mod image;
+pub mod integrations;
 pub mod jobs;
 pub mod matching;
 pub mod net;

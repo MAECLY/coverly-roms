@@ -306,7 +306,7 @@ fn schema_problems(entries: &[Credit]) -> Vec<String> {
 }
 
 /// Why `url` may not be linked, if it may not.
-fn url_problem(url: &str) -> Option<&'static str> {
+pub(crate) fn url_problem(url: &str) -> Option<&'static str> {
     let Some(rest) = url.strip_prefix("https://") else {
         return Some("not https");
     };
@@ -581,10 +581,12 @@ mod tests {
             Endpoint {
                 prefix: MAECLY_GITHUB,
                 credit: None,
+                credentials: false,
             },
             Endpoint {
                 prefix: "https://new-provider.example/",
                 credit: None,
+                credentials: false,
             },
         ];
         let problems = endpoint_problems(&entries, &endpoints);

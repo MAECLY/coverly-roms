@@ -299,6 +299,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn keychain_names_are_pinned_so_stored_keys_keep_working() {
+        let names: Vec<&str> = CredentialKey::ALL.iter().map(|k| k.account()).collect();
+        assert_eq!(
+            names,
+            [
+                "steamgriddb-api-key",
+                "screenscraper-user",
+                "screenscraper-password"
+            ]
+        );
+    }
+
+    #[test]
     fn a_secret_never_prints_its_value() {
         let s = Secret::new("sk-123");
         assert_eq!(format!("{s:?}"), "Secret(***)");

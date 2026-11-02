@@ -10,6 +10,9 @@
 pub struct Endpoint {
     pub prefix: &'static str,
     pub credit: Option<&'static str>,
+    /// Whether requests to it carry the user's credentials (an API key or
+    /// an account); the integrations registry must cover each such entry.
+    pub credentials: bool,
 }
 
 pub const LIBRETRO_THUMBNAILS: &str = "https://thumbnails.libretro.com/";
@@ -27,43 +30,53 @@ pub const ENDPOINTS: &[Endpoint] = &[
     Endpoint {
         prefix: LIBRETRO_THUMBNAILS,
         credit: Some("libretro-thumbnails"),
+        credentials: false,
     },
     Endpoint {
         prefix: LIBRETRO_THUMBNAILS_RAW,
         credit: Some("libretro-thumbnails"),
+        credentials: false,
     },
     Endpoint {
         prefix: LIBRETRO_DATABASE,
         credit: Some("libretro-database"),
+        credentials: false,
     },
     Endpoint {
         prefix: TITLEDB,
         credit: Some("titledb"),
+        credentials: false,
     },
     Endpoint {
         prefix: STEAMGRIDDB,
         credit: Some("steamgriddb"),
+        credentials: true,
     },
     Endpoint {
         prefix: STEAMGRIDDB_CDN,
         credit: Some("steamgriddb"),
+        credentials: false,
     },
     Endpoint {
         prefix: SCREENSCRAPER,
         credit: Some("screenscraper"),
+        credentials: true,
     },
     Endpoint {
         prefix: ESHOP_ICONS,
         credit: Some("nintendo-eshop-icons"),
+        credentials: false,
     },
     Endpoint {
         prefix: NLIB,
         credit: Some("nlib"),
+        credentials: false,
     },
     // The updater: Coverly's own releases, nothing to credit.
     Endpoint {
         prefix: MAECLY_GITHUB,
         credit: None,
+        credentials: false,
     },
 ];
 

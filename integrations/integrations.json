@@ -1,0 +1,120 @@
+{
+  "entries": [
+    {
+      "id": "steamgriddb",
+      "name": "SteamGridDB",
+      "kind": "api-key",
+      "group": "art",
+      "status": "working",
+      "fields": [
+        { "key": "steamgriddb-api-key", "input": "api-key", "required": true }
+      ],
+      "test": "steamgriddb",
+      "help_url": "https://www.steamgriddb.com/profile/preferences/api",
+      "credits": ["steamgriddb"],
+      "source": "steamgriddb",
+      "setting": "sources.order.steamgriddb",
+      "powers": ["fill"]
+    },
+    {
+      "id": "screenscraper",
+      "name": "ScreenScraper",
+      "kind": "account",
+      "group": "art",
+      "status": "working",
+      "fields": [
+        { "key": "screenscraper-user", "input": "user", "required": true },
+        {
+          "key": "screenscraper-password",
+          "input": "password",
+          "required": true
+        }
+      ],
+      "test": "screenscraper",
+      "help_url": "https://www.screenscraper.fr/membreinscription.php",
+      "credits": ["screenscraper"],
+      "source": "screenscraper",
+      "setting": "sources.order.screenscraper",
+      "powers": ["fill", "organize-identify"]
+    },
+    {
+      "id": "switch-catalog",
+      "name": "Catálogo de Switch",
+      "kind": "dataset",
+      "group": "catalogs",
+      "status": "working",
+      "credits": ["titledb", "nlib", "nintendo-eshop-icons"],
+      "setting": "catalogs.switch.enabled",
+      "powers": ["organize-names"]
+    },
+    {
+      "id": "updates",
+      "name": "Actualizaciones",
+      "kind": "link",
+      "group": "updates",
+      "status": "working",
+      "setting": "general.update_channel",
+      "powers": ["updates"]
+    },
+    {
+      "id": "igdb",
+      "name": "IGDB",
+      "kind": "api-key",
+      "group": "art",
+      "status": "planned",
+      "needs": ["client-id", "secret"],
+      "roadmap": "31-fuentes-de-nombres-y-arte-por-title-id"
+    },
+    {
+      "id": "retroachievements",
+      "name": "RetroAchievements",
+      "kind": "account",
+      "group": "achievements",
+      "status": "planned",
+      "needs": ["user", "api-key"],
+      "roadmap": "retroachievements"
+    },
+    {
+      "id": "thegamesdb",
+      "name": "TheGamesDB",
+      "kind": "api-key",
+      "group": "names",
+      "status": "planned",
+      "needs": ["api-key"],
+      "roadmap": "31-fuentes-de-nombres-y-arte-por-title-id"
+    },
+    {
+      "id": "rawg",
+      "name": "RAWG",
+      "kind": "api-key",
+      "group": "names",
+      "status": "planned",
+      "needs": ["api-key"],
+      "roadmap": "31-fuentes-de-nombres-y-arte-por-title-id"
+    },
+    {
+      "id": "microsoft-store",
+      "name": "Microsoft Store",
+      "kind": "dataset",
+      "group": "art",
+      "status": "planned",
+      "roadmap": "31-fuentes-de-nombres-y-arte-por-title-id"
+    },
+    {
+      "id": "gametdb",
+      "name": "GameTDB",
+      "kind": "dataset",
+      "group": "art",
+      "status": "planned",
+      "roadmap": "31-fuentes-de-nombres-y-arte-por-title-id"
+    },
+    {
+      "id": "wikidata",
+      "name": "Wikidata",
+      "kind": "dataset",
+      "group": "names",
+      "status": "planned",
+      "roadmap": "31-fuentes-de-nombres-y-arte-por-title-id"
+    }
+  ]
+}
