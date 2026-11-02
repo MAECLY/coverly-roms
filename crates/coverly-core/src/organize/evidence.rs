@@ -648,17 +648,23 @@ pub fn resolve_switch_title(
 
 /// Labels an item «Cifrado» (spec D11): a Switch or 3DS title whose name
 /// nothing resolved (no header title, no catalogue name, no file-name
-/// title) and whose content is encrypted (`encrypted == Some(true)`, or a
-/// Switch NSP/XCI/NCA, always encrypted). The label replaces the
-/// emulator's `EncryptedContent` note, so a row never says «Cifrado»
-/// twice; a resolved title keeps that note alone.
-pub fn note_encrypted_name(notes: &mut Vec<ItemNote>, c: &crate::consoles::ConsoleId) {
+/// title, no DAT game name `dat_name`) and whose content is encrypted
+/// (`encrypted == Some(true)`, or a Switch NSP/XCI/NCA, always
+/// encrypted). The label replaces the emulator's `EncryptedContent`
+/// note, so a row never says «Cifrado» twice; a resolved title keeps
+/// that note alone.
+pub fn note_encrypted_name(
+    notes: &mut Vec<ItemNote>,
+    c: &crate::consoles::ConsoleId,
+    dat_name: Option<&str>,
+) {
     let encrypted = match c.system.as_str() {
         "3ds" => c.encrypted == Some(true),
         "switch" => c.encrypted == Some(true) || crate::consoles::nx::is_encrypted_package(c),
         _ => return,
     };
-    if !encrypted || c.title.as_deref().is_some_and(|t| !t.trim().is_empty()) {
+    let named = |t: Option<&str>| t.is_some_and(|t| !t.trim().is_empty());
+    if !encrypted || named(c.title.as_deref()) || named(dat_name) {
         return;
     }
     notes.retain(|n| !matches!(n, ItemNote::EncryptedContent { .. }));
@@ -1438,7 +1444,7 @@ mod tests {
     fn encrypted_name_only_for_unresolved_encrypted_switch_and_3ds() {
         use crate::consoles::{ConsoleId, PartKind, TitleKind};
         let note = |c: &ConsoleId, mut notes: Vec<ItemNote>| {
-            note_encrypted_name(&mut notes, c);
+            note_encrypted_name(&mut notes, c, None);
             notes
         };
         let azahar = ItemNote::EncryptedContent {
@@ -1471,6 +1477,20 @@ mod tests {
             note(&card, vec![azahar.clone()]),
             vec![ItemNote::EncryptedName]
         );
+        // A DAT game name resolves it too: the emulator note alone.
+        let mut notes = vec![azahar.clone()];
+        note_encrypted_name(&mut notes, &card, Some("Mario Kart 7 (Europe)"));
+        assert_eq!(notes, vec![azahar.clone()]);
+        let mut notes = vec![azahar.clone()];
+        note_encrypted_name(&mut notes, &card, Some("  "));
+        assert_eq!(notes, vec![ItemNote::EncryptedName]);
+        let mut notes = vec![];
+        note_encrypted_name(
+            &mut notes,
+            &ConsoleId::proven("switch", "PFS0"),
+            Some("Odyssey"),
+        );
+        assert_eq!(notes, vec![]);
         card.title = Some("Test Game".into());
         assert_eq!(note(&card, vec![azahar.clone()]), vec![azahar.clone()]);
         let mut clear = ConsoleId::proven("3ds", "NCSD header");
