@@ -38,6 +38,22 @@ pub mod write;
 /// Version of the core library, taken from the workspace package version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Test builds only (the `test-util` feature): the value of the test hook
+/// variable `name` (a `COVERLY_TEST_*` name), so end-to-end tests of the
+/// CLI can script what a terminal would answer. Release builds always
+/// return `None` and never read the environment.
+pub fn test_hook(name: &str) -> Option<String> {
+    #[cfg(feature = "test-util")]
+    {
+        std::env::var(name).ok()
+    }
+    #[cfg(not(feature = "test-util"))]
+    {
+        let _ = name;
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -574,7 +574,9 @@ pub fn set_large_transfer_override(bytes: Option<u64>) {
     LARGE_TRANSFER_AT.with(|c| c.set(bytes));
 }
 
-pub(crate) fn large_transfer_threshold() -> u64 {
+/// The bytes from which an item is asked on its own, or a plan as a whole
+/// ([`LARGE_TRANSFER`], or a test build's override).
+pub fn large_transfer_threshold() -> u64 {
     #[cfg(feature = "test-util")]
     {
         if let Some(bytes) = LARGE_TRANSFER_AT.with(std::cell::Cell::get) {

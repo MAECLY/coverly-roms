@@ -153,6 +153,8 @@ pub struct SwitchCatalog {
     /// Last import failure (byte offset and field name only).
     last_error: Mutex<Option<String>>,
     max_bytes: u64,
+    /// Where the region files and `ncas.json` are read from.
+    base: String,
 }
 
 impl SwitchCatalog {
@@ -179,6 +181,7 @@ impl SwitchCatalog {
             progress: Mutex::new(None),
             last_error: Mutex::new(None),
             max_bytes: MAX_CATALOG_BYTES,
+            base: TITLEDB_BASE.to_string(),
         })
     }
 
@@ -186,6 +189,14 @@ impl SwitchCatalog {
     /// [`MAX_CATALOG_BYTES`]).
     pub fn with_max_bytes(mut self, n: u64) -> SwitchCatalog {
         self.max_bytes = n;
+        self
+    }
+
+    /// Reads the catalogue files from `base` instead of `blawar/titledb`
+    /// (tests and the CLI's hidden base-URL flag point it at a local mock;
+    /// the HTTP client still refuses any other unregistered host).
+    pub fn with_base(mut self, base: impl Into<String>) -> SwitchCatalog {
+        self.base = base.into().trim_end_matches('/').to_string();
         self
     }
 
@@ -558,7 +569,7 @@ impl SwitchCatalog {
         conditional: bool,
         fallback: bool,
     ) -> Outcome {
-        let mut req = HttpRequest::get(format!("{TITLEDB_BASE}/{file}")).max_bytes(self.max_bytes);
+        let mut req = HttpRequest::get(format!("{}/{file}", self.base)).max_bytes(self.max_bytes);
         if conditional {
             req = req
                 .if_none_match(prev.etag.clone())
