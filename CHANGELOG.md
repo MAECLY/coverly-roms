@@ -8,6 +8,8 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-02
+
 ### Added
 
 - Windows on ARM64 builds of the app and the command line.
@@ -102,6 +104,20 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   link and the credit it asks for, searchable, and the full third-party
   licence texts viewable in the app.
 - `coverly catalog switch status|update|remove`.
+- Organise shows extraction as it happens: the archive opens and each
+  track goes into its system folder, the current game's tracks are listed
+  as each one is written and its CRC checked, and a bar by size shows the
+  speed and the time left, with separate «Game 2 of 4» and «Track 5 of 16»
+  counters instead of «0 of 1 files». Scanning, cover fill and duplicates
+  show the same readout where it fits; nothing moves with reduced motion.
+  `coverly organize` prints a line per extracted file, at most once a
+  second.
+- Duplicates screen: every copy, conflicting save and the `_Duplicados/`
+  folder can be shown in Finder, Explorer or the file manager; each copy
+  shows its region, revision, languages and dump tags, its cover, size,
+  format, date, whether it has a save and the rule that kept it. Keys: ↑/↓
+  and 1–9 pick the copy, J/K and Tab move between games, X skips a game,
+  ⌘↩ / Ctrl+Enter applies.
 
 ### Changed
 
@@ -148,6 +164,9 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 - Empty files no longer hold back PS4, PS5, Xbox One and Xbox Series
   folder games.
 - `.cik` files are treated as key material and left untouched.
+- A Wii U `.wua` stays over a Wii U game folder with the same title id: a
+  `.wua` can bundle the update and DLC the folder may lack. Your own pick,
+  a save, «played» and «in the library» still decide first.
 - The third-party notices name every source and component whose licence
   asks for a credit, drop an art source Coverly never used, and point to
   the full licence list generated from the lock files. The README's
