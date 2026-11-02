@@ -681,6 +681,17 @@ fn check_names_free(staged: &[StagedEntry], m3u: Option<&Path>) -> Result<(), Ex
 /// a `.cue` of the same stem), relative to the playlist's folder with `/`,
 /// in name order; UTF-8 without BOM, `\n` line ends.
 pub fn m3u_text(sheets: &[&Path], m3u: &Path) -> Option<String> {
+    playlist_text(sheets, m3u, true)
+}
+
+/// [`m3u_text`] with the lines in the order of `sheets` (a loose
+/// multi-disc set's disc order, adjustments D24: `Disc 10` after
+/// `Disc 9`, which a sort by name would put after `Disc 1`).
+pub fn m3u_text_in_order(sheets: &[&Path], m3u: &Path) -> Option<String> {
+    playlist_text(sheets, m3u, false)
+}
+
+fn playlist_text(sheets: &[&Path], m3u: &Path, sort: bool) -> Option<String> {
     let dir = m3u.parent()?;
     let mut lines: Vec<(String, bool)> = Vec::new();
     for sheet in sheets {
@@ -707,7 +718,9 @@ pub fn m3u_text(sheets: &[&Path], m3u: &Path) -> Option<String> {
     if lines.is_empty() {
         return None;
     }
-    lines.sort();
+    if sort {
+        lines.sort();
+    }
     let mut text = String::new();
     for (line, _) in lines {
         text.push_str(&line);

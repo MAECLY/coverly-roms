@@ -677,6 +677,41 @@ fn the_playlist_is_written_byte_exact_and_undone() {
     }
 }
 
+/// The playlist lists the discs in disc order, `Disc 10` after `Disc 9`.
+#[test]
+fn the_playlist_follows_the_disc_numbers() {
+    let world = World::new();
+    let d = dirs();
+    for n in 1..=10u64 {
+        cue_set(
+            &d.src,
+            &format!("Night Trap (USA) (Disc {n})"),
+            &dt::segacd_track(),
+            n,
+        );
+    }
+    let opts = options(&layout(&world, false), &d.target, TransferMode::Move);
+    let first = plan_with(&world, &d, &opts, &[]);
+    let id = the_set(&first).id;
+    let p = plan_with(
+        &world,
+        &d,
+        &opts,
+        &[Decision {
+            item: id,
+            choice: Choice::Accept,
+        }],
+    );
+    let set = the_set(&p).clone();
+    let m3u = d.target.join(&set.playlist.as_ref().unwrap().path);
+    let trash = FakeTrash::new(d.data.join("trash"));
+    apply(&d, &p, &trash);
+    let want: String = (1..=10)
+        .map(|n| format!("Night Trap (USA) (Disc {n}).cue\n"))
+        .collect();
+    assert_eq!(fs::read_to_string(&m3u).unwrap(), want);
+}
+
 #[test]
 fn a_playlist_written_meanwhile_is_never_replaced() {
     let world = World::new();

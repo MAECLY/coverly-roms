@@ -21,8 +21,9 @@ use crate::disc::sheets::SheetKind;
 use crate::identify::overrides::{Overrides, OVERRIDES_FILE};
 use crate::jobs::ItemErrorKind;
 use crate::organize::extract::{
-    archive_unchanged, decode_total, dispose_archive, extract_and_commit, m3u_text, Adopted,
-    ArchiveFate, CommitRequest, ExtractError, ExtractRequest, ExtractTick,
+    archive_unchanged, decode_total, dispose_archive, extract_and_commit, m3u_text,
+    m3u_text_in_order, Adopted, ArchiveFate, CommitRequest, ExtractError, ExtractRequest,
+    ExtractTick,
 };
 use crate::organize::plan::{
     ArchiveAfter, ExtractEntry, ExtractSource, ItemKind, OrganizeAction, OrganizeItem,
@@ -2149,8 +2150,6 @@ impl<'a> Run<'a> {
         self.apply_extract(item, &adopted)
     }
 
-    /// The generated playlist of a resumed item whose entries are all in
-    /// place: written when it is missing; one with the very text is kept.
     /// The playlist of a loose multi-disc set (adjustments spec D24),
     /// once its discs are in place: a new file, journaled so undo removes
     /// it, in copy mode too. A file already at its name (the user's, or
@@ -2161,7 +2160,7 @@ impl<'a> Run<'a> {
         let m3u = root.join(&playlist.path);
         let discs: Vec<PathBuf> = playlist.discs.iter().map(|d| root.join(d)).collect();
         let refs: Vec<&Path> = discs.iter().map(PathBuf::as_path).collect();
-        let text = m3u_text(&refs, &m3u)?;
+        let text = m3u_text_in_order(&refs, &m3u)?;
         if fs::symlink_metadata(&m3u).is_ok() {
             return None;
         }
@@ -2180,6 +2179,8 @@ impl<'a> Run<'a> {
         None
     }
 
+    /// The generated playlist of a resumed item whose entries are all in
+    /// place: written when it is missing; one with the very text is kept.
     fn ensure_m3u(&mut self, id: usize, entries: &[ExtractEntry], m3u: &Path) -> Result<(), Step> {
         let sheets: Vec<PathBuf> = entries
             .iter()
