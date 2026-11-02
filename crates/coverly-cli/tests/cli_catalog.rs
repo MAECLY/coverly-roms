@@ -207,7 +207,10 @@ fn a_pile_without_switch_items_does_not_fetch_the_catalogue() {
     let server = MockServer::start();
     serve(&server);
     let p = TempDir::new().unwrap();
-    fs::write(p.path().join("Game.gba"), vec![0u8; 1024]).unwrap();
+    let file = p.path().join("Game.gba");
+    fs::write(&file, vec![0u8; 1024]).unwrap();
+    let old = filetime::FileTime::from_unix_time(1_600_000_000, 0);
+    filetime::set_file_mtime(&file, old).unwrap();
     let base = server.base();
     organize(
         &s,
@@ -219,4 +222,63 @@ fn a_pile_without_switch_items_does_not_fetch_the_catalogue() {
     .assert()
     .success();
     assert_eq!(server.hits("/US.en.json"), 0);
+}
+
+#[test]
+fn online_organize_names_a_switch_file_from_the_catalogue() {
+    let (cfg, data, cache) = (
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let s = settings(cfg.path(), true);
+    let server = MockServer::start();
+    serve(&server);
+    // Only the title id in the file name: the name comes from the list.
+    let p = TempDir::new().unwrap();
+    let file = p.path().join("[0100000000AA0000].nsp");
+    fs::write(
+        &file,
+        coverly_core::consoles::testing::nsp_pfs0(&["a.nca"]).bytes(),
+    )
+    .unwrap();
+    let old = filetime::FileTime::from_unix_time(1_600_000_000, 0);
+    filetime::set_file_mtime(&file, old).unwrap();
+    let base = server.base();
+    let offline = organize(
+        &s,
+        data.path(),
+        cache.path(),
+        p.path(),
+        &["--offline", "--report", "json"],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    assert!(!String::from_utf8_lossy(&offline).contains("Synthetic Quest"));
+    let online = organize(
+        &s,
+        data.path(),
+        cache.path(),
+        p.path(),
+        &[
+            "--report",
+            "json",
+            "--titledb-url",
+            &base,
+            "--database-url",
+            &base,
+        ],
+    )
+    .assert()
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    let report: serde_json::Value = serde_json::from_slice(&online).unwrap();
+    let item = &report["plan"]["items"][0];
+    assert_eq!(item["catalogue_name"], "Synthetic Quest", "{report}");
+    assert_eq!(server.hits("/US.en.json"), 1);
 }
