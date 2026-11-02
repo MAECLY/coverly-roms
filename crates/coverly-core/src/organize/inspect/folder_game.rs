@@ -268,6 +268,11 @@ fn roots(names: &Names) -> BTreeMap<String, Vec<Marker>> {
             _ => {}
         }
     }
+    // `names.files` hashes its keys: a fixed order keeps a structure-only
+    // verdict the same from one plan to the next.
+    for markers in out.values_mut() {
+        markers.sort();
+    }
     out
 }
 
@@ -570,5 +575,45 @@ impl ReadAt for HeadAt {
         let n = buf.len().min(self.0.len() - start);
         buf[..n].copy_from_slice(&self.0[start..start + n]);
         Ok(n)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::archive::{EntryKind, Method, RelPath};
+
+    fn entry(index: usize, name: &str) -> Entry {
+        Entry {
+            index,
+            name: RelPath::parse(name).unwrap(),
+            raw_name: name.as_bytes().to_vec(),
+            kind: EntryKind::File,
+            size: 1,
+            packed: None,
+            crc32: None,
+            encrypted: false,
+            method: Method::Stored,
+            solid_block: None,
+            mtime: None,
+            unsafe_name: None,
+        }
+    }
+
+    /// The markers of one root come in a fixed order whatever order the
+    /// listing hashes them in, so a structure-only verdict never changes
+    /// from one plan to the next.
+    #[test]
+    fn markers_of_a_root_are_in_a_fixed_order() {
+        for names in [
+            ["Game/default.xex", "Game/default.xbe"],
+            ["Game/default.xbe", "Game/default.xex"],
+        ] {
+            let files: Vec<Entry> = names.iter().enumerate().map(|(i, n)| entry(i, n)).collect();
+            for _ in 0..16 {
+                let found = roots(&Names::of(&files, &[]));
+                assert_eq!(found.get("game"), Some(&vec![Marker::Xbe, Marker::Xex]));
+            }
+        }
     }
 }
