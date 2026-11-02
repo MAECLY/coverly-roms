@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { Toaster } from './components/ui/toaster';
 import { I18nProvider } from './i18n/I18nProvider';
 import { applyTheme } from './lib/theme';
 import { useSettingsStore } from './stores/settingsStore';
@@ -32,6 +33,9 @@ export function Root() {
       <ErrorBoundary>
         <App />
       </ErrorBoundary>
+      {/* Transient confirmations of any screen (Organizar's «nothing
+          was moved»). */}
+      <Toaster />
     </I18nProvider>
   );
 }

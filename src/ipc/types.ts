@@ -1046,6 +1046,9 @@ export type Transfer =
       sheet_check: SheetCheck;
       /** A generated playlist, relative to the target root. */
       m3u: string | null;
+      /** A folder game extracted out of an archive (adjustments D23):
+       * always asked on its own before apply. Absent when false. */
+      folder_game?: boolean;
     };
 
 /** The ISO 9660 descriptor and boot-file hash of a disc. */

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import type { Locale } from '@/i18n/core';
 import type { LargeTransferDetail } from '@/ipc/types';
+import { restDetail } from '@/lib/largeTransfer';
 
 import { LargeTransferDialog } from './LargeTransferDialog';
 
@@ -75,6 +76,40 @@ describe('LargeTransferDialog', () => {
       (n) => n.textContent,
     );
     expect(mono).toEqual(['187,42 GB', '412,1 GB', '187,42 GB']);
+  });
+
+  it('after the huge items, asks for the rest with its own numbers (D16b)', () => {
+    renderDialog(
+      restDetail({
+        ...COPY,
+        items: 12,
+        huge: [
+          {
+            item: 1,
+            name: 'CUSA00900',
+            system: 'ps4',
+            bytes: 62_920_000_000,
+            extract: false,
+            followers: [3],
+          },
+          {
+            item: 5,
+            name: 'Forza Horizon 5',
+            system: 'xboxseries',
+            bytes: 110_400_000_000,
+            extract: false,
+            followers: [],
+          },
+        ],
+        rest: 14_100_000_000,
+      }),
+    );
+    const dialog = screen.getByRole('alertdialog', {
+      name: '¿Copiar 14,1 GB?',
+    });
+    expect(dialog).toHaveAccessibleDescription(
+      'Organizar va a escribir 9 elementos en TinyExt. Ahora hay 412,1 GB libres en ese disco.',
+    );
   });
 
   it('formats the size for English', () => {

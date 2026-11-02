@@ -6,6 +6,7 @@ import type {
   OrganizeJobState,
   OrganizeProgressEvent,
 } from '../types';
+import { MOCK_HUGE, MOCK_HUGE_TARGET } from './adjustFixture';
 import { FIXTURE_NOW } from './fixture';
 import {
   createMockBackend,
@@ -711,6 +712,8 @@ describe('mock folder pick', () => {
     expect(readMockPick()).toBe(MOCK_MODERN);
     window.history.replaceState(null, '', '/?mockPick=current');
     expect(readMockPick()).toBe(MOCK_CURRENT);
+    window.history.replaceState(null, '', '/?mockPick=huge');
+    expect(readMockPick()).toBe(MOCK_HUGE);
     window.history.replaceState(null, '', '/?mockPick=relative/path');
     expect(readMockPick()).toBeNull();
     window.localStorage.setItem(MOCK_PICK_KEY, '/Users/demo/Other');
@@ -1576,6 +1579,16 @@ describe('mock organise size gate (systems batch 3 D23)', () => {
       bytes,
       items,
     });
+    // The PS3 folder and the XCI alone write over 10 GB: each is asked
+    // on its own.
+    const big = plan.items.filter(
+      (i) => i.action === 'auto' && i.target !== null && i.size >= 1e10,
+    );
+    expect(big.map((i) => i.sources[0])).toEqual([
+      "Demon's Souls (BLUS-30443)",
+      'Zelda BotW.xci',
+    ]);
+    const hugeIds = big.map((i) => i.id);
     const refused = {
       code: 'large-transfer',
       largeTransfer: {
@@ -1584,17 +1597,30 @@ describe('mock organise size gate (systems batch 3 D23)', () => {
         copies: true,
         free: null,
         volume: 'Modern',
+        huge: big.map((i) => ({
+          item: i.id,
+          name: i.sources[0],
+          system: i.system_id,
+          bytes: i.size,
+          extract: false,
+          followers: [],
+        })),
+        rest: bytes - big.reduce((n, i) => n + i.size, 0),
       },
     };
     await expect(b.organizeApply(plan_id, [])).rejects.toMatchObject(refused);
     await expect(
-      b.organizeApply(plan_id, [], { bytes: bytes - 1, items: [] }),
+      b.organizeApply(plan_id, [], { bytes: bytes - 1, items: hugeIds }),
+    ).rejects.toMatchObject(refused);
+    // Every byte, but a huge item not named: still refused.
+    await expect(
+      b.organizeApply(plan_id, [], { bytes, items: hugeIds.slice(1) }),
     ).rejects.toMatchObject(refused);
     // Nothing was written: no job, and the plan is still there to apply.
     expect(await b.jobHistory()).toEqual([]);
     const done = ended(b);
     expect(
-      (await b.organizeApply(plan_id, [], { bytes, items: [] })).state,
+      (await b.organizeApply(plan_id, [], { bytes, items: hugeIds })).state,
     ).toBe('applying');
     expect((await done).state).toBe('done');
   });
@@ -1793,6 +1819,11 @@ describe('mock current-generation pile (systems batch 3 §9.3)', () => {
       source: MOCK_CURRENT,
       layout: 'esde',
     });
+    const { plan } = await b.organizePlan({
+      source: MOCK_CURRENT,
+      layout: 'esde',
+    });
+    const id = (name: string) => by(plan.items, name).id;
     const refused = {
       code: 'large-transfer',
       largeTransfer: {
@@ -1801,13 +1832,33 @@ describe('mock current-generation pile (systems batch 3 §9.3)', () => {
         copies: true,
         free: 412_100_000_000,
         volume: 'TinyExt',
+        // Bloodborne with the update that follows it, then Forza.
+        huge: [
+          {
+            item: id('CUSA00900'),
+            name: 'CUSA00900',
+            system: 'ps4',
+            bytes: 62_920_000_000,
+            extract: false,
+            followers: [id('CUSA00900-UPDATE')],
+          },
+          {
+            item: id('Forza Horizon 5'),
+            name: 'Forza Horizon 5',
+            system: 'xboxseries',
+            bytes: 110_400_000_000,
+            extract: false,
+            followers: [],
+          },
+        ],
+        rest: 14_100_000_000,
       },
     };
     await expect(b.organizeApply(plan_id, [])).rejects.toMatchObject(refused);
     const done = ended(b);
     await b.organizeApply(plan_id, [], {
       bytes: 187_420_000_000,
-      items: [],
+      items: [id('CUSA00900'), id('Forza Horizon 5')],
     });
     expect((await done).state).toBe('done');
   });
@@ -1829,5 +1880,100 @@ describe('mock current-generation pile (systems batch 3 §9.3)', () => {
     const done = ended(b);
     expect((await b.organizeApply(plan_id, [])).state).toBe('applying');
     expect((await done).state).toBe('done');
+  });
+});
+
+describe('mock huge pile (adjustments D15–D17, ?mockPick=huge)', () => {
+  const by = (items: OrganizeItem[], name: string) =>
+    items.find((i) => i.sources[0] === name)!;
+
+  it('copies to «Juegos» and asks the PS4 folders and the zipped PS3 disc one by one', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_HUGE,
+      layout: 'esde',
+    });
+    expect(plan.target_root).toBe(MOCK_HUGE_TARGET);
+    expect(plan.mode).toBe('copy');
+    const ps3 = by(plan.items, "Demon's Souls (BLUS-30443).zip");
+    expect(ps3).toMatchObject({
+      action: 'auto',
+      system_id: 'ps3',
+      target: 'ROMs/ps3/BLUS30443',
+      transfer: { kind: 'extract', folder_game: true },
+    });
+    const extract = ps3.transfer.kind === 'extract' ? ps3.transfer.bytes : 0;
+    expect(extract).toBe(7_410_181_124);
+    const err = await b.organizeApply(plan_id, []).catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      code: 'large-transfer',
+      largeTransfer: {
+        copies: true,
+        free: 120_000_000_000,
+        volume: 'Juegos',
+        // Name order, as the plan lists them.
+        huge: [
+          { name: 'Bloodborne', bytes: 52_400_000_000, extract: false },
+          {
+            name: "Demon's Souls (BLUS-30443).zip",
+            bytes: extract,
+            extract: true,
+          },
+          { name: 'Ghost of Tsushima', bytes: 61_200_000_000 },
+          { name: 'The Last of Us Part II', bytes: 38_300_000_000 },
+        ],
+        // The two PS2 discs: under 10 GB, no aggregate question.
+        rest: 6_920_000_000,
+      },
+    });
+    expect(await b.jobHistory()).toEqual([]);
+  });
+
+  it('applies with a «No» declined and the rest confirmed from the numbers', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_HUGE,
+      layout: 'esde',
+    });
+    const huge = (
+      (await b.organizeApply(plan_id, []).catch((e: unknown) => e)) as {
+        largeTransfer: {
+          huge: { item: number; bytes: number }[];
+          rest: number;
+        };
+      }
+    ).largeTransfer;
+    const [blood, ...others] = huge.huge;
+    const done = ended(b);
+    await b.organizeApply(plan_id, [{ item: blood!.item, choice: 'decline' }], {
+      bytes: huge.rest + others.reduce((n, h) => n + h.bytes, 0),
+      items: others.map((h) => h.item),
+    });
+    const view = await done;
+    expect(view.state).toBe('done');
+    const bloodborne = by(plan.items, 'Bloodborne').id;
+    expect(
+      view.report?.items.find((o) => o.item === bloodborne),
+    ).toBeUndefined();
+    expect(view.report?.copied).toBe(4);
+    expect(view.report?.extracted).toBe(1);
+  });
+
+  it('a declined PS4 base leaves the overlay that follows it', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({
+      source: MOCK_CURRENT,
+      layout: 'esde',
+    });
+    const base = by(plan.items, 'CUSA00900').id;
+    const declined = await b.organizePlan(
+      { source: MOCK_CURRENT, layout: 'esde' },
+      [{ item: base, choice: 'decline' }],
+    );
+    for (const name of ['CUSA00900', 'CUSA00900-UPDATE'])
+      expect(by(declined.plan.items, name)).toMatchObject({
+        action: 'left',
+        reason: { kind: 'not-confirmed' },
+      });
   });
 });

@@ -661,8 +661,9 @@ const checks: [string, readonly string[], object][] = [
   ['OrganizeItem (extract)', ORGANIZE_ITEM_KEYS, sample.organize_extract_item],
   [
     'Transfer (extract)',
+    // `folder_game` is left out when false, as in this sample.
     EXTRACT_TRANSFER_KEYS satisfies AllKeys<
-      Extract<Transfer, { kind: 'extract' }>,
+      Omit<Extract<Transfer, { kind: 'extract' }>, 'folder_game'>,
       typeof EXTRACT_TRANSFER_KEYS
     >,
     sample.organize_extract_item.transfer,

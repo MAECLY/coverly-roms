@@ -395,9 +395,10 @@ export function leftReasonKey(
       return k('emulatorData', { folder: r.folder });
     case 'game-overlay':
       return k('gameOverlay', { title: r.of });
-    // Worded in their own keys by the adjustments UI; generic until then.
-    case 'game-part':
     case 'not-confirmed':
+      return k('notConfirmed');
+    // Worded in its own key by the adjustments UI; generic until then.
+    case 'game-part':
       return k('unknown');
   }
 }

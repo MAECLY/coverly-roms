@@ -1358,6 +1358,7 @@
       "keyMaterial": "Key or licence file: Coverly never reads or moves it",
       "emulatorData": "Inside an emulator's data ({folder}); left as it is",
       "gameOverlay": "Mods or patch folder of {title}: left where it is",
+      "notConfirmed": "Not confirmed; stays where it is",
       "title": "Staying where they are",
       "inLibrary": "Already in your library as {path}"
     },
@@ -1431,6 +1432,19 @@
       "confirm": "Copy {bytes}",
       "confirmMove": "Move {bytes}",
       "cancel": "Cancel"
+    },
+    "huge": {
+      "titleCopy": "Copy {name}?",
+      "titleMove": "Move {name} to another drive?",
+      "titleExtract": "Extract {name}?",
+      "body": "It takes {bytes}. {free} will be left free on {volume}.",
+      "bodyNoFree": "It takes {bytes}.",
+      "noRoom": "It does not fit on {volume}: {missing} short.",
+      "progress": "Item {index} of {count}",
+      "yes": "Yes",
+      "all": "Yes to all",
+      "no": "No",
+      "nothing": "Nothing was moved"
     },
     "encrypted": "Encrypted; some emulators can't load it",
     "level": {

@@ -9,8 +9,10 @@ import {
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { Toaster } from '@/components/ui/toaster';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
+import { MOCK_HUGE } from '@/ipc/mock/adjustFixture';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
 import {
@@ -394,12 +396,27 @@ describe('OrganizeScreen', () => {
     const sent = vi.spyOn(b, 'organizeApply');
     apply.focus();
     await user.keyboard('{Enter}');
+    // The PS3 folder and the XCI write over 10 GB alone: asked one by
+    // one in the same dialog, focus on «No» each time (adjustments D16).
     const dialog = await screen.findByRole('alertdialog', {
-      name: `Copy ${size} GB?`,
+      name: "Copy Demon's Souls (BLUS-30443)?",
     });
-    expect(
-      within(dialog).getByRole('button', { name: 'Cancel' }),
-    ).toHaveFocus();
+    expect(within(dialog).getByRole('button', { name: 'No' })).toHaveFocus();
+    await user.click(within(dialog).getByRole('button', { name: 'Yes' }));
+    expect(screen.getByRole('alertdialog')).toBe(dialog);
+    expect(dialog).toHaveAccessibleName('Copy Zelda BotW.xci?');
+    expect(within(dialog).getByRole('button', { name: 'No' })).toHaveFocus();
+    await user.click(within(dialog).getByRole('button', { name: 'Yes' }));
+    // Then the rest, 10 GB or more on its own, as a whole (D16b).
+    const { huge, rest } = useOrganizeStore.getState().pendingLarge!;
+    const restSize = new Intl.NumberFormat('en', {
+      maximumFractionDigits: 2,
+    }).format(rest / 1e9);
+    const whole = await screen.findByRole('alertdialog', {
+      name: `Copy ${restSize} GB?`,
+    });
+    expect(within(whole).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    expect(sent).toHaveBeenCalledTimes(1);
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     await waitFor(() =>
@@ -410,21 +427,56 @@ describe('OrganizeScreen', () => {
     expect(sent).toHaveBeenCalledTimes(1);
     expect(useOrganizeStore.getState().job).toBeNull();
 
-    // Confirming applies with the size the dialog showed.
+    // Asked again from the first item; «Yes to all» answers the rest too
+    // and applies with the numbers the refusal carried.
     await user.keyboard('{Enter}');
-    const again = await screen.findByRole('alertdialog');
-    await user.click(
-      within(again).getByRole('button', { name: `Copy ${size} GB` }),
-    );
+    const again = await screen.findByRole('alertdialog', {
+      name: "Copy Demon's Souls (BLUS-30443)?",
+    });
+    await user.click(within(again).getByRole('button', { name: 'Yes to all' }));
     await waitFor(() => expect(sent).toHaveBeenCalledTimes(3));
     expect(sent.mock.calls[2]![2]).toEqual({
       bytes: large.kind === 'large-transfer' ? large.bytes : -1,
-      items: [],
+      items: huge.map((h) => h.item),
     });
     await waitFor(
       () => expect(useOrganizeStore.getState().status).toBe('done'),
       APPLY_WAIT,
     );
+  });
+
+  it('every huge item declined and nothing else to move: a toast, no apply', async () => {
+    const user = userEvent.setup();
+    useNavStore.getState().openOrganize(MOCK_HUGE, { layout: 'esde' });
+    render(
+      <I18nProvider locale="es">
+        <OrganizeScreen />
+        <Toaster />
+      </I18nProvider>,
+    );
+    await ready();
+    const discs = useOrganizeStore
+      .getState()
+      .plan!.items.filter((i) => i.system_id === 'ps2')
+      .map((i) => i.id);
+    await act(() => useOrganizeStore.getState().decide(discs, 'leave'));
+    await ready();
+    const sent = vi.spyOn(b, 'organizeApply');
+    await user.click(
+      screen.getByRole('button', { name: /^Organizar \d+ archivos$/ }),
+    );
+    const dialog = await screen.findByRole('alertdialog', {
+      name: '¿Copiar Bloodborne?',
+    });
+    for (let i = 0; i < 4; i += 1)
+      await user.click(within(dialog).getByRole('button', { name: 'No' }));
+    expect(await screen.findByText('No se ha movido nada')).toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect(useOrganizeStore.getState()).toMatchObject({
+      status: 'ready',
+      job: null,
+    });
   });
 
   it('hides the primary action when nothing would move and offers open library', async () => {
