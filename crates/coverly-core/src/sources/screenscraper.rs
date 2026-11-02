@@ -21,6 +21,7 @@ use crate::cache::{now_unix, Cache};
 use crate::credentials::{DevCredentials, UserCredentials};
 use crate::identify::hash::HashOutcome;
 use crate::identify::names::{parse_name, Region};
+use crate::integrations::SsQuota;
 use crate::net::{host_of, Http, HttpRequest, HttpResponse, Limiter, NetError};
 use crate::profiles::Media;
 use crate::systems::System;
@@ -271,6 +272,8 @@ pub struct ScreenScraperSource<'a> {
     /// Requests in flight: 1 until `ssuser.maxthreads` says more.
     threads: Mutex<Arc<Limiter>>,
     exhausted: AtomicBool,
+    /// The quota the latest answer reported (`None` before any answer).
+    last_quota: Mutex<Option<SsQuota>>,
 }
 
 impl<'a> ScreenScraperSource<'a> {
@@ -291,12 +294,18 @@ impl<'a> ScreenScraperSource<'a> {
             threads: Mutex::new(Limiter::new(1, Duration::ZERO)),
             cfg,
             exhausted: AtomicBool::new(false),
+            last_quota: Mutex::new(None),
         }
     }
 
     /// How many requests may run at once (from `ssuser.maxthreads`).
     pub fn threads(&self) -> usize {
         self.thread_limiter().capacity()
+    }
+
+    /// The quota the latest JSON answer of this run reported, if any.
+    pub fn last_quota(&self) -> Option<SsQuota> {
+        *self.last_quota.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     fn thread_limiter(&self) -> Arc<Limiter> {
@@ -436,6 +445,9 @@ impl<'a> ScreenScraperSource<'a> {
             if max > 0 && today >= max {
                 self.exhausted.store(true, Ordering::SeqCst);
             }
+        }
+        if let Some(q) = quota_of(user) {
+            *self.last_quota.lock().unwrap_or_else(|p| p.into_inner()) = Some(q);
         }
     }
 
@@ -635,25 +647,56 @@ impl ArtSource for ScreenScraperSource<'_> {
     }
 }
 
+/// The quota an `ssuser` object reports: all three numbers, or `None`.
+fn quota_of(user: &Value) -> Option<SsQuota> {
+    Some(SsQuota {
+        requests_today: user.get("requeststoday").and_then(num)?,
+        max_requests_per_day: user.get("maxrequestsperday").and_then(num)?,
+        max_threads: user.get("maxthreads").and_then(num)?,
+    })
+}
+
+/// What the account check said, and the quota the answer reported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AccountCheck {
+    pub verdict: KeyCheck,
+    pub quota: Option<SsQuota>,
+}
+
+impl AccountCheck {
+    fn only(verdict: KeyCheck) -> AccountCheck {
+        AccountCheck {
+            verdict,
+            quota: None,
+        }
+    }
+}
+
 /// One cheap call with the account ("Test" in Settings): `ssuserInfos.php`.
 /// No account → `Missing` without a request; never returns a credential.
+/// An answer that works but carries no readable quota is still `Ok`.
 pub fn check_account(
     http: &dyn Http,
     cfg: &SsConfig,
     dev: &DevCredentials,
     user: Option<&UserCredentials>,
-) -> KeyCheck {
+) -> AccountCheck {
     let Some(user) = user else {
-        return KeyCheck::Missing;
+        return AccountCheck::only(KeyCheck::Missing);
     };
     let Ok(cache) = Cache::in_memory() else {
-        return KeyCheck::Unavailable;
+        return AccountCheck::only(KeyCheck::Unavailable);
     };
     let src = ScreenScraperSource::new(http, &cache, dev.clone(), Some(user.clone()), cfg.clone());
     match src.send(&src.api_url("ssuserInfos.php", &[]), MAX_JSON_BYTES) {
-        Ok(r) if (200..300).contains(&r.status) => KeyCheck::Ok,
-        Ok(_) => KeyCheck::Unavailable,
-        Err(e) => KeyCheck::of_error(&e),
+        Ok(r) if (200..300).contains(&r.status) => AccountCheck {
+            verdict: KeyCheck::Ok,
+            quota: serde_json::from_slice::<Value>(&r.body)
+                .ok()
+                .and_then(|v| quota_of(&v["response"]["ssuser"])),
+        },
+        Ok(_) => AccountCheck::only(KeyCheck::Unavailable),
+        Err(e) => AccountCheck::only(KeyCheck::of_error(&e)),
     }
 }
 

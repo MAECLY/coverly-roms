@@ -4,13 +4,14 @@ use coverly_core::cache::Cache;
 use coverly_core::credentials::{DevCredentials, Secret, UserCredentials};
 use coverly_core::identify::hash::{Digests, HashOutcome, RomHashes};
 use coverly_core::identify::names::{parse_name, Region};
+use coverly_core::integrations::SsQuota;
 use coverly_core::net::testing::{png_bytes, MockResponse, MockServer};
-use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
+use coverly_core::net::{NetConfig, NetError, PoliteHttp, UreqHttp};
 use coverly_core::organize::evidence::OnlineLookup;
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::profiles::Media;
 use coverly_core::sources::screenscraper::{
-    check_account, media_type, ScreenScraperSource, SsConfig, QUERY_VALUE, SOFTNAME,
+    check_account, media_type, AccountCheck, ScreenScraperSource, SsConfig, QUERY_VALUE, SOFTNAME,
 };
 use coverly_core::sources::{ArtQuery, ArtSource, KeyCheck, MatchKind, SourceError};
 use coverly_core::systems::SystemDb;
@@ -413,20 +414,218 @@ fn the_user_account_is_sent_only_when_complete_and_checked_cheaply() {
     let path = format!("/ss/ssuserInfos.php?{}", creds());
     w.server.serve_json(&path, &fixture("user_infos.json"));
     assert_eq!(
-        check_account(&w.http, &w.cfg, &dev(), Some(&user())),
+        check_account(&w.http, &w.cfg, &dev(), Some(&user())).verdict,
         KeyCheck::Ok
     );
     assert_eq!(
-        check_account(&w.http, &w.cfg, &dev(), None),
+        check_account(&w.http, &w.cfg, &dev(), None).verdict,
         KeyCheck::Missing
     );
     w.server.mock(&path, MockResponse::status(403));
     assert_eq!(
-        check_account(&w.http, &w.cfg, &dev(), Some(&user())),
+        check_account(&w.http, &w.cfg, &dev(), Some(&user())).verdict,
         KeyCheck::Invalid
     );
     assert_eq!(DevCredentials::from_values(Some(" "), Some("x")), None);
     assert_eq!(DevCredentials::from_values(Some("a"), None), None);
+}
+
+fn user_infos_path() -> String {
+    format!("/ss/ssuserInfos.php?{}", creds())
+}
+
+#[test]
+fn the_account_check_reads_the_quota_from_ssuser() {
+    let w = w();
+    w.server.serve_json(
+        &user_infos_path(),
+        r#"{"response":{"ssuser":{"requeststoday":"1234","maxrequestsperday":"20000","maxthreads":"1"}}}"#,
+    );
+    assert_eq!(
+        check_account(&w.http, &w.cfg, &dev(), Some(&user())),
+        AccountCheck {
+            verdict: KeyCheck::Ok,
+            quota: Some(SsQuota {
+                requests_today: 1234,
+                max_requests_per_day: 20000,
+                max_threads: 1,
+            }),
+        }
+    );
+}
+
+#[test]
+fn an_account_answer_without_a_full_quota_is_still_ok() {
+    for body in [
+        "not json",
+        r#"{"response":{"ssuser":{"requeststoday":"3","maxthreads":"1"}}}"#,
+        r#"{"response":{}}"#,
+    ] {
+        let w = w();
+        w.server.mock(
+            &user_infos_path(),
+            MockResponse::ok(body.as_bytes().to_vec()),
+        );
+        assert_eq!(
+            check_account(&w.http, &w.cfg, &dev(), Some(&user())),
+            AccountCheck {
+                verdict: KeyCheck::Ok,
+                quota: None,
+            },
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn a_closed_api_is_rate_limited_without_a_quota() {
+    for status in [401u16, 423] {
+        let w = w();
+        w.server
+            .mock(&user_infos_path(), MockResponse::status(status));
+        assert_eq!(
+            check_account(&w.http, &w.cfg, &dev(), Some(&user())),
+            AccountCheck {
+                verdict: KeyCheck::RateLimited,
+                quota: None,
+            },
+            "{status}"
+        );
+    }
+}
+
+#[test]
+fn no_account_is_missing_without_a_request() {
+    let w = w();
+    assert_eq!(
+        check_account(&w.http, &w.cfg, &dev(), None),
+        AccountCheck {
+            verdict: KeyCheck::Missing,
+            quota: None,
+        }
+    );
+    assert_eq!(w.server.requests().len(), 0);
+}
+
+/// A user and password that cannot appear in a message by chance.
+fn odd_user() -> UserCredentials {
+    UserCredentials {
+        user: Secret::new("zq-user-7781"),
+        password: Secret::new("zq-pass-9924"),
+    }
+}
+
+fn odd_run(w: &W) -> SourceError {
+    let db = SystemDb::builtin();
+    let src = ScreenScraperSource::new(&w.http, &w.cache, dev(), Some(odd_user()), w.cfg.clone());
+    let rom = parse_name("Golden Sun (USA, Europe)", false);
+    src.candidates(&ArtQuery {
+        system: db.get("gba").unwrap(),
+        media: Media::Cover,
+        canonical: None,
+        rom: &rom,
+        stem: "Golden Sun (USA, Europe)",
+        by_name: true,
+        fuzzy: true,
+        min_score: 65,
+        max_candidates: 5,
+        hash: None,
+        size: 16,
+        file_name: "Golden Sun (USA, Europe).gba",
+        rom_path: None,
+    })
+    .unwrap_err()
+}
+
+fn assert_scrubbed(e: &SourceError) {
+    let text = format!("{e} {e:?}");
+    for leak in [
+        "sspassword",
+        "ssid",
+        "devpassword",
+        "devpw",
+        "zq-user-7781",
+        "zq-pass-9924",
+    ] {
+        assert!(!text.contains(leak), "{leak} in {text}");
+    }
+}
+
+#[test]
+fn errors_never_carry_credentials_whatever_failed() {
+    // A server error: every title search answers 500.
+    let w500 = w();
+    let path = format!(
+        "/ss/jeuRecherche.php?devid=dev&devpassword=devpw&softname={}&output=json&ssid=zq-user-7781&sspassword=zq-pass-9924&systemeid=12&recherche={}",
+        enc(SOFTNAME),
+        enc("Golden Sun")
+    );
+    w500.server.mock(&path, MockResponse::status(500));
+    let e = odd_run(&w500);
+    assert!(
+        matches!(&e, SourceError::Net(NetError::Status { status: 500, .. })),
+        "{e:?}"
+    );
+    assert_scrubbed(&e);
+
+    // Offline: a port nobody listens on.
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = closed.local_addr().unwrap().port();
+    drop(closed);
+    let mut off = w();
+    off.cfg.base = format!("http://127.0.0.1:{port}/ss");
+    let e = odd_run(&off);
+    assert!(
+        matches!(&e, SourceError::Net(NetError::Offline(_))),
+        "{e:?}"
+    );
+    assert_scrubbed(&e);
+
+    // A host Coverly does not know.
+    let mut other = w();
+    other.cfg.base = "https://ss.mirror.example/api2".into();
+    let e = odd_run(&other);
+    assert!(
+        matches!(&e, SourceError::Net(NetError::Unregistered(_))),
+        "{e:?}"
+    );
+    assert_scrubbed(&e);
+}
+
+#[test]
+fn the_last_quota_is_what_the_latest_answer_said() {
+    let w = w();
+    w.server
+        .serve_json(&jeu_infos_path(), &fixture("jeu_infos_golden_sun.json"));
+    let src = ScreenScraperSource::new(&w.http, &w.cache, dev(), Some(user()), w.cfg.clone());
+    assert_eq!(src.last_quota(), None, "nothing asked yet");
+    let db = SystemDb::builtin();
+    let rom = parse_name("x", false);
+    let h = hashes();
+    src.candidates(&ArtQuery {
+        system: db.get("gba").unwrap(),
+        media: Media::Cover,
+        canonical: None,
+        rom: &rom,
+        stem: "x",
+        by_name: true,
+        fuzzy: false,
+        min_score: 65,
+        max_candidates: 5,
+        hash: Some(&h),
+        size: 16,
+        file_name: "Golden Sun (USA, Europe).gba",
+        rom_path: None,
+    })
+    .unwrap();
+    assert_eq!(
+        src.last_quota(),
+        Some(SsQuota {
+            requests_today: 10,
+            max_requests_per_day: 20000,
+            max_threads: 3,
+        })
+    );
 }
 
 // --- Organise: optional online identification by CRC (Task 24) ---

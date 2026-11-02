@@ -88,7 +88,7 @@ impl AppState {
                         base: cfg.endpoints.screenscraper.clone(),
                         ..SsConfig::default()
                     };
-                    check_account(&http, &ss, dev, cfg.keys.screenscraper_user.as_ref())
+                    check_account(&http, &ss, dev, cfg.keys.screenscraper_user.as_ref()).verdict
                 }
             },
             _ => {
