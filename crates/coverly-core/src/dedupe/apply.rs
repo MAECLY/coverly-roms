@@ -31,7 +31,8 @@ use crate::volumes::volume_uuid;
 use crate::write::trash::{TrashBackend, TrashError};
 use crate::write::{
     ensure_within, job_archive_steps, job_transfers, safe_file_name, same_volume, ArchiveRecord,
-    ArchiveStep, Collision, JobKind, JobMeta, MoveOutcome, TransferRecord, WriteError, Writer,
+    ArchiveStep, Collision, DirOutcome, JobKind, JobMeta, MoveOutcome, TransferRecord, WriteError,
+    Writer,
 };
 
 use super::plan::{set_keeper, skip_group};
@@ -335,8 +336,11 @@ fn check_plan(plan: &DedupePlan) -> Result<(), DedupeError> {
         let every = g.members.len() < 2
             || keeper.dest.is_some()
             || g.members.iter().enumerate().any(|(i, m)| {
+                // A folder game goes to the quarantine in a Trash plan
+                // too (spec D19).
+                let trashed = plan.trash && m.unit.kind != UnitKind::Folder;
                 i != g.keeper
-                    && (m.dest.is_some() == plan.trash
+                    && (m.dest.is_some() == trashed
                         || m.unit.files.iter().any(|f| keeper.unit.files.contains(f))
                         || m.dest.as_deref() == Some(m.unit.primary.as_path()))
             });
@@ -607,6 +611,15 @@ enum Check {
 }
 
 fn check_unit(m: &Member) -> Check {
+    if m.unit.kind == UnitKind::Folder {
+        // A folder game is measured by its tree, which the plan checked;
+        // here it must still be a folder (not a link) at its place.
+        return match fs::symlink_metadata(&m.unit.primary) {
+            Ok(meta) if meta.is_dir() => Check::Same,
+            Ok(_) => Check::Changed,
+            Err(_) => Check::Missing,
+        };
+    }
     let mut size = 0u64;
     for (i, f) in m.unit.files.iter().enumerate() {
         let meta = match fs::symlink_metadata(f) {
@@ -806,13 +819,13 @@ impl<'a> Run<'a> {
         let g = &plan.groups[batch[0].g];
         let keeper = &g.members[g.keeper];
         let mut keeper_ok: Option<bool> = None;
-        // Folder games are only reported (systems batch 2 D28): a plan that
-        // says otherwise (an edited file) moves nothing of the group.
-        let folders = g.members.iter().any(|m| m.unit.kind == UnitKind::Folder);
         for (n, w) in batch.iter().enumerate() {
             let m = &g.members[w.m];
-            let step = if folders {
-                skipped(DedupeSkip::ReportOnly)
+            // A folder game goes to the quarantine whole, one journaled
+            // rename (spec D19): the Trash takes files only.
+            let folder = m.unit.kind == UnitKind::Folder;
+            let step = if folder && self.started(w, m) {
+                self.quarantine_folder(w, &g.system, m)
             } else if self.started(w, m) {
                 if plan.trash {
                     self.trash_extra(w, m)
@@ -826,6 +839,7 @@ impl<'a> Run<'a> {
                 }
                 match self.ready(w, m, ok) {
                     Some(step) => step,
+                    None if folder => self.quarantine_folder(w, &g.system, m),
                     None if plan.trash => self.trash_extra(w, m),
                     None => self.quarantine_extra(w, &g.system, m),
                 }
@@ -859,7 +873,8 @@ impl<'a> Run<'a> {
         if let Some(why) = self.limits.get(&w.item) {
             return Some(skipped(DedupeSkip::DestinationLimit { why: *why }));
         }
-        if self.plan.trash && !self.trash_available(&m.unit.primary) {
+        let folder = m.unit.kind == UnitKind::Folder;
+        if self.plan.trash && !folder && !self.trash_available(&m.unit.primary) {
             return Some(skipped(DedupeSkip::TrashUnavailable));
         }
         match check_unit(m) {
@@ -878,7 +893,7 @@ impl<'a> Run<'a> {
         if !self.resumed {
             return false;
         }
-        if self.plan.trash {
+        if self.plan.trash && m.unit.kind != UnitKind::Folder {
             return self.steps.contains_key(&w.item);
         }
         let files = m.unit.files.iter().chain(m.travels.iter().map(|t| &t.from));
@@ -1070,6 +1085,49 @@ impl<'a> Run<'a> {
             );
         }
         Step::Done(DedupeItemStatus::Quarantined { to: primary }, landed)
+    }
+
+    /// Sets the folder game `m` aside in the quarantine under a free name:
+    /// one no-clobber rename on the volume (across volumes a verified copy
+    /// of the tree), journaled so undo puts it back. A move an earlier run
+    /// of the job finished is only counted.
+    fn quarantine_folder(&mut self, w: &Work, system: &str, m: &Member) -> Step {
+        let from = &m.unit.primary;
+        if let Some(r) = record_of(self.records_of(w.item), w.item, from) {
+            let to = r.target.clone();
+            return Step::Done(DedupeItemStatus::Quarantined { to: to.clone() }, vec![to]);
+        }
+        if !fs::symlink_metadata(from).is_ok_and(|meta| meta.is_dir()) {
+            return skipped(DedupeSkip::SourceMissing);
+        }
+        let to = self.free_name(&quarantine_path(self.plan, system, from));
+        let outcome = self
+            .writer
+            .move_dir(from, &to, Collision::Rename, Some(w.item), &mut |_| {});
+        let (to, removed) = match outcome {
+            Ok(DirOutcome::Moved { to, .. } | DirOutcome::Copied { to, .. }) => (to, true),
+            Ok(DirOutcome::CopiedNotRemoved { to, .. }) => (to, false),
+            Ok(DirOutcome::SkippedExists { .. }) => return skipped(DedupeSkip::Taken),
+            Err(e) => return self.on_error(&e),
+        };
+        if let Some((dir, name)) = split(&to) {
+            self.index.claim(dir, name);
+        }
+        let mut landed = vec![to.clone()];
+        if let Some(pause) = self.move_travels(w, system, m, &mut landed) {
+            return pause;
+        }
+        if !removed {
+            return Step::Done(
+                DedupeItemStatus::Failed {
+                    kind: ItemErrorKind::Io,
+                    detail: "copied to the quarantine, but the original could not be removed"
+                        .into(),
+                },
+                landed,
+            );
+        }
+        Step::Done(DedupeItemStatus::Quarantined { to }, landed)
     }
 
     /// Puts the files of a set already moved back home, newest first,

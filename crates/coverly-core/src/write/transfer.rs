@@ -252,6 +252,26 @@ impl Writer {
         out
     }
 
+    /// [`Writer::set_aside_file`] for a folder game (adjustments spec D19):
+    /// the whole tree, journaled as [`Writer::move_dir`] journals it, on
+    /// the pile's own side when `to` is inside the source root.
+    pub fn set_aside_dir(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        collision: Collision,
+        item: Option<usize>,
+    ) -> Result<DirOutcome, WriteError> {
+        let mut quiet = |_: u64| {};
+        if !to.starts_with(&self.source_root) {
+            return self.transfer_dir(from, to, collision, item, Mode::Move, &mut quiet);
+        }
+        let library = std::mem::replace(&mut self.root, self.source_root.clone());
+        let out = self.transfer_dir(from, to, collision, item, Mode::Move, &mut quiet);
+        self.root = library;
+        out
+    }
+
     /// Puts back a file this run just moved from `from` to `to` (a set
     /// rolled back by its caller): a no-clobber rename, or across volumes a
     /// streamed, verified copy home and then `to` deleted. The journal keeps

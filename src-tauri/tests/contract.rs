@@ -905,6 +905,7 @@ fn dedupe_plan_sample() -> coverly_core::dedupe::DedupePlan {
             action: GroupAction::Act,
             tie: false,
             choice_dropped: false,
+            basis: None,
         }],
         totals: Totals {
             groups: 1,

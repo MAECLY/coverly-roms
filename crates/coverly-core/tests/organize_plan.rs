@@ -3671,13 +3671,14 @@ fn systems_batch_2_pile_plans() {
 }
 
 #[test]
-fn a_pile_folder_game_and_its_file_twin_are_reported_and_both_move() {
+fn a_pile_folder_game_and_its_file_twin_act_as_one_title() {
     use coverly_core::consoles::testing as ct;
-    use coverly_core::dedupe::{GroupAction, ReportWhy, UnitKind};
+    use coverly_core::dedupe::{GroupAction, GroupBasis, UnitKind};
     use coverly_core::organize::ItemKind;
     // D28: a folder game is a duplicates unit in the pile too. A Wii U
-    // loadiine folder and a WUA of the same title id, kind and version
-    // are one reported group; neither is set aside.
+    // loadiine folder and a WUA of the same title id, kind and version,
+    // both read from the content, are one copy (adjustments spec D19):
+    // one moves in, the other is set aside.
     let world = World::new();
     let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
     let folder = "Super Mario 3D World [0005000010145D00]";
@@ -3705,21 +3706,23 @@ fn a_pile_folder_game_and_its_file_twin_are_reported_and_both_move() {
     );
     let dir = by_name(&p, folder);
     assert_eq!(dir.kind, ItemKind::Folder);
-    assert!(dir.moves_in(), "{:?}", dir.action);
     let wua = by_name(&p, "Super Mario 3D World.wua");
-    assert!(wua.moves_in(), "{:?}", wua.action);
+    assert_eq!(
+        [dir, wua].iter().filter(|i| i.moves_in()).count(),
+        1,
+        "{:?} / {:?}",
+        dir.action,
+        wua.action
+    );
+    assert!([dir, wua].iter().any(|i| i.is_set_aside()));
     let group = p
         .duplicates
         .iter()
         .find(|g| g.members.iter().any(|m| m.unit.kind == UnitKind::Folder))
         .expect("a group with the folder game");
     assert_eq!(group.members.len(), 2);
-    assert_eq!(
-        group.action,
-        GroupAction::ReportOnly {
-            why: ReportWhy::FolderGame
-        }
-    );
+    assert_eq!(group.action, GroupAction::Act);
+    assert_eq!(group.basis, Some(GroupBasis::TitleId));
 }
 
 /// Faked folder sizes of the current-generation pile (systems batch 3

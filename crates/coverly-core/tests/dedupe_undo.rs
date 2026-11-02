@@ -606,3 +606,283 @@ fn resume_of_an_undone_job_is_refused_and_moves_nothing() {
     assert!(err.contains(&job) && err.contains("undone"), "{err}");
     assert_eq!(tree(&card.root), before);
 }
+
+// --- Title-id and folder-tree duplicates act (adjustments spec D19) ---
+
+use coverly_core::consoles::testing::{nsp, ps3_jb, ps4_app};
+use coverly_core::dedupe::{GroupAction, GroupBasis, KeepReason, ReportWhy};
+
+const TIK: &str = "01000000000100000000000000000000.tik";
+
+/// An NSP at `roms/switch/<name>` whose PFS0 holds a ticket named for
+/// title `0100000000010000`; `pad` keeps the bytes (and sizes) apart, so
+/// no byte proof joins two of them.
+fn ticket_nsp(card: &Card, name: &str, pad: usize) -> PathBuf {
+    let body = vec![0x55u8; 0x40 + pad];
+    let bytes = nsp(&[
+        ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nca", &body),
+        (TIK, &[0x66; 0x2C0]),
+    ])
+    .bytes();
+    card.put(&format!("roms/switch/{name}"), &bytes)
+}
+
+fn switch_groups(plan: &DedupePlan) -> Vec<&coverly_core::dedupe::DupGroup> {
+    plan.groups
+        .iter()
+        .filter(|g| g.system == "switch")
+        .collect()
+}
+
+#[test]
+fn ticket_id_twins_are_set_aside_and_undo_brings_them_back() {
+    let card = Card::with_profile("batocera");
+    let a = ticket_nsp(&card, "Mario [v0].nsp", 0);
+    let b = ticket_nsp(&card, "Mario (copy) [v0].nsp", 7);
+    let plan = card.plan();
+    let groups = switch_groups(&plan);
+    assert_eq!(groups.len(), 1, "{:#?}", plan.groups);
+    let g = groups[0];
+    assert_eq!(g.action, GroupAction::Act, "{g:#?}");
+    assert_eq!(g.basis, Some(GroupBasis::TitleId));
+    let extra = g.members.iter().find(|m| m.id != g.keeper).unwrap();
+    assert!(extra.dest.is_some());
+    assert!(
+        (extra.confidence - 0.90).abs() < 1e-6,
+        "{}",
+        extra.confidence
+    );
+    assert_eq!(plan.totals.extras, 1);
+
+    let before = tree(&card.root);
+    let gone = extra.unit.primary.clone();
+    let job = card.apply(&plan);
+    assert!(!gone.exists());
+    assert_eq!([&a, &b].iter().filter(|p| p.is_file()).count(), 1);
+    assert!(card
+        .q()
+        .join("switch")
+        .join(gone.file_name().unwrap())
+        .is_file());
+
+    let undo = undo_job_with(&card.data, &job, &card.trash()).unwrap();
+    assert_eq!(tree(&card.root), before, "{undo:#?}");
+}
+
+#[test]
+fn ticket_id_twins_go_to_the_trash_when_asked_and_come_back() {
+    let card = Card::with_profile("batocera");
+    ticket_nsp(&card, "Mario [v0].nsp", 0);
+    ticket_nsp(&card, "Mario (copy) [v0].nsp", 7);
+    let plan = card.plan_with(Some(QuarantineChoice::Trash));
+    let before = tree(&card.root);
+    let trash = card.trash();
+    let report = card.apply_with(&plan, &trash);
+    assert!(
+        report
+            .outcomes
+            .iter()
+            .any(|o| matches!(o.status, DedupeItemStatus::Trashed { .. })),
+        "{report:#?}"
+    );
+    assert_eq!(trash.trashed(), 1);
+    let undo = undo_job_with(&card.data, report.job.as_deref().unwrap(), &trash).unwrap();
+    assert!(undo.archive_lost.is_empty(), "{undo:?}");
+    assert_eq!(tree(&card.root), before);
+}
+
+#[test]
+fn nsz_and_nsp_of_one_ticket_keep_the_preferred_format() {
+    for want in ["nsz", "nsp"] {
+        let mut card = Card::with_profile("batocera");
+        let other = if want == "nsz" { "nsp" } else { "nsz" };
+        let order = BTreeMap::from([("switch".to_string(), vec![want.into(), other.into()])]);
+        card.settings
+            .dedupe
+            .container_order
+            .insert("batocera".into(), order);
+        ticket_nsp(&card, "Mario [v0].nsp", 0);
+        let body = vec![0x55u8; 0x51];
+        card.put(
+            "roms/switch/Mario [v0].nsz",
+            &nsp(&[
+                ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ncz", &body),
+                (TIK, &[0x66; 0x2C0]),
+            ])
+            .bytes(),
+        );
+        let plan = card.plan();
+        let groups = switch_groups(&plan);
+        assert_eq!(groups.len(), 1, "{:#?}", plan.groups);
+        let g = groups[0];
+        assert_eq!(g.action, GroupAction::Act);
+        assert_eq!(
+            g.members[g.keeper].unit.primary.extension().unwrap(),
+            want,
+            "{:?}",
+            g.reason
+        );
+        assert!(
+            matches!(&g.reason, KeepReason::Container { kept, .. } if kept == want),
+            "{:?}",
+            g.reason
+        );
+    }
+}
+
+#[test]
+fn ids_from_file_names_alone_are_only_reported() {
+    let card = Card::with_profile("batocera");
+    // No ticket and no cnmt.xml: the id is the name's `[0100…]` token.
+    for (name, seed) in [
+        ("Mario [0100000000010000][v0].nsp", 1u8),
+        ("Mario (2) [0100000000010000][v0].nsp", 2),
+    ] {
+        card.put(
+            &format!("roms/switch/{name}"),
+            &rom(seed, 4096 + seed as usize),
+        );
+    }
+    let plan = card.plan();
+    let groups = switch_groups(&plan);
+    assert_eq!(groups.len(), 1, "{:#?}", plan.groups);
+    assert_eq!(
+        groups[0].action,
+        GroupAction::ReportOnly {
+            why: ReportWhy::TitleId
+        }
+    );
+    assert_eq!(plan.totals.extras, 0);
+}
+
+#[test]
+fn versions_group_only_when_both_or_neither_name_one() {
+    // Neither names a version: one copy acts.
+    let card = Card::with_profile("batocera");
+    ticket_nsp(&card, "Mario.nsp", 0);
+    ticket_nsp(&card, "Mario (copy).nsp", 7);
+    let plan = card.plan();
+    let groups = switch_groups(&plan);
+    assert_eq!(groups.len(), 1, "{:#?}", plan.groups);
+    assert_eq!(groups[0].action, GroupAction::Act);
+
+    // One names `v0`, the other none: never one copy, at most another
+    // version of one title id, reported.
+    let card = Card::with_profile("batocera");
+    ticket_nsp(&card, "Mario [v0].nsp", 0);
+    ticket_nsp(&card, "Mario (copy).nsp", 7);
+    let plan = card.plan();
+    assert!(
+        switch_groups(&plan).iter().all(|g| g.action
+            == GroupAction::ReportOnly {
+                why: ReportWhy::TitleId
+            }),
+        "{:#?}",
+        plan.groups
+    );
+    assert_eq!(plan.totals.extras, 0);
+
+    // Other versions of one title id stay reported.
+    let card = Card::with_profile("batocera");
+    ticket_nsp(&card, "Mario [v0].nsp", 0);
+    ticket_nsp(&card, "Mario [v65536].nsp", 7);
+    let plan = card.plan();
+    let groups = switch_groups(&plan);
+    assert_eq!(groups.len(), 1, "{:#?}", plan.groups);
+    assert_eq!(
+        groups[0].action,
+        GroupAction::ReportOnly {
+            why: ReportWhy::TitleId
+        }
+    );
+    assert_eq!(plan.totals.extras, 0);
+}
+
+/// Pins every file below `dir` to a fixed time (Windows CI).
+fn pin_tree(dir: &Path) {
+    for (n, p) in tree(dir).keys().enumerate() {
+        pin_mtime(p, 1000 + n as u64);
+    }
+}
+
+#[test]
+fn folder_games_with_one_tree_are_set_aside_whole_and_come_back() {
+    for trash in [false, true] {
+        let card = Card::with_profile("batocera");
+        let a = card.root.join("roms/ps3/Game.ps3");
+        let b = card.root.join("roms/ps3/Game (2).ps3");
+        ps3_jb(&a, "BLUS30001", "DG");
+        ps3_jb(&b, "BLUS30001", "DG");
+        pin_tree(&card.root);
+        let plan = card.plan_with(trash.then_some(QuarantineChoice::Trash));
+        let g = plan.groups.iter().find(|g| g.system == "ps3").unwrap();
+        assert_eq!(g.action, GroupAction::Act, "{g:#?}");
+        assert_eq!(g.basis, Some(GroupBasis::FolderTree));
+        let extra = g.members.iter().find(|m| m.id != g.keeper).unwrap();
+        assert_eq!(extra.confidence, 1.0);
+        assert!(extra.dest.is_some(), "a folder goes to the quarantine");
+
+        let before = tree(&card.root);
+        let gone = extra.unit.primary.clone();
+        let report = card.apply_with(&plan, &card.trash());
+        assert!(
+            report
+                .outcomes
+                .iter()
+                .any(|o| matches!(o.status, DedupeItemStatus::Quarantined { .. })),
+            "trash {trash}: {report:#?}"
+        );
+        assert!(!gone.exists());
+        let moved = card.q().join("ps3").join(gone.file_name().unwrap());
+        assert!(moved.join("PS3_GAME/PARAM.SFO").is_file(), "trash {trash}");
+
+        let job = report.job.unwrap();
+        let undo = undo_job_with(&card.data, &job, &card.trash()).unwrap();
+        assert_eq!(tree(&card.root), before, "trash {trash}: {undo:#?}");
+        assert!(gone.join("PS3_GAME/USRDIR/EBOOT.BIN").is_file());
+    }
+}
+
+#[test]
+fn equal_trees_with_other_content_ids_never_join() {
+    let card = Card::with_profile("batocera");
+    let a = card.root.join("roms/ps4/Bloodborne.ps4");
+    let b = card.root.join("roms/ps4/Bloodborne (2).ps4");
+    let dlc = card.root.join("roms/ps4/Bloodborne DLC.ps4");
+    ps4_app(
+        &a,
+        "CUSA00900",
+        "gd",
+        "UP9000-CUSA00900_00-BLOODBORNE000000",
+    );
+    ps4_app(
+        &b,
+        "CUSA00900",
+        "gd",
+        "UP9000-CUSA00900_00-BLOODBORNE000000",
+    );
+    // The same file sizes under another content id: the same tree digest.
+    ps4_app(
+        &dlc,
+        "CUSA00900",
+        "gd",
+        "UP9000-CUSA00900_00-BLOODBORNEDLC001",
+    );
+    pin_tree(&card.root);
+    let plan = card.plan();
+    let exact: Vec<_> = plan
+        .groups
+        .iter()
+        .filter(|g| g.system == "ps4" && g.action == GroupAction::Act)
+        .collect();
+    assert_eq!(exact.len(), 1, "{:#?}", plan.groups);
+    let mut members: Vec<&Path> = exact[0]
+        .members
+        .iter()
+        .map(|m| m.unit.primary.as_path())
+        .collect();
+    members.sort();
+    let mut want = vec![a.as_path(), b.as_path()];
+    want.sort();
+    assert_eq!(members, want, "another content id is no copy");
+}

@@ -27,8 +27,8 @@ use coverly_core::dedupe::keys::DiskBytes;
 use coverly_core::dedupe::DedupeEnv;
 use coverly_core::dedupe::{
     plan_dedupe, DedupeDecisions, DedupeError, DedupeOptions, DedupePhase, DedupePlan,
-    DedupeProgress, DupGroup, GroupAction, KeepReason, Member, QuarantineChoice, Relation,
-    ReportWhy, TravelKind,
+    DedupeProgress, DupGroup, GroupAction, GroupBasis, KeepReason, Member, QuarantineChoice,
+    Relation, ReportWhy, TravelKind,
 };
 use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
 use coverly_core::net::{PoliteHttp, UreqHttp};
@@ -739,7 +739,13 @@ fn render_group(out: &mut String, plan: &DedupePlan, folder: &str, g: &DupGroup)
     if !serials.is_empty() {
         let _ = write!(head, "  {}", serials.join(", "));
     }
-    let _ = write!(head, "  {}  {confidence:.2}", relation_text(relation));
+    // What matched when no bytes were compared (spec D19).
+    let matched = match g.basis {
+        Some(GroupBasis::TitleId) => "same title id and version",
+        Some(GroupBasis::FolderTree) => "same folder",
+        _ => relation_text(relation),
+    };
+    let _ = write!(head, "  {matched}  {confidence:.2}");
     if g.tie {
         head.push_str("  (tie)");
     }

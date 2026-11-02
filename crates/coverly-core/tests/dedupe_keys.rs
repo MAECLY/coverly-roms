@@ -83,6 +83,7 @@ fn unit_of(system: &str, kind: UnitKind, files: &[PathBuf], payload_size: Option
         stem: primary.file_stem().unwrap().to_string_lossy().into_owned(),
         ext: ext_of(&primary),
         in_library: true,
+        tree_digest: None,
     }
 }
 
@@ -765,6 +766,7 @@ fn paper_unit(id: usize, system: &str, path: &str, kind: UnitKind) -> Unit {
         stem: primary.file_stem().unwrap().to_string_lossy().into_owned(),
         ext: ext_of(&primary),
         in_library: true,
+        tree_digest: None,
     }
 }
 
@@ -779,6 +781,7 @@ fn keyed_with_crc(unit: usize, crcs: &[(u32, u64)]) -> KeyedUnit {
         dat_game: None,
         chd_raw: None,
         dat_crcs: crcs.to_vec(),
+        tree: None,
     }
 }
 
@@ -1330,13 +1333,17 @@ fn switch_unit(root: &Path, name: &str, seed: u8, len: usize) -> Unit {
 
 #[test]
 fn title_key_is_unconfirmed() {
+    // The bytes give no id: the file name's tokens stand in, marked so
+    // the group stays reported (adjustments spec D19, Q14).
     let key = ExactKey::Title {
         title_id: "0100000000010000".into(),
         kind: TitleKind::Base,
         version: Some("0".into()),
         disc: None,
+        by_name: true,
     };
     assert!(!key.is_confirmed(), "a title id is not a byte proof");
+    assert!(!key.acts_unconfirmed(), "a file-name id never acts");
     assert_eq!(
         key.key_string("switch"),
         "l1:switch:title:0100000000010000:Base:0"
@@ -1742,4 +1749,121 @@ fn another_systems_answer_or_an_archive_is_never_remembered() {
         keys_with_cache(&zip, &cache)[0].exact,
         Some(ExactKey::Title { .. })
     ));
+}
+
+// --- Title-id and folder-tree duplicates (adjustments spec D19) ---
+
+use coverly_core::dedupe::keys::folder_tree_digest;
+
+#[test]
+fn facts_of_version_two_are_a_miss() {
+    let dir = TempDir::new().unwrap();
+    let rom = rom_bytes(40, 64 * 1024);
+    let a = put(dir.path(), "GB/A.gb", &rom);
+    let b = put(dir.path(), "GB/B.gb", &rom);
+    let units = numbered(vec![raw("gb", &a), raw("gb", &b)]);
+    let cache = Cache::in_memory().unwrap();
+    let db = SystemDb::builtin();
+    let archives = listing();
+    let mut ctx = KeyCtx::new(&db, &archives);
+    ctx.cache = Some(&cache);
+    ctx.volume_uuid = Some("VOL-1");
+    let cold = CountingBytes::new();
+    ctx.bytes = &cold;
+    run(&units, &ctx);
+    for u in &units {
+        let mut row = cache
+            .content_row("VOL-1", &u.primary, u.size, u.mtime_ns)
+            .unwrap()
+            .expect("a row");
+        assert!(row.keys_json.contains("\"v\":3"), "{}", row.keys_json);
+        row.keys_json = row.keys_json.replace("\"v\":3", "\"v\":2");
+        cache.put_content_row(&row).unwrap();
+    }
+    let warm = CountingBytes::new();
+    ctx.bytes = &warm;
+    run(&units, &ctx);
+    assert!(warm.opens() > 0, "facts v2 are read again");
+}
+
+#[test]
+fn folder_tree_digest_ignores_separators_case_and_order() {
+    let mut disk = vec![
+        ("sce_sys/param.sfo".to_string(), 1024u64),
+        ("eboot.bin".to_string(), 4096),
+        ("sce_sys/icon0.png".to_string(), 77),
+    ];
+    let mut zipped = vec![
+        ("SCE_SYS\\ICON0.PNG".to_string(), 77u64),
+        ("Eboot.bin".to_string(), 4096),
+        ("/sce_sys/PARAM.SFO".to_string(), 1024),
+    ];
+    let a = folder_tree_digest(&mut disk);
+    assert_eq!(a, folder_tree_digest(&mut zipped));
+    assert_eq!(a.len(), 40);
+    assert!(a
+        .chars()
+        .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_lowercase()));
+    let mut bigger = vec![
+        ("sce_sys/param.sfo".to_string(), 1024u64),
+        ("eboot.bin".to_string(), 4097),
+        ("sce_sys/icon0.png".to_string(), 77),
+    ];
+    assert_ne!(a, folder_tree_digest(&mut bigger), "a size is part of it");
+}
+
+#[test]
+fn folder_games_get_a_tree_only_beside_another() {
+    use coverly_core::consoles::testing::ps3_jb;
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("ps3/A.ps3");
+    let b = dir.path().join("ps3/B.ps3");
+    ps3_jb(&a, "BLUS30001", "DG");
+    ps3_jb(&b, "BLUS30001", "DG");
+    let lone = dir.path().join("ps3x/C.ps3");
+    ps3_jb(&lone, "BLUS30009", "DG");
+    let units = numbered(vec![
+        folder("ps3", &a),
+        folder("ps3", &b),
+        folder("psvita", &lone),
+    ]);
+    let keys = keys_of(&units);
+    let tree = |k: &KeyedUnit| k.tree.as_ref().map(|t| t.key_string("ps3"));
+    assert!(tree(&keys[0]).is_some());
+    assert_eq!(tree(&keys[0]), tree(&keys[1]));
+    assert_eq!(
+        keys[2].tree, None,
+        "a lone folder of its system is never walked"
+    );
+    // The title key came from PARAM.SFO: it acts.
+    assert!(exact(&keys[0]).acts_unconfirmed());
+    assert!(matches!(
+        exact(&keys[0]),
+        ExactKey::Title { by_name: false, .. }
+    ));
+}
+
+#[test]
+fn a_switch_ticket_id_is_the_contents_not_the_names() {
+    use coverly_core::consoles::testing::nsp;
+    let dir = TempDir::new().unwrap();
+    let bytes = nsp(&[
+        ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nca", &[0x55; 64]),
+        ("01000000000100000000000000000000.tik", &[0x66; 0x2C0]),
+    ])
+    .bytes();
+    // The name says another id: the ticket wins and acts.
+    let p = put(dir.path(), "switch/A [0100000000020000][v0].nsp", &bytes);
+    let units = numbered(vec![raw("switch", &p)]);
+    let keys = keys_of(&units);
+    match exact(&keys[0]) {
+        ExactKey::Title {
+            title_id, by_name, ..
+        } => {
+            assert_eq!(title_id, "0100000000010000");
+            assert!(!by_name);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(exact(&keys[0]).acts_unconfirmed());
 }

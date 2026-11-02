@@ -708,7 +708,11 @@ const checks: [string, readonly string[], object][] = [
   ],
   [
     'DupGroupView',
-    DUP_GROUP_KEYS satisfies AllKeys<DupGroupView, typeof DUP_GROUP_KEYS>,
+    // `basis` is left out on a byte match (D19).
+    DUP_GROUP_KEYS satisfies AllKeys<
+      Omit<DupGroupView, 'basis'>,
+      typeof DUP_GROUP_KEYS
+    >,
     sample.dedupe_plan_view.groups[0]!,
   ],
   [

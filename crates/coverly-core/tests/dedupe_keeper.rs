@@ -35,6 +35,7 @@ fn unit(id: usize, system: &str, file: &str, kind: UnitKind, mtime_ns: i64) -> U
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default(),
         in_library: true,
+        tree_digest: None,
     }
 }
 

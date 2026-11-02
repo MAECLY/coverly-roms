@@ -161,12 +161,43 @@ pub struct TreeSummary {
     pub recent: bool,
     /// A cloud placeholder inside.
     pub cloud_only: bool,
+    /// [`folder_tree_digest`](crate::dedupe::keys::folder_tree_digest) of
+    /// the files counted (duplicates by folder, adjustments spec D19);
+    /// `None` for a truncated tree, a tree with a link, or no files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
 }
 
 /// Measures the tree below `dir` with `read_dir` and `symlink_metadata`
 /// only (never a file's content), without following links, within
 /// [`TREE_MAX_ENTRIES`] and [`TREE_MAX_DEPTH`] (spec D27).
 pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
+    let mut listed: Vec<(String, u64)> = Vec::new();
+    let mut out = tree_walk(dir, opts, &mut listed);
+    if !out.truncated && !out.symlink && !listed.is_empty() {
+        out.digest = Some(crate::dedupe::keys::folder_tree_digest(&mut listed));
+    }
+    out
+}
+
+/// The tree digest of the folder game `dir`, measured from metadata only
+/// as [`tree_summary`] does.
+pub fn tree_digest(dir: &Path) -> Option<String> {
+    let opts = WalkOptions {
+        skip_dirs: Vec::new(),
+        roms_root: None,
+        art_dirs: &[],
+        ignored_dirs: &[],
+        now: UNIX_EPOCH,
+        recent: Duration::ZERO,
+        probe: &OsMetaProbe,
+        max_depth: MAX_DEPTH,
+        profile: None,
+    };
+    tree_summary(dir, &opts).digest
+}
+
+fn tree_walk(dir: &Path, opts: &WalkOptions, listed: &mut Vec<(String, u64)>) -> TreeSummary {
     let mut out = TreeSummary::default();
     let mut seen = 0usize;
     let mut stack: Vec<(PathBuf, usize)> = vec![(dir.to_path_buf(), 0)];
@@ -211,6 +242,13 @@ pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
                 continue;
             }
             let len = opts.probe.file_len(&path, &meta);
+            if let Ok(rel) = path.strip_prefix(dir) {
+                let parts: Vec<String> = rel
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect();
+                listed.push((parts.join("/"), len));
+            }
             out.files += 1;
             out.bytes = out.bytes.saturating_add(len);
             out.largest_file = out.largest_file.max(len);

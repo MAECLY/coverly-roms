@@ -703,3 +703,164 @@ fn a_zipped_ps4_update_follows_its_base_name() {
         update.notes
     );
 }
+
+/// Adjustments D19: a zipped PS4 game whose tree is already extracted in
+/// the library is a copy of it, found from the listing without
+/// extracting: set aside (the default) or, reported, left as in the
+/// library. Another tree (another size) is no copy.
+#[test]
+fn a_zipped_ps4_game_already_in_the_library_is_not_extracted_again() {
+    use coverly_core::dedupe::Relation;
+    use coverly_core::organize::LeftReason;
+    use coverly_core::settings::OrganizeDedupeMode;
+
+    let world = World::new();
+    let files = files_of(ps4, "CUSA00900", &[]);
+    let (_pile, target, p) = plan_one(&world, "Bloodborne.zip", &files);
+    let data = TempDir::new().unwrap();
+    let env = ApplyEnv {
+        data_dir: data.path(),
+        progress: &|_| {},
+        cancel: &AtomicBool::new(false),
+        trash: &FakeTrash::unavailable("no-trash"),
+        tools: Some(&[]),
+    };
+    apply_organize(&p, &env).unwrap();
+    let folder = target.path().join(only(&p).target.as_ref().unwrap());
+    assert!(folder.is_dir(), "{}", folder.display());
+    for (n, (rel, _)) in tree(&folder).iter().enumerate() {
+        let path = rel.split('/').fold(folder.clone(), |p, c| p.join(c));
+        pin_mtime(&path, 10 + n as u64);
+    }
+
+    for (mode, sep) in [
+        (OrganizeDedupeMode::SetAside, '/'),
+        (OrganizeDedupeMode::Report, '\\'),
+    ] {
+        let pile = TempDir::new().unwrap();
+        write_zip(&pile.path().join("Bloodborne (again).zip"), &files, sep);
+        let opts = OrganizeOptions {
+            layout: "esde".into(),
+            target: Some(target.path().to_path_buf()),
+            offline: true,
+            duplicates: mode,
+            ..OrganizeOptions::default()
+        };
+        let again = plan_organize(
+            pile.path(),
+            &opts,
+            &world.env(),
+            &|_| {},
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        let item = only(&again);
+        assert!(
+            !matches!(item.transfer, Transfer::Extract { .. }),
+            "{mode:?}: {item:#?}"
+        );
+        assert_eq!(again.counts.in_library, 1, "{mode:?}");
+        let group = again
+            .duplicates
+            .iter()
+            .find(|g| g.system == "ps4")
+            .expect("a group with the library folder");
+        assert_eq!(
+            group.basis,
+            Some(coverly_core::dedupe::GroupBasis::FolderTree)
+        );
+        match (&mode, &item.action) {
+            (OrganizeDedupeMode::SetAside, OrganizeAction::SetAside { relation, .. }) => {
+                assert_eq!(*relation, Relation::Exact);
+            }
+            (
+                OrganizeDedupeMode::Report,
+                OrganizeAction::Left {
+                    reason: LeftReason::InLibrary { relation, .. },
+                },
+            ) => assert_eq!(*relation, Relation::Exact),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // One byte more in a file: another tree, extracted as usual.
+    let mut other = files.clone();
+    other[0].1.push(0);
+    let pile = TempDir::new().unwrap();
+    write_zip(&pile.path().join("Bloodborne (mod).zip"), &other, '/');
+    let p = world.plan(pile.path(), target.path());
+    assert!(
+        matches!(only(&p).transfer, Transfer::Extract { .. }),
+        "{:#?}",
+        only(&p)
+    );
+}
+
+/// Adjustments D19: two PS4 folders of one tree on the pile are one copy:
+/// one moves in, the other is set aside whole in the pile's quarantine (a
+/// Trash plan too), and undo puts both back.
+#[test]
+fn a_pile_folder_twin_is_set_aside_whole_and_undo_restores_it() {
+    use coverly_core::dedupe::QuarantineChoice;
+    use coverly_core::organize::ItemKind;
+
+    for trash in [false, true] {
+        let world = World::new();
+        let pile = TempDir::new().unwrap();
+        let target = TempDir::new().unwrap();
+        for name in ["CUSA00900", "Bloodborne copy"] {
+            let dir = pile.path().join(name);
+            ps4(&dir);
+            for (n, (rel, _)) in tree(&dir).iter().enumerate() {
+                let path = rel.split('/').fold(dir.clone(), |p, c| p.join(c));
+                pin_mtime(&path, 20 + n as u64);
+            }
+        }
+        let before = tree(pile.path());
+        let mut opts = OrganizeOptions {
+            layout: "esde".into(),
+            target: Some(target.path().to_path_buf()),
+            offline: true,
+            ..OrganizeOptions::default()
+        };
+        if trash {
+            opts.dedupe.quarantine = QuarantineChoice::Trash;
+        }
+        let p = plan_organize(
+            pile.path(),
+            &opts,
+            &world.env(),
+            &|_| {},
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert!(p.items.iter().all(|i| i.kind == ItemKind::Folder));
+        let aside: Vec<&OrganizeItem> = p.items.iter().filter(|i| i.is_set_aside()).collect();
+        assert_eq!(aside.len(), 1, "trash {trash}: {:#?}", p.items);
+        assert_eq!(p.items.iter().filter(|i| i.moves_in()).count(), 1);
+
+        let data = TempDir::new().unwrap();
+        let fake = FakeTrash::new(data.path().join("trash"));
+        let report = apply_organize(
+            &p,
+            &ApplyEnv {
+                data_dir: data.path(),
+                progress: &|_| {},
+                cancel: &AtomicBool::new(false),
+                trash: &fake,
+                tools: Some(&[]),
+            },
+        )
+        .unwrap();
+        assert_eq!(report.set_aside, 1, "trash {trash}: {report:#?}");
+        assert_eq!(fake.trashed(), 0, "a folder never goes to the Trash");
+        let gone = pile.path().join(&aside[0].sources[0]);
+        assert!(!gone.exists());
+        let moved = pile.path().join("_Duplicados").join(&aside[0].sources[0]);
+        assert!(moved.join("sce_sys").join("param.sfo").is_file());
+
+        coverly_core::write::undo_job_with(data.path(), report.job.as_deref().unwrap(), &fake)
+            .unwrap();
+        assert_eq!(tree(pile.path()), before, "trash {trash}");
+    }
+}

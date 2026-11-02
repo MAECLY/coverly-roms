@@ -103,6 +103,14 @@ export type DumpQualityView = (typeof DUMP_QUALITIES)[number];
 export const RELATIONS = ['exact', 'format', 'version'] as const;
 export type RelationView = (typeof RELATIONS)[number];
 
+/**
+ * What matched an exact group when no bytes were compared (spec D19): the
+ * same title id and version read from the content, or the same folder tree.
+ * Absent on a byte match.
+ */
+export const GROUP_BASES = ['title-id', 'folder-tree'] as const;
+export type GroupBasisView = (typeof GROUP_BASES)[number];
+
 export const KEEP_REASON_KINDS = [
   'user-choice',
   'has-save',
@@ -319,6 +327,8 @@ export interface DupGroupView {
   action: GroupActionView;
   tie: boolean;
   choice_dropped: boolean;
+  /** Set when a title id or a folder tree, not bytes, matched (D19). */
+  basis?: GroupBasisView;
 }
 
 export interface TotalsView {

@@ -287,9 +287,18 @@ fn a_duplicate_set_aside_is_not_counted() {
         TempDir::new().unwrap(),
         TempDir::new().unwrap(),
     );
+    // B's extra file keeps the trees apart: the duplicates step (which
+    // would set an equal tree aside itself, adjustments spec D19) leaves
+    // both; the set-aside is made by hand below.
     put_tree(
         pile.path(),
-        &["A/GAME.PROBE", "A/6gb.bin", "B/GAME.PROBE", "B/6gb.bin"],
+        &[
+            "A/GAME.PROBE",
+            "A/6gb.bin",
+            "B/GAME.PROBE",
+            "B/6gb.bin",
+            "B/readme.txt",
+        ],
     );
     let mut p = plan(&world, pile.path(), target.path(), TransferMode::Copy);
     assert_eq!(large_transfer(&p).unwrap().items, 2);

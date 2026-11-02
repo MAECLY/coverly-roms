@@ -578,6 +578,67 @@ impl ReadAt for HeadAt {
     }
 }
 
+/// The tree digest of an archive's folder game (adjustments spec D19,
+/// D20): [`folder_tree_digest`](crate::dedupe::keys::folder_tree_digest)
+/// of the files below its root, from the listing alone, so a zipped game
+/// already extracted in the library matches the folder there without
+/// extracting. `None` for an archive with no single folder game, an
+/// incomplete listing, an unsafe name, or nothing below the root. OS
+/// litter is left out, as the tree on disk leaves it.
+pub fn archive_tree_digest(insp: &super::Inspection) -> Option<String> {
+    let Some(ArchiveGame::One { root, .. }) = &insp.folder_game else {
+        return None;
+    };
+    if !insp.listing_complete || insp.entries.iter().any(|e| e.unsafe_why.is_some()) {
+        return None;
+    }
+    let root = root.replace('\\', "/").trim_matches('/').to_lowercase();
+    let names: Vec<(String, u64)> = insp
+        .entries
+        .iter()
+        .map(|e| (e.name.replace('\\', "/"), e.size))
+        .collect();
+    // A name that ends in `/`, or that other names sit below, is a folder.
+    let folders: HashSet<String> = names
+        .iter()
+        .flat_map(|(n, _)| {
+            let parts: Vec<&str> = n.trim_matches('/').split('/').collect();
+            (1..parts.len()).map(move |k| parts[..k].join("/").to_lowercase())
+        })
+        .collect();
+    let mut listed: Vec<(String, u64)> = Vec::new();
+    for (name, size) in names {
+        if name.ends_with('/') {
+            continue;
+        }
+        // The digest folds case anyway: work on the lower-case name.
+        let lower = name.trim_matches('/').to_lowercase();
+        if folders.contains(&lower) {
+            continue;
+        }
+        let rel = if root.is_empty() {
+            lower.as_str()
+        } else {
+            match lower.strip_prefix(&root).and_then(|r| r.strip_prefix('/')) {
+                Some(rel) => rel,
+                None => continue,
+            }
+        };
+        let base = rel.rsplit('/').next().unwrap_or(rel);
+        if crate::scan::classify::is_appledouble(base)
+            || crate::scan::classify::is_junk_file(base)
+            || crate::scan::classify::is_zone_identifier(base)
+        {
+            continue;
+        }
+        listed.push((rel.to_string(), size));
+    }
+    if listed.is_empty() {
+        return None;
+    }
+    Some(crate::dedupe::keys::folder_tree_digest(&mut listed))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

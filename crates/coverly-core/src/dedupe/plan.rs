@@ -680,10 +680,11 @@ pub fn skip_group(plan: &mut DedupePlan, group: u64, skip: bool) {
                 g.action = GroupAction::Act;
                 let keeper = g.keeper;
                 let quarantine = !plan.trash;
+                // A folder game goes to the quarantine in a Trash plan too.
                 for m in g
                     .members
                     .iter_mut()
-                    .filter(|m| quarantine && m.id != keeper)
+                    .filter(|m| (quarantine || m.unit.kind == UnitKind::Folder) && m.id != keeper)
                 {
                     m.dest = Some(dest_for(
                         &plan.roms_dir,
@@ -898,21 +899,6 @@ impl Base {
             Some(saves) => GroupAction::Conflict { saves },
             None => raw.action.clone(),
         };
-        // A folder game is never set aside in this batch (systems batch 2
-        // D28): checked here, whatever proved the group, and named as the
-        // reason over a title id (it holds even once title ids may act).
-        let title_or_act = matches!(
-            action,
-            GroupAction::Act
-                | GroupAction::ReportOnly {
-                    why: ReportWhy::TitleId
-                }
-        );
-        if title_or_act && raw.members.iter().any(|(u, _)| is_folder(&self.units[*u])) {
-            action = GroupAction::ReportOnly {
-                why: ReportWhy::FolderGame,
-            };
-        }
         if action == GroupAction::Act && lock(&self.skipped).contains(&id) {
             action = GroupAction::ReportOnly {
                 why: ReportWhy::UserSkipped,
@@ -930,7 +916,11 @@ impl Base {
             .enumerate()
             .map(|(m, ((u, _), (travels, stays, gamelist, art_leaves)))| {
                 let unit = &self.units[*u];
-                let dest = match &quarantine {
+                // A folder game goes to the quarantine even when the
+                // copies go to the Trash (the Trash takes files only).
+                let folder_q = (unit.kind == UnitKind::Folder)
+                    .then(|| quarantine_dir(&self.spot, &QuarantineChoice::NextToRoms));
+                let dest = match quarantine.as_ref().or(folder_q.as_ref()) {
                     Some(q) if m != keeper && action == GroupAction::Act => {
                         Some(dest_for(&self.roms_dir, q, &unit.primary, &unit.system))
                     }
@@ -976,6 +966,7 @@ impl Base {
             action,
             tie,
             choice_dropped,
+            basis: raw.basis,
         }
     }
 }
@@ -1079,10 +1070,6 @@ fn headered(u: &Unit, k: &KeyedUnit) -> Option<bool> {
         }
         _ => None,
     }
-}
-
-fn is_folder(u: &Unit) -> bool {
-    u.kind == UnitKind::Folder
 }
 
 /// The best confidence of the links that reach `unit`.

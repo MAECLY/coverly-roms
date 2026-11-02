@@ -3050,8 +3050,8 @@ fn duplicates_step(
         }
         match (entry.kind, &entry.facts) {
             (ItemKind::Set, _) => sets.push((entry.sources.clone(), system.clone())),
-            // A folder game is a unit too (D28): only its title id can
-            // match it, and its group is reported, never set aside.
+            // A folder game is a unit too (D28): its title id or its tree
+            // matches it, and it is set aside whole (adjustments D19).
             (ItemKind::Folder, _) => folders.push((
                 primary.clone(),
                 system.clone(),
@@ -3076,6 +3076,21 @@ fn duplicates_step(
     let mut units = units_from_facts(&facts, &|i| fact_systems.get(i).cloned()).units;
     units.extend(units_from_sets(&sets).units);
     units.extend(units_from_folders(&folders).units);
+    // Folder trees the survey measured (spec D19): a folder game's from
+    // its metadata walk, an archive folder game's from its listing.
+    for u in &mut units {
+        let Some(entry) = by_primary
+            .get(&u.primary)
+            .and_then(|&id| survey.entries.get(id))
+        else {
+            continue;
+        };
+        u.tree_digest = match (&entry.tree, &entry.facts) {
+            (Some(tree), _) => tree.digest.clone(),
+            (None, Some(f)) => crate::organize::inspect::archive_tree_digest(&f.inspection),
+            _ => None,
+        };
+    }
     // What the survey's readers found stands for level 1's title keys: a
     // header or folder probe is opened once (systems batch 3 D24).
     for u in &units {

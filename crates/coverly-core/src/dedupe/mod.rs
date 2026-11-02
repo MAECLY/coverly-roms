@@ -84,6 +84,19 @@ impl Relation {
     }
 }
 
+/// What proved an exact group that no byte comparison did (adjustments
+/// spec D19, §8.3): the UI names it on the group («Mismo title ID y
+/// versión», «Misma carpeta»). `None` on a group is a byte match.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GroupBasis {
+    /// The same console title id, kind, version and disc, read from the
+    /// content.
+    TitleId,
+    /// The same folder tree (relative paths and sizes).
+    FolderTree,
+}
+
 /// Why a group is only reported, with no file action (spec §7.3).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -116,7 +129,8 @@ pub enum ReportWhy {
     /// plan P-6).
     TitleId,
     /// A folder game is in the group: reported, never set aside (systems
-    /// batch 2 D28).
+    /// batch 2 D28). No longer given since folder games act (adjustments
+    /// spec D19); kept so plans written before still read.
     FolderGame,
 }
 
@@ -285,6 +299,9 @@ pub struct DupGroup {
     /// a save changed since the pick (spec §6.1).
     #[serde(default)]
     pub choice_dropped: bool,
+    /// What matched when no bytes were compared (spec D19).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub basis: Option<GroupBasis>,
 }
 
 /// Counts for the summary. Conflicts and report-only groups are not in
@@ -618,6 +635,7 @@ mod tests {
             action,
             tie: false,
             choice_dropped: false,
+            basis: None,
         };
         DedupePlan {
             root: PathBuf::from("/Volumes/SD"),

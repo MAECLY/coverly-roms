@@ -2236,6 +2236,7 @@ mod tests {
                 action: GroupAction::Act,
                 tie: false,
                 choice_dropped: false,
+                basis: None,
             }],
             ..DedupePlan::default()
         };

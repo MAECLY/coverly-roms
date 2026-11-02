@@ -1087,7 +1087,7 @@ use coverly_core::dedupe::keys::DiskBytes;
 use coverly_core::dedupe::testing::pin_mtime;
 use coverly_core::dedupe::{
     apply_dedupe, plan_dedupe, DedupeApplyEnv, DedupeDecisions, DedupeEnv, DedupeItemStatus,
-    DedupeOptions, DedupeSkip, GroupAction, ReportWhy,
+    DedupeOptions, GroupAction, GroupBasis,
 };
 use coverly_core::settings::Settings;
 use coverly_core::write::trash::FakeTrash;
@@ -1110,7 +1110,7 @@ fn ps3_jb(root: &Path, name: &str, title_id: &str, n: u64) -> PathBuf {
 }
 
 #[test]
-fn folder_games_are_units_and_never_set_aside() {
+fn folder_games_are_units_and_one_tree_is_set_aside() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
     let a = ps3_jb(root, "Game.ps3", "BLUS30001", 1);
@@ -1150,8 +1150,8 @@ fn folder_games_are_units_and_never_set_aside() {
     }
     assert_eq!(unit_at(&set, &a).files, vec![a.clone()]);
 
-    // The plan reports the two copies of one title id, with the
-    // quarantine on, and moves nothing.
+    // The two copies of one tree act (adjustments spec D19): the extra
+    // goes to the quarantine whole; the other title id stays apart.
     let cache = Cache::in_memory().unwrap();
     let db = SystemDb::builtin();
     let profile = common::profile("anbernic-stock");
@@ -1172,37 +1172,21 @@ fn folder_games_are_units_and_never_set_aside() {
     };
     let scan = scan_with(root, &profile, &ScanOptions::default());
     let opts = DedupeOptions::from_settings(&settings.dedupe);
-    let mut plan = plan_dedupe(&scan, &opts, &env).unwrap();
+    let plan = plan_dedupe(&scan, &opts, &env).unwrap();
     assert_eq!(plan.groups.len(), 1, "{:#?}", plan.groups);
     let g = &plan.groups[0];
     assert_eq!(g.system, "ps3");
-    assert_eq!(
-        g.action,
-        GroupAction::ReportOnly {
-            why: ReportWhy::FolderGame
-        },
-        "a folder group says it is a folder, not that only a CRC matched"
-    );
+    assert_eq!(g.action, GroupAction::Act, "{g:#?}");
+    assert_eq!(g.basis, Some(GroupBasis::FolderTree));
     let mut members: Vec<&Path> = g.members.iter().map(|m| m.unit.primary.as_path()).collect();
     members.sort();
     let mut want = vec![a.as_path(), b.as_path()];
     want.sort();
     assert_eq!(members, want);
-    assert!(g.members.iter().all(|m| m.dest.is_none()));
-    assert_eq!(plan.totals.extras, 0);
+    let extra = g.members.iter().find(|m| m.id != g.keeper).unwrap();
+    assert!(extra.dest.is_some());
+    assert_eq!(plan.totals.extras, 1);
 
-    // A plan forced to act on a folder (an edited plan file) is refused
-    // by the set-aside step itself: the folder stays where it is.
-    let g = &mut plan.groups[0];
-    g.action = GroupAction::Act;
-    let keeper = g.keeper;
-    for m in g.members.iter_mut().filter(|m| m.id != keeper) {
-        m.dest = Some(
-            plan.quarantine
-                .join("ps3")
-                .join(m.unit.primary.file_name().unwrap()),
-        );
-    }
     let data = TempDir::new().unwrap();
     let trash = FakeTrash::new(data.path().join("trash"));
     let apply_env = DedupeApplyEnv {
@@ -1214,16 +1198,17 @@ fn folder_games_are_units_and_never_set_aside() {
     };
     let report = apply_dedupe(&plan, &DedupeDecisions::default(), &apply_env).unwrap();
     assert_eq!(report.outcomes.len(), 1, "{report:?}");
-    assert_eq!(
-        report.outcomes[0].status,
-        DedupeItemStatus::Skipped {
-            reason: DedupeSkip::ReportOnly
-        }
+    assert!(
+        matches!(
+            report.outcomes[0].status,
+            DedupeItemStatus::Quarantined { .. }
+        ),
+        "{report:?}"
     );
-    for p in [&a, &b] {
-        assert!(p.join("PS3_GAME/PARAM.SFO").is_file(), "{}", p.display());
-    }
-    assert!(!plan.quarantine.join("ps3").exists());
+    assert!(!extra.unit.primary.exists());
+    let keeper = &g.members[g.keeper].unit.primary;
+    assert!(keeper.join("PS3_GAME/PARAM.SFO").is_file());
+    assert!(other.join("PS3_GAME/PARAM.SFO").is_file());
 }
 
 // --- Current generation (systems batch 3 D8, D14) ---
@@ -1258,7 +1243,7 @@ fn plan_batocera(root: &Path) -> coverly_core::dedupe::DedupePlan {
 }
 
 #[test]
-fn ps4_folder_twins_by_content_id_are_reported_only() {
+fn ps4_folder_twins_by_content_id_act() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
     let cid = "UP9000-CUSA00900_00-BLOODBORNE000000";
@@ -1283,19 +1268,14 @@ fn ps4_folder_twins_by_content_id_are_reported_only() {
     assert_eq!(exact.len(), 1, "{:#?}", plan.groups);
     let g = exact[0];
     assert_eq!(g.system, "ps4");
-    assert_eq!(
-        g.action,
-        GroupAction::ReportOnly {
-            why: ReportWhy::FolderGame
-        }
-    );
+    assert_eq!(g.action, GroupAction::Act);
+    assert_eq!(g.basis, Some(GroupBasis::FolderTree));
     let mut members: Vec<&Path> = g.members.iter().map(|m| m.unit.primary.as_path()).collect();
     members.sort();
     let mut want = vec![a.as_path(), b.as_path()];
     want.sort();
     assert_eq!(members, want, "another label is no copy");
-    assert!(g.members.iter().all(|m| m.dest.is_none()));
-    assert_eq!(plan.totals.extras, 0);
+    assert_eq!(plan.totals.extras, 1);
 }
 
 #[test]

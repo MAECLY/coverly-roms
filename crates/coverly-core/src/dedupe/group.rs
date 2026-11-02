@@ -26,7 +26,7 @@ use crate::systems::SystemDb;
 use super::keys::{ExactKey, FormatKey, FormatLink, KeyedUnit, VersionKey, VERSION_CONFIDENCE};
 use super::source::DatLookup;
 use super::units::Unit;
-use super::{DedupeOptions, GroupAction, Relation, ReportWhy};
+use super::{DedupeOptions, GroupAction, GroupBasis, Relation, ReportWhy};
 use crate::settings::DedupeLevel;
 
 /// A group with more members than this is shown collapsed and is
@@ -96,6 +96,8 @@ pub struct Link {
     pub why: Option<ReportWhy>,
     /// 0.0–1.0; 0.0 for a report-only disc link, which proves no match.
     pub confidence: f32,
+    /// A title id or a folder tree, not bytes, made the link (spec D19).
+    pub basis: Option<GroupBasis>,
 }
 
 /// A group before its keeper is chosen.
@@ -115,6 +117,9 @@ pub struct RawGroup {
     /// Sorted content keys of the members, for the stable group id.
     pub keys: Vec<String>,
     pub links: Vec<Link>,
+    /// The weakest basis of its links: a title id over a folder tree over
+    /// bytes (`None`).
+    pub basis: Option<GroupBasis>,
 }
 
 impl RawGroup {
@@ -182,6 +187,7 @@ pub fn build_groups(
     for (system, members) in by_system {
         let mut sys = SystemGroups::new(system, units, opts);
         sys.copy_clusters(&members, &keyed);
+        sys.tree_links(&members, &keyed);
         sys.chd_raw_links(&members, &keyed);
         if opts.formats {
             let format: Vec<(usize, &FormatKey)> = members
@@ -232,6 +238,18 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
     }
 
     fn link(&mut self, a: usize, b: usize, relation: Relation, why: Option<ReportWhy>, c: f32) {
+        self.link_on(a, b, relation, why, c, None);
+    }
+
+    fn link_on(
+        &mut self,
+        a: usize,
+        b: usize,
+        relation: Relation,
+        why: Option<ReportWhy>,
+        c: f32,
+        basis: Option<GroupBasis>,
+    ) {
         // The hard rule: never compare across systems (spec §8.1.1).
         let same = self.units[a].system == self.system && self.units[b].system == self.system;
         debug_assert!(same, "a link across systems");
@@ -244,6 +262,7 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
             relation,
             why,
             confidence: c,
+            basis,
         });
     }
 
@@ -283,9 +302,20 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
             if cluster.len() < 2 {
                 continue;
             }
-            if matches!(first.exact, Some(ExactKey::Title { .. })) {
-                // A title id is no CRC: say what matched (plan P-6).
-                reasons.push(ReportWhy::TitleId);
+            let title = matches!(first.exact, Some(ExactKey::Title { .. }));
+            if title {
+                // A title id is no CRC (plan P-6), but the same id, kind,
+                // version and disc read from every copy's content acts
+                // (spec D19); one id taken from a file name alone keeps
+                // the group reported (Q14).
+                let content = cluster.iter().all(|&u| {
+                    keyed[u]
+                        .and_then(|k| k.exact.as_ref())
+                        .is_some_and(ExactKey::acts_unconfirmed)
+                });
+                if !content {
+                    reasons.push(ReportWhy::TitleId);
+                }
             } else if !first.confirmed || first.exact.as_ref().is_some_and(|e| !e.is_confirmed()) {
                 reasons.push(ReportWhy::Unconfirmed);
             }
@@ -301,14 +331,87 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
                 (Some(ExactKey::Arcade { .. }), _) => ARCADE_CONFIDENCE,
                 _ => EXACT_CONFIDENCE,
             };
+            let basis = title.then_some(GroupBasis::TitleId);
             for &u in &cluster[1..] {
-                self.link(cluster[0], u, Relation::Exact, why.clone(), confidence);
+                self.link_on(
+                    cluster[0],
+                    u,
+                    Relation::Exact,
+                    why.clone(),
+                    confidence,
+                    basis,
+                );
             }
             for &u in &cluster {
                 self.key(u, key.clone());
             }
             if let Some(only) = only {
                 self.only.push((cluster, only));
+            }
+        }
+    }
+
+    /// Folder games with the same tree (spec D19): exact copies by their
+    /// files' relative paths and sizes, no file read, at full confidence.
+    /// Two copies whose title keys both exist and differ (id, kind,
+    /// version or disc) never join; when a tree is shared by several
+    /// title keys, only copies of one key join each other.
+    fn tree_links(&mut self, members: &[usize], keyed: &[Option<&KeyedUnit>]) {
+        let mut by_tree: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for &i in members {
+            if let Some(tree) = keyed[i].and_then(|k| k.tree.as_ref()) {
+                by_tree
+                    .entry(tree.key_string(self.system))
+                    .or_default()
+                    .push(i);
+            }
+        }
+        // The whole title key: a base and its update, or two versions,
+        // may share a tree in a synthetic dump, never a copy.
+        let title_of = |u: usize| match keyed[u].and_then(|k| k.exact.as_ref()) {
+            Some(t @ ExactKey::Title { .. }) => Some(t.key_string(self.system)),
+            _ => None,
+        };
+        for (key, list) in by_tree {
+            if list.len() < 2 {
+                continue;
+            }
+            let ids: BTreeSet<String> = list.iter().filter_map(|&u| title_of(u)).collect();
+            let mut parts: BTreeMap<Option<String>, Vec<usize>> = BTreeMap::new();
+            for &u in &list {
+                let id = title_of(u);
+                match (&id, ids.len()) {
+                    // One id or none: an id-less copy joins the others.
+                    (_, 0 | 1) => parts.entry(None).or_default().push(u),
+                    // Several ids: an id-less copy cannot say which.
+                    (None, _) => {}
+                    (Some(_), _) => parts.entry(id).or_default().push(u),
+                }
+            }
+            for part in parts.into_values().filter(|p| p.len() >= 2) {
+                // The same tree proves more than a title id taken from a
+                // name: such a report-only link between two copies of the
+                // tree gives way.
+                let inside = |u: usize| part.contains(&u);
+                self.links.retain(|l| {
+                    !(l.basis == Some(GroupBasis::TitleId)
+                        && l.why == Some(ReportWhy::TitleId)
+                        && inside(l.a)
+                        && inside(l.b))
+                });
+                for &u in &part[1..] {
+                    self.link_on(
+                        part[0],
+                        u,
+                        Relation::Exact,
+                        None,
+                        EXACT_CONFIDENCE,
+                        Some(GroupBasis::FolderTree),
+                    );
+                }
+                for &u in &part {
+                    self.key(u, key.clone());
+                }
             }
         }
     }
@@ -547,6 +650,7 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
                 .flatten()
                 .cloned()
                 .collect();
+            let basis = group_basis(&links);
             let mut group = RawGroup {
                 system: self.system.to_string(),
                 members: units.iter().map(|&u| (u, Relation::Exact)).collect(),
@@ -554,12 +658,38 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
                 keeper_only: (!only.is_empty()).then_some(only),
                 keys: keys.into_iter().collect(),
                 links,
+                basis,
             };
             group.members = group.relations_to(units[0]);
             groups.push(group);
         }
         groups.sort_by_key(|g| g.members[0].0);
         groups
+    }
+}
+
+/// What a group's exact links rest on (spec D19): per pair of members its
+/// strongest link (bytes, then a folder tree, then a title id), and for
+/// the group the weakest of those. Other formats and versions say nothing.
+fn group_basis(links: &[Link]) -> Option<GroupBasis> {
+    // 0 title id, 1 folder tree, 2 bytes.
+    let rank = |b: Option<GroupBasis>| match b {
+        Some(GroupBasis::TitleId) => 0u8,
+        Some(GroupBasis::FolderTree) => 1,
+        None => 2,
+    };
+    let mut best: BTreeMap<(usize, usize), u8> = BTreeMap::new();
+    for l in links.iter().filter(|l| l.relation == Relation::Exact) {
+        let pair = (l.a.min(l.b), l.a.max(l.b));
+        let r = rank(l.basis);
+        best.entry(pair)
+            .and_modify(|b| *b = (*b).max(r))
+            .or_insert(r);
+    }
+    match best.into_values().min()? {
+        0 => Some(GroupBasis::TitleId),
+        1 => Some(GroupBasis::FolderTree),
+        _ => None,
     }
 }
 

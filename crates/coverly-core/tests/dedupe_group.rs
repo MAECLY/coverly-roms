@@ -37,6 +37,7 @@ fn unit(id: usize, system: &str, path: &str, kind: UnitKind) -> Unit {
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default(),
         in_library: true,
+        tree_digest: None,
     }
 }
 
@@ -50,6 +51,7 @@ fn keyed(unit: usize, exact: Option<ExactKey>) -> KeyedUnit {
         dat_game: None,
         chd_raw: None,
         dat_crcs: Vec::new(),
+        tree: None,
     }
 }
 
@@ -905,4 +907,125 @@ fn cache_dats_know_arcade_set_names_only_once_a_catalogue_is_cached() {
         None,
         "another system's catalogue"
     );
+}
+
+// --- Title ids and folder trees act (adjustments spec D19) ---
+
+use coverly_core::consoles::TitleKind;
+use coverly_core::dedupe::GroupBasis;
+
+fn title(id: &str, version: Option<&str>, by_name: bool) -> Option<ExactKey> {
+    Some(ExactKey::Title {
+        title_id: id.to_string(),
+        kind: TitleKind::Base,
+        version: version.map(str::to_string),
+        disc: None,
+        by_name,
+    })
+}
+
+fn tree(digest: &str) -> Option<ExactKey> {
+    Some(ExactKey::FolderTree {
+        digest: digest.to_string(),
+    })
+}
+
+impl Case {
+    /// A folder game with a title key and a tree.
+    fn folder(&mut self, system: &str, path: &str, t: Option<ExactKey>, digest: &str) -> usize {
+        let id = self.add(system, path, UnitKind::Folder, t, None, None);
+        self.l1[id].tree = tree(digest);
+        id
+    }
+}
+
+#[test]
+fn content_title_ids_act_at_version_confidence() {
+    let db = SystemDb::builtin();
+    let mut c = Case::new();
+    let tid = "0100000000010000";
+    c.rom("switch", "A.nsp", title(tid, Some("0"), false));
+    c.rom("switch", "B.nsp", title(tid, Some("0"), false));
+    let g = c.groups(&opts(&db, &NoDats));
+    assert_eq!(g.len(), 1);
+    assert_eq!(g[0].action, GroupAction::Act);
+    assert_eq!(g[0].basis, Some(GroupBasis::TitleId));
+    assert!((g[0].links[0].confidence - 0.90).abs() < 1e-6);
+    assert_eq!(relation_of(&g[0].members, 1), Relation::Exact);
+}
+
+#[test]
+fn one_file_name_id_keeps_the_group_reported() {
+    let db = SystemDb::builtin();
+    let mut c = Case::new();
+    let tid = "0100000000010000";
+    c.rom("switch", "A.nsp", title(tid, Some("0"), false));
+    c.rom(
+        "switch",
+        "B [0100000000010000][v0].nsp",
+        title(tid, Some("0"), true),
+    );
+    let g = c.groups(&opts(&db, &NoDats));
+    assert_eq!(g.len(), 1);
+    assert_eq!(report_why(&g[0]), Some(&ReportWhy::TitleId));
+}
+
+#[test]
+fn equal_trees_act_at_full_confidence_within_one_system() {
+    let db = SystemDb::builtin();
+    let mut c = Case::new();
+    c.folder("ps4", "a", title("CUSA00900", None, false), "AA");
+    c.folder("ps4", "b", None, "AA");
+    // The same tree in another system is never compared.
+    c.folder("ps5", "c", None, "AA");
+    let g = c.groups(&opts(&db, &NoDats));
+    assert_eq!(g.len(), 1, "{g:#?}");
+    assert_eq!(units_of(&g[0]), vec![0, 1]);
+    assert_eq!(g[0].action, GroupAction::Act);
+    assert_eq!(g[0].basis, Some(GroupBasis::FolderTree));
+    assert_eq!(g[0].links[0].confidence, 1.0);
+}
+
+#[test]
+fn equal_trees_of_other_title_ids_stay_apart() {
+    let db = SystemDb::builtin();
+    let mut c = Case::new();
+    c.folder("ps4", "a", title("CUSA00900", None, false), "AA");
+    c.folder("ps4", "b", title("CUSA00900", None, false), "AA");
+    c.folder("ps4", "c", title("CUSA00901", None, false), "AA");
+    // With two ids, a copy with none cannot say which it is.
+    c.folder("ps4", "d", None, "AA");
+    let g = c.groups(&opts(&db, &NoDats));
+    assert_eq!(g.len(), 1, "{g:#?}");
+    assert_eq!(units_of(&g[0]), vec![0, 1]);
+}
+
+#[test]
+fn an_equal_tree_outweighs_a_file_name_id() {
+    let db = SystemDb::builtin();
+    let mut c = Case::new();
+    c.folder("ps4", "a", title("CUSA00900", None, true), "AA");
+    c.folder("ps4", "b", title("CUSA00900", None, true), "AA");
+    let g = c.groups(&opts(&db, &NoDats));
+    assert_eq!(g.len(), 1);
+    assert_eq!(g[0].action, GroupAction::Act, "{g:#?}");
+    assert_eq!(g[0].basis, Some(GroupBasis::FolderTree));
+
+    // Other trees with name ids only: reported.
+    let mut c = Case::new();
+    c.folder("ps4", "a", title("CUSA00900", None, true), "AA");
+    c.folder("ps4", "b", title("CUSA00900", None, true), "BB");
+    let g = c.groups(&opts(&db, &NoDats));
+    assert_eq!(report_why(&g[0]), Some(&ReportWhy::TitleId));
+    assert_eq!(g[0].basis, Some(GroupBasis::TitleId));
+}
+
+#[test]
+fn a_byte_match_has_no_basis() {
+    let db = SystemDb::builtin();
+    let mut c = Case::new();
+    c.rom("gb", "a.gb", payload("1"));
+    c.rom("gb", "b.gb", payload("1"));
+    let g = c.groups(&opts(&db, &NoDats));
+    assert_eq!(g[0].basis, None);
 }

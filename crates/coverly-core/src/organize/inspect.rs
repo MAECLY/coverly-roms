@@ -45,8 +45,8 @@ use crate::systems::{ExtClass, SystemDb};
 
 mod folder_game;
 pub use folder_game::{
-    archive_folder_game, ArchiveFolderGame, ArchiveFs, ArchiveGame, ArchiveGameOutcome,
-    MAX_ROOT_DEPTH, VITA_STEROID,
+    archive_folder_game, archive_tree_digest, ArchiveFolderGame, ArchiveFs, ArchiveGame,
+    ArchiveGameOutcome, MAX_ROOT_DEPTH, VITA_STEROID,
 };
 
 /// Archives with more entries than this are too big to open safely (the

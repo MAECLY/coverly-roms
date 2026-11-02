@@ -53,6 +53,7 @@ fn unit(id: usize, system: &str, system_dir: &Path, files: &[&str], kind: UnitKi
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default(),
         in_library: true,
+        tree_digest: None,
     }
 }
 
@@ -64,6 +65,7 @@ fn group(system: &str, members: &[usize]) -> RawGroup {
         keeper_only: None,
         keys: Vec::new(),
         links: Vec::new(),
+        basis: None,
     }
 }
 

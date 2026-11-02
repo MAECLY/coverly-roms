@@ -64,7 +64,8 @@ pub enum UnitKind {
     /// An m3u playlist over several discs.
     MultiDisc,
     /// A folder game (systems batch 2 D26): `primary` is the folder, never
-    /// read as a file. Reported, never set aside (D28).
+    /// read as a file. Its title id or tree groups it, and it is set aside
+    /// whole (adjustments spec D19).
     Folder,
 }
 
@@ -102,6 +103,12 @@ pub struct Unit {
     pub ext: String,
     /// Already in a system folder (false for an organise pile item).
     pub in_library: bool,
+    /// [`folder_tree_digest`](super::keys::folder_tree_digest) of a folder
+    /// game, when the caller measured it (an organise survey's tree, an
+    /// archive folder game's entry listing). Level 1 measures a library
+    /// folder game itself when another unit of its system has a tree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree_digest: Option<String>,
 }
 
 impl Unit {
@@ -319,8 +326,8 @@ pub fn units_from_facts(
 /// The units of an organise pile's folder games (systems batch 2 D28):
 /// `(folder, system, size, newest mtime)` as the survey measured them
 /// (metadata only). Like a library folder game, the folder is never read
-/// as a file, so only its title id can match it, and its group is
-/// reported, never set aside.
+/// as a file: its title id or its tree digest (set by the caller) match
+/// it, and it is set aside whole (adjustments spec D19).
 pub fn units_from_folders(folders: &[(PathBuf, String, u64, i64)]) -> UnitSet {
     let mut excluded = Vec::new();
     let mut drafts = Vec::new();
@@ -345,6 +352,7 @@ pub fn units_from_folders(folders: &[(PathBuf, String, u64, i64)]) -> UnitSet {
                     stem: file_name(path),
                     ext: String::new(),
                     in_library: false,
+                    tree_digest: None,
                 },
                 sizes: vec![*size],
                 // Folders cannot be hard links: no twin to drop.
@@ -417,6 +425,7 @@ fn draft_from_set(
             stem,
             ext,
             in_library: false,
+            tree_digest: None,
         },
         sizes,
         dev_ino: dev_ino(&meta),
@@ -510,7 +519,7 @@ fn draft_from_rom(
         return Err(Some(Exclusion::Folder));
     }
     // A folder game (systems batch 2 D26) is one unit, never read as a
-    // file: only its title id can group it, and only to report (D28).
+    // file: its title id or its tree groups it (adjustments spec D19).
     if rom.is_dir {
         return draft_from_folder(rom, system);
     }
@@ -546,6 +555,7 @@ fn draft_from_rom(
             stem: rom.stem.clone(),
             ext,
             in_library: true,
+            tree_digest: None,
         },
         sizes,
         dev_ino: dev_ino(&meta),
@@ -582,6 +592,7 @@ fn draft_from_folder(rom: &RomEntry, system: &System) -> Result<Draft, Option<Ex
             stem: rom.title_stem().to_string(),
             ext: rom.ext.clone(),
             in_library: true,
+            tree_digest: None,
         },
         sizes: vec![rom.size],
         // Folders cannot be hard links: no twin to drop.
@@ -652,6 +663,7 @@ fn draft_from_facts(
             stem,
             ext,
             in_library: false,
+            tree_digest: None,
         },
         sizes,
         dev_ino: dev_ino(&meta),

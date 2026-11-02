@@ -702,6 +702,11 @@ fn set_aside_done(
     if paths.is_empty() {
         return None;
     }
+    if item.kind == ItemKind::Folder {
+        // A folder game is set aside whole, never trashed (spec D19).
+        let record = record_of(records, item.id, &paths[0].0)?;
+        return Some((ItemStatus::Quarantined, vec![record.target.clone()]));
+    }
     let mut targets = Vec::with_capacity(paths.len());
     for (from, _) in &paths {
         if plan.set_aside_trash {
@@ -1526,6 +1531,9 @@ impl<'a> Run<'a> {
                 return step;
             }
         }
+        if item.kind == ItemKind::Folder {
+            return self.set_aside_folder(item, &paths);
+        }
         if self.plan.set_aside_trash {
             return self.trash_set_aside(item, &paths);
         }
@@ -1583,6 +1591,31 @@ impl<'a> Run<'a> {
             return pause;
         }
         Step::Done(ItemStatus::Quarantined, targets)
+    }
+
+    /// Sets a folder game aside whole in the pile's quarantine (spec D19),
+    /// one journaled rename, in a Trash plan too: the Trash takes files
+    /// only, and undo puts the folder back either way.
+    fn set_aside_folder(&mut self, item: &OrganizeItem, paths: &[(PathBuf, PathBuf)]) -> Step {
+        let Some((from, to)) = paths.first() else {
+            return skipped(SkipReason::NotDecided);
+        };
+        if let Some(record) = record_of(&self.records, item.id, from) {
+            return Step::Done(ItemStatus::Quarantined, vec![record.target.clone()]);
+        }
+        match self
+            .writer
+            .set_aside_dir(from, to, Collision::Rename, Some(item.id))
+        {
+            Ok(DirOutcome::Moved { to, .. } | DirOutcome::Copied { to, .. }) => {
+                Step::Done(ItemStatus::Quarantined, vec![to])
+            }
+            Ok(DirOutcome::CopiedNotRemoved { to, .. }) => {
+                Step::Done(ItemStatus::CopiedNotRemoved, vec![to])
+            }
+            Ok(DirOutcome::SkippedExists { .. }) => skipped(SkipReason::CollisionSet),
+            Err(e) => self.on_error(&e),
+        }
     }
 
     /// The companions of a set-aside item follow it below the quarantine
