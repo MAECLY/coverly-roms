@@ -619,5 +619,5 @@ Spec: [`2026-10-18-duplicates-design.md`](superpowers/specs/2026-10-18-duplicate
   - a 390 px en oscuro no hay desplazamiento lateral;
   - la consola no muestra errores.
 - **App:** PR #40 (README de 0.3.0 y registro de la release) y PR #41 (enlaces en inglés y la pregunta sobre datos enviados), los dos con CI verde y mergeados.
-- **Pendiente para Miguel:** probar la actualización desde la app 0.2.0 con interfaz (Ajustes → Acerca de → Buscar actualizaciones).
+- **Actualización desde la app 0.2.0 con interfaz:** Miguel la probó el 2026-11-02. La app vio la 0.3.0 y se actualizó sin problemas.
 

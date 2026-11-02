@@ -31,6 +31,7 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
 5. [Partidas guardadas (saves)](#5-partidas-guardadas-saves)
 6. [Organización y exportación para frontends](#6-organización-y-exportación-para-frontends)
 7. [Agradecimientos y créditos](#7-agradecimientos-y-créditos)
+8. [Integraciones (cuentas, claves y servicios)](#8-integraciones-cuentas-claves-y-servicios)
 
 ## 0. Nombres de los archivos de cada release y Windows ARM
 
@@ -799,3 +800,67 @@ Petición de Miguel (2026-11-01): una pestaña nueva en Ajustes, **«Agradecimie
   - faltan los avisos de las dependencias JS y de varios crates (MPL de option-ext, CDLA de webpki-roots, ISC/BoringSSL de ring, Unicode-3.0);
   - falta el enlace que pide GameTDB;
   - falta el crédito CC BY 4.0 de los iconos de RetroArch Assets en la interfaz.
+
+## 8. Integraciones (cuentas, claves y servicios)
+
+> **Dependencias:** ninguna para empezar, y conviene hacerlo antes o junto a 3.1 (cada fuente nueva trae su cuenta o clave) y al bloque 3 (cuenta de RetroAchievements). Cada integración enlaza su entrada de 7 (Agradecimientos).
+
+Petición de Miguel (2026-11-02): mejorar la parte de «Cuentas» de Fuentes y crear una pestaña nueva en Ajustes, **«Integraciones»**, con todas las integraciones que necesitan usuario, contraseña, clave de API o permiso, bien diseñada y enlazada desde cada sitio donde se usa.
+
+### Cómo está hoy
+
+- «Cuentas» es un bloque al final de **Ajustes → Fuentes**, debajo del orden de fuentes y del catálogo de Switch (`src/components/settings/SourcesSection.tsx`).
+- Solo hay tres claves (`crates/coverly-core/src/credentials.rs`): `steamgriddb-api-key`, `screenscraper-user` y `screenscraper-password`.
+  - Se guardan en el llavero del sistema (`src-tauri/src/keychain.rs`): Keychain en macOS, Credential Manager en Windows y Secret Service en Linux.
+  - Nunca vuelven a la interfaz ni a los registros.
+- «Probar» existe para SteamGridDB, y para ScreenScraper solo cuando la build trae las credenciales de desarrollador.
+- Lo relacionado está repartido en otras pestañas:
+  - el catálogo de Switch (titledb y su respaldo nlib), en Fuentes;
+  - el proxy y los límites de red, en Red;
+  - el canal de actualizaciones, en General.
+
+### Qué tiene que ser la pestaña
+
+- [ ] **Una tarjeta por servicio**, agrupadas en portadas y arte, nombres y metadatos, logros, catálogos y actualizaciones. Cada tarjeta muestra:
+  - el nombre del servicio, para qué lo usa Coverly en una línea y qué desbloquea (por ejemplo, «fondos y logos» o «nombres de Switch»);
+  - un **estado visible**: sin configurar, conectado, error (con el motivo y cómo arreglarlo), cuota agotada o desactivado;
+  - los **campos que pida**: usuario, contraseña, clave de API, client ID y secret. Van ocultos, con «Mostrar», y nunca se rellenan de vuelta con el valor guardado (solo «guardado ✓»);
+  - **«Probar conexión»**, con un resultado claro: funciona, credenciales incorrectas, sin red o servicio caído;
+  - **«Cómo conseguir la clave»**, que enlaza a la página oficial de cuenta o API del servicio (nunca a webs de ROMs, claves o emuladores) con los pasos en una línea;
+  - la **cuota y los límites** cuando el servicio los da: peticiones de hoy y el máximo, e hilos (ScreenScraper);
+  - **activar o desactivar** el servicio sin borrar la clave, y **«Olvidar credenciales»**, que la borra del llavero con confirmación dentro de la propia página;
+  - una nota de privacidad: qué se envía a ese servicio (nombre, hash, title ID…) y qué nunca;
+  - enlace a su entrada en Agradecimientos y a su posición en el orden de fuentes.
+- [ ] **Enlaces cruzados** en los dos sentidos:
+  - Desde Fuentes, cada fuente que necesite cuenta muestra «Configurar en Integraciones».
+  - Desde el relleno, Organizar, Duplicados, la ficha del juego y la CLI, cuando falta una cuenta o una cuota se agota, un aviso enlaza directamente a la tarjeta del servicio. Por ejemplo, «SteamGridDB sin clave: configurar».
+  - Desde Integraciones se enlaza a Red (proxy), a Fuentes (orden) y a Agradecimientos.
+  - Cada tarjeta tiene un enlace profundo propio, como ya hace `SettingsLink`.
+- [ ] **El buscador de Ajustes** encuentra cada integración por su nombre y por sus campos («api key», «contraseña», «token»).
+- [ ] **Diseño** con el skill frontend-design y los tokens de la app.
+  - Antes, ver cómo resuelven esta pantalla Playnite (complementos), LaunchBox, RomM, Raycast, Linear, VS Code (Cuentas) y GitHub (aplicaciones conectadas).
+  - Estado vacío útil: qué conviene configurar primero y por qué.
+  - No usar logos oficiales de los servicios si sus normas no lo permiten; usar el nombre y un icono propio.
+
+### Integraciones que entran
+
+| Servicio                                    | Qué pide                                                                 | Hoy                            | Para qué                                                        |
+| ------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------ | --------------------------------------------------------------- |
+| SteamGridDB                                 | Clave de API (o una clave propia de Coverly si la conceden)              | Existe                         | Portadas; luego anchas, cuadradas, fondos, logos e iconos (3.1) |
+| ScreenScraper                               | Usuario y contraseña (más las credenciales de desarrollador de la build) | Existe                         | Medios, identificación por hash y fichas (3.1)                  |
+| Catálogo de Switch (titledb, respaldo nlib) | Nada, solo activarlo; URL de respaldo configurable                       | En Fuentes                     | Nombres e iconos de Switch                                      |
+| IGDB                                        | Client ID y secret de Twitch                                             | Previsto (3.1)                 | Arte, metadatos e ids externos                                  |
+| RetroAchievements                           | Usuario y clave de la API web (guardar su ULID)                          | Previsto (3)                   | Logros por juego                                                |
+| TheGamesDB                                  | Clave de API                                                             | Previsto (3.1)                 | Fanart, logos y fichas                                          |
+| RAWG                                        | Clave de API                                                             | Previsto (3.1, último recurso) | Fondos y fichas, solo para ver                                  |
+| Microsoft Store / GameTDB / Wikidata        | Nada, solo activarlos                                                    | Previstos (3.1)                | Arte y nombres por id                                           |
+| Actualizaciones (GitHub)                    | Nada; canal estable o beta                                               | En General                     | Enlazado desde aquí, sin moverlo                                |
+
+### Detrás de la pantalla
+
+- [ ] **Un registro único de integraciones** (id, tipo, campos, prueba, enlaces de ayuda, id de crédito, qué funciones usa y enlaces a ajustes). De él salen la pestaña, el buscador, los avisos enlazados y la CLI. Un test falla si una integración no tiene su crédito en `credits.json` o si un proveedor de red pide credenciales que no están en el registro.
+- [ ] Ampliar `CredentialKey` con las claves nuevas sin romper las guardadas (mismos nombres en el llavero).
+- [ ] Mensajes del llavero por sistema operativo (bloqueado, no disponible, permiso denegado) con qué hacer en cada caso.
+- [ ] **CLI:** `coverly integrations list|test|set|forget`. `set` lee el secreto por stdin o una variable de entorno y nunca como argumento visible en el historial.
+- [ ] Exportar o importar ajustes nunca incluye secretos. Los registros y los informes de fallo nunca muestran valores, solo «guardado» o «no guardado».
+- [ ] Migración: las cuentas de hoy aparecen solas en Integraciones. En Fuentes queda solo el orden y el enlace «Configurar».
