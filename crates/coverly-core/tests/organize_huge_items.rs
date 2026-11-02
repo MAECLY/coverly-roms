@@ -405,6 +405,34 @@ fn a_ps4_base_counts_the_overlays_that_follow_it() {
     assert_eq!(t.bytes, huge.bytes);
 }
 
+/// An overlay follows only a base that is written: under a base still
+/// to review (apply skips it), a 12 GB overlay is asked on its own.
+#[test]
+fn an_overlay_under_an_undecided_base_is_asked_on_its_own() {
+    let _h = Hooks::new();
+    let world = World::new();
+    let (pile, target) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    ps4_with_overlays(pile.path());
+    let mut p = plan(&world, pile.path(), target.path(), TransferMode::Copy);
+    for item in &mut p.items {
+        match item.sources[0].to_str() {
+            Some("CUSA00900") => item.action = OrganizeAction::Review,
+            Some("CUSA00900-UPDATE") => item.size = 12 * GB,
+            _ => {}
+        }
+    }
+    let (update, patch) = (by(&p, "CUSA00900-UPDATE"), by(&p, "CUSA00900-patch"));
+    let t = large_transfer(&p).expect("12 + 2 GB");
+    assert_eq!(
+        t.huge.iter().map(|h| (h.item, h.bytes)).collect::<Vec<_>>(),
+        [(update.id, 12 * GB)],
+        "{t:#?}"
+    );
+    assert!(t.huge[0].followers.is_empty());
+    assert_eq!(t.rest, patch.size);
+    assert_eq!(t.bytes, 12 * GB + patch.size);
+}
+
 #[test]
 fn declining_a_base_leaves_it_not_confirmed_and_its_overlays_follow() {
     let _h = Hooks::new();

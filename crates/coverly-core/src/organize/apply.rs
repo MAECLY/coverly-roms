@@ -656,7 +656,14 @@ fn overlay_followers(plan: &OrganizePlan) -> HashMap<usize, Vec<usize>> {
 pub fn large_transfer(plan: &OrganizePlan) -> Option<LargeTransfer> {
     let crosses = crosses_volumes(plan);
     let threshold = large_transfer_threshold();
-    let followers = overlay_followers(plan);
+    // An overlay follows only a base apply writes: under a base still to
+    // review (skipped), it is weighed on its own.
+    let mut followers = overlay_followers(plan);
+    followers.retain(|&base, _| {
+        plan.items
+            .get(base)
+            .is_some_and(|b| written_bytes(b, crosses).is_some())
+    });
     let following: std::collections::HashSet<usize> =
         followers.values().flatten().copied().collect();
     let mut bytes: u64 = 0;
