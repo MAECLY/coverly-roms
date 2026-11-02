@@ -2236,6 +2236,10 @@ pub fn plan_from_survey(
                     .as_ref()
                     .filter(|con| c.system.as_deref() == Some(con.system.as_str()));
                 item.title_id = header.and_then(crate::consoles::TitleIdRef::of);
+                // «Cifrado» once the catalogue had its say (D11).
+                if let Some(con) = header {
+                    super::evidence::note_encrypted_name(&mut item.notes, con);
+                }
                 // A base game's catalogue name stands for a DAT name (D7);
                 // the target-name sanitiser cleans it like any other.
                 if item.catalogue_name.is_none() {

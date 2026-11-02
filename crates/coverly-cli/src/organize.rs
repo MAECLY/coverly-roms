@@ -907,7 +907,7 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::Vita7z => "Vita3K only installs .zip, .vpk or .vci".into(),
         ItemNote::MissingDisc { n } => format!("disc {n} is missing"),
         ItemNote::EncryptedName => {
-            "encrypted: the name cannot be read without decrypting it".into()
+            "encrypted; the name cannot be read without decrypting it".into()
         }
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
@@ -1794,7 +1794,7 @@ mod tests {
             (ItemNote::MissingDisc { n: 2 }, "disc 2 is missing"),
             (
                 ItemNote::EncryptedName,
-                "encrypted: the name cannot be read without decrypting it",
+                "encrypted; the name cannot be read without decrypting it",
             ),
         ] {
             assert_eq!(note_text(&note).as_deref(), Some(text));

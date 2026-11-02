@@ -193,6 +193,18 @@ pub fn nca_id_from_name(name: &str) -> Option<String> {
         .then(|| stem.to_ascii_lowercase())
 }
 
+/// Whether `c` is a Switch package whose content is always encrypted:
+/// an NSP/NSZ (PFS0), an XCI/XCZ (card header, HFS0) or a loose NCA. Its
+/// name is never read from inside it (spec D11); a homebrew NRO or a
+/// game's NSO is in clear.
+pub fn is_encrypted_package(c: &ConsoleId) -> bool {
+    c.system == "switch"
+        && (c.part == Some(PartKind::Nca)
+            || ["PFS0", "HFS0", "card header"]
+                .iter()
+                .any(|d| c.detail.contains(d)))
+}
+
 /// The NCA ids among `names`, sorted and without repeats.
 fn nca_ids<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
     let mut ids: Vec<String> = names.filter_map(nca_id_from_name).collect();

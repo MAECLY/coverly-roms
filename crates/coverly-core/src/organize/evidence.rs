@@ -638,9 +638,32 @@ pub fn resolve_switch_title(
         .map_or(file_name, |(stem, _)| stem);
     let title = parse_name(stem, false).title;
     let title = title.trim();
-    if !title.is_empty() {
+    // A name that is only a title or content id names no title.
+    let id_only = matches!(title.len(), 16 | 32) && title.bytes().all(|b| b.is_ascii_hexdigit());
+    if !title.is_empty() && !id_only {
         c.title = Some(title.to_string());
         c.title_source = Some(TitleSource::FileName);
+    }
+}
+
+/// Labels an item «Cifrado» (spec D11): a Switch or 3DS title whose name
+/// nothing resolved (no header title, no catalogue name, no file-name
+/// title) and whose content is encrypted (`encrypted == Some(true)`, or a
+/// Switch NSP/XCI/NCA, always encrypted). The label replaces the
+/// emulator's `EncryptedContent` note, so a row never says «Cifrado»
+/// twice; a resolved title keeps that note alone.
+pub fn note_encrypted_name(notes: &mut Vec<ItemNote>, c: &crate::consoles::ConsoleId) {
+    let encrypted = match c.system.as_str() {
+        "3ds" => c.encrypted == Some(true),
+        "switch" => c.encrypted == Some(true) || crate::consoles::nx::is_encrypted_package(c),
+        _ => return,
+    };
+    if !encrypted || c.title.as_deref().is_some_and(|t| !t.trim().is_empty()) {
+        return;
+    }
+    notes.retain(|n| !matches!(n, ItemNote::EncryptedContent { .. }));
+    if !notes.contains(&ItemNote::EncryptedName) {
+        notes.push(ItemNote::EncryptedName);
     }
 }
 
@@ -1409,6 +1432,60 @@ mod tests {
             "extractable": true,
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn encrypted_name_only_for_unresolved_encrypted_switch_and_3ds() {
+        use crate::consoles::{ConsoleId, PartKind, TitleKind};
+        let note = |c: &ConsoleId, mut notes: Vec<ItemNote>| {
+            note_encrypted_name(&mut notes, c);
+            notes
+        };
+        let azahar = ItemNote::EncryptedContent {
+            emulator: "Azahar".into(),
+        };
+        // Switch packages are always encrypted; their name stays unread.
+        for detail in ["PFS0", "NSZ PFS0", "XCI HFS0: secure", "XCZ card header"] {
+            let c = ConsoleId::proven("switch", detail);
+            assert_eq!(note(&c, vec![]), vec![ItemNote::EncryptedName], "{detail}");
+        }
+        let mut nca = ConsoleId::magic("switch", "NCA name");
+        nca.part = Some(PartKind::Nca);
+        assert_eq!(note(&nca, vec![]), vec![ItemNote::EncryptedName]);
+        // Homebrew and a game's executable are in clear.
+        let mut nro = ConsoleId::magic("switch", "NRO header");
+        nro.kind = TitleKind::Homebrew;
+        assert_eq!(note(&nro, vec![]), vec![]);
+        let mut nso = ConsoleId::magic("switch", "NSO header");
+        nso.part = Some(PartKind::ExeFs);
+        assert_eq!(note(&nso, vec![]), vec![]);
+        // A resolved title: nothing to label.
+        let mut named = ConsoleId::proven("switch", "PFS0");
+        named.title = Some("Super Mario Odyssey".into());
+        assert_eq!(note(&named, vec![]), vec![]);
+        // 3DS: only `encrypted == Some(true)`; the label replaces the
+        // emulator note, which a resolved title keeps.
+        let mut card = ConsoleId::proven("3ds", "NCSD header");
+        card.encrypted = Some(true);
+        assert_eq!(
+            note(&card, vec![azahar.clone()]),
+            vec![ItemNote::EncryptedName]
+        );
+        card.title = Some("Test Game".into());
+        assert_eq!(note(&card, vec![azahar.clone()]), vec![azahar.clone()]);
+        let mut clear = ConsoleId::proven("3ds", "NCSD header");
+        clear.encrypted = Some(false);
+        assert_eq!(note(&clear, vec![]), vec![]);
+        // Other systems are never labelled.
+        let mut ps3 = ConsoleId::proven("ps3", "PARAM.SFO");
+        ps3.encrypted = Some(true);
+        assert_eq!(note(&ps3, vec![]), vec![]);
+        // Never twice.
+        let c = ConsoleId::proven("switch", "PFS0");
+        assert_eq!(
+            note(&c, vec![ItemNote::EncryptedName]),
+            vec![ItemNote::EncryptedName]
+        );
     }
 
     #[test]

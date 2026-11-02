@@ -333,7 +333,7 @@ const CTR_CART_LEN: u64 = 0x8000_0000;
 pub const NCSD_P0: u64 = 0x4000;
 /// ExeFS of a [`ncch_parts`] NoCrypto NCCH: offset in the NCCH and the
 /// `icon` file's offset inside the ExeFS data.
-const EXEFS_AT: u64 = 0x1400;
+pub const EXEFS_AT: u64 = 0x1400;
 const EXEFS_ICON: u64 = 0x200;
 
 fn utf16le(s: &str) -> Vec<u8> {

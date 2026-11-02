@@ -69,6 +69,8 @@ const LOOSE: &[Loose] = &[
         TitleKind::Unknown,
         Some(PartKind::Nca),
     ),
+    // 3DS homebrew (§8.2): read by `ctr.rs`, never shadowed.
+    ("FTPD.3dsx", ftpd_3dsx, "3ds", TitleKind::Homebrew, None),
 ];
 
 /// (title id, system, kind): a `.tmd` by its full title-id high word (D14).
@@ -99,6 +101,10 @@ const DISC_SETS: &[(&str, WritePile, usize, usize)] = &[
 
 fn mario_kart_7() -> SparseAt {
     ct::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, true)
+}
+
+fn ftpd_3dsx() -> SparseAt {
+    ct::dsx_with_smdh("FTPD")
 }
 
 fn checkpoint_nro() -> SparseAt {
@@ -410,4 +416,115 @@ fn switch_catalogue_names_reach_the_plan() {
         })
     );
     assert_eq!(cart.catalogue_name.as_deref(), Some("Super Mario Odyssey"));
+}
+
+fn encrypted_name(item: &coverly_core::organize::OrganizeItem) -> bool {
+    item.notes.contains(&ItemNote::EncryptedName)
+}
+
+fn encrypted_content(item: &coverly_core::organize::OrganizeItem) -> bool {
+    item.notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::EncryptedContent { .. }))
+}
+
+/// D11 on Switch: a package whose title nothing resolves (no header
+/// title, no catalogue, a file name that is only its ids) is labelled
+/// «Cifrado»; the catalogue or a file name with a title keep it off.
+#[test]
+fn unresolved_switch_titles_are_labelled_encrypted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let nsp = ct::nsp_pfs0(&["a.nca"]).bytes();
+    put(&dir.join("[0100000000010000][v0].nsp"), &nsp, 1);
+    put(&dir.join("0100000000010000.nsp"), &nsp, 2);
+    put(
+        &dir.join("Super Mario Odyssey [0100000000010000].nsp"),
+        &nsp,
+        3,
+    );
+    put(
+        &dir.join("Cartridge.xci"),
+        &ct::xci_with_secure(&[&format!("{ODYSSEY_META_NCA}.cnmt.nca")]).bytes(),
+        4,
+    );
+    put(
+        &dir.join("Untitled.nro"),
+        &ct::nro("", "1.0.0", &[]).bytes(),
+        5,
+    );
+    let world = World::new();
+    let plain = world.env();
+    let s = survey(dir, &options(), &plain, &|_| {}, &AtomicBool::new(false)).unwrap();
+
+    let without = plan_from_survey(&s, &options(), &[], &plain).unwrap();
+    for name in ["[0100000000010000][v0].nsp", "0100000000010000.nsp"] {
+        let item = item_named(&without, name);
+        assert!(encrypted_name(item), "{name}: {:?}", item.notes);
+        assert!(!encrypted_content(item), "{name}");
+    }
+    for name in [
+        "Super Mario Odyssey [0100000000010000].nsp",
+        "Cartridge.xci",
+    ] {
+        let item = item_named(&without, name);
+        assert!(!encrypted_name(item), "{name}: {:?}", item.notes);
+    }
+
+    // The catalogue names every package with a title id; a bare id
+    // without brackets is not a file-name title id, so that one stays.
+    let names = Odyssey;
+    let with = plan_from_survey(&s, &options(), &[], &world.env_with(&names)).unwrap();
+    for item in &with.items {
+        let bare = item.sources[0]
+            .file_name()
+            .is_some_and(|n| n == "0100000000010000.nsp");
+        assert_eq!(
+            encrypted_name(item),
+            bare,
+            "{:?}: {:?}",
+            item.sources,
+            item.notes
+        );
+    }
+}
+
+/// D11 on 3DS: an encrypted card without a readable title shows only the
+/// «Cifrado» label; an encrypted CIA whose Meta section names it keeps the
+/// emulator note alone; a NoCrypto card and homebrew carry neither.
+#[test]
+fn unresolved_3ds_titles_are_labelled_encrypted_once() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let mut card = ct::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, false);
+    card.len = 0x10_0000;
+    put(&dir.join("Mario Kart 7 (Europe).3ds"), &card.bytes(), 1);
+    put(
+        &dir.join("Pokemon Y (Europe).cia"),
+        &ct::cia(0x0004_0000_0005_5D00, true, true).bytes(),
+        2,
+    );
+    let mut clear = ct::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, true);
+    clear.len = 0x10_0000;
+    put(
+        &dir.join("Mario Kart 7 (Europe) (Decrypted).3ds"),
+        &clear.bytes(),
+        3,
+    );
+    put(&dir.join("FTPD.3dsx"), &ftpd_3dsx().bytes(), 4);
+    let p = plan(dir, &[], &World::new());
+
+    let card = item_named(&p, "Mario Kart 7 (Europe).3ds");
+    assert_eq!(card.system_id.as_deref(), Some("3ds"));
+    assert!(encrypted_name(card), "{:?}", card.notes);
+    assert!(!encrypted_content(card), "{:?}", card.notes);
+
+    let cia = item_named(&p, "Pokemon Y (Europe).cia");
+    assert!(encrypted_content(cia), "{:?}", cia.notes);
+    assert!(!encrypted_name(cia), "{:?}", cia.notes);
+
+    for name in ["Mario Kart 7 (Europe) (Decrypted).3ds", "FTPD.3dsx"] {
+        let item = item_named(&p, name);
+        assert!(!encrypted_name(item) && !encrypted_content(item), "{name}");
+    }
 }

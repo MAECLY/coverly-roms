@@ -643,8 +643,7 @@ expression: redact(&p)
       "method": "header",
       "notes": [
         {
-          "emulator": "Azahar",
-          "kind": "encrypted-content"
+          "kind": "encrypted-name"
         }
       ],
       "rename": null,
