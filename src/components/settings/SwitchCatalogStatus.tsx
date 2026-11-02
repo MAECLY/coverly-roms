@@ -22,7 +22,10 @@ function catalogDate(iso: string, locale: string): string {
 }
 
 /** The catalogue's status line (spec §7, §10): a polite live region, with
- * counts, sizes and dates in the data face. `null` while it loads. */
+ * counts, sizes and dates in the data face. `null` while it loads. While a
+ * download runs the region is busy: progress arrives up to four times a
+ * second and the progress bar carries it, so a screen reader hears the
+ * line once the download ends instead of every byte count. */
 export function SwitchCatalogStatusLine({
   status,
 }: {
@@ -78,6 +81,7 @@ export function SwitchCatalogStatusLine({
   return (
     <p
       role="status"
+      aria-busy={status?.state === 'downloading' || undefined}
       data-testid="switch-catalog-status"
       className={`${tone} min-h-[1lh]`}
     >

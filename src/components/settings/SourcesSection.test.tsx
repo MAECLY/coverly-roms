@@ -134,6 +134,31 @@ describe('sources: Switch name catalogue', () => {
     expect(line).toHaveTextContent('Downloading 80 MB');
   });
 
+  it('a running download keeps the live line quiet until it ends', async () => {
+    // Progress arrives up to four times a second: a polite region that
+    // spoke each byte count would queue them all for a screen reader.
+    await backend.updateSettings(ON);
+    let push: ((s: CatalogStatus) => void) | null = null;
+    vi.spyOn(backend, 'onCatalogProgress').mockImplementation((cb) => {
+      push = cb;
+      return Promise.resolve(() => undefined);
+    });
+    await open({ state: 'downloading', done: 45_200_000, total: 92_400_000 });
+    const line = await statusLine();
+    await waitFor(() => expect(line).toHaveAttribute('aria-busy', 'true'));
+    await waitFor(() => expect(push).not.toBeNull());
+    act(() =>
+      push!({
+        state: 'ready',
+        count: 17_342,
+        updated: '2026-10-30',
+        fallback: false,
+      }),
+    );
+    expect(line).toHaveTextContent('17,342 titles');
+    expect(line).not.toHaveAttribute('aria-busy');
+  });
+
   it('a download left running while on another tab still ends on return', async () => {
     await backend.updateSettings(ON);
     let push: ((s: CatalogStatus) => void) | null = null;
