@@ -944,6 +944,7 @@ fn switch_catalogue_names_reach_the_plan() {
     }));
     let cart = item_named(&without, "Cartridge.xci");
     assert_eq!((&cart.title_id, &cart.catalogue_name), (&None, &None));
+    assert_eq!(cart.title_source, None);
 
     let names = Odyssey;
     let with = plan_from_survey(&s, &options(), &[], &world.env_with(&names)).unwrap();
@@ -965,6 +966,8 @@ fn switch_catalogue_names_reach_the_plan() {
         })
     );
     assert_eq!(cart.catalogue_name.as_deref(), Some("Super Mario Odyssey"));
+    // The row says the name came from the catalogue (spec §10 why line).
+    assert_eq!(cart.title_source, Some(TitleSource::Titledb));
 }
 
 fn encrypted_name(item: &coverly_core::organize::OrganizeItem) -> bool {

@@ -45,6 +45,7 @@ fn item(id: usize, sources: &[&str], system: &str, kind: ItemKind, size: u64) ->
         title_id: None,
         content_id: None,
         playlist: None,
+        title_source: None,
     }
 }
 

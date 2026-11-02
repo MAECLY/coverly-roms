@@ -557,6 +557,12 @@ pub struct OrganizeItem {
     /// the JSON when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub playlist: Option<Playlist>,
+    /// Set only when the optional Switch catalogue named the title
+    /// (`titledb` or `nlib`, spec D7), for the row's «why» line; a
+    /// header or file-name title says so through its own lines, so it is
+    /// left out of the JSON then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<crate::consoles::TitleSource>,
     #[serde(flatten)]
     pub action: OrganizeAction,
 }
@@ -2532,6 +2538,7 @@ pub fn plan_from_survey(
             title_id: None,
             content_id: None,
             playlist: None,
+            title_source: None,
         };
         let mut key = None;
         match (&entry.left, &entry.identification) {
@@ -2570,6 +2577,12 @@ pub fn plan_from_survey(
                     .as_ref()
                     .filter(|con| c.system.as_deref() == Some(con.system.as_str()));
                 item.title_id = header.and_then(crate::consoles::TitleIdRef::of);
+                item.title_source = header.and_then(|con| con.title_source).filter(|s| {
+                    matches!(
+                        s,
+                        crate::consoles::TitleSource::Titledb | crate::consoles::TitleSource::Nlib
+                    )
+                });
                 // «Cifrado» once the catalogue and the DATs had their say
                 // (D11); a DAT game name is a resolved name.
                 if let Some(con) = header {
@@ -2904,6 +2917,7 @@ pub fn plan_from_survey(
             title_id: None,
             content_id: None,
             playlist: None,
+            title_source: None,
         });
     }
 
@@ -4235,6 +4249,7 @@ mod tests {
             title_id: None,
             content_id: None,
             playlist: None,
+            title_source: None,
             action: OrganizeAction::Auto,
         };
         let bare = serde_json::to_value(&item).unwrap();

@@ -137,6 +137,7 @@ fn extract_item(
         title_id: None,
         content_id: None,
         playlist: None,
+        title_source: None,
     }
 }
 

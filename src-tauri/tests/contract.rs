@@ -411,6 +411,7 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         title_id: None,
         content_id: None,
         playlist: None,
+        title_source: None,
         action,
     };
     let auto = OrganizeItem {
@@ -565,6 +566,7 @@ fn organize_extract_item_sample() -> coverly_core::organize::OrganizeItem {
         title_id: None,
         content_id: None,
         playlist: None,
+        title_source: None,
         action: OrganizeAction::Auto,
     }
 }
@@ -1135,6 +1137,7 @@ fn organise_set_aside_views_match_the_shared_sample() {
         title_id: None,
         content_id: None,
         playlist: None,
+        title_source: None,
         action: OrganizeAction::SetAside {
             keeper: "ROMS/GB/Tetris (World) (Rev 1).gb".into(),
             relation: Relation::Exact,
@@ -1273,6 +1276,7 @@ fn systems_batch_2_items_match_the_shared_sample() {
         }),
         content_id: None,
         playlist: None,
+        title_source: None,
         action: OrganizeAction::Auto,
     };
     let sources: Vec<IdSource> = vec![
@@ -1374,6 +1378,7 @@ fn systems_batch_3_items_match_the_shared_sample() {
         }),
         content_id: Some("UP9000-CUSA00900_00-BLOODBORNE000000".into()),
         playlist: None,
+        title_source: None,
         action: OrganizeAction::Auto,
     };
     let folder: Value = serde_json::from_str(&serde_json::to_string(&folder).unwrap()).unwrap();
@@ -1403,10 +1408,51 @@ fn systems_batch_3_items_match_the_shared_sample() {
 /// the console kinds, parts and title sources.
 #[test]
 fn adjustment_values_match_the_shared_sample() {
-    use coverly_core::consoles::{PartKind, TitleKind, TitleSource};
-    use coverly_core::organize::{Choice, Decision, ItemNote, LeftReason, Playlist};
+    use coverly_core::consoles::{IdSource, PartKind, TitleIdRef, TitleKind, TitleSource};
+    use coverly_core::identify::evidence::{Evidence, IdLevel};
+    use coverly_core::organize::{
+        Choice, Decision, ItemKind, ItemNote, LeftReason, OrganizeAction, OrganizeItem, Playlist,
+        SourceFp, Transfer,
+    };
+
+    // A cartridge the optional catalogue named through its NCA ids (D6, D7).
+    let cartridge = OrganizeItem {
+        id: 1,
+        sources: vec!["Cartridge.xci".into()],
+        kind: ItemKind::File,
+        size: 5_600_000_000,
+        fps: vec![SourceFp {
+            size: 5_600_000_000,
+            mtime_ns: 1_700_000_000_000_000_000,
+        }],
+        target: Some("switch/Cartridge.xci".into()),
+        set_targets: vec![],
+        system_id: Some("switch".into()),
+        folder: Some("switch".into()),
+        confidence: 0.95,
+        method: Some(IdLevel::Header),
+        why: vec![Evidence::new(IdLevel::Header, "switch", 0.95, "HEAD")],
+        alternatives: vec![],
+        rename: None,
+        notes: vec![],
+        companions: vec![],
+        catalogue_name: Some("Super Mario Odyssey".into()),
+        transfer: Transfer::AsIs,
+        disc: None,
+        title_id: Some(TitleIdRef {
+            id: "0100000000010000".into(),
+            source: IdSource::NcaCatalog,
+        }),
+        content_id: None,
+        playlist: None,
+        title_source: Some(TitleSource::Titledb),
+        action: OrganizeAction::Auto,
+    };
+    let cartridge: Value =
+        serde_json::from_str(&serde_json::to_string(&cartridge).unwrap()).unwrap();
 
     let actual = json!({
+        "adjustments_catalogue_item": cartridge,
         "adjustments_reasons": [
             LeftReason::GamePart {
                 part: PartKind::ExeFs,

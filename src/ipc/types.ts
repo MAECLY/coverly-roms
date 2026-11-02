@@ -1110,6 +1110,9 @@ export type OrganizeItem = OrganizeAction & {
   /** The `.m3u` a loose multi-disc set gets (Rust leaves it out when
    * absent). */
   playlist?: Playlist;
+  /** Set only when the optional Switch catalogue named the title
+   * (`titledb` or `nlib`, adjustments D7); Rust leaves it out otherwise. */
+  title_source?: TitleSource;
 };
 
 /** A playlist written for a loose multi-disc set: a new file, never over

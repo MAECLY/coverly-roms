@@ -836,6 +836,7 @@ mod apply_phases {
             title_id: None,
             content_id: None,
             playlist: None,
+            title_source: None,
         }
     }
 

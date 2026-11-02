@@ -611,7 +611,10 @@ const checks: [string, readonly string[], object][] = [
   [
     'OrganizeItem',
     ORGANIZE_ITEM_KEYS satisfies AllKeys<
-      Omit<OrganizeItem, 'title_id' | 'content_id' | 'playlist'>,
+      Omit<
+        OrganizeItem,
+        'title_id' | 'content_id' | 'playlist' | 'title_source'
+      >,
       typeof ORGANIZE_ITEM_KEYS
     >,
     sample.organize_plan_view.plan.items[0]!,
@@ -619,7 +622,7 @@ const checks: [string, readonly string[], object][] = [
   [
     'OrganizeItem (game folder)',
     CONSOLE_ITEM_KEYS satisfies AllKeys<
-      Omit<OrganizeItem, 'content_id' | 'playlist'>,
+      Omit<OrganizeItem, 'content_id' | 'playlist' | 'title_source'>,
       typeof CONSOLE_ITEM_KEYS
     >,
     sample.organize_folder_item,
@@ -627,7 +630,7 @@ const checks: [string, readonly string[], object][] = [
   [
     'OrganizeItem (content id)',
     CONTENT_ITEM_KEYS satisfies AllKeys<
-      Omit<OrganizeItem, 'playlist'>,
+      Omit<OrganizeItem, 'playlist' | 'title_source'>,
       typeof CONTENT_ITEM_KEYS
     >,
     sample.organize_batch3_item,
@@ -1323,6 +1326,17 @@ describe('adjustments contract', () => {
     expect(sample.adjustments_part_kinds).toEqual(PART_KINDS);
     expect(sample.adjustments_title_kinds).toEqual(TITLE_KINDS);
     expect(sample.adjustments_title_sources).toEqual(TITLE_SOURCES);
+    // A cartridge the catalogue named: its title id from the NCA ids and
+    // where its name came from (adjustments_values_match_the_shared_sample).
+    const cart = sample.adjustments_catalogue_item as OrganizeItem;
+    expect(cart.title_id).toEqual({
+      id: '0100000000010000',
+      source: 'nca-catalog',
+    });
+    expect(cart.title_source).toBe('titledb');
+    expect(Object.keys(cart).sort()).toEqual(
+      [...CONSOLE_ITEM_KEYS, 'title_source'].sort(),
+    );
   });
 
   it('catalogue statuses and credit links match Rust', () => {

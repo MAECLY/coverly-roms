@@ -1999,6 +1999,47 @@
     "homebrew",
     "unknown"
   ],
+  "adjustments_catalogue_item": {
+    "id": 1,
+    "sources": ["Cartridge.xci"],
+    "kind": "file",
+    "size": 5600000000,
+    "fps": [
+      {
+        "size": 5600000000,
+        "mtime_ns": 1700000000000000000
+      }
+    ],
+    "target": "switch/Cartridge.xci",
+    "set_targets": [],
+    "system_id": "switch",
+    "folder": "switch",
+    "confidence": 0.95,
+    "method": "header",
+    "why": [
+      {
+        "kind": "header",
+        "system": "switch",
+        "weight": 0.95,
+        "detail": "HEAD"
+      }
+    ],
+    "alternatives": [],
+    "rename": null,
+    "notes": [],
+    "companions": [],
+    "catalogue_name": "Super Mario Odyssey",
+    "transfer": {
+      "kind": "as-is"
+    },
+    "disc": null,
+    "title_id": {
+      "id": "0100000000010000",
+      "source": "nca-catalog"
+    },
+    "title_source": "titledb",
+    "action": "auto"
+  },
   "adjustments_title_sources": ["header", "titledb", "nlib", "file-name"],
   "catalog_statuses": [
     { "state": "off" },
