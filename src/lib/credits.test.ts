@@ -85,7 +85,7 @@ describe('credits data', () => {
       .flatMap((g) => g.entries)
       .filter((c) => c.id === 'screenscraper');
     expect(es?.use).toMatch(/Organizar/);
-    expect(en?.use).toMatch(/Organize/);
+    expect(en?.use).toMatch(/Organise/);
     expect(es?.license.name).toBe('CC BY-NC-SA 4.0');
     expect(es?.credit).toMatch(/^Datos y medios de ScreenScraper/);
   });
