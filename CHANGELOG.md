@@ -118,8 +118,9 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   (for example «Mario & Luigi»): Coverly names the thumbnail with those
   characters replaced by `_`, as RetroArch looks for it. Thumbnails written
   before under the full name are left where they are and are not reported
-  as orphans; the next fill writes the right file next to them. Other
-  profiles are unchanged.
+  as orphans (when a duplicate is set aside, its old thumbnail goes with
+  it); the next fill writes the right file next to them. Other profiles are
+  unchanged.
 - ScreenScraper media listed without a region, or under a region Coverly
   has no name for (such as ScreenScraper's own `ss`), are no longer dropped:
   they are offered after every region of your order.
