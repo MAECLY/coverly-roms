@@ -400,3 +400,30 @@ fn a_huge_dol_stays_within_the_budgets() {
     assert!(used.read <= MAX_READ && used.decoded <= MAX_DECODED);
     assert!(used.seeks <= MAX_SEEKS, "{used:?}");
 }
+
+/// A disc a tool extracted (Dolphin «Extract Entire Disc»: `sys/` holds
+/// `main.dol` beside `boot.bin`, `bi2.bin` and `apploader.img`) is a game
+/// folder: its DOL is the game's executable, left as a part, never moved
+/// as homebrew (D13, research §11).
+#[test]
+fn an_extracted_disc_dol_is_a_game_part() {
+    let tmp = tempfile::tempdir().unwrap();
+    let sys = tmp.path().join("GALE01").join("sys");
+    put(&sys.join("main.dol"), &ct::dol(1, false), 1);
+    put(&sys.join("boot.bin"), &[0u8; 0x440], 2);
+    put(&sys.join("bi2.bin"), &[0u8; 0x2000], 3);
+    put(&sys.join("apploader.img"), &[0u8; 0x100], 4);
+    let p = plan(tmp.path());
+    let item = item_named(&p, "main.dol");
+    assert_eq!(
+        part(item),
+        Some((PartKind::ExeFs, "gamecube", None)),
+        "{item:?}"
+    );
+    assert!(
+        !item.notes.contains(&ItemNote::Homebrew),
+        "{:?}",
+        item.notes
+    );
+    assert!(item.target.is_none(), "{item:?}");
+}

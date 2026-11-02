@@ -1386,6 +1386,7 @@ pub fn survey(
                     .find_map(|p| p.sniff.console.clone())
             });
         }
+        dol_of_an_extracted_disc(entry);
         leave_game_part(entry);
         review_xbe_with_siblings(entry);
     }
@@ -1495,6 +1496,52 @@ fn backup_title_id(path: &Path) -> Option<String> {
             && b[4..].iter().all(u8::is_ascii_digit))
         .then(|| name.to_owned())
     })
+}
+
+/// Files that sit beside `main.dol` in the `sys/` folder of a disc a
+/// tool extracted (Dolphin «Extract Entire Disc», wiibrew «Wii disc»):
+/// the apploader, or the disc header pair.
+const EXTRACTED_DISC_SYS: [&str; 3] = ["apploader.img", "boot.bin", "bi2.bin"];
+
+/// A DOL beside an extracted disc's system files (adjustments D13,
+/// research §11) is the game's executable, not homebrew: it becomes part
+/// `ExeFs` so [`leave_game_part`] leaves it where it is. Moving it alone
+/// would break the extracted game.
+fn dol_of_an_extracted_disc(entry: &mut SurveyEntry) {
+    let Some(c) = entry.console.as_mut() else {
+        return;
+    };
+    if entry.kind != ItemKind::File
+        || !matches!(c.system.as_str(), "gamecube" | "wii")
+        || c.kind != TitleKind::Homebrew
+        || c.part.is_some()
+    {
+        return;
+    }
+    let Some(path) = entry.sources.first() else {
+        return;
+    };
+    if !path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("dol"))
+    {
+        return;
+    }
+    let disc = path
+        .parent()
+        .and_then(super::walk::list_dir)
+        .is_some_and(|listed| {
+            let has = |want: &str| {
+                listed
+                    .iter()
+                    .any(|(name, _, _)| name.eq_ignore_ascii_case(want))
+            };
+            has(EXTRACTED_DISC_SYS[0]) || (has(EXTRACTED_DISC_SYS[1]) && has(EXTRACTED_DISC_SYS[2]))
+        });
+    if disc {
+        c.part = Some(PartKind::ExeFs);
+        c.kind = TitleKind::Unknown;
+    }
 }
 
 /// A loose retail XBE beside other files (adjustments §8.2) is the

@@ -224,9 +224,13 @@ pub fn probe_apps(l: &DirListing) -> Option<FolderMatch> {
 fn has_hid4(b: &mut Budgeted, texts: &[Section]) -> bool {
     let mut left = DOL_SCAN;
     for s in texts {
+        if left == 0 {
+            break;
+        }
+        // A section shorter than a word holds no instruction to find.
         let n = s.size.min(left) & !3;
         if n == 0 {
-            break;
+            continue;
         }
         let Some(bytes) = usize::try_from(n)
             .ok()
@@ -524,6 +528,10 @@ mod tests {
         );
         let wii = run(&ct::dol(2, true), "dol", "boot.dol").unwrap();
         assert_eq!(wii.system, "wii");
+        // A text section shorter than one word does not end the search.
+        let mut tiny = ct::dol(2, true);
+        tiny[0x90..0x94].copy_from_slice(&2u32.to_be_bytes());
+        assert_eq!(run(&tiny, "dol", "boot.dol").unwrap().system, "wii");
         // A load address outside RAM: not a DOL.
         let mut bad = ct::dol(1, false);
         bad[0x48..0x4C].copy_from_slice(&0x0000_3100u32.to_be_bytes());
