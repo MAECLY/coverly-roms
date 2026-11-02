@@ -473,9 +473,15 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
       gamelist: false,
       system_folder: 'id',
       slots: {
-        cover: png('{root}/thumbnails/{libretro}/Named_Boxarts/{stem}.png'),
-        screenshot: png('{root}/thumbnails/{libretro}/Named_Snaps/{stem}.png'),
-        title: png('{root}/thumbnails/{libretro}/Named_Titles/{stem}.png'),
+        cover: png(
+          '{root}/thumbnails/{libretro}/Named_Boxarts/{libretro_stem}.png',
+        ),
+        screenshot: png(
+          '{root}/thumbnails/{libretro}/Named_Snaps/{libretro_stem}.png',
+        ),
+        title: png(
+          '{root}/thumbnails/{libretro}/Named_Titles/{libretro_stem}.png',
+        ),
       },
     },
     builtin: true,

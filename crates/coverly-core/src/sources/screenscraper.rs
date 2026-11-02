@@ -118,7 +118,8 @@ struct SsGame {
     id: String,
     /// (region, text)
     names: Vec<(String, String)>,
-    /// (type, region)
+    /// (type, region); the region is empty for media ScreenScraper lists
+    /// without one (fanart, video, steamgrid...).
     medias: Vec<(String, String)>,
     /// The game's `systeme.id` (absent in answers cached before it was kept).
     #[serde(default)]
@@ -158,8 +159,9 @@ fn region_ok(r: &str) -> bool {
 }
 
 /// A game object, hostile-safe: digits-only id (≤ 12), region codes of
-/// 2–3 lowercase letters, known media types of parent `jeu` only, no
-/// duplicates.
+/// 2–3 lowercase letters (or none: a media without `region`, or with an
+/// empty one, is kept with an empty region), known media types of parent
+/// `jeu` only, no duplicates.
 fn parse_game(v: &Value) -> Option<SsGame> {
     let id = text(v.get("id")?)?;
     if id.is_empty() || id.len() > 12 || !id.bytes().all(|b| b.is_ascii_digit()) {
@@ -184,13 +186,13 @@ fn parse_game(v: &Value) -> Option<SsGame> {
         .flatten()
     {
         let field = |k: &str| m.get(k).and_then(text);
-        let (Some(t), Some(r), Some(p)) = (field("type"), field("region"), field("parent")) else {
+        let (Some(t), Some(p)) = (field("type"), field("parent")) else {
             continue;
         };
-        let entry = (t, r);
+        let entry = (t, field("region").unwrap_or_default());
         if p == "jeu"
             && MEDIA_TYPES.contains(&entry.0.as_str())
-            && region_ok(&entry.1)
+            && (entry.1.is_empty() || region_ok(&entry.1))
             && !medias.contains(&entry)
         {
             medias.push(entry);
@@ -579,27 +581,36 @@ impl ArtSource for ScreenScraperSource<'_> {
             return Ok(Vec::new());
         };
         let wanted = media_type(q.media, q.system.arcade);
-        let mut out: Vec<Candidate> = game
+        // A media without a region (`media=<type>`) or with a code Coverly
+        // has no region for (`ss`, `cus`...) is region-agnostic: no region,
+        // so it ranks after every region of the user's order, and it is
+        // listed after the media that have one.
+        let (mut out, agnostic): (Vec<Candidate>, Vec<Candidate>) = game
             .medias
             .iter()
             .filter(|(t, _)| t == wanted)
-            .filter_map(|(t, r)| {
-                let region = ss_region(r)?;
-                Some(Candidate {
+            .map(|(t, r)| {
+                let key = if r.is_empty() {
+                    t.clone()
+                } else {
+                    format!("{t}({r})")
+                };
+                Candidate {
                     source: SOURCE_ID.into(),
                     media: q.media,
                     name: name.clone(),
-                    url: self.media_url(sid, &game.id, &format!("{t}({r})")),
+                    url: self.media_url(sid, &game.id, &key),
                     fallback_url: None,
-                    regions: vec![region],
+                    regions: ss_region(r).into_iter().collect(),
                     kind,
                     score,
                     votes: None,
                     consensus: 0,
                     origin: Some(format!("jeu {}", game.id)),
-                })
+                }
             })
-            .collect();
+            .partition(|c| !c.regions.is_empty());
+        out.extend(agnostic);
         sort_candidates(&mut out);
         Ok(out)
     }

@@ -562,3 +562,67 @@ mod unix_tests {
         assert!(art_slots(&u, &lib.ctx(&p)).is_empty());
     }
 }
+
+/// RetroArch: the extra's thumbnail is under the sanitised name
+/// (`Mario _ Luigi`); one written before names were sanitised, under the
+/// ROM's own name, leaves with the extra too instead of staying behind as
+/// an orphan. It is not art the keeper loses. The keeper's own old-name
+/// thumbnail never travels.
+#[test]
+fn retroarch_thumbnails_under_the_old_name_travel_with_the_extra() {
+    let lib = Lib::new();
+    let snes = lib.root.join("snes");
+    let units = vec![
+        unit(
+            0,
+            "snes",
+            &snes,
+            &["Mario & Luigi (USA).sfc"],
+            UnitKind::Single,
+        ),
+        unit(
+            1,
+            "snes",
+            &snes,
+            &["Mario & Luigi (USA) (Rev 1).sfc"],
+            UnitKind::Single,
+        ),
+    ];
+    let boxarts = lib
+        .root
+        .join("thumbnails/Nintendo - Super Nintendo Entertainment System/Named_Boxarts");
+    let kept_old = touch(&boxarts.join("Mario & Luigi (USA).png"));
+    let new = touch(&boxarts.join("Mario _ Luigi (USA) (Rev 1).png"));
+    let old = touch(&boxarts.join("Mario & Luigi (USA) (Rev 1).png"));
+    let p = profile("retroarch");
+    let out = companions_for(&group("snes", &[0, 1]), 0, &units, &lib.ctx(&p));
+
+    let (travels, stays, _, leaves) = &out[1];
+    assert_eq!(
+        sorted(travels.clone()),
+        sorted(vec![
+            travel(&new, TravelKind::Art(Media::Cover)),
+            travel(&old, TravelKind::Art(Media::Cover)),
+        ])
+    );
+    assert!(!travels.iter().any(|t| t.from == kept_old));
+    assert!(stays.is_empty());
+    // Only the sanitised name is art: the keeper has none, so it is left
+    // without a cover RetroArch shows.
+    assert_eq!(
+        leaves,
+        &ArtLeaves {
+            media: vec![Media::Cover]
+        }
+    );
+
+    // Only the old name: it travels, and no art leaves (RetroArch never
+    // showed it).
+    fs::remove_file(&new).unwrap();
+    let out = companions_for(&group("snes", &[0, 1]), 0, &units, &lib.ctx(&p));
+    let (travels, _, _, leaves) = &out[1];
+    assert_eq!(travels, &vec![travel(&old, TravelKind::Art(Media::Cover))]);
+    assert!(leaves.is_empty());
+    // The old name is never what `art_slots` calls a cover.
+    assert!(art_slots(&units[1], &lib.ctx(&p)).is_empty());
+}

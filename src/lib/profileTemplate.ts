@@ -15,6 +15,7 @@ export const TOKENS = [
   '{system_dir}',
   '{rel_dir}',
   '{stem}',
+  '{libretro_stem}',
   '{system_id}',
   '{libretro}',
 ] as const;
@@ -49,6 +50,10 @@ const PREVIEW_SYSTEMS: Record<string, { id: string; libretro: string }> = {
   ps: { id: 'psx', libretro: 'Sony - PlayStation' },
 };
 
+/** Like `sanitise_libretro`: the characters RetroArch replaces by `_` when it looks a thumbnail up. */
+export const sanitiseLibretro = (name: string): string =>
+  name.replace(/[&*/:`"<>?\\|]/g, '_');
+
 /** Expands `template` segment by segment, without empty or doubled separators. */
 export function renderTemplate(template: string, v: TemplateVars): string {
   const parts: string[] = [];
@@ -66,9 +71,13 @@ export function renderTemplate(template: string, v: TemplateVars): string {
     }
     // One pass: a value holding `{stem}` is never expanded again.
     const text = seg.replace(
-      /\{(root|system_dir|rel_dir|stem|system_id|libretro)\}/g,
-      (_, name: keyof TemplateVars) =>
-        name === 'libretro' ? (v.libretro ?? '') : v[name],
+      /\{(root|system_dir|rel_dir|stem|libretro_stem|system_id|libretro)\}/g,
+      (_, name: keyof TemplateVars | 'libretro_stem') =>
+        name === 'libretro'
+          ? (v.libretro ?? '')
+          : name === 'libretro_stem'
+            ? sanitiseLibretro(v.stem)
+            : v[name],
     );
     if (text) parts.push(text);
   }
@@ -119,7 +128,8 @@ function templateError(slot: SlotFile): FieldErrorCode | null {
     if (!literalSegmentOk(seg)) return 'invalid';
   }
   const last = segs[segs.length - 1] ?? '';
-  if (!last.includes('{stem}')) return 'invalid';
+  if (!last.includes('{stem}') && !last.includes('{libretro_stem}'))
+    return 'invalid';
   const extOk =
     slot.format === 'png'
       ? last.endsWith('.png')
