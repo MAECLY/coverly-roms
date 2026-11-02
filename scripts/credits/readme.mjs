@@ -40,14 +40,14 @@ const LABELS = {
       'Generated from credits/credits.json by `pnpm credits:readme`; do not edit by hand.',
     licence: 'Licence',
     notices:
-      'The licences of every Rust crate and npm package in the build are in `LICENSES/generated/`, and the app shows them in Settings → Credits.',
+      'The licences of every Rust crate and npm package in the build are in `LICENSES/generated/`, and the app shows them in {tab}.',
   },
   es: {
     generated:
       'Generado desde credits/credits.json con `pnpm credits:readme`; no lo edites a mano.',
     licence: 'Licencia',
     notices:
-      'Las licencias de cada crate de Rust y paquete de npm de la compilación están en `LICENSES/generated/`, y la app las muestra en Ajustes → Agradecimientos.',
+      'Las licencias de cada crate de Rust y paquete de npm de la compilación están en `LICENSES/generated/`, y la app las muestra en {tab}.',
   },
 };
 
@@ -71,7 +71,10 @@ function readJson(root, ...parts) {
 /** The Markdown that goes between the markers, for one language. */
 export function renderBlock(root, locale) {
   const { entries } = readJson(root, 'credits', 'credits.json');
-  const strings = readJson(root, 'locales', locale, 'ui.json').settings.credits;
+  const settings = readJson(root, 'locales', locale, 'ui.json').settings;
+  const strings = settings.credits;
+  // The tab's path, spelled exactly as the app shows it.
+  const tab = `${settings.title} → ${settings.section.credits}`;
   const labels = LABELS[locale];
   const out = [`<!-- ${labels.generated} -->`, '', strings.intro, ''];
   for (const group of GROUPS) {
@@ -87,7 +90,7 @@ export function renderBlock(root, locale) {
     }
     out.push('');
   }
-  out.push(strings.noContent, labels.notices);
+  out.push(strings.noContent, labels.notices.replace('{tab}', tab));
   // Collapse the blank lines a trailing quote leaves before the next item.
   return out.join('\n').replace(/\n{3,}/g, '\n\n');
 }

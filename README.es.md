@@ -776,7 +776,7 @@ Coverly se apoya en el trabajo de estos proyectos. Aquí tienes qué usa de cada
   > Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors. SIL Open Font License 1.1.
 
 Coverly no incluye ROMs, BIOS, claves ni arte de juegos.
-Las licencias de cada crate de Rust y paquete de npm de la compilación están en `LICENSES/generated/`, y la app las muestra en Ajustes → Agradecimientos.
+Las licencias de cada crate de Rust y paquete de npm de la compilación están en `LICENSES/generated/`, y la app las muestra en Configuración → Agradecimientos.
 <!-- credits:end -->
 
 Las imágenes de los juegos son de sus dueños. Lista completa:

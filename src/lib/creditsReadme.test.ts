@@ -48,6 +48,18 @@ describe('README credits block (adjustments D25)', () => {
     });
   }
 
+  for (const locale of ['es', 'en'] as const) {
+    it(`names the settings tab as the app does (${locale})`, () => {
+      const ui = JSON.parse(
+        readFileSync(join(REPO, 'locales', locale, 'ui.json'), 'utf8'),
+      ) as { settings: { title: string; section: { credits: string } } };
+      const block = renderBlock(REPO, locale);
+      expect(block).toContain(
+        `${ui.settings.title} → ${ui.settings.section.credits}`,
+      );
+    });
+  }
+
   it('refuses a README without the markers', () => {
     expect(() => replaceBlock('# Title\n\nNo markers.\n', 'x')).toThrow(
       /credits:start/,
