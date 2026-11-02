@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -202,6 +202,10 @@ const CATALOG_DOWNLOAD_BYTES = 90_000_000;
 
 const URL_PATH = 'catalogs.switch.fallback_url';
 
+/** How often the status is read while a download runs that this window
+ * gets no answer for. */
+const CATALOG_POLL_MS = 1000;
+
 /** The catalogue holds rows: «Buscar actualización» and «Borrar catálogo». */
 const hasRows = (s: CatalogStatus | null) =>
   s !== null &&
@@ -209,6 +213,20 @@ const hasRows = (s: CatalogStatus | null) =>
     s.state === 'failed-old' ||
     s.state === 'rejected' ||
     s.state === 'remove-failed');
+
+/** The catalogue download or removal this window is waiting for. It
+ * outlives the Sources tab, so a tab opened again while it runs shows it
+ * running and then its answer; with none running, a `catalog-progress`
+ * event is a late one (events and replies travel apart) and is dropped. */
+let inflight: Promise<CatalogStatus> | null = null;
+
+function track(p: Promise<CatalogStatus>): Promise<CatalogStatus> {
+  const settled = p.finally(() => {
+    if (inflight === settled) inflight = null;
+  });
+  inflight = settled;
+  return settled;
+}
 
 /**
  * «Catálogo de Switch» (adjustments §9.2): the optional blawar/titledb name
@@ -223,42 +241,80 @@ function SwitchCatalogGroup() {
   const update = useSettingsStore((s) => s.update);
   const urlError = useSettingsStore((s) => s.errors[URL_PATH]);
   const [status, setStatus] = useState<CatalogStatus | null>(null);
-  const [running, setRunning] = useState(false);
+  const [running, setRunning] = useState(inflight !== null);
   const [error, setError] = useState<BackendError | null>(null);
   const [url, setUrl] = useState<string | null>(null);
-  /** A download or removal answers last: a status read meanwhile is older. */
-  const busy = useRef(false);
+  const alive = useRef(true);
+
+  /** Shows the answer of `p` (a download or removal answers last: a
+   * status read meanwhile is older). */
+  const settle = useCallback(
+    (p: Promise<CatalogStatus>) =>
+      p
+        .then(
+          (s) => alive.current && setStatus(s),
+          (e: unknown) => alive.current && setError(toBackendError(e)),
+        )
+        .finally(() => alive.current && setRunning(inflight !== null)),
+    [],
+  );
 
   useEffect(() => {
-    let alive = true;
+    alive.current = true;
+    if (inflight) void settle(inflight);
+    return () => {
+      alive.current = false;
+    };
+  }, [settle]);
+
+  useEffect(() => {
+    let live = true;
     let stop: (() => void) | null = null;
     void getBackend().then(async (b) => {
-      const off = await b.onCatalogProgress((s) => alive && setStatus(s));
-      if (alive) stop = off;
+      // Progress belongs to a running download: ours, or one the status
+      // read reported (a plan's). Once it answered, a late event is old.
+      const off = await b.onCatalogProgress(
+        (s) =>
+          live &&
+          setStatus((now) =>
+            inflight !== null || now?.state === 'downloading' ? s : now,
+          ),
+      );
+      if (live) stop = off;
       else off();
+      // While ours runs, only a read that says so is current.
       const s = await b.catalogStatus(locale).catch(() => null);
-      if (alive && s && !busy.current) setStatus(s);
+      if (live && s && (!inflight || s.state === 'downloading')) setStatus(s);
     });
     return () => {
-      alive = false;
+      live = false;
       stop?.();
     };
   }, [locale, c.enabled]);
 
-  async function run(
+  // A download this window is not waiting for (a plan's, or one whose
+  // answer this tab missed) sends no answer here: read the status until
+  // it ends.
+  const watching = status?.state === 'downloading' && !running;
+  useEffect(() => {
+    if (!watching) return;
+    const timer = setInterval(() => {
+      void getBackend()
+        .then((b) => b.catalogStatus(locale))
+        .then((s) => {
+          if (!inflight) setStatus(s);
+        })
+        .catch(() => undefined);
+    }, CATALOG_POLL_MS);
+    return () => clearInterval(timer);
+  }, [watching, locale]);
+
+  function run(
     op: (b: Awaited<ReturnType<typeof getBackend>>) => Promise<CatalogStatus>,
   ) {
     setError(null);
-    busy.current = true;
     setRunning(true);
-    try {
-      setStatus(await op(await getBackend()));
-    } catch (e) {
-      setError(toBackendError(e));
-    } finally {
-      busy.current = false;
-      setRunning(false);
-    }
+    return settle(track(getBackend().then(op)));
   }
 
   async function toggle(on: boolean) {

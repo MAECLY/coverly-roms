@@ -134,6 +134,110 @@ describe('sources: Switch name catalogue', () => {
     expect(line).toHaveTextContent('Downloading 80 MB');
   });
 
+  it('a download left running while on another tab still ends on return', async () => {
+    await backend.updateSettings(ON);
+    let push: ((s: CatalogStatus) => void) | null = null;
+    vi.spyOn(backend, 'onCatalogProgress').mockImplementation((cb) => {
+      push = cb;
+      return Promise.resolve(() => undefined);
+    });
+    let finish: ((s: CatalogStatus) => void) | null = null;
+    vi.spyOn(backend, 'catalogUpdate').mockImplementation(
+      () => new Promise<CatalogStatus>((r) => (finish = r)),
+    );
+    await open({ state: 'pending' });
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Download now' }),
+    );
+    await waitFor(() => expect(finish).not.toBeNull());
+    const now: CatalogStatus = {
+      state: 'downloading',
+      done: 10_000_000,
+      total: 92_400_000,
+    };
+    act(() => push!(now));
+    // The back end reports the running download to a status read.
+    vi.mocked(backend.catalogStatus).mockResolvedValue(now);
+    act(() => useNavStore.getState().openSettings('about'));
+    act(() => useNavStore.getState().openSettings('sources'));
+    await waitFor(async () =>
+      expect(await statusLine()).toHaveTextContent(
+        'Downloading 10 MB of 92.4 MB',
+      ),
+    );
+    act(() =>
+      finish!({
+        state: 'ready',
+        count: 17_342,
+        updated: '2026-10-30',
+        fallback: false,
+      }),
+    );
+    await waitFor(async () =>
+      expect(await statusLine()).toHaveTextContent(
+        '17,342 titles, updated Oct 30, 2026',
+      ),
+    );
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Check for update' }),
+    ).toBeEnabled();
+  });
+
+  it('a download this window did not start is read until it ends', async () => {
+    await backend.updateSettings(ON);
+    const read = vi.spyOn(backend, 'catalogStatus').mockResolvedValue({
+      state: 'downloading',
+      done: 30_000_000,
+      total: 92_400_000,
+    });
+    await open();
+    await waitFor(async () =>
+      expect(await statusLine()).toHaveTextContent(
+        'Downloading 30 MB of 92.4 MB',
+      ),
+    );
+    read.mockResolvedValue({
+      state: 'ready',
+      count: 17_342,
+      updated: '2026-10-30',
+      fallback: false,
+    });
+    await waitFor(
+      async () =>
+        expect(await statusLine()).toHaveTextContent(
+          '17,342 titles, updated Oct 30, 2026',
+        ),
+      { timeout: 3000 },
+    );
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('a progress event that arrives after the download answered is ignored', async () => {
+    await backend.updateSettings(ON);
+    let push: ((s: CatalogStatus) => void) | null = null;
+    vi.spyOn(backend, 'onCatalogProgress').mockImplementation((cb) => {
+      push = cb;
+      return Promise.resolve(() => undefined);
+    });
+    await open({ state: 'pending' });
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Download now' }),
+    );
+    const done = await screen.findByRole('button', {
+      name: 'Check for update',
+    });
+    await waitFor(() => expect(done).toBeEnabled());
+    act(() =>
+      push!({ state: 'downloading', done: 92_400_000, total: 92_400_000 }),
+    );
+    expect(await statusLine()).toHaveTextContent(
+      '17,342 titles, updated Oct 30, 2026',
+    );
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(done).toBeEnabled();
+  });
+
   it.each<[CatalogStatus, string]>([
     [{ state: 'pending' }, 'Catalogue download pending'],
     [
