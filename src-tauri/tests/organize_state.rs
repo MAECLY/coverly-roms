@@ -11,6 +11,7 @@ use std::time::{Duration, SystemTime};
 
 use common::write;
 use coverly_core::identify::sniff::fixtures;
+use coverly_core::organize::apply::{HugeItem, LargeConfirm};
 use coverly_core::organize::{Choice, Decision, OrganizeAction, OrganizePhase};
 use coverly_core::systems::SystemDb;
 use coverly_roms_lib::error::IpcError;
@@ -1269,6 +1270,26 @@ fn a_large_apply_needs_the_decided_bytes_confirmed_and_resume_never_asks() {
         .unwrap()
         .to_string_lossy()
         .into_owned();
+    // A threshold of one byte: every copy is a huge item of its own.
+    let huge: Vec<HugeItem> = plan
+        .plan
+        .items
+        .iter()
+        .filter(|i| i.action == OrganizeAction::Auto && i.id != leave[0].item)
+        .map(|i| HugeItem {
+            item: i.id,
+            name: i.sources[0]
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            system: "gba".into(),
+            bytes: i.size,
+            extract: false,
+            followers: Vec::new(),
+        })
+        .collect();
+    let ids: Vec<usize> = huge.iter().map(|h| h.item).collect();
     assert_eq!(
         refused,
         IpcError::LargeTransfer {
@@ -1277,6 +1298,8 @@ fn a_large_apply_needs_the_decided_bytes_confirmed_and_resume_never_asks() {
             copies: true,
             free: Some(412_100_000_000),
             volume: volume.clone(),
+            huge: huge.clone(),
+            rest: 0,
         }
     );
     let json = serde_json::to_value(&refused).unwrap();
@@ -1286,25 +1309,52 @@ fn a_large_apply_needs_the_decided_bytes_confirmed_and_resume_never_asks() {
     assert_eq!(json["detail"]["copies"], true);
     assert_eq!(json["detail"]["free"], 412_100_000_000u64);
     assert_eq!(json["detail"]["volume"], volume.as_str());
+    assert_eq!(json["detail"]["rest"], 0);
+    assert_eq!(json["detail"]["huge"].as_array().unwrap().len(), 2);
+    assert_eq!(json["detail"]["huge"][0]["item"], ids[0]);
+    assert_eq!(json["detail"]["huge"][0]["system"], "gba");
+    assert_eq!(json["detail"]["huge"][0]["extract"], false);
     assert!(st.organize_job().is_none(), "nothing started");
     assert_eq!(tree(target.path()), before, "nothing written");
 
     // Fewer bytes than the decided plan writes: refused again.
+    let short = LargeConfirm {
+        bytes: decided_bytes - 1,
+        items: ids.clone(),
+    };
     assert!(matches!(
         st.organize_apply(
             plan.plan_id,
             &leave,
-            Some(decided_bytes - 1),
+            Some(&short),
             Arc::new(ApplyRecorder::default())
         ),
         Err(IpcError::LargeTransfer { bytes, .. }) if bytes == decided_bytes
     ));
+    // A huge item not named: refused, with the same numbers.
+    let missing = LargeConfirm {
+        bytes: decided_bytes,
+        items: ids[..1].to_vec(),
+    };
+    assert!(matches!(
+        st.organize_apply(
+            plan.plan_id,
+            &leave,
+            Some(&missing),
+            Arc::new(ApplyRecorder::default())
+        ),
+        Err(IpcError::LargeTransfer { ref huge, .. }) if huge.len() == 2
+    ));
     assert!(st.organize_job().is_none(), "nothing started");
     assert_eq!(tree(target.path()), before, "nothing written");
 
-    // The exact bytes: the job starts and copies.
+    // Every huge item and the exact bytes: the job starts and copies.
     let events = Arc::new(ApplyRecorder::default());
-    st.organize_apply(plan.plan_id, &leave, Some(decided_bytes), events.clone())
+    let full = LargeConfirm {
+        bytes: decided_bytes,
+        items: ids,
+    };
+    st.organize_apply(plan.plan_id, &leave, Some(&full), events.clone())
         .unwrap();
     let end = events.wait_end();
     assert_eq!(end.state, OrganizeJobState::Done, "{end:?}");
@@ -1334,4 +1384,81 @@ fn a_large_apply_needs_the_decided_bytes_confirmed_and_resume_never_asks() {
     let end = events.wait_end();
     assert_eq!(end.state, OrganizeJobState::Done, "{end:?}");
     assert!(gone.is_file(), "resumed without a confirmation");
+}
+
+#[test]
+fn a_declined_huge_item_stays_and_the_rest_applies_with_its_confirmation() {
+    let _hooks = LargeHooks::new();
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let pile = gba_pile();
+    let target = TempDir::new().unwrap();
+    let request = OrganizeRequest {
+        target: Some(target.path().display().to_string()),
+        mode: Some(coverly_core::organize::TransferMode::Copy),
+        ..offline(pile.path())
+    };
+    let plan = st
+        .organize_plan(&request, &[], Arc::new(Recorder::default()))
+        .unwrap();
+    let auto: Vec<&coverly_core::organize::OrganizeItem> = plan
+        .plan
+        .items
+        .iter()
+        .filter(|i| i.action == OrganizeAction::Auto)
+        .collect();
+    assert_eq!(auto.len(), 3);
+    // «No» to the first one: sent as a decline, so the gate asks only for
+    // the other two.
+    let decline = [Decision {
+        item: auto[0].id,
+        choice: Choice::Decline,
+    }];
+    let refused = st
+        .organize_apply(
+            plan.plan_id,
+            &decline,
+            None,
+            Arc::new(ApplyRecorder::default()),
+        )
+        .unwrap_err();
+    let IpcError::LargeTransfer {
+        bytes, huge, rest, ..
+    } = refused
+    else {
+        panic!("{refused:?}")
+    };
+    assert_eq!(rest, 0);
+    let ids: Vec<usize> = huge.iter().map(|h| h.item).collect();
+    assert_eq!(ids, vec![auto[1].id, auto[2].id]);
+    assert_eq!(bytes, auto[1].size + auto[2].size);
+
+    let events = Arc::new(ApplyRecorder::default());
+    st.organize_apply(
+        plan.plan_id,
+        &decline,
+        Some(&LargeConfirm { bytes, items: ids }),
+        events.clone(),
+    )
+    .unwrap();
+    let end = events.wait_end();
+    assert_eq!(end.state, OrganizeJobState::Done, "{end:?}");
+    assert_eq!(end.report.as_ref().unwrap().copied, 2);
+
+    // The declined item is left as not confirmed (never remembered).
+    let again = st
+        .organize_plan(&request, &decline, Arc::new(Recorder::default()))
+        .unwrap();
+    let left = again
+        .plan
+        .items
+        .iter()
+        .find(|i| i.id == auto[0].id)
+        .unwrap();
+    assert_eq!(
+        left.action,
+        OrganizeAction::Left {
+            reason: coverly_core::organize::LeftReason::NotConfirmed
+        }
+    );
 }

@@ -470,7 +470,13 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       set({ pendingLarge: null });
       try {
         await run(
-          (b) => b.organizeApply(planId, Object.values(decisions), bytes),
+          // Every huge item at once (the aggregate dialog's «Sí»): the
+          // per-item questions come with their own dialog.
+          (b) =>
+            b.organizeApply(planId, Object.values(decisions), {
+              bytes,
+              items: pendingLarge.huge.map((h) => h.item),
+            }),
           planId,
         );
       } finally {

@@ -1316,6 +1316,10 @@ function largeTransfer(
       volume === '/'
         ? (r.target.split('/').filter(Boolean).pop() ?? r.target)
         : volume.slice('/Volumes/'.length),
+    // The per-item questions of the mock piles come with their dialog
+    // (adjustments Task 18); until then every byte is in `rest`.
+    huge: [],
+    rest: bytes,
   };
 }
 
@@ -2656,13 +2660,17 @@ export function createMockOrganize(
     async organizeCancel(planId) {
       cancelled.add(planId);
     },
-    async organizeApply(planId, decisions, confirmedBytes) {
+    async organizeApply(planId, decisions, confirm) {
       const r = stored(planId);
       const { plan, files } = planOf(r, decisions);
       // Like Rust's gate: on the decided plan, before the job guard and
       // before anything is written.
       const large = largeTransfer(r, plan.items);
-      if (large && (confirmedBytes ?? -1) < large.bytes)
+      const confirmed =
+        confirm !== undefined &&
+        confirm.bytes >= (large?.bytes ?? 0) &&
+        (large?.huge ?? []).every((h) => confirm.items.includes(h.item));
+      if (large && !confirmed)
         throw new BackendError('large-transfer', undefined, large);
       notApplying();
       const fills = await host.fillHistory();

@@ -567,6 +567,23 @@ export interface SettingsUpdate {
 export type LinkId =
   'repo' | 'license' | 'notices' | 'trademarks' | 'releases' | 'issues';
 
+/** Which link of a credit entry `open_credit` opens (adjustments D27). */
+export type CreditLink = 'site' | 'license';
+
+/** Mirror of `coverly_core::catalog::CatalogStatus`: the optional Switch
+ * name catalogue as the Sources group shows it (spec §7, §10). `updated`
+ * is an ISO date; `fallback` = the United States list instead of the UI
+ * language's. */
+export type CatalogStatus =
+  | { state: 'off' }
+  | { state: 'pending' }
+  | { state: 'downloading'; done: number; total: number | null }
+  | { state: 'ready'; count: number; updated: string; fallback: boolean }
+  | { state: 'failed-old'; updated: string }
+  | { state: 'failed-none' }
+  | { state: 'rejected' }
+  | { state: 'remove-failed' };
+
 export type CredentialKey =
   'steamgriddb-api-key' | 'screenscraper-user' | 'screenscraper-password';
 export const CREDENTIAL_KEYS: readonly CredentialKey[] = [
@@ -1295,6 +1312,37 @@ export interface LargeTransferDetail {
   free: number | null;
   /** The target volume's name, else the target folder's. */
   volume: string;
+  /** Items asked one by one, in plan order (adjustments D15). */
+  huge: HugeItem[];
+  /** Bytes of every other item (D16b: asked as a whole only when they
+   * alone reach the threshold). */
+  rest: number;
+}
+
+/** One item asked on its own before apply (adjustments D15): it alone,
+ * with the shadPS4 overlays that follow it, writes 10 GB or more, or it
+ * extracts a folder game out of an archive. */
+export interface HugeItem {
+  /** `OrganizeItem.id`. */
+  item: number;
+  /** File or folder name in the pile. */
+  name: string;
+  system: string;
+  /** Bytes it writes, its followers included. */
+  bytes: number;
+  /** Extracted out of an archive. */
+  extract: boolean;
+  /** Items left with it when it is declined. */
+  followers: number[];
+}
+
+/** What `organize_apply` gets once the questions are answered (D16):
+ * every accepted huge item, and `rest + Σ accepted bytes` from the
+ * numbers the error carried. A declined item travels as a `decline`
+ * decision instead. */
+export interface LargeConfirm {
+  bytes: number;
+  items: number[];
 }
 
 /** An IPC error as data (inside a view). */

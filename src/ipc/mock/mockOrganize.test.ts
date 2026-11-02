@@ -1587,13 +1587,15 @@ describe('mock organise size gate (systems batch 3 D23)', () => {
       },
     };
     await expect(b.organizeApply(plan_id, [])).rejects.toMatchObject(refused);
-    await expect(b.organizeApply(plan_id, [], bytes - 1)).rejects.toMatchObject(
-      refused,
-    );
+    await expect(
+      b.organizeApply(plan_id, [], { bytes: bytes - 1, items: [] }),
+    ).rejects.toMatchObject(refused);
     // Nothing was written: no job, and the plan is still there to apply.
     expect(await b.jobHistory()).toEqual([]);
     const done = ended(b);
-    expect((await b.organizeApply(plan_id, [], bytes)).state).toBe('applying');
+    expect(
+      (await b.organizeApply(plan_id, [], { bytes, items: [] })).state,
+    ).toBe('applying');
     expect((await done).state).toBe('done');
   });
 
@@ -1803,7 +1805,10 @@ describe('mock current-generation pile (systems batch 3 §9.3)', () => {
     };
     await expect(b.organizeApply(plan_id, [])).rejects.toMatchObject(refused);
     const done = ended(b);
-    await b.organizeApply(plan_id, [], 187_420_000_000);
+    await b.organizeApply(plan_id, [], {
+      bytes: 187_420_000_000,
+      items: [],
+    });
     expect((await done).state).toBe('done');
   });
 

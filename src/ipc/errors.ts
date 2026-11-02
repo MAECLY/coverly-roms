@@ -78,7 +78,9 @@ function isLargeTransfer(value: unknown): value is LargeTransferDetail {
     typeof v.items === 'number' &&
     typeof v.copies === 'boolean' &&
     (v.free === null || typeof v.free === 'number') &&
-    typeof v.volume === 'string'
+    typeof v.volume === 'string' &&
+    Array.isArray(v.huge) &&
+    typeof v.rest === 'number'
   );
 }
 
@@ -105,6 +107,8 @@ export function toBackendError(e: unknown): BackendError {
               copies: detail.copies,
               free: detail.free,
               volume: detail.volume,
+              huge: detail.huge,
+              rest: detail.rest,
             }
           : undefined,
       );

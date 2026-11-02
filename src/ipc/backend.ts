@@ -6,6 +6,8 @@ import { hasTauriIpc, type AppInfo } from './appInfo';
 import type {
   ArtImage,
   CandidateView,
+  CatalogStatus,
+  CreditLink,
   CredentialKey,
   CredentialStatus,
   DecisionIn,
@@ -25,6 +27,7 @@ import type {
   JobProgressEvent,
   JobView,
   KeyCheck,
+  LargeConfirm,
   LibrarySettings,
   LibraryView,
   LinkId,
@@ -137,12 +140,14 @@ export interface Backend {
   organizeCancel(planId: number): Promise<void>;
   /** Starts applying plan `planId`; the end arrives via `onOrganizeChanged`.
    * `job-running` while a fill job runs or is paused (and fills refuse meanwhile).
-   * `large-transfer` (with the numbers) when the decided plan writes 10 GB or
-   * more and `confirmedBytes` is missing or below them (spec D23). */
+   * `large-transfer` (with the numbers, `huge` and `rest`) when the decided
+   * plan writes 10 GB or more or has huge items, and `confirm` does not name
+   * every huge item or is below its bytes (spec D23, adjustments D16). A
+   * declined huge item is sent as a `decline` decision. */
   organizeApply(
     planId: number,
     decisions: OrganizeDecision[],
-    confirmedBytes?: number,
+    confirm?: LargeConfirm,
   ): Promise<OrganizeJobView>;
   /** Continues a paused or interrupted organise job into its journal. */
   organizeResume(job: string): Promise<OrganizeJobView>;
@@ -224,6 +229,26 @@ export interface Backend {
   openConfigFolder(): Promise<void>;
   openLogsFolder(): Promise<void>;
   openLink(link: LinkId): Promise<void>;
+  /** Opens the site or licence of credit entry `id` (the URL comes from
+   * the compiled-in credits file); `bad-request` for an unknown id or a
+   * missing link (adjustments D27). */
+  openCredit(id: string, which: CreditLink): Promise<void>;
+
+  /* The optional Switch name catalogue (adjustments D2–D10). `locale` is
+   * the language the UI shows (the region file follows it while the
+   * language setting is automatic). */
+  catalogStatus(locale?: string): Promise<CatalogStatus>;
+  /** Downloads now or refreshes when due (progress via
+   * `onCatalogProgress`); `bad-request` while the setting is off. */
+  catalogUpdate(locale?: string): Promise<CatalogStatus>;
+  onCatalogProgress(cb: (s: CatalogStatus) => void): Promise<() => void>;
+  /** Stops a running catalogue download. */
+  catalogCancel(): Promise<void>;
+  /** «Borrar catálogo»; the status after it. */
+  catalogRemove(): Promise<CatalogStatus>;
+  /** The cached eShop icon of title `tid` (16 hex digits), fetched on
+   * demand while «Iconos de Switch» is on; `art-missing` otherwise. */
+  catalogIcon(tid: string): Promise<ArtImage>;
   /** Bytes used by the downloaded-art cache. */
   cacheUsage(): Promise<number>;
   /** Clears the cache (refused while a job runs); the bytes freed. */

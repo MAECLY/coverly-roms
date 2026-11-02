@@ -587,7 +587,7 @@ describe('organise store', () => {
       expect(store().pendingLarge).toBeNull();
       await Promise.all([first, second]);
       expect(apply).toHaveBeenCalledTimes(2);
-      expect(apply).toHaveBeenLastCalledWith(planId, [], bytes);
+      expect(apply).toHaveBeenLastCalledWith(planId, [], { bytes, items: [] });
       await waitFor(() => expect(store().status).toBe('done'));
       expect(store().job?.state).toBe('done');
     });

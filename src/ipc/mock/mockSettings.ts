@@ -12,6 +12,7 @@
  * otherwise `ok`. ScreenScraper answers `unavailable`; libretro (no key)
  * is a `bad-request`.
  */
+import { CREDITS } from '@/lib/credits';
 import { previewProfile, validateProfile } from '@/lib/profileTemplate';
 import {
   DEFAULT_SETTINGS,
@@ -33,6 +34,7 @@ import { ORGANIZE_SYSTEMS } from './mockOrganize';
 import {
   CREDENTIAL_KEYS,
   MEDIA,
+  type CatalogStatus,
   type CredentialKey,
   type CredentialStatus,
   type FoundTool,
@@ -67,6 +69,13 @@ export type MockSettingsApi = Pick<
   | 'openConfigFolder'
   | 'openLogsFolder'
   | 'openLink'
+  | 'openCredit'
+  | 'catalogStatus'
+  | 'catalogUpdate'
+  | 'onCatalogProgress'
+  | 'catalogCancel'
+  | 'catalogRemove'
+  | 'catalogIcon'
   | 'cacheUsage'
   | 'clearCache'
   | 'listProfiles'
@@ -226,6 +235,21 @@ export function createMockSettings(opts: {
   /** Keys whose stored value would be refused by the source (memory only). */
   const rejected = new Set<CredentialKey>();
   let cacheBytes = 48 * 1024 * 1024;
+  /** The Switch catalogue (adjustments D2): downloaded once «Descargar
+   * ahora» ran; the Sources tab's simulated download comes with Task 19. */
+  let catalogRows = false;
+  const catalogListeners = new Set<(s: CatalogStatus) => void>();
+  const catalogStatus = (): CatalogStatus =>
+    !settings.catalogs.switch.enabled
+      ? { state: 'off' }
+      : catalogRows
+        ? {
+            state: 'ready',
+            count: 17_342,
+            updated: '2026-10-30',
+            fallback: false,
+          }
+        : { state: 'pending' };
 
   const save = () => write(storage, MOCK_STORAGE_KEYS.settings, settings);
   const emit = () => listeners.forEach((cb) => cb(cloneSettings(settings)));
@@ -342,6 +366,35 @@ export function createMockSettings(opts: {
     },
     async openLink(link) {
       opened.push(`link:${link}`);
+    },
+    async openCredit(id, which) {
+      // Like Rust: the URL comes from the credits file, never the webview.
+      const c = CREDITS.find((e) => e.id === id);
+      const url = which === 'site' ? c?.url : c?.license.url;
+      if (!url) throw new BackendError('bad-request', `credit ${id}: no link`);
+      opened.push(`credit:${id}:${which}`);
+    },
+    catalogStatus: () => Promise.resolve(catalogStatus()),
+    async catalogUpdate() {
+      if (!settings.catalogs.switch.enabled)
+        throw new BackendError('bad-request', 'the Switch catalogue is off');
+      catalogRows = true;
+      return catalogStatus();
+    },
+    onCatalogProgress(cb) {
+      catalogListeners.add(cb);
+      return Promise.resolve(() => {
+        catalogListeners.delete(cb);
+      });
+    },
+    async catalogCancel() {},
+    async catalogRemove() {
+      catalogRows = false;
+      return catalogStatus();
+    },
+    async catalogIcon() {
+      // The mock has no eShop icons (D8: off unless asked for).
+      throw new BackendError('art-missing', 'icon');
     },
     cacheUsage: () => Promise.resolve(cacheBytes),
     async clearCache() {

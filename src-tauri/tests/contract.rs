@@ -745,6 +745,15 @@ fn organise_views_match_the_shared_sample() {
                 copies: true,
                 free: Some(412_100_000_000),
                 volume: "TinyExt".into(),
+                huge: vec![coverly_core::organize::apply::HugeItem {
+                    item: 4,
+                    name: "CUSA00900".into(),
+                    system: "ps4".into(),
+                    bytes: 61_000_000_000,
+                    extract: false,
+                    followers: vec![5],
+                }],
+                rest: 126_420_000_000,
             },
         ],
     });
@@ -786,6 +795,24 @@ fn rust_reads_the_shared_organise_requests() {
     assert!(
         !bare.rescan,
         "a request reuses the kept survey unless asked"
+    );
+    let confirm: coverly_core::organize::apply::LargeConfirm =
+        serde_json::from_value(req["organize_confirm"].clone()).unwrap();
+    assert_eq!(
+        confirm,
+        coverly_core::organize::apply::LargeConfirm {
+            bytes: 126_420_000_000,
+            items: vec![4, 7],
+        }
+    );
+    let links: Vec<coverly_core::credits::CreditLink> =
+        serde_json::from_value(req["credit_links"].clone()).unwrap();
+    assert_eq!(
+        links,
+        [
+            coverly_core::credits::CreditLink::Site,
+            coverly_core::credits::CreditLink::License
+        ]
     );
     let decisions: Vec<OrganizeDecision> =
         serde_json::from_value(req["organize_decisions"].clone()).unwrap();
@@ -1435,6 +1462,52 @@ fn adjustment_values_match_the_shared_sample() {
             TitleSource::Titledb,
             TitleSource::Nlib,
             TitleSource::FileName,
+        ],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+#[test]
+fn catalogue_statuses_match_the_shared_sample() {
+    use coverly_core::catalog::CatalogStatus;
+
+    let actual = json!({
+        "catalog_statuses": [
+            CatalogStatus::Off,
+            CatalogStatus::Pending,
+            CatalogStatus::Downloading {
+                done: 12_582_912,
+                total: Some(91_750_400),
+            },
+            CatalogStatus::Downloading {
+                done: 1_048_576,
+                total: None,
+            },
+            CatalogStatus::Ready {
+                count: 17_342,
+                updated: "2026-10-30".into(),
+                fallback: false,
+            },
+            CatalogStatus::Ready {
+                count: 16_904,
+                updated: "2026-10-30".into(),
+                fallback: true,
+            },
+            CatalogStatus::FailedOld {
+                updated: "2026-10-23".into(),
+            },
+            CatalogStatus::FailedNone,
+            CatalogStatus::Rejected,
+            CatalogStatus::RemoveFailed,
         ],
     });
     let expected: Value =

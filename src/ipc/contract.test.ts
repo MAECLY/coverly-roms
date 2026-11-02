@@ -9,6 +9,9 @@ import sample from './contract.sample.json';
 import {
   CREDENTIAL_KEYS,
   KEY_CHECKS,
+  type CatalogStatus,
+  type CreditLink,
+  type LargeConfirm,
   type LargeTransferDetail,
   type PickReason,
   type SourceInfo,
@@ -1080,7 +1083,21 @@ describe('organise contract', () => {
       copies: true,
       free: 412_100_000_000,
       volume: 'TinyExt',
+      huge: [
+        {
+          item: 4,
+          name: 'CUSA00900',
+          system: 'ps4',
+          bytes: 61_000_000_000,
+          extract: false,
+          followers: [5],
+        },
+      ],
+      rest: 126_420_000_000,
     });
+    // What the answers send back (adjustments D16).
+    const confirm: LargeConfirm = requests.organize_confirm;
+    expect(confirm).toEqual({ bytes: 126_420_000_000, items: [4, 7] });
   });
 });
 
@@ -1306,7 +1323,36 @@ describe('adjustments contract', () => {
     expect(sample.adjustments_title_kinds).toEqual(TITLE_KINDS);
     expect(sample.adjustments_title_sources).toEqual(TITLE_SOURCES);
   });
+
+  it('catalogue statuses and credit links match Rust', () => {
+    // Every `CatalogStatus` variant, in Rust's order
+    // (catalogue_statuses_match_the_shared_sample).
+    const statuses = sample.catalog_statuses as CatalogStatus[];
+    expect(statuses.map((s) => s.state)).toEqual(CATALOG_STATES);
+    const ready = statuses.find((s) => s.state === 'ready');
+    expect(ready).toEqual({
+      state: 'ready',
+      count: 17_342,
+      updated: '2026-10-30',
+      fallback: false,
+    });
+    const links = requests.credit_links as CreditLink[];
+    expect(links).toEqual(['site', 'license'] satisfies CreditLink[]);
+  });
 });
+
+const CATALOG_STATES = [
+  'off',
+  'pending',
+  'downloading',
+  'downloading',
+  'ready',
+  'ready',
+  'failed-old',
+  'failed-none',
+  'rejected',
+  'remove-failed',
+] as const satisfies readonly CatalogStatus['state'][];
 
 /** Every `PartKind`, `TitleKind` and `TitleSource`, in Rust's order. */
 const PART_KINDS = [

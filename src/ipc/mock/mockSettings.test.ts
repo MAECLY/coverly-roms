@@ -478,4 +478,29 @@ describe('mock settings', () => {
       expect(reset.settings.catalogs).toEqual(DEFAULT_SETTINGS.catalogs);
     });
   });
+
+  it('opens credit links by id and keeps the Switch catalogue behind its setting', async () => {
+    const m = make();
+    await m.openCredit('screenscraper', 'license');
+    expect(m.opened).toEqual(['credit:screenscraper:license']);
+    // Emulator sources carry no link; unknown ids neither (like Rust).
+    await expect(m.openCredit('dolphin', 'site')).rejects.toMatchObject({
+      code: 'bad-request',
+    });
+    await expect(m.openCredit('nope', 'site')).rejects.toMatchObject({
+      code: 'bad-request',
+    });
+
+    expect(await m.catalogStatus('es-ES')).toEqual({ state: 'off' });
+    await expect(m.catalogUpdate()).rejects.toMatchObject({
+      code: 'bad-request',
+    });
+    await m.updateSettings({ catalogs: { switch: { enabled: true } } });
+    expect(await m.catalogStatus()).toEqual({ state: 'pending' });
+    expect((await m.catalogUpdate()).state).toBe('ready');
+    expect((await m.catalogRemove()).state).toBe('pending');
+    await expect(m.catalogIcon('0100000000AA0000')).rejects.toMatchObject({
+      code: 'art-missing',
+    });
+  });
 });

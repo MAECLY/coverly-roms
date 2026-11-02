@@ -417,9 +417,10 @@ describe('OrganizeScreen', () => {
       within(again).getByRole('button', { name: `Copy ${size} GB` }),
     );
     await waitFor(() => expect(sent).toHaveBeenCalledTimes(3));
-    expect(sent.mock.calls[2]![2]).toBe(
-      large.kind === 'large-transfer' ? large.bytes : -1,
-    );
+    expect(sent.mock.calls[2]![2]).toEqual({
+      bytes: large.kind === 'large-transfer' ? large.bytes : -1,
+      items: [],
+    });
     await waitFor(
       () => expect(useOrganizeStore.getState().status).toBe('done'),
       APPLY_WAIT,

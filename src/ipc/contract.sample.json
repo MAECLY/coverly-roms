@@ -1269,7 +1269,18 @@
         "items": 3,
         "copies": true,
         "free": 412100000000,
-        "volume": "TinyExt"
+        "volume": "TinyExt",
+        "huge": [
+          {
+            "item": 4,
+            "name": "CUSA00900",
+            "system": "ps4",
+            "bytes": 61000000000,
+            "extract": false,
+            "followers": [5]
+          }
+        ],
+        "rest": 126420000000
       }
     }
   ],
@@ -1988,5 +1999,27 @@
     "homebrew",
     "unknown"
   ],
-  "adjustments_title_sources": ["header", "titledb", "nlib", "file-name"]
+  "adjustments_title_sources": ["header", "titledb", "nlib", "file-name"],
+  "catalog_statuses": [
+    { "state": "off" },
+    { "state": "pending" },
+    { "state": "downloading", "done": 12582912, "total": 91750400 },
+    { "state": "downloading", "done": 1048576, "total": null },
+    {
+      "state": "ready",
+      "count": 17342,
+      "updated": "2026-10-30",
+      "fallback": false
+    },
+    {
+      "state": "ready",
+      "count": 16904,
+      "updated": "2026-10-30",
+      "fallback": true
+    },
+    { "state": "failed-old", "updated": "2026-10-23" },
+    { "state": "failed-none" },
+    { "state": "rejected" },
+    { "state": "remove-failed" }
+  ]
 }

@@ -95,8 +95,10 @@ pub struct Credit {
     pub sources: Vec<String>,
 }
 
-/// Which link of an entry to open (`open_credit`, spec D27).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Which link of an entry to open (`open_credit`, spec D27): on the wire
+/// `"site"` or `"license"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum CreditLink {
     Site,
     License,

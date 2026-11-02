@@ -15,6 +15,8 @@ const COPY: LargeTransferDetail = {
   copies: true,
   free: 412_100_000_000,
   volume: 'TinyExt',
+  huge: [],
+  rest: 187_420_000_000,
 };
 
 function Harness({

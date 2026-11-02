@@ -26,6 +26,17 @@ describe('backend errors', () => {
       copies: true,
       free: null,
       volume: 'TinyExt',
+      huge: [
+        {
+          item: 4,
+          name: 'CUSA00900',
+          system: 'ps4',
+          bytes: 61_000_000_000,
+          extract: false,
+          followers: [5],
+        },
+      ],
+      rest: 126_420_000_000,
     };
     const e = toBackendError({ code: 'large-transfer', detail });
     expect(e.code).toBe('large-transfer');
