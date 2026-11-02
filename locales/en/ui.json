@@ -802,6 +802,12 @@
     "state": {
       "reportOnly": "Report only",
       "skipped": "Left alone"
+    },
+    "basis": {
+      "titleId": "Same title ID and version",
+      "titleIdTip": "The game id and version were read from each copy's content; their bytes were not compared.",
+      "folderTree": "Same folder",
+      "folderTreeTip": "Every copy holds the same files at the same sizes; none was read."
     }
   },
   "toolbar": {

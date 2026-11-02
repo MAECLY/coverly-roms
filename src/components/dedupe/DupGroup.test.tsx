@@ -574,6 +574,43 @@ describe('DupGroup', () => {
       expect(stamp).toHaveTextContent('Otro formato');
     });
 
+    it('a title-id group that acts names what matched instead of «Sin confirmar»', () => {
+      renderGroup(
+        groupOf(
+          [
+            member(0, 'Switch/Zelda.nsp', { confidence: 0.9 }),
+            member(1, 'Switch/Zelda copia.nsp', { confidence: 0.9 }),
+          ],
+          { basis: 'title-id' },
+        ),
+      );
+      expect(root()).toHaveAttribute('data-state', 'act');
+      const stamp = screen
+        .getByText('Mismo title ID y versión')
+        .closest<HTMLElement>('.dup-stamp');
+      expect(stamp).not.toBeNull();
+      expect(
+        document.querySelector('.dup-group__head')!.textContent,
+      ).not.toContain('Sin confirmar');
+    });
+
+    it('a folder-tree group says «Misma carpeta», in English too', () => {
+      const group = groupOf(
+        [member(0, 'PS4/CUSA00900'), member(1, 'PS4/CUSA00900 (1)')],
+        { basis: 'folder-tree' },
+      );
+      const { unmount } = renderGroup(group);
+      expect(root()).toHaveAttribute('data-state', 'act');
+      expect(
+        screen.getByText('Misma carpeta').closest('.dup-stamp'),
+      ).not.toBeNull();
+      unmount();
+      renderGroup(group, { locale: 'en' });
+      expect(
+        screen.getByText('Same folder').closest('.dup-stamp'),
+      ).not.toBeNull();
+    });
+
     it('a report-only group says «Solo informe» and why in its tooltip', async () => {
       renderGroup(fixtureGroup('Tetris'));
       expect(root()).toHaveAttribute('data-state', 'report-only');

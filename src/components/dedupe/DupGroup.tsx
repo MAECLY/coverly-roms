@@ -16,7 +16,13 @@
  * the reason in a tooltip and a dashed edge; `skipped` says «No se toca»,
  * dashed, and dims the art and chips (never the text).
  */
-import { CircleSlash, Eye, type LucideIcon } from 'lucide-react';
+import {
+  CircleSlash,
+  Eye,
+  FolderTree,
+  IdCard,
+  type LucideIcon,
+} from 'lucide-react';
 import {
   useEffect,
   useId,
@@ -232,6 +238,13 @@ export function DupGroup({
   const reportsOnly = group.action.kind === 'report-only' || reportOnly;
   const skipping = picks && skip;
   const weakRelation = weakest ? badgeRelation(weakest) : 'exact';
+  // What matched when no bytes were compared (spec D19): it stands for the
+  // «not confirmed» badge of an exact copy, which it explains.
+  const basis = group.basis;
+  const relationStamp =
+    weakest &&
+    weakRelation !== 'exact' &&
+    !(basis && weakRelation === 'unconfirmed');
   const state: GroupState = reportsOnly
     ? 'report-only'
     : skipping
@@ -438,9 +451,24 @@ export function DupGroup({
         systemName={systemName}
         serial={keeperMember.serials[0]}
         stamps={
-          (weakRelation !== 'exact' || state !== 'act') && (
+          (weakRelation !== 'exact' || state !== 'act' || basis) && (
             <>
-              {weakest && weakRelation !== 'exact' && (
+              {basis && (
+                <StateStamp
+                  icon={basis === 'title-id' ? IdCard : FolderTree}
+                  text={t(
+                    basis === 'title-id'
+                      ? 'dedupe.basis.titleId'
+                      : 'dedupe.basis.folderTree',
+                  )}
+                  tip={t(
+                    basis === 'title-id'
+                      ? 'dedupe.basis.titleIdTip'
+                      : 'dedupe.basis.folderTreeTip',
+                  )}
+                />
+              )}
+              {relationStamp && (
                 <RelationBadge
                   member={weakest}
                   focusable
