@@ -16,7 +16,10 @@
 #   signs with a throwaway key generated on the spot. They hand their files
 #   to finalize as workflow artifacts (actions/upload-artifact). On a
 #   prerelease tag Windows builds the NSIS installer only: WiX (the .msi)
-#   refuses a non-numeric prerelease such as 1.0.0-beta.1.
+#   refuses a non-numeric prerelease such as 1.0.0-beta.1. On a stable tag
+#   Windows ARM64 builds the .msi only when its runner has (or can install,
+#   step netfx) .NET Framework 3.5, which WiX needs; otherwise it hands over
+#   the NSIS installer alone, and finalize accepts 11 or 12 app files.
 # - finalize builds nothing. It downloads every artifact into its own folder
 #   (never merged), checks that each holds only its own platform's files
 #   (release_tools.py stage-builds), signs every update
@@ -182,15 +185,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
             build-essential libssl-dev libxdo-dev
-      - name: Windows ARM64 toolchain (rustup, clang, .NET 3.5)
+      - name: Windows ARM64 toolchain (rustup, clang)
         # The windows-11-arm image may lack rustup and clang; install rustup
         # from rust-lang.org only after checking its published SHA-256, and
         # fail clearly instead of building half a toolchain.
         if: matrix.platform == 'windows-11-arm'
         shell: pwsh
-        env:
-          # WiX 3 (the .msi, stable tags only) needs .NET Framework 3.5.
-          NETFX: ${{ !contains(github.ref_name, '-') }}
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
@@ -214,9 +214,48 @@ jobs:
               Write-Output '::error::clang is not installed on this runner'; exit 1
             }
           }
-          if ($env:NETFX -eq 'true' -and -not (Test-Path 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v3.5')) {
-            Write-Output '::error::.NET Framework 3.5 (WiX, for the .msi) is not installed on this runner (NDP\v3.5)'; exit 1
+      - name: Windows ARM64 .NET Framework 3.5 for WiX (the .msi, best effort)
+        # WiX 3 (the .msi, stable tags only) needs .NET Framework 3.5, which
+        # the windows-11-arm image may lack. Try to enable it (DISM, at most
+        # 10 minutes); outputs.ok is 'true' only when NDP\v3.5 is installed
+        # afterwards. Anything else (a failure, the timeout, the step itself
+        # timing out and leaving no output) builds the NSIS installer alone
+        # (RELEASING.md section 5: 11 or 12 app files).
+        id: netfx
+        if: matrix.platform == 'windows-11-arm' && !contains(github.ref_name, '-')
+        continue-on-error: true
+        timeout-minutes: 15
+        shell: pwsh
+        run: |
+          $ndp = 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v3.5'
+          function Test-NetFx3 { (Get-ItemProperty -Path $ndp -Name Install -ErrorAction SilentlyContinue).Install -eq 1 }
+          $ok = Test-NetFx3
+          if (-not $ok) {
+            Write-Output 'Enabling .NET Framework 3.5 (NetFx3) with DISM, at most 10 minutes'
+            # Any error here (DISM missing, no feature source, the kill
+            # racing an exit) only means no .msi: never fail the step.
+            try {
+              $dism = Start-Process -FilePath dism.exe -NoNewWindow -PassThru `
+                -ArgumentList '/Online', '/Enable-Feature', '/FeatureName:NetFx3', '/All', '/NoRestart', '/Quiet'
+              $null = $dism.Handle  # keeps ExitCode readable after the wait
+              if ($dism.WaitForExit(600000)) {
+                # 3010: enabled, a restart is pending (the build does not need it).
+                Write-Output "dism.exe exited with $($dism.ExitCode)"
+              } else {
+                $dism.Kill($true)
+                Write-Output 'dism.exe did not finish within 10 minutes'
+              }
+            } catch {
+              Write-Output "dism.exe failed: $($_.Exception.Message)"
+            }
+            $ok = Test-NetFx3
           }
+          if ($ok) {
+            Write-Output '.NET Framework 3.5 is installed (NDP\v3.5): building the .msi too'
+          } else {
+            Write-Output '::warning::.NET Framework 3.5 (WiX, for the .msi) is not installed on this runner (NDP\v3.5): Windows ARM64 ships the NSIS -setup.exe only'
+          }
+          "ok=$(if ($ok) { 'true' } else { 'false' })" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
       - name: Rust toolchain
         shell: bash
         env:
@@ -258,17 +297,39 @@ jobs:
         shell: bash
         env:
           ARGS: ${{ matrix.args }}
+          PLATFORM: ${{ matrix.platform }}
+          # 'true' only when step netfx found or installed .NET 3.5 (WiX).
+          NETFX_OK: ${{ steps.netfx.outputs.ok }}
         run: |
           set -euo pipefail
           bundles=""
+          arm_msi=false
           # WiX (the .msi) accepts only a numeric prerelease, so a prerelease
           # tag such as v1.0.0-beta.1 builds the NSIS installer alone on
           # Windows (RELEASING.md section 6).
           if [ "$RUNNER_OS" = Windows ] && [[ "$GITHUB_REF_NAME" == *-* ]]; then
             bundles="--bundles nsis"
+          elif [ "$PLATFORM" = windows-11-arm ]; then
+            # WiX needs .NET Framework 3.5: without it Windows ARM64 ships
+            # the NSIS installer alone (RELEASING.md section 5).
+            if [ "${NETFX_OK:-}" = true ]; then
+              arm_msi=true
+            else
+              echo "::warning::no .NET Framework 3.5 on this runner: Windows ARM64 builds the NSIS -setup.exe only (no .msi)"
+              bundles="--bundles nsis"
+            fi
           fi
           # shellcheck disable=SC2086 # ARGS and bundles hold zero or more flags
-          pnpm tauri build $ARGS $bundles --config "$RUNNER_TEMP/updater-overlay.json"
+          if ! pnpm tauri build $ARGS $bundles --config "$RUNNER_TEMP/updater-overlay.json"; then
+            # .NET 3.5 freshly enabled without a restart may still leave WiX
+            # unable to run: the ARM64 .msi is optional, the -setup.exe is not.
+            [ "$arm_msi" = true ] || exit 1
+            echo "::warning::the Windows ARM64 build with the .msi failed: building the NSIS -setup.exe only"
+            # Drop whatever WiX left behind, in either target layout.
+            rm -rf target/release/bundle/msi target/*/release/bundle/msi
+            # shellcheck disable=SC2086
+            pnpm tauri build $ARGS --bundles nsis --config "$RUNNER_TEMP/updater-overlay.json"
+          fi
       - name: Stage the bundles for finalize
         shell: bash
         env:
@@ -520,13 +581,20 @@ jobs:
           (cd all && sha256sum -- * > ../SHA256SUMS)
           kinds=('\.dmg' '\.app\.tar\.gz' '-setup\.exe' '\.AppImage' '\.deb')
           # A prerelease has no .msi (WiX refuses a non-numeric prerelease).
-          [[ "$GITHUB_REF_NAME" == *-* ]] || kinds+=('\.msi')
+          # A stable one always has the x64 .msi; the ARM64 .msi only when
+          # its runner had .NET Framework 3.5 (app job, step netfx).
+          [[ "$GITHUB_REF_NAME" == *-* ]] || kinds+=('_windows_x64\.msi')
           for kind in "${kinds[@]}"; do
             grep -q -e "$kind\$" SHA256SUMS || { echo "::error::SHA256SUMS has no $kind file"; exit 1; }
           done
+          arm_msi="no (NSIS -setup.exe only)"
+          if grep -q -e '_windows_arm\.msi$' SHA256SUMS; then arm_msi=yes; fi
+          app_files=$(grep -c -e ' Coverly-ROMs_' SHA256SUMS || true)
+          echo "::notice::$app_files app files; Windows ARM64 .msi: $arm_msi"
           gh release upload "$GITHUB_REF_NAME" bundles/* cli/* latest.json SHA256SUMS --repo "$REPO" --clobber
           {
             echo "### Coverly ROMs $GITHUB_REF_NAME is waiting as a draft"
             echo "Check it (RELEASING.md section 5) before publishing; publishing moves the beta channel."
+            echo "$app_files app files; Windows ARM64 .msi: $arm_msi."
             echo '```'; cat SHA256SUMS; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

@@ -75,7 +75,10 @@ Subcommands:
       mac_intel, windows_x64, windows_arm, linux_x64, linux_arm. DL must
       hold exactly the artifacts the app and cli jobs upload, and each one
       exactly its own platform's files for version V (the Windows .msi only
-      for a stable V: WiX refuses a non-numeric prerelease). Anything else
+      for a stable V: WiX refuses a non-numeric prerelease; the Windows ARM64
+      .msi is optional even then, because WiX needs .NET Framework 3.5 and
+      the windows-11-arm runner may not be able to install it, so that
+      build may hand over its NSIS -setup.exe alone). Anything else
       (an extra artifact, another platform's file, a .sig, a symlink, a
       missing or second file of one kind, a release name GitHub would
       rewrite) fails, as does a B or C that is not empty (finalize uploads
@@ -284,6 +287,16 @@ TAURI_TOKENS = {
     ("linux", "aarch64"): {".AppImage": "aarch64", ".deb": "arm64"},
 }
 
+# Bundle kinds a build may hand over or leave out (zero or one file, never
+# two). The Windows ARM64 .msi needs WiX, which needs .NET Framework 3.5;
+# when the windows-11-arm runner cannot install it, the app job builds the
+# NSIS installer alone (release.yml, step netfx) and the release ships 11
+# app files instead of 12. latest.json then has no windows-aarch64-msi key,
+# and windows-aarch64 points at the -setup.exe either way.
+OPTIONAL_KINDS = {
+    ("windows", "aarch64"): {".msi"},
+}
+
 APP_PREFIX = "Coverly-ROMs"
 CLI_PREFIX = "coverly"
 CLI_KIND = "CLI binary"
@@ -389,7 +402,8 @@ def updater_platforms(names: list[str]) -> tuple[dict, list[str]]:
 def build_artifacts(version: str) -> dict[str, tuple[str, str, dict[str, str]]]:
     """artifact name -> (destination: "bundles" or "cli", release suffix,
     {kind: pattern} of the files it must hold under Tauri's or Cargo's name,
-    each pattern matched by exactly one file)."""
+    each pattern matched by exactly one file, or by at most one for a kind
+    in OPTIONAL_KINDS)."""
     plain = version.lstrip("v")
     v = re.escape(plain)
     stable = "-" not in plain
@@ -448,7 +462,10 @@ def stage_builds(source: str, bundles: str, cli: str, version: str) -> list[str]
                 continue
             targets[new] = name
             copies.append((path, os.path.join(bundles if dest == "bundles" else cli, new)))
+        optional = OPTIONAL_KINDS.get(RELEASE_PLATFORMS[suffix], set())
         for kind, names in matched.items():
+            if not names and kind in optional:
+                continue
             if not names:
                 errors.append(f"{artifact}: no {kind} file for {version.lstrip('v')}")
             elif len(names) > 1:

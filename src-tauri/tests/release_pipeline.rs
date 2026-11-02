@@ -406,6 +406,46 @@ fn the_app_job_stages_bundles_that_finalize_can_map() {
         listing(&root.path().join("bundles")),
         release_files("0.3.0", true).0
     );
+
+    // An ARM64 runner without .NET Framework 3.5 leaves no .msi: staged
+    // and accepted all the same.
+    let d = root.path().join("runner-windows-aarch64-nsis");
+    let mut p = d.clone();
+    for part in "target/release/bundle/nsis/Coverly ROMs_0.3.0_arm64-setup.exe".split('/') {
+        p.push(part);
+    }
+    write_pinned(&p, b"nsis");
+    let out = Command::new("bash")
+        .arg("-c")
+        .arg(&script)
+        .current_dir(&d)
+        .env("GITHUB_REF_NAME", "v0.3.0")
+        .env("TAURI_ARCH", "")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        listing(&d.join("staged")),
+        ["Coverly.ROMs_0.3.0_arm64-setup.exe"]
+    );
+    let dl = root.path().join("downloads").join("app-windows-aarch64");
+    std::fs::remove_dir_all(&dl).unwrap();
+    std::fs::rename(d.join("staged"), &dl).unwrap();
+    std::fs::remove_dir_all(root.path().join("bundles")).unwrap();
+    std::fs::remove_dir_all(root.path().join("cli")).unwrap();
+    let out = stage_builds(root.path(), "0.3.0");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let mut expected = release_files("0.3.0", true).0;
+    expected.retain(|n| !n.ends_with("_windows_arm.msi"));
+    assert_eq!(listing(&root.path().join("bundles")), expected);
 }
 
 #[test]
@@ -531,9 +571,11 @@ fn finalize_requires_every_platform_and_writes_sha256sums() {
         finalize.contains("cp bundles/* cli/* all/"),
         "SHA256SUMS covers every asset, the .dmg, .msi and .deb included"
     );
-    for kind in ["dmg", "msi", "deb", "AppImage"] {
+    for kind in ["dmg", "deb", "AppImage"] {
         assert!(finalize.contains(&format!("'\\.{kind}'")), "{kind}");
     }
+    // The x64 .msi on a stable release; the ARM64 one is optional.
+    assert!(finalize.contains("'_windows_x64\\.msi'"));
     assert!(finalize.contains("minisign -V"));
     assert!(finalize.contains("tampered"));
 }
@@ -599,14 +641,53 @@ fn the_windows_arm_jobs_check_their_toolchain_without_secrets() {
         );
         assert!(!step.contains("uses:"), "{name}: no third-party action");
     }
-    assert!(
-        job(&wf, "app").contains("NDP\\v3.5"),
-        "WiX needs .NET 3.5 for the .msi"
-    );
-    // Only a stable tag builds the .msi, so only it needs .NET 3.5.
-    assert!(job(&wf, "app").contains("NETFX: ${{ !contains(github.ref_name, '-') }}"));
-    assert!(job(&wf, "app").contains("$env:NETFX -eq 'true' -and"));
     assert!(!job(&wf, "cli").contains("NDP\\v3.5"));
+}
+
+/// The text of the step named `step` in `job_text`, up to the next step.
+fn step_text(job_text: &str, step: &str) -> String {
+    let mut lines = job_text
+        .lines()
+        .skip_while(|l| !l.contains(&format!("name: {step}")));
+    let first = lines.next().expect("the step");
+    std::iter::once(first)
+        .chain(lines.take_while(|l| !l.trim_start().starts_with("- ")))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn the_windows_arm_msi_is_best_effort_on_dotnet_3_5() {
+    let app = job(&read(".github/workflows/release.yml"), "app");
+    // The toolchain check no longer fails the build over .NET 3.5.
+    let toolchain = step_text(&app, "Windows ARM64 toolchain");
+    assert!(!toolchain.contains("NDP\\v3.5"), "{toolchain}");
+    // A separate step tries to enable it, bounded, and never fails the job.
+    let netfx = step_text(&app, "Windows ARM64 .NET Framework 3.5");
+    for needle in [
+        "id: netfx",
+        // Only a stable tag builds the .msi, so only it needs .NET 3.5.
+        "if: matrix.platform == 'windows-11-arm' && !contains(github.ref_name, '-')",
+        "continue-on-error: true",
+        "timeout-minutes: 15",
+        "/FeatureName:NetFx3",
+        "/NoRestart",
+        "WaitForExit(600000)",
+        "NDP\\v3.5",
+        "GITHUB_OUTPUT",
+    ] {
+        assert!(netfx.contains(needle), "netfx step lacks {needle}");
+    }
+    assert!(!netfx.contains("secrets."), "the netfx step sees no secret");
+    assert!(!netfx.contains("uses:"), "no third-party action");
+    assert!(
+        !netfx.contains("exit 1"),
+        "a missing .NET 3.5 is not an error"
+    );
+    // The build reads its outcome.
+    let build = step_text(&app, "Build the bundles");
+    assert!(build.contains("NETFX_OK: ${{ steps.netfx.outputs.ok }}"));
+    assert!(build.contains("PLATFORM: ${{ matrix.platform }}"));
 }
 
 /// The rows of a job's `matrix.include`, each as its `key: value` pairs in
@@ -1505,6 +1586,77 @@ fn release_tools_map_the_update_artifacts_to_platform_keys() {
 }
 
 #[test]
+fn a_stable_release_without_the_arm64_msi_still_maps_every_required_key() {
+    if python().is_none() {
+        return;
+    }
+    use coverly_core::update::testing::TestKey;
+    let key = TestKey::generate();
+    let dir = tempfile::tempdir().unwrap();
+    let bundles = dir.path().join("bundles");
+    std::fs::create_dir(&bundles).unwrap();
+    // The windows-11-arm runner had no .NET Framework 3.5: 11 app files.
+    let eleven: Vec<&str> = BUNDLES
+        .iter()
+        .copied()
+        .filter(|n| *n != "Coverly-ROMs_0.2.0_windows_arm.msi")
+        .collect();
+    assert_eq!(eleven.len(), 11);
+    write_bundles(&bundles, &eleven);
+    for name in updater_artifacts(&bundles) {
+        std::fs::write(
+            bundles.join(format!("{name}.sig")),
+            key.sign(name.as_bytes(), &name, Some("0.2.0")),
+        )
+        .unwrap();
+    }
+    let latest = dir.path().join("latest.json");
+    let out = updater_manifest(&bundles, &latest, &[]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let m: coverly_core::update::Manifest =
+        serde_json::from_slice(&std::fs::read(&latest).unwrap()).unwrap();
+    let file = |k: &str| m.platforms[k].url.rsplit('/').next().unwrap().to_string();
+    for k in ["windows-aarch64", "windows-aarch64-nsis"] {
+        assert_eq!(file(k), "Coverly-ROMs_0.2.0_windows_arm-setup.exe", "{k}");
+    }
+    assert_eq!(
+        file("windows-x86_64-msi"),
+        "Coverly-ROMs_0.2.0_windows_x64.msi"
+    );
+    assert!(!m.platforms.contains_key("windows-aarch64-msi"));
+    assert_eq!(m.platforms.len(), 15, "6 generic + 9 bundle-specific keys");
+    // Every app key finalize requires is still there.
+    let wf = read(".github/workflows/release.yml");
+    let mut args = vec![
+        "check-manifest".to_string(),
+        "--manifest".into(),
+        latest.to_str().unwrap().into(),
+        "--version".into(),
+        "0.2.0".into(),
+        "--signed-version".into(),
+        "0.2.0".into(),
+    ];
+    for k in required_keys(&job(&wf, "finalize")) {
+        if !k.starts_with("cli-") {
+            args.push("--require".into());
+            args.push(k);
+        }
+    }
+    assert_eq!(args.len(), 7 + 12, "six app keys");
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let ok = tool(&args);
+    assert!(
+        ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
+}
+
+#[test]
 fn release_tools_fall_back_to_the_msi_and_refuse_ambiguous_or_unsigned_bundles() {
     if python().is_none() {
         return;
@@ -1978,31 +2130,158 @@ fn with_fake_bin(bin: &Path) -> String {
 
 /// The arguments `pnpm` receives from the app job's build step.
 fn app_build_args(runner_os: &str, tag: &str, matrix_args: &str) -> Vec<String> {
+    let platform = match runner_os {
+        "Windows" => "windows-latest",
+        "macOS" => "macos-latest",
+        _ => "ubuntu-22.04",
+    };
+    app_build_args_on(runner_os, platform, "", tag, matrix_args, &[])
+}
+
+/// The build step's `pnpm` calls (one line per argument, every call in
+/// order) on runner `platform` with step netfx's output `netfx_ok`; a call
+/// whose arguments include each word of a `fail_when` entry fails.
+fn app_build_args_on(
+    runner_os: &str,
+    platform: &str,
+    netfx_ok: &str,
+    tag: &str,
+    matrix_args: &str,
+    fail_when: &[&str],
+) -> Vec<String> {
+    let out = run_app_build(runner_os, platform, netfx_ok, tag, matrix_args, fail_when);
+    assert!(
+        out.0.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.0.stderr)
+    );
+    out.1
+}
+
+fn run_app_build(
+    runner_os: &str,
+    platform: &str,
+    netfx_ok: &str,
+    tag: &str,
+    matrix_args: &str,
+    fail_when: &[&str],
+) -> (std::process::Output, Vec<String>) {
     let script = step_script(
         &job(&read(".github/workflows/release.yml"), "app"),
         "Build the bundles",
     );
-    let bin = fake_bin(&["pnpm"]);
+    let bin = tempfile::tempdir().unwrap();
+    let calls = bin.path().join("pnpm.calls");
+    // Records its arguments, then fails when they match `fail_when`.
+    let mut fake = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"{}\"\nprintf -- '--\\n' >> \"{}\"\n",
+        calls.display(),
+        calls.display()
+    );
+    if !fail_when.is_empty() {
+        let test = fail_when
+            .iter()
+            .map(|w| format!("echo \" $* \" | grep -q -e ' {w} '"))
+            .collect::<Vec<_>>()
+            .join(" && ");
+        fake.push_str(&format!("if {test}; then exit 1; fi\n"));
+    }
+    let p = bin.path().join("pnpm");
+    std::fs::write(&p, fake).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let out = Command::new("bash")
         .arg("-c")
         .arg(&script)
+        .current_dir(bin.path())
         .env("PATH", with_fake_bin(bin.path()))
         .env("RUNNER_OS", runner_os)
         .env("RUNNER_TEMP", "/runner/temp")
         .env("GITHUB_REF_NAME", tag)
         .env("ARGS", matrix_args)
+        .env("PLATFORM", platform)
+        .env("NETFX_OK", netfx_ok)
         .output()
         .unwrap();
+    let args = std::fs::read_to_string(&calls)
+        .unwrap_or_default()
+        .lines()
+        .map(String::from)
+        .collect();
+    (out, args)
+}
+
+#[test]
+fn windows_arm_builds_the_msi_only_with_dotnet_3_5() {
+    if !scripts_runnable() {
+        return;
+    }
+    let overlay = ["--config", "/runner/temp/updater-overlay.json"];
+    let all = [&["tauri", "build"][..], &overlay[..], &["--"][..]].concat();
+    let nsis = [
+        &["tauri", "build", "--bundles", "nsis"][..],
+        &overlay[..],
+        &["--"][..],
+    ]
+    .concat();
+    // netfx found or installed .NET 3.5: every bundle, the .msi included.
+    assert_eq!(
+        app_build_args_on("Windows", "windows-11-arm", "true", "v1.0.0", "", &[]),
+        all
+    );
+    // netfx said no, timed out (no output) or was skipped: NSIS only.
+    for ok in ["false", ""] {
+        assert_eq!(
+            app_build_args_on("Windows", "windows-11-arm", ok, "v1.0.0", "", &[]),
+            nsis,
+            "NETFX_OK={ok:?}"
+        );
+    }
+    // .NET 3.5 claimed but WiX still fails: retried with NSIS only.
+    let (out, calls) = run_app_build(
+        "Windows",
+        "windows-11-arm",
+        "true",
+        "v1.0.0",
+        "",
+        &["build --config"],
+    );
     assert!(
         out.status.success(),
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    std::fs::read_to_string(bin.path().join("pnpm.calls"))
-        .unwrap()
-        .lines()
-        .map(String::from)
-        .collect()
+    assert_eq!(calls, [all.clone(), nsis.clone()].concat());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("::warning::"));
+    // x64 never falls back: its .msi is required on a stable tag.
+    let (out, calls) = run_app_build(
+        "Windows",
+        "windows-latest",
+        "",
+        "v1.0.0",
+        "",
+        &["build --config"],
+    );
+    assert!(!out.status.success());
+    assert_eq!(calls, all);
+    // Nor does ARM64 when it already built NSIS only.
+    let (out, _) = run_app_build(
+        "Windows",
+        "windows-11-arm",
+        "false",
+        "v1.0.0",
+        "",
+        &["tauri"],
+    );
+    assert!(!out.status.success());
+    // A prerelease builds NSIS only whatever netfx says (it is skipped).
+    assert_eq!(
+        app_build_args_on("Windows", "windows-11-arm", "", "v1.0.0-beta.1", "", &[]),
+        nsis
+    );
 }
 
 #[test]
@@ -2013,27 +2292,34 @@ fn a_prerelease_builds_windows_without_the_msi() {
     let overlay = ["--config", "/runner/temp/updater-overlay.json"];
     // WiX refuses a non-numeric prerelease (1.0.0-beta.1), so a beta tag
     // builds only the NSIS installer on Windows.
+    let end = ["--"];
     assert_eq!(
         app_build_args("Windows", "v1.0.0-beta.1", ""),
-        [&["tauri", "build", "--bundles", "nsis"][..], &overlay[..]].concat()
+        [
+            &["tauri", "build", "--bundles", "nsis"][..],
+            &overlay[..],
+            &end[..]
+        ]
+        .concat()
     );
     // A stable tag builds every configured bundle, the .msi included.
     assert_eq!(
         app_build_args("Windows", "v1.0.0", ""),
-        [&["tauri", "build"][..], &overlay[..]].concat()
+        [&["tauri", "build"][..], &overlay[..], &end[..]].concat()
     );
     // Other platforms never get --bundles.
     assert_eq!(
         app_build_args("macOS", "v1.0.0-beta.1", "--target aarch64-apple-darwin"),
         [
             &["tauri", "build", "--target", "aarch64-apple-darwin"][..],
-            &overlay[..]
+            &overlay[..],
+            &end[..]
         ]
         .concat()
     );
     assert_eq!(
         app_build_args("Linux", "v1.0.0-beta.1", ""),
-        [&["tauri", "build"][..], &overlay[..]].concat()
+        [&["tauri", "build"][..], &overlay[..], &end[..]].concat()
     );
 }
 
@@ -2085,6 +2371,14 @@ fn finalize_requires_the_msi_only_for_a_stable_release() {
     let stable = finalize_checksums("v1.0.0", &no_msi);
     assert!(!stable.status.success());
     assert!(String::from_utf8_lossy(&stable.stdout).contains("msi"));
+    // The ARM64 .msi alone does not stand in for the x64 one.
+    let mut arm_msi = no_msi.to_vec();
+    arm_msi.push("Coverly-ROMs_1.0.0_windows_arm.msi");
+    let stable = finalize_checksums("v1.0.0", &arm_msi);
+    assert!(!stable.status.success());
+    assert!(String::from_utf8_lossy(&stable.stdout).contains("_windows_x64"));
+    // The x64 .msi is enough: the ARM64 one depends on .NET 3.5 (step
+    // netfx), and finalize says which way it went.
     let mut with_msi = no_msi.to_vec();
     with_msi.push("Coverly-ROMs_1.0.0_windows_x64.msi");
     let stable = finalize_checksums("v1.0.0", &with_msi);
@@ -2092,6 +2386,16 @@ fn finalize_requires_the_msi_only_for_a_stable_release() {
         stable.status.success(),
         "{}",
         String::from_utf8_lossy(&stable.stderr)
+    );
+    let log = String::from_utf8_lossy(&stable.stdout);
+    assert!(log.contains("Windows ARM64 .msi: no"), "{log}");
+    with_msi.push("Coverly-ROMs_1.0.0_windows_arm.msi");
+    let stable = finalize_checksums("v1.0.0", &with_msi);
+    assert!(stable.status.success());
+    let log = String::from_utf8_lossy(&stable.stdout);
+    assert!(
+        log.contains("::notice::7 app files; Windows ARM64 .msi: yes"),
+        "{log}"
     );
 }
 
@@ -2314,6 +2618,24 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
         release_files("1.0.0", true).1
     );
 
+    // A stable release whose ARM64 runner had no .NET Framework 3.5: the
+    // ARM64 build hands over its -setup.exe alone, and 11 app files stage.
+    let dir = tempfile::tempdir().unwrap();
+    let downloads = dir.path().join("downloads");
+    downloaded_builds(&downloads, "1.0.0", true);
+    std::fs::remove_file(downloads.join("app-windows-aarch64/Coverly.ROMs_1.0.0_arm64_en-US.msi"))
+        .unwrap();
+    let out = stage_builds(dir.path(), "1.0.0");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let mut expected = release_files("1.0.0", true).0;
+    expected.retain(|n| n != "Coverly-ROMs_1.0.0_windows_arm.msi");
+    assert_eq!(expected.len(), 11);
+    assert_eq!(listing(&dir.path().join("bundles")), expected);
+
     // A beta has no .msi (WiX), and stages fine without it.
     let dir = tempfile::tempdir().unwrap();
     downloaded_builds(&dir.path().join("downloads"), "1.0.0-beta.1", false);
@@ -2330,7 +2652,36 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
 
     // Each tampering fails and stages nothing.
     type Tamper = fn(&Path);
-    let cases: [(&str, Tamper, &str); 10] = [
+    let cases: [(&str, Tamper, &str); 13] = [
+        (
+            "a stable release without the x64 .msi",
+            |d| {
+                std::fs::remove_file(d.join("app-windows-x86_64/Coverly.ROMs_1.0.0_x64_en-US.msi"))
+                    .unwrap()
+            },
+            "app-windows-x86_64: no .msi file",
+        ),
+        (
+            "two ARM64 .msi locales (optional is zero or one)",
+            |d| {
+                write_pinned(
+                    &d.join("app-windows-aarch64/Coverly.ROMs_1.0.0_arm64_es-ES.msi"),
+                    b"x",
+                )
+            },
+            "app-windows-aarch64: more than one .msi",
+        ),
+        (
+            "an x64 .msi in the ARM64 artifact",
+            |d| {
+                std::fs::rename(
+                    d.join("app-windows-aarch64/Coverly.ROMs_1.0.0_arm64_en-US.msi"),
+                    d.join("app-windows-aarch64/Coverly.ROMs_1.0.0_x64_en-US.msi"),
+                )
+                .unwrap()
+            },
+            "app-windows-aarch64: unexpected file Coverly.ROMs_1.0.0_x64_en-US.msi",
+        ),
         (
             "an extra artifact",
             |d| write_pinned(&d.join("app-zzz/Coverly.ROMs_1.0.0_universal.dmg"), b"evil"),
