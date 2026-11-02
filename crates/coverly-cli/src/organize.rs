@@ -403,8 +403,9 @@ fn rest_question(t: &LargeTransfer, used: u64) -> String {
 /// each huge item is asked on its own (`answer_all` answers them all:
 /// `All` for `--yes-large`, `No` for `--skip-large`), declined ones are
 /// left through [`Choice::Decline`] and the plan is made again with
-/// `replan` (an item that became huge through it is asked in turn); then, only when what the other items write reaches the
-/// threshold, one question for that rest. Without a prompt, anything still
+/// `replan` (an item that became huge through it is asked in turn); then,
+/// only when what the other items write reaches the threshold, one
+/// question for that rest. Without a prompt, anything still
 /// unconfirmed is refused exactly as before (`--yes-large` hint); EOF at a
 /// question refuses too. Returns the plan to apply, which the shared gate
 /// accepts.
