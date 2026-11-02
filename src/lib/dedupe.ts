@@ -93,6 +93,8 @@ export function reasonText(
       return t('dedupe.why.cover');
     case 'catalogue-name':
       return t('dedupe.why.catalogueName');
+    case 'wua-over-folder':
+      return t('dedupe.why.wuaOverFolder');
     case 'tie':
       return t('dedupe.why.tie');
   }
@@ -650,6 +652,7 @@ const RULE_KEYS: Record<KeepReasonView['kind'], string> = {
   container: 'dedupe.rule.container',
   'has-cover': 'dedupe.rule.hasCover',
   'catalogue-name': 'dedupe.rule.catalogueName',
+  'wua-over-folder': 'dedupe.rule.wuaOverFolder',
   tie: 'dedupe.rule.tie',
 };
 
