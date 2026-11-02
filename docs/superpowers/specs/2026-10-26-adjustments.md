@@ -1,6 +1,6 @@
 # Coverly ROMs — Adjustments after systems batches 1–3 (adjustments 1, 2, 4, 5, 6 and 7) (Design Spec)
 
-> Status: **Draft for implementation on `feat/adjustments`** (self-reviewed §17, adversarial review against the code §18) · Date: 2026-10-26 (research and spec run 2026-11-01) · Owner: Miguel Angel Esparza Calero (MAECLY)
+> Status: **Implemented on `feat/adjustments`** (self-reviewed §17, adversarial review against the code §18) · Date: 2026-10-26 (research and spec run 2026-11-01) · Owner: Miguel Angel Esparza Calero (MAECLY)
 > Roadmap item: «Tanda de ajustes tras las Tandas 1–3 (ajustes 1, 2, 4, 5, 6 y 7)». Systems batches 1–3 are merged (PR #32, #33, #34; specs [`2026-10-26-systems-batch-1.md`](2026-10-26-systems-batch-1.md), [`-2.md`](2026-10-26-systems-batch-2.md), [`-3.md`](2026-10-26-systems-batch-3.md)).
 > Branch: `feat/adjustments`. `docs/TRACKER.md` and `TODO.md` are updated on `main` after merge, never on this branch.
 > **Out of scope:** adjustment 3 (frontend media folders, `TODO.md` §6), the launchers `.psvita`/`.psn`/serial files (`TODO.md` §6 «Lanzadores»), every source of `TODO.md` §7.1 except `blawar/titledb`, and the user-keys mode («Claves aportadas por el usuario», parked).
