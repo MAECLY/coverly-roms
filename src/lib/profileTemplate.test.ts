@@ -64,6 +64,39 @@ describe('profile templates (mirror of profiles::custom)', () => {
     ).toEqual(['id:duplicate', 'slots.cover.template:invalid']);
     expect(validateProfile(mine, builtins)).toEqual([]);
   });
+
+  it('names RetroArch thumbnails as RetroArch looks them up', () => {
+    const retroarch = MOCK_BUILTIN_PROFILES.find(
+      (p) => p.profile.id === 'retroarch',
+    );
+    expect(retroarch).toBeDefined();
+    const copy = profileFromBuiltin(retroarch!, 'my-ra', 'My RA');
+    expect(validateProfile(copy, builtins)).toEqual([]);
+    expect(
+      previewProfile(copy, {
+        system_folder: 'SFC',
+        rel_dir: '',
+        file_name: 'Mario & Luigi: A*B`C"D<E>F?G\\H|I (USA).sfc',
+      }),
+    ).toEqual({
+      cover:
+        'thumbnails/Nintendo - Super Nintendo Entertainment System/Named_Boxarts/Mario _ Luigi_ A_B_C_D_E_F_G_H_I (USA).png',
+      screenshot:
+        'thumbnails/Nintendo - Super Nintendo Entertainment System/Named_Snaps/Mario _ Luigi_ A_B_C_D_E_F_G_H_I (USA).png',
+      title:
+        'thumbnails/Nintendo - Super Nintendo Entertainment System/Named_Titles/Mario _ Luigi_ A_B_C_D_E_F_G_H_I (USA).png',
+    });
+    expect(
+      renderTemplate('{system_dir}/Imgs/{stem}.png', {
+        root: 'LIB',
+        system_dir: 'LIB/Roms/SFC',
+        rel_dir: '',
+        stem: 'Mario & Luigi',
+        system_id: 'snes',
+        libretro: null,
+      }),
+    ).toBe('LIB/Roms/SFC/Imgs/Mario & Luigi.png');
+  });
 });
 
 describe('profileFromBuiltin', () => {

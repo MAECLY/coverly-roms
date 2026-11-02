@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::identify::names::sanitise_libretro;
+
 /// Values substituted into a slot template.
 #[derive(Clone, Copy, Debug)]
 pub struct TemplateVars<'a> {
@@ -12,7 +14,8 @@ pub struct TemplateVars<'a> {
     /// The ROM's folder relative to the system dir, empty at top level
     /// (`{rel_dir}`).
     pub rel_dir: &'a Path,
-    /// ROM file name without extension (`{stem}`).
+    /// ROM file name without extension (`{stem}`; `{libretro_stem}` is
+    /// the same name with the characters RetroArch replaces by `_`).
     pub stem: &'a str,
     /// Canonical system id, e.g. `snes` (`{system_id}`).
     pub system_id: &'a str,
@@ -23,7 +26,10 @@ pub struct TemplateVars<'a> {
 /// Renders a slot template into a path.
 ///
 /// Templates always use `/` as separator. Tokens: `{root}`, `{system_dir}`,
-/// `{rel_dir}`, `{stem}`, `{system_id}` and `{libretro}`. A segment made of
+/// `{rel_dir}`, `{stem}`, `{libretro_stem}`, `{system_id}` and
+/// `{libretro}`. `{libretro_stem}` is the stem with ``&*/:`"<>?\|``
+/// replaced by `_`, the name RetroArch looks a thumbnail up by
+/// (`gfx_thumbnail.c`). A segment made of
 /// a path token alone is joined as a path, so an empty `{rel_dir}` (or a
 /// missing `{libretro}`) leaves no empty or doubled separator; callers that
 /// need `{libretro}` must check the system has one. Unknown tokens are kept
@@ -73,6 +79,7 @@ fn substitute(segment: &str, vars: &TemplateVars) -> String {
             "{system_dir}" => out.push_str(&vars.system_dir.to_string_lossy()),
             "{rel_dir}" => out.push_str(&vars.rel_dir.to_string_lossy()),
             "{stem}" => out.push_str(vars.stem),
+            "{libretro_stem}" => out.push_str(&sanitise_libretro(vars.stem)),
             "{system_id}" => out.push_str(vars.system_id),
             "{libretro}" => out.push_str(vars.libretro.unwrap_or("")),
             unknown => out.push_str(unknown),
@@ -168,6 +175,26 @@ mod tests {
         assert_eq!(
             render("{system_dir}/x{a{stem}-{b", &v),
             PathBuf::from("/sd/ROMS/SFC/x{aOdd {system_id} {name-{b")
+        );
+    }
+
+    #[test]
+    fn libretro_stem_replaces_what_retroarch_replaces_and_stem_does_not() {
+        let mut v = vars(Path::new("/sd/ROMS/SFC"), Path::new(""));
+        v.stem = "Mario & Luigi: A*B/C`D\"E<F>G?H\\I|J (USA)";
+        assert_eq!(
+            render(
+                "{root}/thumbnails/{libretro}/Named_Boxarts/{libretro_stem}.png",
+                &v
+            ),
+            PathBuf::from(
+                "/sd/thumbnails/Nintendo - Super Nintendo Entertainment System/Named_Boxarts/Mario _ Luigi_ A_B_C_D_E_F_G_H_I_J (USA).png"
+            )
+        );
+        v.stem = "Mario & Luigi (USA)";
+        assert_eq!(
+            render("{system_dir}/Imgs/{stem}.png", &v),
+            PathBuf::from("/sd/ROMS/SFC/Imgs/Mario & Luigi (USA).png")
         );
     }
 

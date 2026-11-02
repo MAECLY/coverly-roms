@@ -306,25 +306,25 @@ pub fn target_path(
         profile,
         system_dir,
         system,
-        profile.slot(media)?,
+        &profile.slot(media)?.template,
         rel_dir,
         stem,
     )
 }
 
-/// Renders `slot` for the ROM `rel_dir`/`stem`: `None` when the template
-/// needs a libretro name the system lacks. `rel_dir` is used only when the
-/// profile mirrors subfolders.
+/// Renders a slot `template` for the ROM `rel_dir`/`stem`: `None` when
+/// the template needs a libretro name the system lacks. `rel_dir` is used
+/// only when the profile mirrors subfolders.
 fn render_slot(
     root: &Path,
     profile: &Profile,
     system_dir: &Path,
     system: &System,
-    slot: &MediaSlot,
+    template: &str,
     rel_dir: &Path,
     stem: &str,
 ) -> Option<PathBuf> {
-    if slot.template.contains("{libretro}") && system.libretro.is_none() {
+    if template.contains("{libretro}") && system.libretro.is_none() {
         return None;
     }
     let rel_dir = if profile.mirror_subdirs {
@@ -333,7 +333,7 @@ fn render_slot(
         Path::new("")
     };
     Some(render(
-        &slot.template,
+        template,
         &TemplateVars {
             root,
             system_dir,
@@ -361,7 +361,7 @@ fn expected(
         profile,
         &system_scan.dir,
         system,
-        slot,
+        &slot.template,
         rel_dir,
         stem,
     )?;
@@ -376,7 +376,7 @@ fn expected(
         .strip_prefix(rom_stem.as_str())
         .and_then(|rest| rest.strip_prefix('-'))
         .is_some_and(|postfix| BATOCERA_POSTFIXES.contains(&postfix));
-    let claims = if batocera {
+    let mut claims: Vec<String> = if batocera {
         BATOCERA_POSTFIXES
             .iter()
             .map(|postfix| format!("{rom_stem}-{postfix}"))
@@ -384,6 +384,27 @@ fn expected(
     } else {
         Vec::new()
     };
+    // A RetroArch thumbnail written before names were sanitised (under
+    // `{stem}`, where the slot now says `{libretro_stem}`) is never found
+    // by RetroArch, so it is not this slot's art and a fill writes the
+    // sanitised name; but it is the ROM's, never an orphan, and it is left
+    // where it is.
+    if slot.template.contains("{libretro_stem}") {
+        let unsanitised = slot.template.replace("{libretro_stem}", "{stem}");
+        let old = render_slot(
+            &scan.root,
+            profile,
+            &system_scan.dir,
+            system,
+            &unsanitised,
+            rel_dir,
+            stem,
+        )
+        .and_then(|p| p.file_stem().map(|s| key(&s.to_string_lossy())));
+        if let Some(old) = old.filter(|old| !stems.contains(old) && !claims.contains(old)) {
+            claims.push(old);
+        }
+    }
     Some(Expected { dir, stems, claims })
 }
 
