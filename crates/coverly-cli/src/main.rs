@@ -6,12 +6,14 @@
 //! found or not a folder, 4 no layout profile detected and none given
 //! (never for `organize`), 5 paused: offline, rate limited, or the library
 //! volume is full / read-only, 6 an update was refused (bad or missing
-//! signature, or this build has no update key).
+//! signature, or this build has no update key). `catalog switch update`
+//! with the catalogue setting off is bad usage (2).
 //!
 //! Defaults come from the app's settings file (read-only; see
 //! [`settings::SETTINGS_ENV`]); flags override them.
 
 mod audit;
+mod catalog;
 mod dedupe;
 mod fill;
 mod organize;
@@ -41,6 +43,9 @@ enum Command {
     /// Report which ROMs of a library lack cover, screenshot or title art
     /// (read-only).
     Audit(audit::AuditArgs),
+    /// Manage the optional, downloaded name catalogues (the Switch one
+    /// today: status, update, remove).
+    Catalog(catalog::CatalogArgs),
     /// Find the same game stored more than once inside one system, show
     /// which copy stays and set the others aside (dry run unless --apply).
     Dedupe(Box<dedupe::DedupeArgs>),
@@ -94,6 +99,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
         Command::Audit(args) => audit::run(&args),
+        Command::Catalog(args) => catalog::run(&args),
         Command::Dedupe(args) => dedupe::run(&args),
         Command::Fill(args) => fill::run(&args),
         Command::Organize(args) => organize::run(&args),
