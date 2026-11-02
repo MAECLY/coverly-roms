@@ -640,7 +640,7 @@ Coverly builds on the work of these projects. Here is what it uses from each, it
   > Covers and screenshots: libretro-thumbnails. Screenshots via MobyGames, Fandom and volunteer contributions. The art belongs to each game's developers and publishers.
 
 - [SteamGridDB](https://www.steamgriddb.com/). Courtesy credit. Community-made vertical covers, with your own API key. Licence: SteamGridDB terms (not verified).
-- [ScreenScraper](https://www.screenscraper.fr/). Media and hash identification in Organize, with your account. Licence: [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+- [ScreenScraper](https://www.screenscraper.fr/). Media and hash identification in Organise, with your account. Licence: [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
 
   > Data and media from ScreenScraper (screenscraper.fr), CC BY-NC-SA 4.0.
 
