@@ -290,7 +290,7 @@ expression: redact(&p)
       "target": "ROMs/xbox360/Halo 3 (USA).xex",
       "title_id": {
         "id": "4D5307E6",
-        "source": "header"
+        "source": "xex"
       },
       "transfer": {
         "kind": "as-is"

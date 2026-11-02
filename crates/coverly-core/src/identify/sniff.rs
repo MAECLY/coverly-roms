@@ -225,10 +225,13 @@ impl Sniff {
     /// Records the verdicts of `consoles::identify_all`: one header hit
     /// per verdict (an XVC header gives two of equal weight, systems batch
     /// 3 D19), the first verdict as [`Sniff::console`]. A console's own
-    /// XVD (`xbox::XVD_SYSTEM_DETAIL`) is no ROM and no hit.
+    /// XVD (`xbox::XVD_SYSTEM_DETAIL`) or title metadata
+    /// (`wiiu::TMD_SYSTEM_DETAIL`, adjustments D14) is no ROM and no hit.
     pub fn add_console(&mut self, ids: Vec<crate::consoles::ConsoleId>) {
         if let [only] = ids.as_slice() {
-            if only.detail == crate::consoles::xbox::XVD_SYSTEM_DETAIL {
+            if only.detail == crate::consoles::xbox::XVD_SYSTEM_DETAIL
+                || only.detail == crate::consoles::wiiu::TMD_SYSTEM_DETAIL
+            {
                 self.not_a_rom = Some(NotARom::ConsoleSystem);
                 return;
             }

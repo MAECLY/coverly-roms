@@ -496,9 +496,11 @@ const EVERYDAY_EXTS: [&str; 4] = ["png", "exe", "bat", "conf"];
 /// or the `xar!` magic of a macOS installer can name it, and a loose
 /// `.exfat` is one so its boot sector and a `PPSA` token in its name can
 /// make it a PS5 image (systems batch 3 D10; without both it stays
-/// unknown). Their class stays [`ExtClass::Unknown`]: the extension alone
+/// unknown). A loose `.xbe`, `.tmd` or `.rpl` is one so its header can
+/// say what it is (adjustments §8.2: homebrew, a game, title metadata, a
+/// library). Their class stays [`ExtClass::Unknown`]: the extension alone
 /// is no evidence.
-const HEADER_DECIDED_EXTS: [&str; 2] = ["pkg", "exfat"];
+const HEADER_DECIDED_EXTS: [&str; 5] = ["pkg", "exfat", "xbe", "tmd", "rpl"];
 
 /// How much an extension says about the system (spec §6.4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

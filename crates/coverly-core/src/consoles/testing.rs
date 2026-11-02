@@ -559,13 +559,44 @@ pub fn wiiu_folder(dir: &std::path::Path, title_id: &str, product: &str, name: &
 /// A TMD head (3dbrew/wiiubrew «Title metadata»): RSA-2048 signature type,
 /// title id `tid` at 0x18C, version 32 at 0x1DC, one content.
 pub fn tmd(tid: u64) -> Vec<u8> {
-    let mut t = vec![0u8; 0xB04 + 0x30];
-    t[..4].copy_from_slice(&be32(0x0001_0004));
-    t[0x140..0x14A].copy_from_slice(b"Root-CA000");
-    t[0x18C..0x194].copy_from_slice(&tid.to_be_bytes());
-    t[0x1DC..0x1DE].copy_from_slice(&32u16.to_be_bytes());
-    t[0x1DE..0x1E0].copy_from_slice(&1u16.to_be_bytes());
+    tmd_signed(0x0001_0004, tid, 32)
+}
+
+/// The signature and padding length before a TMD header, by signature
+/// type (3dbrew «Certificates»): RSA-4096, RSA-2048, ECDSA, HMAC, with
+/// SHA-1 (`0x1000x`) or SHA-256 (`0x1000x + 3`). `None` for any other.
+pub fn tmd_header_at(sig_type: u32) -> Option<usize> {
+    Some(match sig_type {
+        0x0001_0000 | 0x0001_0003 => 4 + 0x200 + 0x3C,
+        0x0001_0001 | 0x0001_0004 => 4 + 0x100 + 0x3C,
+        0x0001_0002 | 0x0001_0005 => 4 + 0x3C + 0x40,
+        0x0001_0006 => 4 + 0x14 + 0x28,
+        _ => return None,
+    })
+}
+
+/// A TMD head signed with `sig_type`: title id `tid` at header + 0x4C,
+/// `version` at header + 0x9C, one content. An unknown signature type
+/// lays the header out as RSA-2048 does.
+pub fn tmd_signed(sig_type: u32, tid: u64, version: u16) -> Vec<u8> {
+    let at = tmd_header_at(sig_type).unwrap_or(0x140);
+    let mut t = vec![0u8; at + 0x9C4 + 0x30];
+    t[..4].copy_from_slice(&be32(sig_type));
+    t[at..at + 10].copy_from_slice(b"Root-CA000");
+    t[at + 0x4C..at + 0x54].copy_from_slice(&tid.to_be_bytes());
+    t[at + 0x9C..at + 0x9E].copy_from_slice(&version.to_be_bytes());
+    t[at + 0x9E..at + 0xA0].copy_from_slice(&1u16.to_be_bytes());
     t
+}
+
+/// A Cafe OS ELF head (decaf-emu `cafe_loader_rpl.h`): ELF32, big-endian,
+/// OSABI `0xCA` and ABI version `abi` (`0xFE` for an RPX or RPL), PowerPC.
+pub fn rpx(abi: u8) -> Vec<u8> {
+    let mut h = vec![0u8; 0x400];
+    h[..9].copy_from_slice(&[0x7F, b'E', b'L', b'F', 1, 2, 1, 0xCA, abi]);
+    h[0x10..0x12].copy_from_slice(&0xFE01u16.to_be_bytes());
+    h[0x12..0x14].copy_from_slice(&20u16.to_be_bytes());
+    h
 }
 
 /// A NUS download folder in `dir`: `title.tmd` for `tid`, `title.tik`
@@ -1396,15 +1427,49 @@ pub fn xbe(tid: u32, name: &str) -> Vec<u8> {
     h
 }
 
+/// The XBE `AllowedMedia` bits (xboxdevwiki «XBE»).
+pub const XBE_MEDIA_HARD_DISK: u32 = 0x0000_0001;
+pub const XBE_MEDIA_DVD_X2: u32 = 0x0000_0002;
+pub const XBE_MEDIA_NONSECURE_HARD_DISK: u32 = 0x4000_0000;
+
+/// A loose XBE: [`xbe`] named «Loose Test» with title id `tid`,
+/// `AllowedMedia` `media` (cert + 0x9C) and `DiscNumber` `disc` (cert +
+/// 0xA8).
+pub fn xbe_loose(tid: u32, media: u32, disc: u32) -> Vec<u8> {
+    let mut h = xbe(tid, "Loose Test");
+    let c = XBE_CERT;
+    h[c + 0x9C..c + 0xA0].copy_from_slice(&le32(media));
+    h[c + 0xA8..c + 0xAC].copy_from_slice(&le32(disc));
+    h
+}
+
+/// The XEX2 `module_flags` bits (xenia `xex2_info.h`).
+pub const XEX_MODULE_TITLE: u32 = 0x01;
+pub const XEX_MODULE_DLL: u32 = 0x08;
+pub const XEX_MODULE_PATCH: u32 = 0x10;
+pub const XEX_PATCH_FULL: u32 = 0x20;
+pub const XEX_PATCH_DELTA: u32 = 0x40;
+
+/// A loose XEX2: [`xex2`] with `module_flags` `flags`, title id `tid` and
+/// disc `disc` of `count`.
+pub fn xex_loose(flags: u32, tid: u32, disc: u8, count: u8) -> Vec<u8> {
+    let mut h = xex2(tid);
+    h[4..8].copy_from_slice(&be32(flags));
+    h[XEX_EXEC_INFO + 0x12] = disc;
+    h[XEX_EXEC_INFO + 0x13] = count;
+    h
+}
+
 /// Where [`xex2`] puts its execution info.
 pub const XEX_EXEC_INFO: usize = 0x100;
 
 /// An XEX2 head (xenia `xex2_info.h`): two optional headers, the second
 /// the execution info (key `0x00040006`) with title id `tid`, version
-/// `0x20000100`, disc 1 of 1. No PE image.
+/// `0x20000100`, disc 1 of 1, `module_flags` TITLE. No PE image.
 pub fn xex2(tid: u32) -> Vec<u8> {
     let mut h = vec![0u8; 0x200];
     h[..4].copy_from_slice(b"XEX2");
+    h[4..8].copy_from_slice(&be32(XEX_MODULE_TITLE));
     h[8..12].copy_from_slice(&be32(0x200));
     h[0x14..0x18].copy_from_slice(&be32(2));
     h[0x18..0x1C].copy_from_slice(&be32(0x0001_00FF));

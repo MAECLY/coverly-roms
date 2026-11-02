@@ -15,7 +15,7 @@ use coverly_core::consoles::testing::{self as ct, SparseAt};
 use coverly_core::consoles::{IdSource, PartKind, TitleIdRef, TitleKind, TitleSource};
 use coverly_core::dedupe::testing::pin_mtime;
 use coverly_core::identify::evidence::Evidence;
-use coverly_core::identify::sniff::sniff_named;
+use coverly_core::identify::sniff::{sniff_named, NotARom};
 use coverly_core::organize::inspect::inspect_file;
 use coverly_core::organize::{
     plan_from_survey, survey, Choice, Decision, ItemNote, LeftReason, MetaProbe, OrganizeAction,
@@ -71,12 +71,116 @@ const LOOSE: &[Loose] = &[
     ),
     // 3DS homebrew (§8.2): read by `ctr.rs`, never shadowed.
     ("FTPD.3dsx", ftpd_3dsx, "3ds", TitleKind::Homebrew, None),
+    // A loose Cafe OS executable is homebrew; a library is a part (§8.2).
+    ("ftpiiu.rpx", cafe_elf, "wiiu", TitleKind::Homebrew, None),
+    (
+        "coreinit.rpl",
+        cafe_elf,
+        "wiiu",
+        TitleKind::Unknown,
+        Some(PartKind::Library),
+    ),
+    // A loose TMD is title metadata of the system its title id names.
+    (
+        "title.tmd",
+        tmd_3ds_update,
+        "3ds",
+        TitleKind::Update,
+        Some(PartKind::TitleMeta),
+    ),
+    // XBE homebrew: no title id, or only hard-disk media.
+    (
+        "evox.xbe",
+        xbe_no_title_id,
+        "xbox",
+        TitleKind::Homebrew,
+        None,
+    ),
+    ("xbmc.xbe", xbe_hard_disk, "xbox", TitleKind::Homebrew, None),
+    // A retail XBE alone in its folder is the game.
+    ("Burnout 3.xbe", xbe_retail, "xbox", TitleKind::Base, None),
+    // XEX module flags: a patch, a library, a title.
+    (
+        "Halo 3 TU.xex",
+        xex_patch,
+        "xbox360",
+        TitleKind::Update,
+        None,
+    ),
+    (
+        "xam.xex",
+        xex_dll,
+        "xbox360",
+        TitleKind::Unknown,
+        Some(PartKind::Module),
+    ),
+    (
+        "Halo 3 (USA).xex",
+        xex_title,
+        "xbox360",
+        TitleKind::Base,
+        None,
+    ),
+    // A development title id is not guessed.
+    (
+        "homebrew.xex",
+        xex_dev_id,
+        "xbox360",
+        TitleKind::Unknown,
+        None,
+    ),
 ];
 
 /// (title id, system, kind): a `.tmd` by its full title-id high word (D14).
 const TMD_KINDS: &[(u64, &str, TitleKind)] = &[
+    (0x0004_0000_0003_0800, "3ds", TitleKind::Base),
+    (0x0004_0001_0003_0800, "3ds", TitleKind::Base),
+    (0x0004_0002_0003_0800, "3ds", TitleKind::Demo),
+    // A 3DS patch is an update, never DLC (a bit test would say DLC).
+    (0x0004_000E_0003_0800, "3ds", TitleKind::Update),
+    (0x0004_008C_0003_0800, "3ds", TitleKind::Dlc),
+    (0x0001_0000_5241_4145, "wii", TitleKind::Base),
+    (0x0001_0001_5741_4145, "wii", TitleKind::Base),
+    (0x0001_0004_5241_4145, "wii", TitleKind::Base),
+    (0x0001_0005_5241_4145, "wii", TitleKind::Dlc),
+    (0x0005_0000_1010_ED00, "wiiu", TitleKind::Base),
+    (0x0005_0002_1010_ED00, "wiiu", TitleKind::Demo),
     // Wii U patch.
     (0x0005_000E_1010_ED00, "wiiu", TitleKind::Update),
+    (0x0005_000C_1010_ED00, "wiiu", TitleKind::Dlc),
+    // DSiWare.
+    (0x0003_0004_4B41_4145, "nds", TitleKind::Base),
+];
+
+/// Title ids whose TMD is a console's own title (D14): never a ROM.
+const TMD_SYSTEM: &[u64] = &[
+    0x0004_0010_0002_0000,
+    0x0004_001B_0001_0002,
+    0x0004_0030_0000_2000,
+    0x0004_009B_0001_0002,
+    0x0004_00DB_0001_0002,
+    0x0004_0130_0000_1002,
+    0x0004_0138_0000_0002,
+    0x0001_0002_4841_4141,
+    0x0001_0008_4845_4141,
+    0x0000_0001_0000_0002,
+    0x0005_0010_1000_4000,
+    0x0005_001B_1004_7000,
+    0x0005_004E_1004_9000,
+    0x0007_0002_0000_0002,
+    0x0007_0008_0000_0002,
+    0x0000_0007_0000_0050,
+    0x0003_0015_484E_4241,
+    0x0003_0017_484E_4141,
+];
+
+/// High words no table names: no verdict, no guess (D14).
+const TMD_UNKNOWN: &[u64] = &[
+    0x0004_0004_0003_0800,
+    0x0004_0006_0003_0800,
+    0x0005_0001_1010_ED00,
+    0x0006_0000_0000_0000,
+    0x0100_0000_0001_0000,
 ];
 
 /// Writes an archive at the given path.
@@ -109,6 +213,61 @@ fn ftpd_3dsx() -> SparseAt {
 
 fn checkpoint_nro() -> SparseAt {
     ct::nro("Checkpoint", "3.8.0", &[])
+}
+
+fn bytes(b: Vec<u8>) -> SparseAt {
+    let mut f = SparseAt::new(b.len() as u64);
+    f.put(0, &b);
+    f
+}
+
+fn cafe_elf() -> SparseAt {
+    bytes(ct::rpx(0xFE))
+}
+
+fn tmd_3ds_update() -> SparseAt {
+    bytes(ct::tmd(0x0004_000E_0003_0800))
+}
+
+fn xbe_no_title_id() -> SparseAt {
+    bytes(ct::xbe_loose(0, ct::XBE_MEDIA_DVD_X2, 0))
+}
+
+fn xbe_hard_disk() -> SparseAt {
+    bytes(ct::xbe_loose(
+        0x4D53_0004,
+        ct::XBE_MEDIA_HARD_DISK | ct::XBE_MEDIA_NONSECURE_HARD_DISK,
+        0,
+    ))
+}
+
+fn xbe_retail() -> SparseAt {
+    bytes(ct::xbe_loose(
+        0x4541_000D,
+        ct::XBE_MEDIA_HARD_DISK | ct::XBE_MEDIA_DVD_X2,
+        0,
+    ))
+}
+
+fn xex_patch() -> SparseAt {
+    bytes(ct::xex_loose(
+        ct::XEX_MODULE_TITLE | ct::XEX_PATCH_DELTA,
+        0x4D53_07E6,
+        1,
+        1,
+    ))
+}
+
+fn xex_dll() -> SparseAt {
+    bytes(ct::xex_loose(ct::XEX_MODULE_DLL, 0x4D53_07E6, 1, 1))
+}
+
+fn xex_title() -> SparseAt {
+    bytes(ct::xex_loose(ct::XEX_MODULE_TITLE, 0x4D53_07E6, 1, 1))
+}
+
+fn xex_dev_id() -> SparseAt {
+    bytes(ct::xex_loose(ct::XEX_MODULE_TITLE, 0xFFFE_07D1, 1, 1))
 }
 
 /// Any bytes: a loose NCA is never read.
@@ -173,20 +332,134 @@ fn loose_files_by_header() {
     }
 }
 
+fn sniff_tmd(b: Vec<u8>) -> coverly_core::identify::sniff::Sniff {
+    let mut f = bytes(b);
+    let len = f.len;
+    sniff_named(&mut f, len, "tmd", "title.tmd")
+}
+
 #[test]
 fn title_metadata_kinds() {
     for (tid, system, kind) in TMD_KINDS {
-        let mut f = SparseAt::new(0);
-        let bytes = ct::tmd(*tid);
-        f.len = bytes.len() as u64;
-        f.put(0, &bytes);
-        let len = f.len;
-        let s = sniff_named(&mut f, len, "tmd", "title.tmd");
+        let s = sniff_tmd(ct::tmd(*tid));
+        assert_eq!(best(&s.hits), Some(*system), "{tid:016X}");
         let c = s
             .console
             .unwrap_or_else(|| panic!("{tid:016X}: no console id"));
         assert_eq!((c.system.as_str(), c.kind), (*system, *kind), "{tid:016X}");
+        assert_eq!(c.part, Some(PartKind::TitleMeta), "{tid:016X}");
+        assert_eq!(c.id_source, Some(IdSource::Tmd), "{tid:016X}");
+        assert_eq!(c.title_id, Some(format!("{tid:016X}")));
+        assert_eq!(c.version.as_deref(), Some("32"), "{tid:016X}");
     }
+    for tid in TMD_SYSTEM {
+        let s = sniff_tmd(ct::tmd(*tid));
+        assert_eq!(s.not_a_rom, Some(NotARom::ConsoleSystem), "{tid:016X}");
+        assert!(s.hits.is_empty() && s.console.is_none(), "{tid:016X}");
+    }
+    for tid in TMD_UNKNOWN {
+        let s = sniff_tmd(ct::tmd(*tid));
+        assert!(s.console.is_none() && s.not_a_rom.is_none(), "{tid:016X}");
+    }
+}
+
+/// The TMD header follows the signature, whose length the signature type
+/// gives (spec §12): ECDSA, RSA-4096 and HMAC heads read at their own
+/// offsets; an unknown type is not identified.
+#[test]
+fn title_metadata_header_follows_the_signature_type() {
+    let tid = 0x0004_008C_0003_0800;
+    for sig in [
+        0x0001_0000,
+        0x0001_0001,
+        0x0001_0002,
+        0x0001_0003,
+        0x0001_0004,
+        0x0001_0005,
+        0x0001_0006,
+    ] {
+        let c = sniff_tmd(ct::tmd_signed(sig, tid, 1040))
+            .console
+            .unwrap_or_else(|| panic!("{sig:08X}: no console id"));
+        assert_eq!(
+            (c.system.as_str(), c.kind, c.version.as_deref()),
+            ("3ds", TitleKind::Dlc, Some("1040")),
+            "{sig:08X}"
+        );
+    }
+    let s = sniff_tmd(ct::tmd_signed(0x0002_0004, tid, 1040));
+    assert!(s.console.is_none(), "{:?}", s.console);
+}
+
+/// XEX disc numbers (spec D24): disc 2 of 2 carries both; XBE
+/// `DiscNumber` counts from 0.
+#[test]
+fn loose_executables_carry_their_disc_numbers() {
+    let mut f = bytes(ct::xex_loose(ct::XEX_MODULE_TITLE, 0x4D53_07E6, 2, 2));
+    let len = f.len;
+    let c = sniff_named(&mut f, len, "xex", "Game (Disc 2).xex")
+        .console
+        .unwrap();
+    assert_eq!((c.disc_no, c.disc_count), (Some(2), Some(2)));
+    assert_eq!(c.id_source, Some(IdSource::Xex));
+    let mut f = bytes(ct::xbe_loose(0x4541_000D, ct::XBE_MEDIA_DVD_X2, 1));
+    let len = f.len;
+    let c = sniff_named(&mut f, len, "xbe", "Game (Disc 2).xbe")
+        .console
+        .unwrap();
+    assert_eq!((c.disc_no, c.disc_count), (Some(2), None));
+    assert_eq!(c.id_source, Some(IdSource::Xbe));
+}
+
+/// A retail XBE beside other files is a game folder no probe matched
+/// (§8.2): its executable is asked about, never moved alone. Alone, it
+/// moves; homebrew moves too.
+#[test]
+fn a_retail_xbe_with_siblings_is_reviewed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let game = tmp.path().join("Burnout 3");
+    put(&game.join("Burnout 3.xbe"), &xbe_retail().bytes(), 1);
+    put(&game.join("media").join("intro.xmv"), &[7u8; 64], 2);
+    let lone = ct::xbe_loose(
+        0x4D53_0004,
+        ct::XBE_MEDIA_HARD_DISK | ct::XBE_MEDIA_DVD_X2,
+        0,
+    );
+    put(&tmp.path().join("Lone").join("Lone.xbe"), &lone, 3);
+    put(
+        &tmp.path().join("Apps").join("evox.xbe"),
+        &xbe_no_title_id().bytes(),
+        4,
+    );
+    put(&tmp.path().join("Apps").join("evox.ini"), b"[Menu]", 5);
+    let p = plan(tmp.path(), &[], &World::new());
+    let burnout = item_named(&p, "Burnout 3.xbe");
+    assert_eq!(burnout.action, OrganizeAction::Review, "{burnout:?}");
+    for name in ["Lone.xbe", "evox.xbe"] {
+        let item = item_named(&p, name);
+        assert_eq!(item.system_id.as_deref(), Some("xbox"), "{name}");
+        assert_eq!(item.action, OrganizeAction::Auto, "{name}: {item:?}");
+    }
+}
+
+/// `code/*.rpx` beside `meta/` stays the loadiine probe's (§8.2): the
+/// folder is one Wii U game, its executable is never a loose homebrew.
+#[test]
+fn a_loadiine_rpx_stays_in_its_folder_game() {
+    let tmp = tempfile::tempdir().unwrap();
+    let game = tmp.path().join("New Super Mario Bros U");
+    ct::wiiu_folder(
+        &game,
+        "000500001014B700",
+        "WUP-P-ARPE",
+        "New SUPER MARIO BROS. U",
+    );
+    put(&game.join("code").join("red-pro2.rpx"), &ct::rpx(0xFE), 9);
+    let p = plan(tmp.path(), &[], &World::new());
+    assert_eq!(p.items.len(), 1, "{:?}", p.items);
+    assert_eq!(p.items[0].system_id.as_deref(), Some("wiiu"));
+    assert_eq!(p.items[0].sources.len(), 1);
+    assert_eq!(p.items[0].sources[0].file_name(), game.file_name());
 }
 
 #[test]

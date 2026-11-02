@@ -1386,6 +1386,7 @@ pub fn survey(
                     .find_map(|p| p.sniff.console.clone())
             });
         }
+        review_xbe_with_siblings(entry);
     }
     let entries = updates_after_bases(entries);
 
@@ -1451,6 +1452,45 @@ fn catalogue_title(c: &crate::consoles::ConsoleId) -> Option<String> {
     )
     .then(|| c.title.clone())
     .flatten()
+}
+
+/// A loose retail XBE beside other files (adjustments §8.2) is the
+/// executable of a game folder no probe matched (no `default.xbe`): it
+/// becomes part `ExeFs` and is asked about, never moved alone. A lone
+/// one, homebrew and a user's choice are left as they are.
+fn review_xbe_with_siblings(entry: &mut SurveyEntry) {
+    let Some(c) = entry.console.as_mut() else {
+        return;
+    };
+    if entry.kind != ItemKind::File
+        || c.system != "xbox"
+        || c.id_source != Some(crate::consoles::IdSource::Xbe)
+        || c.kind != TitleKind::Base
+        || c.part.is_some()
+    {
+        return;
+    }
+    let Some(path) = entry.sources.first() else {
+        return;
+    };
+    let own = path.file_name();
+    let siblings = path
+        .parent()
+        .and_then(super::walk::list_dir)
+        .is_some_and(|listed| {
+            listed
+                .iter()
+                .any(|(name, _, _)| Some(std::ffi::OsStr::new(name)) != own)
+        });
+    if !siblings {
+        return;
+    }
+    c.part = Some(PartKind::ExeFs);
+    if let Some(id) = entry.identification.as_mut() {
+        if id.combined.verdict == Verdict::Auto && id.combined.method != Some(IdLevel::User) {
+            id.combined.verdict = Verdict::Review;
+        }
+    }
 }
 
 /// The survey with every Switch header verdict completed from the

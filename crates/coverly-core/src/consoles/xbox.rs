@@ -56,7 +56,7 @@ use super::wiiu::{find, list_child, plain_file, read_head};
 use super::zarchive::{self, Archive, ZarKind};
 use super::{
     clean_title, ArtFormat, ArtLocator, Budgeted, ConsoleId, DirListing, FolderLeave, FolderMatch,
-    IdSource, TitleKind, MAX_META_FILE,
+    IdSource, PartKind, TitleKind, MAX_META_FILE,
 };
 use crate::identify::sniff::{FileAt, NotARom};
 
@@ -132,6 +132,21 @@ pub fn xbe_serial(title_id: u32) -> Option<String> {
 /// An XBE: the header, then the certificate. A certificate outside the
 /// first 64 KiB (or unreadable) leaves the magic-only verdict.
 pub fn xbe(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
+    xbe_cert(bytes_at).map(|(id, _)| id)
+}
+
+/// The certificate fields only a loose XBE's rules use (spec §8.2).
+#[derive(Clone, Copy, Debug)]
+struct XbeCert {
+    /// `AllowedMedia` (+0x9C).
+    media: u32,
+    /// `DiscNumber` (+0xA8), counted from 0 like a GameCube disc byte.
+    disc: u32,
+}
+
+/// [`xbe`] with the certificate's media and disc fields; `None` for
+/// those on a magic-only verdict.
+fn xbe_cert(bytes_at: &mut BytesAt) -> Option<(ConsoleId, Option<XbeCert>)> {
     let h = bytes_at(0, XBE_HEADER)?;
     if &h[..4] != b"XBEH" {
         return None;
@@ -144,10 +159,10 @@ pub fn xbe(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
         .map(u64::from)
         .filter(|&c| c < MAX_CERT)
     else {
-        return Some(magic);
+        return Some((magic, None));
     };
     let Some(c) = bytes_at(cert, XBE_CERT_LEN) else {
-        return Some(magic);
+        return Some((magic, None));
     };
     let tid = le32(&c, 8)?;
     let mut id = ConsoleId::proven("xbox", "XBE certificate");
@@ -164,6 +179,71 @@ pub fn xbe(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
     );
     id.version = le32(&c, 0xAC).map(|v| v.to_string());
     id.id_source = Some(IdSource::Header);
+    let fields = XbeCert {
+        media: le32(&c, 0x9C)?,
+        disc: le32(&c, 0xA8)?,
+    };
+    Some((id, Some(fields)))
+}
+
+/// `AllowedMedia` bits (xboxdevwiki «XBE»): the media mask and the two
+/// hard-disk ones; `NONSECURE_MODE` (`0x80000000`) is no medium.
+const XBE_MEDIA_MASK: u32 = 0x00FF_FFFF;
+const XBE_MEDIA_HARD_DISK: u32 = 0x0000_0001;
+const XBE_MEDIA_NONSECURE_HARD_DISK: u32 = 0x4000_0000;
+
+/// A loose `.xbe` (spec §8.2): homebrew when it has no title id or runs
+/// only from the hard disk, else the game (a retail XBE beside other
+/// files is a game folder no probe matched: the planner asks about it).
+/// `DiscNumber` `n` is disc `n + 1`; the first disc stays unnumbered.
+fn loose_xbe(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
+    let (mut id, cert) = xbe_cert(bytes_at)?;
+    let Some(cert) = cert else {
+        return Some(id);
+    };
+    let hard_disk = XBE_MEDIA_HARD_DISK | XBE_MEDIA_NONSECURE_HARD_DISK;
+    let media = cert.media & (XBE_MEDIA_MASK | XBE_MEDIA_NONSECURE_HARD_DISK);
+    let hard_disk_only = media != 0 && media & !hard_disk == 0;
+    id.kind = if id.title_id.is_none() || hard_disk_only {
+        TitleKind::Homebrew
+    } else {
+        TitleKind::Base
+    };
+    id.id_source = id.title_id.is_some().then_some(IdSource::Xbe);
+    id.disc_no = (cert.disc > 0)
+        .then(|| u8::try_from(cert.disc).ok()?.checked_add(1))
+        .flatten();
+    Some(id)
+}
+
+/// XEX2 `module_flags` (xenia `xex2_info.h`): title, DLL, and the three
+/// patch kinds.
+const XEX_MODULE_TITLE: u32 = 0x01;
+const XEX_MODULE_DLL: u32 = 0x08;
+const XEX_MODULE_PATCHES: u32 = 0x10 | 0x20 | 0x40;
+
+/// A loose `.xex` (spec §8.2): a patch is an update, a DLL a module part,
+/// a title the game. A development title id (`FFFExxxx`, as homebrew
+/// uses) is not guessed: kind unknown.
+fn loose_xex(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
+    let mut id = xex2(bytes_at)?;
+    if id.title_id.is_none() {
+        return Some(id);
+    }
+    let flags = bytes_at(4, 4).and_then(|f| be32(&f, 0)).unwrap_or(0);
+    let dev_id = id
+        .title_id
+        .as_deref()
+        .is_some_and(|t| t.starts_with("FFFE"));
+    id.id_source = Some(IdSource::Xex);
+    id.kind = TitleKind::Unknown;
+    if flags & XEX_MODULE_PATCHES != 0 {
+        id.kind = TitleKind::Update;
+    } else if flags & XEX_MODULE_DLL != 0 {
+        id.part = Some(PartKind::Module);
+    } else if flags & XEX_MODULE_TITLE != 0 && !dev_id {
+        id.kind = TitleKind::Base;
+    }
     Some(id)
 }
 
@@ -207,6 +287,7 @@ pub fn xex2(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
     id.version = be32(&e, 4).map(|v| format!("{v:08X}"));
     let (disc, discs) = (e[0x12], e[0x13]);
     id.disc_no = (disc > 0 && discs > 1).then_some(disc);
+    id.disc_count = id.disc_no.and(Some(discs));
     id.kind = TitleKind::Base;
     id.id_source = Some(IdSource::Header);
     Some(id)
@@ -479,7 +560,8 @@ pub fn launcher(head: &[u8], ext: &str) -> Option<ConsoleId> {
     Some(id)
 }
 
-/// An Xbox or Xbox 360 file by its own header: XBE, XEX, STFS under any
+/// An Xbox or Xbox 360 file by its own header: a loose XBE or XEX
+/// (classified by [`loose_xbe`], [`loose_xex`]), STFS under any
 /// extension; ZAR under `.zar`; an XDVDFS image under `.iso`/`.xiso`.
 pub fn identify(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
     if b.len() < 4 {
@@ -488,8 +570,8 @@ pub fn identify(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
     let head = b.read(0, 4).ok()?;
     let mut whole = |o: u64, n: usize| b.read(o, n).ok();
     match &head[..] {
-        b"XBEH" => xbe(&mut whole),
-        b"XEX2" | b"XEX1" | b"XEX%" | b"XEX-" => xex2(&mut whole),
+        b"XBEH" => loose_xbe(&mut whole),
+        b"XEX2" | b"XEX1" | b"XEX%" | b"XEX-" => loose_xex(&mut whole),
         b"CON " | b"LIVE" | b"PIRS" => stfs(b),
         _ if ext == "zar" => zar(b, ext),
         _ if ext == "iso" || ext == "xiso" => xdvdfs(b, ext),
@@ -1306,6 +1388,48 @@ mod tests {
             (id.confidence, id.detail.as_str()),
             (0.95, "XBE certificate")
         );
+        assert_eq!(
+            (id.kind, id.id_source),
+            (TitleKind::Base, Some(IdSource::Xbe))
+        );
+    }
+
+    #[test]
+    fn loose_xbe_homebrew_rules() {
+        let hd = t::XBE_MEDIA_HARD_DISK;
+        let nshd = t::XBE_MEDIA_NONSECURE_HARD_DISK;
+        let dvd = t::XBE_MEDIA_DVD_X2;
+        for (tid, media, kind) in [
+            (0, dvd, TitleKind::Homebrew),
+            (0x4D53_0004, hd, TitleKind::Homebrew),
+            (0x4D53_0004, nshd, TitleKind::Homebrew),
+            (0x4D53_0004, hd | nshd | 0x8000_0000, TitleKind::Homebrew),
+            (0x4D53_0004, hd | dvd, TitleKind::Base),
+            (0x4D53_0004, 0, TitleKind::Base),
+        ] {
+            let id = run(&mut file(&t::xbe_loose(tid, media, 0)), "xbe").unwrap();
+            assert_eq!(id.kind, kind, "{tid:08X} {media:#x}");
+            assert_eq!(id.disc_no, None);
+        }
+        let id = run(&mut file(&t::xbe_loose(0x4D53_0004, dvd, 1)), "xbe").unwrap();
+        assert_eq!(id.disc_no, Some(2));
+    }
+
+    #[test]
+    fn default_xbe_in_a_probe_is_not_reclassified() {
+        // The folder probe reads `default.xbe` with its own rules: a
+        // hard-disk-only certificate keeps the probe's verdict (no kind).
+        let dir = tempfile::tempdir().unwrap();
+        let x = t::xbe_loose(0x4D53_0004, t::XBE_MEDIA_HARD_DISK, 0);
+        std::fs::write(dir.path().join("default.xbe"), x).unwrap();
+        let names = ["default.xbe".to_string()];
+        let found = probe_xbe(&DirListing {
+            dir: dir.path(),
+            names: &names,
+        })
+        .unwrap();
+        assert_eq!(found.id.kind, TitleKind::Unknown);
+        assert_eq!(found.id.id_source, Some(IdSource::DefaultXbe));
     }
 
     #[test]
@@ -1465,12 +1589,31 @@ mod tests {
         assert_eq!(id.serial.as_deref(), Some("4D5307E6"));
         assert_eq!(id.version.as_deref(), Some("20000100"));
         assert_eq!((id.kind, id.disc_no), (TitleKind::Base, None));
-        assert_eq!(id.id_source, Some(IdSource::Header));
+        assert_eq!(id.id_source, Some(IdSource::Xex));
         // Disc 2 of 2.
         let mut x = t::xex2(0x4D53_07E6);
         x[t::XEX_EXEC_INFO + 0x12] = 2;
         x[t::XEX_EXEC_INFO + 0x13] = 2;
-        assert_eq!(run(&mut file(&x), "xex").unwrap().disc_no, Some(2));
+        let id = run(&mut file(&x), "xex").unwrap();
+        assert_eq!((id.disc_no, id.disc_count), (Some(2), Some(2)));
+        // Module flags (§8.2): patch, DLL, a title without its flag.
+        for (flags, kind, part) in [
+            (
+                t::XEX_MODULE_TITLE | t::XEX_PATCH_FULL,
+                TitleKind::Update,
+                None,
+            ),
+            (t::XEX_MODULE_PATCH, TitleKind::Update, None),
+            (
+                t::XEX_MODULE_DLL,
+                TitleKind::Unknown,
+                Some(PartKind::Module),
+            ),
+            (0, TitleKind::Unknown, None),
+        ] {
+            let id = run(&mut file(&t::xex_loose(flags, 0x4D53_07E6, 1, 1)), "xex").unwrap();
+            assert_eq!((id.kind, id.part), (kind, part), "{flags:#x}");
+        }
         // An older head is the system only.
         let mut old = t::xex2(1);
         old[..4].copy_from_slice(b"XEX1");
