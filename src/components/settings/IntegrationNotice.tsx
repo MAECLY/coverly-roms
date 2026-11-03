@@ -22,7 +22,15 @@ const COPY: Record<IntegrationProblem, string> = {
  * one line («SteamGridDB sin clave») and «Configurar», which opens its
  * card. An account service says «sin cuenta» rather than «sin clave».
  */
-export function IntegrationNotice({ notice }: { notice: Notice }) {
+export function IntegrationNotice({
+  notice,
+  text,
+}: {
+  notice: Notice;
+  /** What it changes on this screen, in place of the generic line
+   * (Organizar: «Los nombres de Switch salen del archivo…»). */
+  text?: string | undefined;
+}) {
   const t = useT();
   const textId = useId();
   const entry = integration(notice.integration);
@@ -38,7 +46,7 @@ export function IntegrationNotice({ notice }: { notice: Notice }) {
       action={<IntegrationLink id={entry.id} describedBy={textId} />}
     >
       <p id={textId} className="m-0">
-        {t(key, { name: integrationName(entry, t) })}
+        {text ?? t(key, { name: integrationName(entry, t) })}
       </p>
     </Alert>
   );

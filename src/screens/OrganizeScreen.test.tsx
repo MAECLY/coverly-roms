@@ -9,6 +9,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import App from '@/App';
 import { Toaster } from '@/components/ui/toaster';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
@@ -1279,6 +1280,78 @@ describe('OrganizeScreen', () => {
         section.compareDocumentPosition(left) &
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
+    });
+  });
+
+  describe('integration notices', () => {
+    it('links a missing ScreenScraper account to its card', async () => {
+      tweakPlans(b, ({ plan }) => {
+        plan.integration_notices = [
+          { integration: 'screenscraper', problem: 'missing' },
+        ];
+      });
+      renderScreen(MOCK_DOWNLOADS);
+      await ready();
+      const note = screen.getByRole('note');
+      expect(note).toHaveTextContent('ScreenScraper has no account');
+      const setUp = within(note).getByRole('button', { name: 'Set up' });
+      const open = vi.spyOn(useNavStore.getState(), 'openSettings');
+      await userEvent.click(setUp);
+      expect(open).toHaveBeenCalledWith('integrations', {
+        focus: 'integration-screenscraper',
+      });
+    });
+
+    it('says why Switch names come from the file while the catalogue is off', async () => {
+      renderScreen(MOCK_MODERN);
+      await ready();
+      const note = screen.getByRole('note');
+      expect(note).toHaveTextContent(
+        'Switch names come from the file; turn on the Switch catalogue to use the official ones.',
+      );
+      expect(
+        within(note).getByRole('button', { name: 'Set up' }),
+      ).toHaveAttribute('data-settings-opener');
+    });
+
+    it('says nothing about the Switch catalogue for a pile without Switch items', async () => {
+      renderScreen(MOCK_DOWNLOADS);
+      await ready();
+      expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    });
+
+    it('never links a missing DAT catalogue to the Switch card', async () => {
+      tweakPlans(b, ({ plan }) => {
+        plan.warnings.push({ kind: 'catalogue-missing', system: 'gba' });
+      });
+      renderScreen(MOCK_DOWNLOADS);
+      await ready();
+      expect(screen.queryByRole('note')).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Set up' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('returns from Settings to the plan with focus on the link', async () => {
+      useNavStore.getState().openOrganize(MOCK_MODERN);
+      render(
+        <I18nProvider locale="en">
+          <App />
+        </I18nProvider>,
+      );
+      await ready();
+      const note = await screen.findByRole('note');
+      await userEvent.click(
+        within(note).getByRole('button', { name: 'Set up' }),
+      );
+      expect(useNavStore.getState().screen).toBe('settings');
+      act(() => useNavStore.getState().closeSettings());
+      const back = await screen.findByRole('note');
+      await waitFor(() =>
+        expect(
+          within(back).getByRole('button', { name: 'Set up' }),
+        ).toHaveFocus(),
+      );
     });
   });
 });

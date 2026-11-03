@@ -25,6 +25,7 @@ import {
 } from './mockOrganize';
 import {
   createMockSettings,
+  organizeNotices,
   readMockIntegrations,
   readMockKeychain,
   readMockPlatform,
@@ -578,6 +579,8 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       tick: () => new Promise<void>((r) => setTimeout(r, delayMs)),
       now,
       exports: jobs.exports,
+      integrationNotices: (offline, hasSwitch) =>
+        organizeNotices(settings.integrationViews(), offline, hasSwitch),
     },
     {
       pauseAfter: opts.organizePauseAfter ?? null,

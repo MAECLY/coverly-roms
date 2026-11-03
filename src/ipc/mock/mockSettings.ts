@@ -67,6 +67,7 @@ import {
   type IntegrationReason,
   type IntegrationState,
   type IntegrationTestResult,
+  type IntegrationNotice,
   type IntegrationView,
   type KeyCheck,
   type KeychainKind,
@@ -136,6 +137,9 @@ export type MockSettingsApi = Pick<
   isSourceReady(id: SourceId): boolean;
   /** Enabled, but a stored key the fake API refuses (`bad…`). */
   isSourceRefused(id: SourceId): boolean;
+  /** The cards as `integrationsView` gives them, synchronously (the
+   * organise mock builds its plan notices from them). */
+  integrationViews(): IntegrationView[];
   /** Enabled, but a needed credential is not stored (it was forgotten
    * after the source was turned on): a gather reports `missing-key`. */
   isSourceMissingKey(id: SourceId): boolean;
@@ -603,6 +607,7 @@ export function createMockSettings(opts: {
           health.set(e.id, { verdict: 'invalid', at });
       }
     },
+    integrationViews: () => view(),
     isSourceMissingKey: (id) =>
       settings.sources.order.some((e) => e.id === id && e.enabled) &&
       NEEDS(id).some((k) => !present(k)),
@@ -852,4 +857,27 @@ export function createMockSettings(opts: {
       opened.push(`help:${id}`);
     },
   };
+}
+
+/** Rust's `organize_notices` (integrations spec D28, plan IP-2): from the
+ * cards after a survey, ScreenScraper when it is enabled in a build that
+ * can use it but has no account or no quota left (online plans only),
+ * and the Switch catalogue when it is off and the pile has Switch items. */
+export function organizeNotices(
+  views: readonly IntegrationView[],
+  offline: boolean,
+  hasSwitch: boolean,
+): IntegrationNotice[] {
+  const out: IntegrationNotice[] = [];
+  const ss = views.find((v) => v.id === 'screenscraper');
+  if (ss && ss.enabled && ss.built && !offline) {
+    if (ss.state === 'not-configured')
+      out.push({ integration: ss.id, problem: 'missing' });
+    else if (ss.state === 'quota')
+      out.push({ integration: ss.id, problem: 'quota' });
+  }
+  const sw = views.find((v) => v.id === 'switch-catalog');
+  if (sw && hasSwitch && !sw.enabled)
+    out.push({ integration: sw.id, problem: 'off' });
+  return out;
 }

@@ -25,6 +25,7 @@ import { LeftInPlace } from '@/components/organize/LeftInPlace';
 import type { IsNew } from '@/components/organize/NewMarks';
 import { OptionsBar } from '@/components/organize/OptionsBar';
 import { OrganizeResult } from '@/components/organize/OrganizeResult';
+import { IntegrationNotice } from '@/components/settings/IntegrationNotice';
 import {
   ReviewBuckets,
   type OrganizeChoice,
@@ -667,6 +668,17 @@ function Proposal({
           </p>
         </Alert>
       )}
+      {(plan.integration_notices ?? []).map((notice) => (
+        <IntegrationNotice
+          key={`${notice.integration}-${notice.problem}`}
+          notice={notice}
+          text={
+            notice.integration === 'switch-catalog' && notice.problem === 'off'
+              ? t('integrations.organize.switchOff')
+              : undefined
+          }
+        />
+      ))}
       {warnings.length > 0 && (
         <Alert variant="warning">
           {warnings.map((line) => (

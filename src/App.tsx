@@ -35,11 +35,33 @@ export default function App() {
     };
   }, [ready]);
   // Back from Settings: focus returns to the control that opened it, on
-  // whichever screen that was.
+  // whichever screen that was. A screen can have several openers (the
+  // organise options and a «Configurar» notice), so the one clicked is
+  // remembered by its place among them; the screen mounts again in the
+  // same order.
   const shown = useRef(screen);
+  const opener = useRef(0);
   useEffect(() => {
-    if (shown.current === 'settings' && screen !== 'settings')
-      document.querySelector<HTMLElement>('[data-settings-opener]')?.focus();
+    const note = (ev: Event) => {
+      const el =
+        ev.target instanceof Element
+          ? ev.target.closest('[data-settings-opener]')
+          : null;
+      if (!el) return;
+      const all = [...document.querySelectorAll('[data-settings-opener]')];
+      opener.current = Math.max(0, all.indexOf(el));
+    };
+    document.addEventListener('click', note, true);
+    return () => document.removeEventListener('click', note, true);
+  }, []);
+  useEffect(() => {
+    if (shown.current === 'settings' && screen !== 'settings') {
+      const all = document.querySelectorAll<HTMLElement>(
+        '[data-settings-opener]',
+      );
+      (all[opener.current] ?? all[0])?.focus();
+      opener.current = 0;
+    }
     shown.current = screen;
   }, [screen]);
   if (screen === 'settings') return <SettingsScreen />;
