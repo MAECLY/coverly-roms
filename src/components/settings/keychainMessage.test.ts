@@ -1,12 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
-import { translate, type Locale } from '@/i18n/core';
+import en from '../../../locales/en/ui.json';
+import es from '../../../locales/es/ui.json';
 
 import { keychainMessageKey } from './keychainMessage';
 
-/** True when the key resolves in that locale's catalogue (not to itself). */
+type Locale = 'es' | 'en';
+const CATALOGS = { es, en } as const;
+
+/** True when that locale's own catalogue has a string at `key`; unlike
+ * `translate`, a Spanish miss does not fall back to English. */
 const inCatalog = (locale: Locale) => (key: string) =>
-  translate(locale, key) !== key;
+  typeof key
+    .split('.')
+    .reduce<unknown>(
+      (node, part) =>
+        node !== null && typeof node === 'object'
+          ? (node as Record<string, unknown>)[part]
+          : undefined,
+      CATALOGS[locale],
+    ) === 'string';
 
 describe('keychainMessageKey', () => {
   for (const locale of ['es', 'en'] as const) {

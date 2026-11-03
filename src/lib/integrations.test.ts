@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import en from '../../locales/en/ui.json';
 import es from '../../locales/es/ui.json';
 import { translate } from '@/i18n/core';
 import { KEY_CHECKS } from '@/ipc/types';
@@ -100,14 +101,34 @@ describe('integrations registry', () => {
 });
 
 describe('integrations copy (both locales)', () => {
-  const LOCALES = ['es', 'en'] as const;
+  const CATALOGS = { es, en } as const;
+  /** The string at `key` in that catalogue only: `translate` falls back to
+   * English, which would let a key missing from Spanish pass. */
+  const own = (catalog: object, key: string): unknown =>
+    key
+      .split('.')
+      .reduce<unknown>(
+        (node, part) =>
+          node !== null && typeof node === 'object'
+            ? (node as Record<string, unknown>)[part]
+            : undefined,
+        catalog,
+      );
   /** Fails naming the locale and key when a string is missing or empty. */
   const expectCopy = (key: string) => {
-    for (const l of LOCALES) {
-      const v = translate(l, key);
-      expect(v !== key && v.trim() !== '', `${l}: ${key}`).toBe(true);
+    for (const [l, catalog] of Object.entries(CATALOGS)) {
+      const v = own(catalog, key);
+      expect(typeof v === 'string' && v.trim() !== '', `${l}: ${key}`).toBe(
+        true,
+      );
     }
   };
+
+  it('checks each catalogue on its own, without the English fallback', () => {
+    // A key only English has must not count as Spanish copy.
+    expect(own(en, 'integrations.intro')).toBeTypeOf('string');
+    expect(own({ integrations: {} }, 'integrations.intro')).toBeUndefined();
+  });
 
   it('every working entry has use, privacy and keywords', () => {
     for (const e of WORKING)
