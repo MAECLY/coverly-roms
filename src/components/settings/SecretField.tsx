@@ -92,10 +92,15 @@ export function SecretField({
             spellCheck={false}
             value={value}
             disabled={disabled}
+            // What is being saved is what was typed: no edits mid-save.
+            readOnly={saving}
             aria-describedby={description}
             aria-invalid={error ? true : undefined}
             onChange={(e) => {
               setValue(e.target.value);
+              // An emptied field masks the next value: the toggle is off
+              // while there is nothing to show.
+              if (!e.target.value) setShown(false);
               if (error) setError(null);
             }}
             onKeyDown={(e) => {

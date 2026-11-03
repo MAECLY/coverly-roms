@@ -70,6 +70,39 @@ describe('SecretField', () => {
     expect(input).toHaveAttribute('type', 'password');
   });
 
+  it('emptying the field by hand masks it again for the next value', async () => {
+    setup();
+    const input = field();
+    await userEvent.type(input, 'sk-PEEK');
+    await userEvent.click(show());
+    expect(input).toHaveAttribute('type', 'text');
+    await userEvent.clear(input);
+    expect(input).toHaveAttribute('type', 'password');
+    expect(show()).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.type(input, 'sk-NEXT');
+    expect(input).toHaveAttribute('type', 'password');
+  });
+
+  it('the value cannot change while it is being saved', async () => {
+    let done!: () => void;
+    const onSave = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          done = resolve;
+        }),
+    );
+    setup({ onSave });
+    await userEvent.type(field(), 'sk-ONE');
+    await userEvent.click(save());
+    expect(field()).toHaveAttribute('readonly');
+    await userEvent.type(field(), 'X');
+    expect(field()).toHaveValue('sk-ONE');
+    done();
+    await screen.findByText('Guardar');
+    expect(field()).not.toHaveAttribute('readonly');
+    expect(field()).toHaveValue('');
+  });
+
   it('Guardar is disabled while empty or blank', async () => {
     setup();
     expect(save()).toBeDisabled();
