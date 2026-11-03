@@ -96,10 +96,10 @@ Without votes this is exactly the M2 behaviour. Priority and RomRegion are uncha
 
 ## Gathering from several sources (M6)
 
-- **Which sources.** The enabled entries of Settings → Sources, in their order (`--sources libretro,steamgriddb` overrides it in the CLI), kept to `available_sources()`: libretro and SteamGridDB always, ScreenScraper only in a build with developer credentials. Settings from another build (ScreenScraper on, an unknown id, a duplicate) load and normalise instead of failing.
-- **Keys snapshot.** `FillEnv.keys` is a `SourceKeys` read once when the job starts (keychain in the app, environment in the CLI) and kept for every resume of that job. Workers never read the keychain; a key never reaches a plan, a journal, a report or the webview.
+- **Which sources.** The enabled entries of Settings › Sources, in their order (`--sources libretro,steamgriddb` overrides it in the CLI), kept to `available_sources()`: libretro and SteamGridDB always, ScreenScraper only in a build with developer credentials. Settings from another build (ScreenScraper on, an unknown id, a duplicate) load and normalise instead of failing.
+- **Keys snapshot.** `FillEnv.keys` is a `SourceKeys` read once when the job starts (keychain in the app; in the CLI the environment, then the keychain for what it leaves empty) and kept for every resume of that job. Workers never read the keychain; a key never reaches a plan, a journal, a report or the webview.
 - **Merge.** `gather::merge_candidates` drops repeats of one image (same source and URL, the strongest kept), adds cross-source consensus under Popularity (D34) and sorts strongest first. Each candidate keeps its `source` and `origin`. The candidate-list cache namespace was bumped for M6 (`candidates-3`).
-- **Source-wide skip.** `Auth`, `MissingKey` and `Exhausted` (`SourceError::is_source_wide`) stop that source for the rest of the run with **one** warning in `plan.warnings` (e.g. `steamgriddb: no API key stored; skipped`), and the run goes on with the other sources. This is never a pause: a pause would come back on every resume. A 429 or going offline from any source still pauses the whole phase.
+- **Source-wide skip.** `Auth`, `MissingKey` and `Exhausted` (`SourceError::is_source_wide`) stop that source for the rest of the run with **one** warning in `plan.warnings` (e.g. `steamgriddb: no API key stored; skipped`), and the run goes on with the other sources. This is never a pause: a pause would come back on every resume. The same refusal is kept as a `SourceTrouble` in `plan.troubles`, and the sources that answered in `plan.answered`: the app updates the integration cards from them (`note_troubles`) and the wizard and its summary show a notice that links to the card (`IntegrationNotice`). A 429 or going offline from any source still pauses the whole phase.
 - **Apply.** `FillEnv::apply`, the drawer and "Search by title" fetch through the source a candidate came from; search asks every enabled source and dedupes by `(source, url)`.
 
 ## Image pipeline
@@ -208,7 +208,7 @@ coverly undo [--job ID [--include-later]] [--list] [--data-dir DIR]
 `coverly organize` (loose ROMs into one folder per system) is documented in [organize.md](./organize.md#cli); `coverly undo` undoes its jobs too.
 
 - Dry run is the default. `--scope all` replaces existing art and needs `--overwrite backup`.
-- `--sources` overrides the order and enabled set of the sources setting. The CLI has no keychain: keys come from `COVERLY_SGDB_KEY`, `COVERLY_SS_USER` and `COVERLY_SS_PASSWORD`. Hidden `--steamgriddb-url` / `--screenscraper-url` point the sources at a mock in tests.
+- `--sources` overrides the order and enabled set of the sources setting. Keys come from `COVERLY_SGDB_KEY`, `COVERLY_SS_USER` and `COVERLY_SS_PASSWORD` first, then from the keychain entries the app saved (only with the default endpoints, 5 s cap per call; `COVERLY_NO_KEYCHAIN=1` turns it off). A missing SteamGridDB key names `coverly integrations set steamgriddb`. Hidden `--steamgriddb-url` / `--screenscraper-url` point the sources at a mock in tests.
 - `--cache-dir` / `--data-dir` override the OS app dirs (`directories`: `com.Maecly.CoverlyROMs`).
 - With the `batocera` profile, fill prints a warning that `gamelist.xml` is not updated yet (tracker row M4/M5).
 

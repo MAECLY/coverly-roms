@@ -24,7 +24,8 @@ pub trait ArtSource: Send + Sync {
   - `BadResponse { source, detail }` — the answer could not be read (not JSON, `success: false` with HTTP 200, an over-size body). That ROM gets nothing from the source; the run goes on.
   - `Exhausted { source, status }` — ScreenScraper's daily quota is used up.
 - `SourceError::is_source_wide()` is true for `Auth`, `MissingKey` and `Exhausted`: the problem is the source, not this ROM, so [gathering](./fill-pipeline.md#gathering-from-several-sources-m6) asks that source no more for the rest of the run and records one warning (never a pause).
-- `KeyCheck` (`ok`, `invalid`, `missing`, `rate-limited`, `offline`, `unavailable`) is the answer of "Test key" in Settings → Sources: `steamgriddb::check_key` and `screenscraper::check_account` make one cheap request and never return the key.
+- `KeyCheck` (`ok`, `invalid`, `missing`, `rate-limited`, `offline`, `unavailable`) is the answer of «Probar conexión» on a card of Settings › Integrations and of `coverly integrations test`: `steamgriddb::check_key` and `screenscraper::check_account` make one cheap request and never return the key. `check_account` answers an `AccountCheck { verdict, quota }`, with the `SsQuota` (`requests_today`, `max_requests_per_day`, `max_threads`) from `ssuserInfos` when the service sends it.
+- `SourceTrouble { source, kind }` (`TroubleKind`: `missing-key`, `auth`, `exhausted`) is the structured twin of a source-wide error: gathering records one per refusing source in `Gathered.troubles` beside its unchanged warning text, and the sources that answered in `Gathered.answered`. Both reach `PlanSummary` (left out when empty), so the app can turn them into card health and into notices that link to the card ([settings.md](./settings.md#integrations)).
 
 ## libretro-thumbnails
 
@@ -96,14 +97,14 @@ The list is sorted by kind, score and name, and bounded.
 ## Keys and credentials (D30, D35)
 
 - `credentials::Secret` wraps every key and password: `Debug` prints `Secret(***)`, there is no `Display` and no `Serialize`, and `expose()` is the only way to read it (the HTTP client, when it builds the header or query).
-- `SourceKeys { steamgriddb, screenscraper_user, screenscraper_dev }` is read **once per job**, with the rest of the settings snapshot: in the app from the OS keychain (`SourceKeys::from_store`), in the CLI from the environment (`SourceKeys::from_env`: `COVERLY_SGDB_KEY`, `COVERLY_SS_USER`, `COVERLY_SS_PASSWORD`). Worker threads never touch the keychain. A stored value that is empty, longer than 512 characters or holds control characters counts as not set.
-- The webview only ever sees whether a key is stored (`credential_status`) and the `KeyCheck` of "Test key" (`test_source_key`); `sources_info` reports, per source, whether this build has it (`built`), which credentials it needs (`needs`) and whether it can run (`ready`) — presence only, never values.
+- `SourceKeys { steamgriddb, screenscraper_user, screenscraper_dev }` is read **once per job**, with the rest of the settings snapshot: in the app from the OS keychain (`SourceKeys::from_store`), in the CLI from the environment first (`COVERLY_SGDB_KEY`, `COVERLY_SS_USER`, `COVERLY_SS_PASSWORD`), then from the entries the app saved in the keychain, only for an enabled source whose variable is empty and only towards the default endpoints (`crates/coverly-cli/src/keys.rs`; `COVERLY_NO_KEYCHAIN=1` turns it off). Worker threads never touch the keychain. A stored value that is empty, longer than 512 characters or holds control characters counts as not set.
+- The webview only ever sees whether a key is stored (`credential_status`, `integrations_view`) and the `KeyCheck` of a test (`test_source_key`, `test_integration`); `sources_info` reports, per source, whether this build has it (`built`), which credentials it needs (`needs`) and whether it can run (`ready`) — presence only, never values.
 
 ## SteamGridDB (M6-01, D35)
 
 | Aspect | Rule |
 |---|---|
-| Key | The user's own API key, from the keychain (app) or `COVERLY_SGDB_KEY` (CLI). Sent only as `Authorization: Bearer …` on API requests (`HttpRequest::bearer`), never in a URL. A key with anything but visible ASCII is refused without a request (`Auth`, status 0). Enabled without a key → `MissingKey`: one warning `steamgriddb: no API key stored; skipped` and libretro still fills. |
+| Key | The user's own API key, from the keychain (app; set in Settings › Integrations) or `COVERLY_SGDB_KEY`, then the keychain (CLI). Sent only as `Authorization: Bearer …` on API requests (`HttpRequest::bearer`), never in a URL. A key with anything but visible ASCII is refused without a request (`Auth`, status 0). Enabled without a key → `MissingKey`: one warning `steamgriddb: no API key stored; skipped` and libretro still fills. |
 | Endpoints | `https://www.steamgriddb.com/api/v2`: `GET /search/autocomplete/{title}` (title as one encoded path segment) → game ids; `GET /grids/game/{id}?dimensions=600x900,342x482&types=static&nsfw=false&humor=false&epilepsy=false` → grids. |
 | Scope | Covers only (portrait static grids, 600×900 preferred, then 342×482). Heroes, logos, icons, screenshots and title screens are out of scope. Searched by title for every system: it holds many console games, and when it has nothing nothing is lost. Name matching only (nothing under `hash-only`). |
 | Title matching | The canonical name when the ROM was identified, else the parsed ROM name. One search result with the same normalised title → `title-exact` 95. **Several** results with that title (a remake, "Doom" 1993 and 2016) → `fuzzy` **85**: review under the default thresholds, never `auto`, never eligible against an exact libretro match. No exact title → the best [compatible](./identification.md#guards) fuzzy titles (≥ `min_score`, at most 94). Grids of at most 2 games per ROM. |
@@ -119,7 +120,7 @@ The list is sorted by kind, score and name, and bounded.
 | Aspect | Rule |
 |---|---|
 | Availability | Only in a build compiled with `COVERLY_SS_DEVID` and `COVERLY_SS_DEVPASSWORD` (`option_env!`, never a file in the repo). Without them `available_sources()` is libretro + SteamGridDB, settings normalise `screenscraper` to off, and the UI says "Not available in this build". The developer credentials are requested on the ScreenScraper forum (spec §17 Q2). |
-| Account | Optional user account (keychain `screenscraper-user` / `screenscraper-password`, or `COVERLY_SS_USER` / `COVERLY_SS_PASSWORD` in the CLI), sent only when both are stored. It raises the thread count and daily quota. |
+| Account | Optional user account (keychain `screenscraper-user` / `screenscraper-password`, set in Settings › Integrations; in the CLI `COVERLY_SS_USER` / `COVERLY_SS_PASSWORD`, then the keychain), sent only when both are stored. It raises the thread count and daily quota. |
 | Endpoints | API v2 `https://api.screenscraper.fr/api2`: `jeuInfos.php` by `crc`, `md5`, `sha1`, `romtaille`, `romnom` and `systemeid` when the ROM was hashed (`canonical` 100); `jeuRecherche.php` (`recherche=<title>`) otherwise (`title-exact` 95; nothing under `hash-only`). `softname=CoverlyROMs-<version>`, `output=json`. |
 | Media | cover → `box-2D` (`flyer` for arcade systems), screenshot → `ss`, title → `sstitle`. One candidate per region the game has that media for (`wor`, `us`, `eu`, `jp`, … mapped to Coverly regions; unknown codes dropped). |
 | URLs | Candidate URLs are built by Coverly as `mediaJeu.php?systemeid=…&jeuid=…&media=…` (the media type carries the region, e.g. `box-2D(us)`) **without credentials**, so nothing secret reaches the cache, a plan, a journal or the webview. `fetch` appends the credentials at request time. Bodies `NOMEDIA`, `CRCOK`, `MD5OK`, `SHA1OK` mean no image. |
@@ -129,11 +130,11 @@ The list is sorted by kind, score and name, and bounded.
 | Errors | Every error text is scrubbed: each credential, raw and percent-encoded, becomes `***` (a 500 or a timeout of a URL with `devpassword=` never shows it). |
 | Cache | Game answers 7 days (`ss-game-1`); keys carry the base, the system and the request parameters, never a credential. |
 | System ids | `screenscraper = <id>` in `systems.toml` for 39 systems (from `systemesListe.php` research; to confirm against the live list once credentials exist). Others are "not available on screenscraper". |
-| Test | `check_account`: `ssuserInfos.php`; no account → `missing` without a request. |
+| Test | `check_account`: `ssuserInfos.php`; no account → `missing` without a request. The answer's quota is kept (`last_quota()`) and shown on the card: requests today of the daily maximum, and threads. |
 
 ## How the sources combine
 
-Every enabled and usable source is asked for each ROM and media, in the user's order (Settings → Sources, or `--sources` in the CLI). Their candidates are merged (`gather::merge_candidates`: dedupe by source + URL, cross-source consensus D34) and ranked by the strategy; see [fill-pipeline.md](./fill-pipeline.md#gathering-from-several-sources-m6). The real-API checks are `#[ignore]` tests in `crates/coverly-core/tests/real_m6.rs` that skip without a key or developer credentials:
+Every enabled and usable source is asked for each ROM and media, in the user's order (Settings › Sources, or `--sources` in the CLI). Their candidates are merged (`gather::merge_candidates`: dedupe by source + URL, cross-source consensus D34) and ranked by the strategy; see [fill-pipeline.md](./fill-pipeline.md#gathering-from-several-sources-m6). The real-API checks are `#[ignore]` tests in `crates/coverly-core/tests/real_m6.rs` that skip without a key or developer credentials:
 
 ```text
 COVERLY_SGDB_KEY=… cargo test -p coverly-core --test real_m6 -- --ignored --nocapture

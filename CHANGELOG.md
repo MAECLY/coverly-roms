@@ -8,6 +8,45 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ## [Unreleased]
 
+### Added
+
+- Settings → Integrations: one card per service Coverly talks to on your
+  behalf (SteamGridDB, ScreenScraper, the Switch name catalogue and a link to
+  Updates). Each card says what the service is for and what it unlocks, shows
+  its status (not set up, saved, connected, error with the reason and what to
+  do, daily quota used up, off), and has «Test connection» (works, wrong
+  credentials, offline, service down), «How to get the key» on the service's
+  own account page, turn off without deleting, «Forget credentials» with a
+  confirmation in the page, a note of what is sent, and links to its credit
+  and its place in the Sources order. Key fields are masked, can be shown
+  while you type and are never filled with the saved value. Services planned
+  for later are listed under «Coming later». The settings search finds every
+  service and field.
+- ScreenScraper quota on its card: requests used today of the daily maximum
+  and the threads allowed, when the service reports them.
+- Keychain messages per system: a keychain that is locked, unavailable or
+  refuses access says what to do on macOS, Windows or Linux.
+- Fill, Organise and their summaries point to the right card when an
+  account is missing, a key is refused, a quota is used up or the Switch
+  catalogue is off.
+- `coverly integrations list|test|set|forget`. `set` reads the secret from
+  stdin (without echo on a terminal) or from the variable `--from-env`
+  names, never from an argument; no output prints a value. `fill` and
+  `organize` read the keys the app saved in the keychain when the matching
+  `COVERLY_*` variable is not set, only towards the service's own address;
+  `COVERLY_NO_KEYCHAIN=1` turns that off. `fill` names
+  `coverly integrations set steamgriddb` when the key is missing, and
+  `catalog switch` names the Integrations tab when the catalogue is off.
+
+### Changed
+
+- Settings → Sources keeps only the order of the sources, with «Set up in
+  Integrations» on the ones that need an account.
+- The Switch name catalogue (on/off, icons and the fallback address) moved
+  from Sources to Integrations. Your setting is kept.
+- Keys and accounts saved before keep working: they are read from the same
+  keychain entries.
+
 ## [0.3.0] - 2026-11-02
 
 ### Added

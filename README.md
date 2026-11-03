@@ -117,7 +117,7 @@ from the plain header of their own format, reading a few kilobytes; nothing
 encrypted is read, and Coverly never reads, asks for, downloads or ships
 console keys. Switch names come from the title ID, without keys, through an
 optional catalogue (blawar/titledb, MIT) that stays off until you turn it on in
-Settings → Sources; with no network the file name is used, and a game whose
+Settings → Integrations; with no network the file name is used, and a game whose
 name cannot be read without keys is labelled "Encrypted" instead of guessed.
 A game that is a folder (PS3, PS Vita, Wii U, PS4, Xbox…) moves as one item and
 is never split, also from inside a zip or 7z, where it is recognised from the
@@ -159,12 +159,23 @@ a short label where no neutral drawing exists.
 Jobs can be paused, resumed, cancelled and undone.
 
 **Settings.** General, Library, Organise, Duplicates, Profiles, Art, Matching,
-Sources, Network, Safety, Advanced, Credits and About, in three groups. Common
-options come first and the rest wait under _Advanced options_. Search with ⌘F
-(Ctrl+F on Windows and Linux) and land on the setting. The Duplicates and
-Organise screens open their own tab and come back with your choices kept.
-Custom layout profiles have a live path preview. API keys are kept in the OS
-keychain.
+Sources, Integrations, Network, Safety, Advanced, Credits and About, in three
+groups. Common options come first and the rest wait under _Advanced options_.
+Search with ⌘F (Ctrl+F on Windows and Linux) and land on the setting. The
+Duplicates and Organise screens open their own tab and come back with your
+choices kept. Custom layout profiles have a live path preview.
+
+**Integrations.** Settings → Integrations has one card per service Coverly
+talks to on your behalf: SteamGridDB (API key), ScreenScraper (account), the
+Switch name catalogue and a link to Updates. Each card says what the service
+is for, shows its status (not set up, saved, connected, error with what to do,
+daily quota used up, off), and has «Test connection», «How to get the key»
+(the service's own account page), turn off without deleting, and «Forget
+credentials». Keys are kept in the OS keychain and never shown again; a
+keychain that is locked or refuses access says what to do on your system.
+ScreenScraper's daily quota is shown when the service reports it. Fill,
+Organise and the command line point to the card when an account is missing
+or a quota is used up. Keys you saved before keep working.
 
 **Credits.** Settings → Credits lists every cover and metadata source,
 database, technical reference, library and font Coverly uses, with its licence,
@@ -386,8 +397,9 @@ CPS1–3, MAME, FinalBurn Neo, ZX Spectrum, Amstrad CPC, PICO-8, ScummVM and DOS
 - **[libretro-thumbnails](https://github.com/libretro-thumbnails/libretro-thumbnails)**
   (`thumbnails.libretro.com`): the default. No account.
 - **[SteamGridDB](https://www.steamgriddb.com/)**: optional, with your own API
-  key. Its community votes feed the Popularity strategy. In the app the key is
-  kept in the OS keychain; the CLI reads it from `COVERLY_SGDB_KEY`.
+  key. Its community votes feed the Popularity strategy. Set it in Settings →
+  Integrations, where it is kept in the OS keychain; the CLI reads
+  `COVERLY_SGDB_KEY` first, then the key the app saved.
 - **ScreenScraper**: planned for a later version, not available as an art
   source yet. Today it is only used to identify files when organising, when it
   is configured.
@@ -492,17 +504,18 @@ There are stable and beta channels.
 `coverly` is the same engine as the app, for the terminal. Like the app, it
 writes nothing unless you pass `--apply`.
 
-| Command    | What it does                                                                    |
-| ---------- | ------------------------------------------------------------------------------- |
-| `audit`    | Report which ROMs of a library lack cover, screenshot or title art (read-only)  |
-| `catalog`  | Manage the optional Switch name catalogue (`switch status`, `update`, `remove`) |
-| `fill`     | Fill missing art from the enabled sources (dry run unless --apply)              |
-| `organize` | Sort a pile of loose ROMs into one folder per system (dry run unless --apply)   |
-| `dedupe`   | Find the same game stored twice in a system and set the copies aside (dry run)  |
-| `profiles` | List the built-in and custom layout profiles                                    |
-| `systems`  | List the known systems and their folder aliases                                 |
-| `undo`     | Undo the last job (fill, organise or duplicates), or the one given with --job   |
-| `update`   | Check for a newer coverly, or install it (verified with minisign)               |
+| Command        | What it does                                                                                          |
+| -------------- | ----------------------------------------------------------------------------------------------------- |
+| `audit`        | Report which ROMs of a library lack cover, screenshot or title art (read-only)                        |
+| `catalog`      | Manage the optional Switch name catalogue (`switch status`, `update`, `remove`)                       |
+| `fill`         | Fill missing art from the enabled sources (dry run unless --apply)                                    |
+| `integrations` | List, test, save or forget the accounts and keys of online services (`list`, `test`, `set`, `forget`) |
+| `organize`     | Sort a pile of loose ROMs into one folder per system (dry run unless --apply)                         |
+| `dedupe`       | Find the same game stored twice in a system and set the copies aside (dry run)                        |
+| `profiles`     | List the built-in and custom layout profiles                                                          |
+| `systems`      | List the known systems and their folder aliases                                                       |
+| `undo`         | Undo the last job (fill, organise or duplicates), or the one given with --job                         |
+| `update`       | Check for a newer coverly, or install it (verified with minisign)                                     |
 
 ```bash
 coverly audit /Volumes/SD --missing-only --format csv --output report.csv
@@ -515,6 +528,9 @@ coverly dedupe /Volumes/SD                    # dry run: which copy stays, where
 coverly dedupe /Volumes/SD --apply            # set them aside in /Volumes/SD/_Duplicados
 coverly dedupe /Volumes/SD --apply --trash    # or send them to the Trash
 coverly catalog switch update                 # download the optional Switch name catalogue
+coverly integrations list                     # which services are on and which keys are set
+printf %s "$KEY" | coverly integrations set steamgriddb   # save a key, read from stdin
+coverly integrations test steamgriddb         # one request with the saved key
 coverly undo --list
 coverly undo                                  # undo the last job
 ```
@@ -546,9 +562,20 @@ candidates and indexes), `--report table|json`, `--output FILE`.
 **`undo`:** `--list`, `--job ID`, `--include-later` (with `--job`: also undo
 the newer jobs that touched the same folder, newest first).
 
-**Environment:** `COVERLY_SGDB_KEY` (SteamGridDB key; the CLI has no keychain),
-`COVERLY_SS_USER` and `COVERLY_SS_PASSWORD` (ScreenScraper account, used by
-`organize`).
+**`integrations`:** `list [--json]`, `test ID [--json]`, `set ID [--field
+user|password|api-key] [--from-env VAR]`, `forget ID [--yes]`. `set` never
+takes the secret as an argument: it reads it from stdin (without echo when you
+type it) or from the variable `--from-env` names. No output ever prints a
+value, only `set` or `not set`. Exit codes: 0 ok, 1 the test failed (wrong
+key, missing, service down) or the keychain refused, 2 bad usage, 5 offline or
+rate limited.
+
+**Environment:** `COVERLY_SGDB_KEY` (SteamGridDB key), `COVERLY_SS_USER` and
+`COVERLY_SS_PASSWORD` (ScreenScraper account, used by `organize`). A variable
+that is set wins; otherwise the CLI uses the key the app saved in the OS
+keychain, and only towards the service's own address (never with
+`--steamgriddb-url` or another custom endpoint). `COVERLY_NO_KEYCHAIN=1`
+turns the keychain off.
 
 `coverly <command> --help` lists every option.
 
@@ -562,8 +589,11 @@ the newer jobs that touched the same folder, newest first).
 - **No console keys.** Coverly never reads, asks for, downloads or ships
   them; key and licence files on the card are left untouched.
 - **Images are re-encoded** before they are written, so they carry no metadata.
-- **Your SteamGridDB key stays in the OS keychain** and is sent only to
-  SteamGridDB, as an `Authorization: Bearer` header.
+- **Your keys stay in the OS keychain.** The SteamGridDB key is sent only to
+  SteamGridDB, as an `Authorization: Bearer` header, and the ScreenScraper
+  account only to ScreenScraper. Nothing shows a saved key again, and logs
+  only say whether one is set. Opening Settings sends nothing; «Test
+  connection» makes one request when you press it.
 - **The audit only reads.** Fill, organise and duplicates write nothing until
   you apply, never outside the library root, and every job can be undone.
   Duplicates are moved aside or to the Trash, never deleted.
@@ -631,7 +661,7 @@ the card, and Undo puts it back.
 <summary><b>Do I need an account?</b></summary>
 
 No. libretro-thumbnails works without one. SteamGridDB is optional and uses
-your own key, kept in your system keychain.
+your own key, kept in your system keychain; add it in Settings → Integrations.
 
 </details>
 
