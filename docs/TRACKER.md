@@ -656,3 +656,22 @@ Spec: [`2026-10-18-duplicates-design.md`](superpowers/specs/2026-10-18-duplicate
 - **Falta:** el aviso en la ficha del juego cuando falta una cuenta (lo demás de los enlaces cruzados está hecho).
 - **Pendiente de comprobar a mano:** el aviso real del llavero de macOS, Credential Manager desde una tarea programada, Linux sin Secret Service y los nombres en español de las herramientas del sistema.
 - **Sin hacer a propósito:** ampliar `CredentialKey` con las claves de los servicios previstos (YAGNI); se hará cuando llegue cada servicio, con 3 y 3.1.
+
+### 2026-11-03 — Release v0.4.0 publicada (Integraciones)
+
+- **Versión y tag:** PR #43 de versión (merge `dd24d0cd`, CI verde a la primera). Tag `v0.4.0` sobre ese merge.
+- **Compilación:** `release.yml` (run 41587120069) en verde a la primera, sin cancelaciones de runners.
+- **Borrador revisado antes de publicar:**
+  - 11 archivos de la app: Windows ARM sin `.msi`, por el respaldo NSIS;
+  - 6 binarios de la CLI y todas las firmas;
+  - `SHA256SUMS` con los dos `.dmg`, y los checksums de `mac_arm.dmg` y de la CLI `mac_arm` comprobados;
+  - `latest.json` 0.4.0 con 21 claves, todas firmadas y apuntando a 0.4.0;
+  - notas en inglés y español.
+- **Publicada** el 2026-11-03 a las 06:24 UTC.
+- **Comprobaciones después de publicar:**
+  - `latest.json` da 0.4.0;
+  - la CLI 0.3.0 ofrece la 0.4.0 y `update install --dry-run` la verifica (18.056.624 bytes);
+  - Landing redeploy y release-channels en verde;
+  - la web muestra 0.4.0 en es y en.
+- **Pendiente para Miguel:** probar la actualización desde la app 0.3.0 con interfaz.
+
