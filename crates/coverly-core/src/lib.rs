@@ -32,6 +32,7 @@ pub mod scan;
 pub mod settings;
 pub mod sources;
 pub mod systems;
+pub mod term;
 mod time;
 pub mod update;
 pub mod volumes;
