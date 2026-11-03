@@ -422,19 +422,26 @@ the optional ones, and turn the online services on or off:
 | Switch name catalogue | Switch game names, publisher and date from the title ID   | Nothing; it stays off until you turn it on                                                              |
 | Coverly updates       | Checks GitHub for a new version of Coverly ROMs           | Nothing; turn it off in Settings → General                                                              |
 
+ScreenScraper also needs developer credentials built into the app, and the
+published versions do not carry them yet: its card shows "Not available", and
+you can save your account for when it arrives.
+
 **Getting a key.** "How to get the key" on each card opens the service's own
 account page, never a third-party site. SteamGridDB: sign in with Steam, open
 Preferences › API, generate a key and paste it into the card. ScreenScraper:
 create a free account and enter its user name and password. Then press
 **Test connection**: the card says whether it works, whether the key is
 wrong, whether you are offline or the service is down and, for
-ScreenScraper, how much of the daily quota is used.
+ScreenScraper (in builds that include it), how much of the daily quota is
+used.
 
 **What is sent.** Each card says it. SteamGridDB gets the name of the game
 being looked up and your key; ScreenScraper gets the file name, its size, its
 hashes and the system, with your account, over HTTPS (never the full path or
 the file contents); the Switch catalogue and the update check download public
-files and send nothing from your library.
+files and send nothing from your library, except the eShop icons (requested one
+game at a time) and the online fallback (the missing title ID) when you turn
+them on.
 
 **Where keys are kept.** In the OS keychain: Keychain on macOS, Credential
 Manager on Windows and the Secret Service (GNOME Keyring or KWallet) on Linux.
