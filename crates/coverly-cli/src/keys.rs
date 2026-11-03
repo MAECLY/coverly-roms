@@ -99,7 +99,7 @@ pub struct KeyPlan {
 }
 
 /// One word for a keychain failure in a note (never a value).
-fn failure_word(e: &CredentialError) -> &'static str {
+pub(crate) fn failure_word(e: &CredentialError) -> &'static str {
     match e {
         CredentialError::Unavailable => "unavailable",
         CredentialError::Locked => "locked",
