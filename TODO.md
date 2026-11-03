@@ -870,3 +870,10 @@ Petición de Miguel (2026-11-02): mejorar la parte de «Cuentas» de Fuentes y c
 - [x] **CLI:** `coverly integrations list|test|set|forget`. `set` lee el secreto por stdin o una variable de entorno y nunca como argumento visible en el historial.
 - [x] Exportar o importar ajustes nunca incluye secretos. Los registros y los informes de fallo nunca muestran valores, solo «guardado» o «no guardado».
 - [x] Migración: las cuentas de hoy aparecen solas en Integraciones. En Fuentes queda solo el orden y el enlace «Configurar».
+
+### Pendientes tras la 0.4.0
+
+- [ ] Mover las credenciales del proxy de `settings.json` al llavero del sistema, como las demás claves, sin perder las que ya estén guardadas.
+- [ ] El aviso en la ficha del juego cuando falta una cuenta, con su enlace a la tarjeta del servicio (lo único que queda de los enlaces cruzados).
+
+> **Nota (macOS):** la CLI pide permiso al llavero después de cada actualización, porque las builds se firman ad hoc y el sistema las trata como una app distinta. Seguirá así hasta firmar con un certificado de Apple.
