@@ -1,9 +1,12 @@
 //! `coverly audit`, `coverly profiles` and `coverly systems` end to end.
 
+mod common;
+
 use std::fs;
 use std::path::Path;
 
 use assert_cmd::Command;
+use common::coverly;
 use predicates::str::contains;
 use serde_json::Value;
 use tempfile::TempDir;
@@ -47,12 +50,6 @@ fn library() -> TempDir {
     write(root, "ROMS/MD/Hacks/Sonic Hack.md", "sonic");
     write(root, "ROMS/APPS/thing.sh", "#!/bin/sh\n");
     dir
-}
-
-fn coverly() -> Command {
-    let mut cmd = Command::cargo_bin("coverly").unwrap();
-    cmd.env("COVERLY_SETTINGS", "");
-    cmd
 }
 
 fn stdout_of(cmd: &mut Command) -> String {

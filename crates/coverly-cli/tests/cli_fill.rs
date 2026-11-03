@@ -1,6 +1,8 @@
 //! `coverly fill` and `coverly undo` end to end, against a local mock
 //! server (never the real network).
 
+mod common;
+
 use std::fs;
 
 use assert_cmd::Command;
@@ -61,8 +63,7 @@ fn fixture() -> Fixture {
 }
 
 fn fill_cmd() -> Command {
-    let mut cmd = Command::cargo_bin("coverly").unwrap();
-    cmd.env("COVERLY_SETTINGS", "");
+    let mut cmd = common::coverly();
     cmd.arg("fill");
     cmd
 }
@@ -118,9 +119,7 @@ fn apply_writes_a_resized_png_and_undo_removes_it() {
         .stdout(contains("filled 1"));
     let (w, h) = probe_dimensions(&fs::read(cover(&f)).unwrap()).unwrap();
     assert!(w <= 250 && h <= 360, "{w}x{h}");
-    Command::cargo_bin("coverly")
-        .unwrap()
-        .env("COVERLY_SETTINGS", "")
+    common::coverly()
         .args(["undo", "--data-dir"])
         .arg(f.data.path())
         .assert()
@@ -140,9 +139,7 @@ fn relative_root_is_journaled_absolute_so_undo_works_elsewhere() {
     cmd.assert().success().stdout(contains("filled 1"));
     assert!(cover(&f).exists());
     let elsewhere = TempDir::new().unwrap();
-    Command::cargo_bin("coverly")
-        .unwrap()
-        .env("COVERLY_SETTINGS", "")
+    common::coverly()
         .current_dir(elsewhere.path())
         .args(["undo", "--data-dir"])
         .arg(f.data.path())
@@ -156,9 +153,7 @@ fn relative_root_is_journaled_absolute_so_undo_works_elsewhere() {
 fn undo_list_shows_the_job() {
     let f = fixture();
     fill(&f).arg("--apply").assert().success();
-    Command::cargo_bin("coverly")
-        .unwrap()
-        .env("COVERLY_SETTINGS", "")
+    common::coverly()
         .args(["undo", "--list", "--data-dir"])
         .arg(f.data.path())
         .assert()
@@ -219,9 +214,7 @@ fn rate_limit_exits_5() {
 #[test]
 fn undo_with_no_jobs_fails() {
     let data = TempDir::new().unwrap();
-    Command::cargo_bin("coverly")
-        .unwrap()
-        .env("COVERLY_SETTINGS", "")
+    common::coverly()
         .args(["undo", "--data-dir"])
         .arg(data.path())
         .assert()

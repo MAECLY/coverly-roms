@@ -1,5 +1,7 @@
 //! The CLI reads the app's settings file; flags override it.
 
+mod common;
+
 use std::fs;
 
 use assert_cmd::Command;
@@ -47,7 +49,7 @@ fn settings(f: &Fx, json: &str) {
 }
 
 fn coverly(f: &Fx) -> Command {
-    let mut c = Command::cargo_bin("coverly").unwrap();
+    let mut c = common::coverly();
     c.env("COVERLY_SETTINGS", f.cfg.path().join("settings.json"));
     c
 }
@@ -172,7 +174,7 @@ fn a_corrupt_settings_file_is_read_as_defaults_and_left_alone() {
 fn an_empty_variable_means_built_in_defaults() {
     let f = fx();
     settings(&f, r#"{"library":{"ignored_dirs":["Junk"]}}"#);
-    let mut c = Command::cargo_bin("coverly").unwrap();
+    let mut c = common::coverly();
     c.env("COVERLY_SETTINGS", "")
         .arg("audit")
         .arg(f.lib.path())
