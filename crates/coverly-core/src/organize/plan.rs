@@ -925,6 +925,12 @@ pub struct OrganizePlan {
     /// for the summary sentence; left out of the JSON when 0.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub updates: usize,
+    /// Services whose absence or used-up quota changes this plan
+    /// (integrations spec D28): the app fills it from its settings and
+    /// health, since the plan itself never reads the keychain. Left out of
+    /// the JSON when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub integration_notices: Vec<crate::integrations::Notice>,
 }
 
 /// One future plan item as the survey found it.
@@ -3001,6 +3007,7 @@ pub fn plan_from_survey(
             && opts.dedupe.quarantine == QuarantineChoice::Trash,
         duplicates: dups.groups,
         updates,
+        integration_notices: Vec::new(),
     };
     // Informational: the gate runs on the decided plan at apply time; a
     // folder game extraction under the threshold is asked then, with no

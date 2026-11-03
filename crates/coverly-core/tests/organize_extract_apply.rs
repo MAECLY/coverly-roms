@@ -865,6 +865,7 @@ mod apply_phases {
             duplicates: Vec::new(),
             set_aside_trash: false,
             updates: 0,
+            integration_notices: Vec::new(),
         }
     }
 

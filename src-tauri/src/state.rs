@@ -1607,7 +1607,13 @@ impl AppState {
         };
         let plan = plan_from_survey(&survey, &opts, decisions, &env);
         self.release_catalog(catalog, &cfg.data_dir);
-        let plan = plan?;
+        let mut plan = plan?;
+        // After the survey, so a quota it found used up is already noted.
+        plan.integration_notices = crate::integrations::organize_notices(
+            &self.integrations_view(),
+            opts.offline,
+            survey.has_switch(),
+        );
         let stored = self.organize.store(
             plan_id,
             StoredPlan {
@@ -2584,6 +2590,7 @@ mod tests {
             duplicates: Vec::new(),
             set_aside_trash: false,
             updates: 0,
+            integration_notices: Vec::new(),
         };
         let id = st.organize.next_id();
         st.organize.store(

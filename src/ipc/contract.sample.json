@@ -2147,5 +2147,11 @@
     { "source": "steamgriddb", "kind": "missing-key" },
     { "source": "steamgriddb", "kind": "auth" },
     { "source": "screenscraper", "kind": "exhausted" }
+  ],
+  "integration_notices": [
+    { "integration": "steamgriddb", "problem": "missing" },
+    { "integration": "screenscraper", "problem": "rejected" },
+    { "integration": "screenscraper", "problem": "quota" },
+    { "integration": "switch-catalog", "problem": "off" }
   ]
 }

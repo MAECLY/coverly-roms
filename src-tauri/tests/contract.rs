@@ -486,6 +486,7 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         duplicates: vec![],
         set_aside_trash: false,
         updates: 0,
+        integration_notices: Vec::new(),
     }
 }
 
@@ -1585,7 +1586,9 @@ fn every_integration_state_is_listed(s: coverly_core::integrations::State) {
 
 #[test]
 fn integration_views_match_the_shared_sample() {
-    use coverly_core::integrations::{Input, KeychainKind, Reason, SsQuota, State};
+    use coverly_core::integrations::{
+        Input, KeychainKind, Notice, Problem, Reason, SsQuota, State,
+    };
     use coverly_core::sources::{SourceTrouble, TroubleKind};
     use coverly_roms_lib::integrations::{FieldView, IntegrationView, TestResult};
 
@@ -1664,6 +1667,12 @@ fn integration_views_match_the_shared_sample() {
             SourceTrouble { source: "steamgriddb".into(), kind: TroubleKind::MissingKey },
             SourceTrouble { source: "steamgriddb".into(), kind: TroubleKind::Auth },
             SourceTrouble { source: "screenscraper".into(), kind: TroubleKind::Exhausted },
+        ],
+        "integration_notices": [
+            Notice { integration: "steamgriddb".into(), problem: Problem::Missing },
+            Notice { integration: "screenscraper".into(), problem: Problem::Rejected },
+            Notice { integration: "screenscraper".into(), problem: Problem::Quota },
+            Notice { integration: "switch-catalog".into(), problem: Problem::Off },
         ],
     });
     let expected: Value =

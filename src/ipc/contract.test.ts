@@ -91,6 +91,8 @@ import {
   type UpdateProgress,
   type Volume,
   type IntegrationState,
+  type IntegrationNotice,
+  type IntegrationProblem,
   type IntegrationTestResult,
   type IntegrationView,
   type KeychainKind,
@@ -1521,6 +1523,18 @@ describe('integrations contract', () => {
       'auth',
       'exhausted',
     ] satisfies SourceTrouble['kind'][]);
+  });
+
+  it('integration notices use the Rust keys and problems', () => {
+    const notices = sample.integration_notices as IntegrationNotice[];
+    for (const n of notices)
+      expect(Object.keys(n).sort()).toEqual(['integration', 'problem']);
+    expect(notices.map((n) => n.problem)).toEqual([
+      'missing',
+      'rejected',
+      'quota',
+      'off',
+    ] satisfies IntegrationProblem[]);
   });
 
   it('the mock answers the integration calls with the Rust shapes', async () => {

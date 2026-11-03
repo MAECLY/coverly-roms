@@ -11,7 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use coverly_core::credentials::{CredentialError, CredentialKey, DevCredentials};
 use coverly_core::integrations::{
-    self, Health, Integration, KeychainKind, Reason, SeenQuota, SsQuota, State, StateInput,
+    self, Health, Integration, KeychainKind, Notice, Problem, Reason, SeenQuota, SsQuota, State,
+    StateInput,
 };
 use coverly_core::settings::Settings;
 use coverly_core::sources::{KeyCheck, SourceTrouble, TroubleKind};
@@ -116,6 +117,37 @@ fn working(id: &str) -> Result<&'static Integration, IpcError> {
     integrations::working()
         .find(|e| e.id == id)
         .ok_or_else(|| IpcError::BadRequest(format!("`{id}` is not a working integration")))
+}
+
+/// The notices of an organise plan (spec D28, plan IP-2), from the cards
+/// as they stand after its survey. ScreenScraper is named when it is
+/// enabled in a build that can use it but has no account, or its quota is
+/// used up: the online lookup was skipped. An offline plan never asks it,
+/// so it says nothing there. The Switch catalogue is named when the pile
+/// has Switch items and it is off: names come from the file instead.
+pub fn organize_notices(view: &[IntegrationView], offline: bool, has_switch: bool) -> Vec<Notice> {
+    let mut out = Vec::new();
+    let card = |id: &str| view.iter().find(|v| v.id == id);
+    if let Some(ss) = card("screenscraper").filter(|v| v.enabled && v.built && !offline) {
+        let problem = match ss.state {
+            State::NotConfigured => Some(Problem::Missing),
+            State::Quota => Some(Problem::Quota),
+            _ => None,
+        };
+        if let Some(problem) = problem {
+            out.push(Notice {
+                integration: ss.id.clone(),
+                problem,
+            });
+        }
+    }
+    if let Some(sw) = card("switch-catalog").filter(|v| has_switch && !v.enabled) {
+        out.push(Notice {
+            integration: sw.id.clone(),
+            problem: Problem::Off,
+        });
+    }
+    out
 }
 
 /// The official account or API page of integration `id` (never a URL the
@@ -829,6 +861,96 @@ mod tests {
         assert_eq!(
             keychain_kind(&CredentialError::Failed("x".into())),
             KeychainKind::Failed
+        );
+    }
+
+    fn bare(id: &str, enabled: bool, built: bool, state: State) -> IntegrationView {
+        IntegrationView {
+            id: id.into(),
+            enabled,
+            built,
+            fields: Vec::new(),
+            state,
+            reason: None,
+            checked_at: None,
+            quota: None,
+            quota_at: None,
+        }
+    }
+
+    fn notice(id: &str, problem: Problem) -> Notice {
+        Notice {
+            integration: id.into(),
+            problem,
+        }
+    }
+
+    #[test]
+    fn organise_notices_name_only_what_changes_the_plan() {
+        let ss = |enabled, built, state| {
+            vec![
+                bare("screenscraper", enabled, built, state),
+                bare("switch-catalog", true, true, State::Saved),
+            ]
+        };
+        // Enabled without an account: the lookup was skipped.
+        assert_eq!(
+            organize_notices(&ss(true, true, State::NotConfigured), false, false),
+            vec![notice("screenscraper", Problem::Missing)]
+        );
+        // Enabled with a used-up quota.
+        assert_eq!(
+            organize_notices(&ss(true, true, State::Quota), false, false),
+            vec![notice("screenscraper", Problem::Quota)]
+        );
+        // Disabled, or in a build that cannot use it: nothing to say.
+        assert!(organize_notices(&ss(false, true, State::Off), false, false).is_empty());
+        assert!(organize_notices(&ss(true, false, State::Unavailable), false, false).is_empty());
+        // Working, or the keychain could not be read: no account notice.
+        for state in [State::Saved, State::Connected, State::Error] {
+            assert!(organize_notices(&ss(true, true, state), false, false).is_empty());
+        }
+        // An offline plan never asks ScreenScraper, account or not.
+        assert!(organize_notices(&ss(true, true, State::NotConfigured), true, false).is_empty());
+    }
+
+    #[test]
+    fn organise_names_the_switch_catalogue_only_for_a_pile_with_switch_items() {
+        let views = |on: bool| {
+            vec![
+                bare("screenscraper", false, true, State::Off),
+                bare(
+                    "switch-catalog",
+                    on,
+                    true,
+                    if on { State::Saved } else { State::Off },
+                ),
+            ]
+        };
+        assert_eq!(
+            organize_notices(&views(false), false, true),
+            vec![notice("switch-catalog", Problem::Off)]
+        );
+        // Offline too: turning it on would read the cached file.
+        assert_eq!(
+            organize_notices(&views(false), true, true),
+            vec![notice("switch-catalog", Problem::Off)]
+        );
+        assert!(organize_notices(&views(false), false, false).is_empty());
+        assert!(organize_notices(&views(true), false, true).is_empty());
+    }
+
+    #[test]
+    fn organise_notices_follow_the_live_view() {
+        let (st, _d) = app(Arc::new(MemoryStore::default()), None);
+        enable(&st, "screenscraper");
+        let notices = organize_notices(&st.integrations_view(), false, true);
+        // The catalogue is off by default and the pile has Switch items.
+        assert!(notices.contains(&notice("switch-catalog", Problem::Off)));
+        let missing = notice("screenscraper", Problem::Missing);
+        assert_eq!(
+            notices.contains(&missing),
+            DevCredentials::from_build().is_some()
         );
     }
 }

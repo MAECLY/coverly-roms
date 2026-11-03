@@ -287,6 +287,28 @@ pub struct SsQuota {
     pub max_threads: u64,
 }
 
+/// What a notice on another screen says about an integration (spec D27).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Problem {
+    /// A required key or account is not stored.
+    Missing,
+    /// The service refused the stored credentials.
+    Rejected,
+    /// The daily quota is used up.
+    Quota,
+    /// Turned off by the user.
+    Off,
+}
+
+/// A missing or refused service that changes what a screen shows (D27,
+/// D28); the screen links it to the card of `integration`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Notice {
+    pub integration: String,
+    pub problem: Problem,
+}
+
 /// An integration card's state (spec D6). Precedence, strongest first:
 /// `off` > `unavailable` > `not-configured` > `quota` > `error` >
 /// `connected` > `saved`.
