@@ -299,10 +299,7 @@ export function IntegrationsSection() {
           data-setting-row=""
         >
           {PLANNED.map((p) => (
-            <li
-              key={p.id}
-              className="grid grid-cols-[minmax(9rem,max-content)_1fr] gap-x-3 max-[34rem]:grid-cols-1"
-            >
+            <li key={p.id} className="integrations-planned__row">
               <strong className="text-dense font-medium text-cr-text">
                 {p.name}
               </strong>

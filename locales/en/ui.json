@@ -1733,7 +1733,8 @@
       },
       "saved": "Not checked in this session.",
       "connected": "Checked {time}.",
-      "quota": "You have used {used} of {max} requests today. Come back tomorrow; meanwhile, filling carries on with the other sources."
+      "quota": "You have used {used} of {max} requests today. Come back tomorrow; meanwhile, filling carries on with the other sources.",
+      "quotaUsedUp": "Daily quota used up. Come back tomorrow; meanwhile, filling carries on with the other sources."
     },
     "check": {
       "ok": "It works.",

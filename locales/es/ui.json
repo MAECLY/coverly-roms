@@ -1733,7 +1733,8 @@
       },
       "saved": "Sin comprobar en esta sesión.",
       "connected": "Comprobado {time}.",
-      "quota": "Has usado {used} de {max} peticiones hoy. Vuelve mañana; mientras, el relleno sigue con las demás fuentes."
+      "quota": "Has usado {used} de {max} peticiones hoy. Vuelve mañana; mientras, el relleno sigue con las demás fuentes.",
+      "quotaUsedUp": "Cuota diaria agotada. Vuelve mañana; mientras, el relleno sigue con las demás fuentes."
     },
     "check": {
       "ok": "Funciona.",
