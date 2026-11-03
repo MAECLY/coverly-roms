@@ -46,6 +46,7 @@ import {
   type Phase,
   type PickReason,
   type PlanSummary,
+  type SourceId,
   type SourceTrouble,
   type Region,
   type StrategyKind,
@@ -246,6 +247,12 @@ export interface MockJobsHost {
   sgdbReady(): boolean;
   /** SteamGridDB is enabled but its stored key is refused. */
   sgdbRefused(): boolean;
+  /** What a gather found about its sources (Rust's `note_troubles`): the
+   * integration cards follow it. */
+  noteTroubles?(
+    troubles: readonly SourceTrouble[],
+    answered: readonly SourceId[],
+  ): void;
   /** An organise apply runs: fills refuse to start (Rust's manual guard). */
   organizing?(): boolean;
 }
@@ -328,6 +335,8 @@ interface Job {
   warnings: string[];
   /** The same refusals as data (Rust's `PlanSummary.troubles`). */
   troubles: SourceTrouble[];
+  /** The keyed sources that answered this run. */
+  answered: SourceId[];
 }
 
 export function createMockJobs(
@@ -527,6 +536,7 @@ export function createMockJobs(
     j.view.progress = null;
     j.view.plan = summary(j.items, j.warnings, j.troubles);
     j.view.state = j.cancel ? 'cancelled' : 'planned';
+    if (!j.cancel) host.noteTroubles?.(j.troubles, j.answered);
     emitChanged(j);
   }
 
@@ -749,6 +759,7 @@ export function createMockJobs(
         journal: null,
         warnings,
         troubles,
+        answered: sgdb ? ['steamgriddb'] : [],
       };
       job = j;
       void gather(j);

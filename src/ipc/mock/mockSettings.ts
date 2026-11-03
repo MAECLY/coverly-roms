@@ -16,7 +16,8 @@
  * card's state with a TS port of the D6 precedence (test scaffolding; the
  * shipped rule is `coverly_core::integrations::state`). «Probar conexión»
  * and saving or forgetting a key change the card for the session, like
- * the app's in-memory health. URL switches, read once when the backend is
+ * the app's in-memory health, and so does a fill's gather (Rust's
+ * `note_troubles`: answered → `connected`, refused → `error`). URL switches, read once when the backend is
  * created (like `?mockPick=`):
  *
  * - `?mockIntegrations=empty` nothing stored, catalogue off; `saved` all
@@ -75,6 +76,7 @@ import {
   type SettingsNotice,
   type SourceId,
   type SourceInfo,
+  type SourceTrouble,
   type SsQuota,
 } from '../types';
 
@@ -134,6 +136,13 @@ export type MockSettingsApi = Pick<
   isSourceReady(id: SourceId): boolean;
   /** Enabled, but a stored key the fake API refuses (`bad…`). */
   isSourceRefused(id: SourceId): boolean;
+  /** Rust's `note_troubles`: a source that answered a run is `connected`,
+   * a refused one `error`/`invalid`; a missing key changes nothing
+   * (presence already says it). */
+  noteTroubles(
+    troubles: readonly SourceTrouble[],
+    answered: readonly SourceId[],
+  ): void;
 };
 
 export type MockIntegrationsScenario =
@@ -577,6 +586,20 @@ export function createMockSettings(opts: {
       sources().some((i) => i.id === id && i.ready) &&
       settings.sources.order.some((e) => e.id === id && e.enabled) &&
       !NEEDS(id).some((k) => verdicts.get(k) === 'invalid'),
+    noteTroubles(troubles, answered) {
+      const at = now();
+      for (const source of answered) {
+        const e = integrationForSource(source);
+        if (e) health.set(e.id, { verdict: 'ok', at });
+      }
+      // The mock's jobs only ever report `auth` (no mock run uses up a
+      // quota; `?mockIntegrations=quota` seeds that state instead).
+      for (const t of troubles) {
+        const e = integrationForSource(t.source);
+        if (e && t.kind === 'auth')
+          health.set(e.id, { verdict: 'invalid', at });
+      }
+    },
     isSourceRefused: (id) =>
       settings.sources.order.some((e) => e.id === id && e.enabled) &&
       NEEDS(id).some((k) => present(k) && verdicts.get(k) === 'invalid'),
