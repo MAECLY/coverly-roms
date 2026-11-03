@@ -1750,7 +1750,6 @@
     "switchCatalog": {
       "label": "Switch name catalogue",
       "hint": "Downloads the public blawar/titledb list (about {size}, kept on your computer) to name Switch games. It never uses or asks for keys.",
-      "statusOff": "Off",
       "status": "{count} titles, updated {date}",
       "statusFallback": "{count} titles from the United States list, updated {date}",
       "downloading": "Downloading {done} of {total}",

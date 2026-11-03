@@ -1750,7 +1750,6 @@
     "switchCatalog": {
       "label": "Catálogo de nombres de Switch",
       "hint": "Descarga la lista pública de blawar/titledb (unos {size}, se queda en tu equipo) para poner nombre a los juegos de Switch. No usa ni pide claves.",
-      "statusOff": "Desactivado",
       "status": "{count} títulos, actualizado el {date}",
       "statusFallback": "{count} títulos de la lista de Estados Unidos, actualizado el {date}",
       "downloading": "Descargando {done} de {total}",

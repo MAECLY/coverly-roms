@@ -374,14 +374,16 @@ const openCatalog = async () => {
 };
 
 describe('integrations: Switch catalogue card', () => {
-  it('off: says so, the tag is Off, and icons, fallback and the buttons wait for it', async () => {
+  it('off: the tag says so once, and icons, fallback and the buttons wait for it', async () => {
     await open();
-    await waitFor(async () =>
-      expect(await statusLine()).toHaveTextContent('Off'),
-    );
     expect(
       within(catalogCard()).getAllByRole('button')[0],
     ).toHaveAccessibleName('Switch catalogue, Off');
+    // The tag and the switch already say it: the status line stays empty
+    // (mounted, so the download that turning it on starts is announced).
+    const line = await statusLine();
+    expect(line).toBeEmptyDOMElement();
+    expect(within(catalogCard()).queryAllByText('Off')).toHaveLength(1);
     expect(catalogSwitch()).not.toBeChecked();
     expect(catalogSwitch()).toHaveAttribute(
       'id',

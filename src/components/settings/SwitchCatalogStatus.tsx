@@ -41,7 +41,7 @@ export function SwitchCatalogStatusLine({
     case undefined:
       break;
     case 'off':
-      text = tr(`${KEY}.statusOff`);
+      // The card's tag and its switch already say «Desactivado».
       break;
     case 'pending':
       text = tr(`${KEY}.pending`);
@@ -83,7 +83,7 @@ export function SwitchCatalogStatusLine({
       role="status"
       aria-busy={status?.state === 'downloading' || undefined}
       data-testid="switch-catalog-status"
-      className={`${tone} min-h-[1lh]`}
+      className={`${tone} min-h-[1lh] empty:sr-only`}
     >
       {text}
     </p>
