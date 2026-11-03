@@ -21,7 +21,7 @@ use crate::profiles::Media;
 use crate::progress::{PauseKind, Phase, ProgressEvent, ProgressSink};
 use crate::scan::RomEntry;
 use crate::sources::libretro::INDEX_TTL_SECS;
-use crate::sources::{sort_candidates, ArtQuery, ArtSource, Candidate, SourceError};
+use crate::sources::{sort_candidates, ArtQuery, ArtSource, Candidate, SourceError, SourceTrouble};
 use crate::systems::{System, SystemDb};
 
 /// Cache namespace of gathered candidate lists; bumped with the libretro
@@ -171,6 +171,14 @@ pub struct Gathered {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pause_kind: Option<PauseKind>,
     pub cancelled: bool,
+    /// The sources that refused the run (key, account, quota), once each,
+    /// in the order of `warnings`: the same news as data.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub troubles: Vec<SourceTrouble>,
+    /// The sources asked this run that answered at least once (an empty
+    /// list counts; a list served from the gather cache does not).
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub answered: BTreeSet<String>,
 }
 
 /// Identifies each target and gathers its candidates from `sources`,
@@ -245,7 +253,14 @@ pub fn gather(
                     continue;
                 }
                 match source_candidates(src, system, media, &item.identity, t, cache, opts) {
-                    Ok(found) => all.extend(found),
+                    Ok((found, asked)) => {
+                        // A list from the cache says nothing about the
+                        // source today: only a real answer counts (D29).
+                        if asked {
+                            out.answered.insert(src.id().to_string());
+                        }
+                        all.extend(found);
+                    }
                     Err(SourceError::Net(e)) if e.pauses() => {
                         // "rate limited by … (HTTP 429)" / "offline or unreachable: …"
                         paused = Some((e.to_string(), e.pause_kind()));
@@ -256,6 +271,12 @@ pub fn gather(
                         progress.event(ProgressEvent::Warning(w.clone()));
                         out.warnings.push(w.clone());
                         errors.push(w.clone());
+                        if let Some(kind) = e.trouble() {
+                            out.troubles.push(SourceTrouble {
+                                source: src.id().to_string(),
+                                kind,
+                            });
+                        }
                         skipped.insert(src.id().to_string(), w);
                     }
                     Err(e) => errors.push(e.to_string()),
@@ -328,7 +349,7 @@ pub fn merge_candidates(all: &mut Vec<Candidate>, consensus: bool) {
 }
 
 /// The candidates of one source for one ROM and media: from the cache when
-/// fresh, else asked and stored.
+/// fresh, else asked and stored. The flag says whether the source was asked.
 fn source_candidates(
     src: &dyn ArtSource,
     system: &System,
@@ -337,7 +358,7 @@ fn source_candidates(
     t: &GatherTarget,
     cache: &Cache,
     opts: &GatherOptions,
-) -> Result<Vec<Candidate>, SourceError> {
+) -> Result<(Vec<Candidate>, bool), SourceError> {
     let key = cache_key(src.id(), system, media, identity, &t.rom.stem, opts);
     // The embedded source reads the ROM itself (its path, not its name,
     // decides), and costs a few local reads: never cached by name.
@@ -346,7 +367,7 @@ fn source_candidates(
         // An unreadable cached value is a miss.
         if let Ok(Some(s)) = cache.get_json::<Vec<Candidate>>(NS, &key) {
             if now_unix() - s.fetched_at < opts.ttl_secs {
-                return Ok(s.value);
+                return Ok((s.value, false));
             }
         }
     }
@@ -378,7 +399,7 @@ fn source_candidates(
     if cacheable {
         let _ = cache.put_json(NS, &key, &found, None);
     }
-    Ok(found)
+    Ok((found, true))
 }
 
 /// Every option that changes the candidate list or its fields is part of

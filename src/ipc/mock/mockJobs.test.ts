@@ -433,6 +433,14 @@ describe('mock fill sources', () => {
       strategy: 'popularity',
     });
     expect(v.plan?.warnings).toEqual([MOCK_SGDB_REFUSED_WARNING]);
+    // As data too, for the notice that links to the SteamGridDB card.
+    expect(v.plan?.troubles).toEqual([{ source: 'steamgriddb', kind: 'auth' }]);
+    // And the card says so, like Rust's `note_troubles` after a gather.
+    const refusedCard = (await b.integrationsView()).find(
+      (c) => c.id === 'steamgriddb',
+    );
+    expect(refusedCard?.state).toBe('error');
+    expect(refusedCard?.reason).toEqual({ kind: 'check', detail: 'invalid' });
     const items = await b.fillJobItems(v.id, 'all');
     expect(
       items.every((i) => i.candidates.every((c) => c.source !== 'steamgriddb')),
@@ -445,6 +453,12 @@ describe('mock fill sources', () => {
       strategy: 'popularity',
     });
     expect(ok.plan?.warnings).toEqual([]);
+    // Rust leaves `troubles` out when no source refused.
+    expect(ok.plan && 'troubles' in ok.plan).toBe(false);
+    // SteamGridDB answered this run: its card is connected.
+    expect(
+      (await b.integrationsView()).find((c) => c.id === 'steamgriddb')?.state,
+    ).toBe('connected');
     const again = await b.fillJobItems(ok.id, 'all');
     expect(
       again.some((i) => i.candidates.some((c) => c.source === 'steamgriddb')),

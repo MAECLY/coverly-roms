@@ -2,6 +2,8 @@
 //! quarantine or the Trash, `--resume` and undo (duplicates spec §14).
 //! Every library is synthetic and lives in a temporary folder.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -86,9 +88,8 @@ impl Library {
 
     /// `coverly dedupe <root> --offline` with this library's folders.
     fn cmd(&self) -> Command {
-        let mut cmd = Command::cargo_bin("coverly").unwrap();
-        cmd.env("COVERLY_SETTINGS", "")
-            .arg("dedupe")
+        let mut cmd = common::coverly();
+        cmd.arg("dedupe")
             .arg(self.root())
             .arg("--profile")
             .arg("anbernic-stock")
@@ -335,9 +336,8 @@ fn unknown_rule_is_exit_2() {
 #[test]
 fn scan_warnings_reach_stderr() {
     let lib = Library::new();
-    let mut cmd = Command::cargo_bin("coverly").unwrap();
-    cmd.env("COVERLY_SETTINGS", "")
-        .arg("dedupe")
+    let mut cmd = common::coverly();
+    cmd.arg("dedupe")
         .arg(lib.root().join("ROMS"))
         .arg("--profile")
         .arg("anbernic-stock")
@@ -354,9 +354,7 @@ fn scan_warnings_reach_stderr() {
 #[test]
 fn missing_root_is_exit_3() {
     let lib = Library::new();
-    Command::cargo_bin("coverly")
-        .unwrap()
-        .env("COVERLY_SETTINGS", "")
+    common::coverly()
         .arg("dedupe")
         .arg(lib.root().join("nowhere"))
         .arg("--offline")
@@ -429,9 +427,8 @@ fn dedupe_journal() -> (TempDir, TempDir, TempDir, PathBuf) {
 
 /// `coverly undo <args…>` with a private data dir and a fake Trash.
 fn undo_cmd(data: &Path, trash: &Path, args: &[&str]) -> Command {
-    let mut cmd = Command::cargo_bin("coverly").unwrap();
-    cmd.env("COVERLY_SETTINGS", "")
-        .env("COVERLY_TEST_FAKE_TRASH", trash)
+    let mut cmd = common::coverly();
+    cmd.env("COVERLY_TEST_FAKE_TRASH", trash)
         .arg("undo")
         .args(args)
         .arg("--data-dir")
@@ -608,9 +605,8 @@ fn reads_inside_7z_and_pbp_without_external_tools() {
 /// `coverly <args…>` with this library's folders and a fake Trash in
 /// `trash` (never the real one).
 fn coverly(lib: &Library, trash: &Path, args: &[&str]) -> Command {
-    let mut cmd = Command::cargo_bin("coverly").unwrap();
-    cmd.env("COVERLY_SETTINGS", "")
-        .env("COVERLY_TEST_FAKE_TRASH", trash)
+    let mut cmd = common::coverly();
+    cmd.env("COVERLY_TEST_FAKE_TRASH", trash)
         .args(args)
         .arg("--data-dir")
         .arg(lib.data.path());
@@ -808,9 +804,8 @@ fn disk_full_exits_5_and_resume_finishes() {
 
     // A job of another library is refused.
     let elsewhere = Library::new();
-    let mut cmd = Command::cargo_bin("coverly").unwrap();
-    cmd.env("COVERLY_SETTINGS", "")
-        .args(["dedupe"])
+    let mut cmd = common::coverly();
+    cmd.args(["dedupe"])
         .arg(elsewhere.root())
         .args(["--offline", "--resume", &jobs[0], "--data-dir"])
         .arg(lib.data.path())

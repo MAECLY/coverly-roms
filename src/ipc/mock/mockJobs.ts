@@ -46,6 +46,8 @@ import {
   type Phase,
   type PickReason,
   type PlanSummary,
+  type SourceId,
+  type SourceTrouble,
   type Region,
   type StrategyKind,
 } from '../types';
@@ -245,6 +247,15 @@ export interface MockJobsHost {
   sgdbReady(): boolean;
   /** SteamGridDB is enabled but its stored key is refused. */
   sgdbRefused(): boolean;
+  /** SteamGridDB is enabled but has no key (forgotten after it was
+   * turned on): the gather reports `missing-key`, like Rust's. */
+  sgdbMissing?(): boolean;
+  /** What a gather found about its sources (Rust's `note_troubles`): the
+   * integration cards follow it. */
+  noteTroubles?(
+    troubles: readonly SourceTrouble[],
+    answered: readonly SourceId[],
+  ): void;
   /** An organise apply runs: fills refuse to start (Rust's manual guard). */
   organizing?(): boolean;
 }
@@ -325,6 +336,10 @@ interface Job {
   journal: Journal | null;
   /** Said once per job, like Rust's source-wide errors. */
   warnings: string[];
+  /** The same refusals as data (Rust's `PlanSummary.troubles`). */
+  troubles: SourceTrouble[];
+  /** The keyed sources that answered this run. */
+  answered: SourceId[];
 }
 
 export function createMockJobs(
@@ -469,7 +484,11 @@ export function createMockJobs(
     for (const u of updates) if (u) byId.set(u.id, u);
     return [...byId.values()];
   }
-  function summary(items: JobItemView[], warnings: string[]): PlanSummary {
+  function summary(
+    items: JobItemView[],
+    warnings: string[],
+    troubles: SourceTrouble[],
+  ): PlanSummary {
     const totals = { auto: 0, review: 0, none: 0 };
     const bySystem = new Map<
       string,
@@ -484,7 +503,13 @@ export function createMockJobs(
     const per_system = [...bySystem.entries()]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([folder, c]) => ({ folder, ...c }));
-    return { totals, per_system, warnings: [...warnings] };
+    return {
+      totals,
+      per_system,
+      warnings: [...warnings],
+      // Rust leaves the field out when no source refused.
+      ...(troubles.length > 0 && { troubles: troubles.map((t) => ({ ...t })) }),
+    };
   }
   function totals(items: JobItemView[]): JobTotals {
     const t = { filled: 0, replaced: 0, skipped: 0, no_art: 0, failed: 0 };
@@ -512,8 +537,9 @@ export function createMockJobs(
     }
     await host.tick();
     j.view.progress = null;
-    j.view.plan = summary(j.items, j.warnings);
+    j.view.plan = summary(j.items, j.warnings, j.troubles);
     j.view.state = j.cancel ? 'cancelled' : 'planned';
+    if (!j.cancel) host.noteTroubles?.(j.troubles, j.answered);
     emitChanged(j);
   }
 
@@ -682,7 +708,13 @@ export function createMockJobs(
       const marks = new Map<number, ArtMarks>();
       // Like Rust's per-job snapshot of settings and keys.
       const sgdb = host.sgdbReady();
-      const warnings = host.sgdbRefused() ? [MOCK_SGDB_REFUSED_WARNING] : [];
+      const refused = host.sgdbRefused();
+      const warnings = refused ? [MOCK_SGDB_REFUSED_WARNING] : [];
+      const troubles: SourceTrouble[] = refused
+        ? [{ source: 'steamgriddb', kind: 'auth' }]
+        : host.sgdbMissing?.()
+          ? [{ source: 'steamgriddb', kind: 'missing-key' }]
+          : [];
       for (const id of ids) {
         const e = view.entries[id];
         if (!e) continue;
@@ -731,6 +763,8 @@ export function createMockJobs(
         pausedOnce: false,
         journal: null,
         warnings,
+        troubles,
+        answered: sgdb ? ['steamgriddb'] : [],
       };
       job = j;
       void gather(j);

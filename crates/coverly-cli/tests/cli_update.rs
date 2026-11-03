@@ -1,5 +1,7 @@
 //! `coverly update` against a local manifest server with a throwaway key.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -38,7 +40,7 @@ fn fx(version: &str, body: &[u8], signed_for: Option<&str>) -> Fx {
     } else {
         "coverly"
     });
-    fs::copy(assert_cmd::cargo::cargo_bin("coverly"), &exe).unwrap();
+    fs::copy(common::coverly_exe(), &exe).unwrap();
     wait_until_runnable(&exe);
     Fx {
         server,
@@ -54,7 +56,7 @@ fn fx(version: &str, body: &[u8], signed_for: Option<&str>) -> Fx {
 fn wait_until_runnable(exe: &Path) {
     const ETXTBSY: i32 = 26;
     for _ in 0..100 {
-        match std::process::Command::new(exe).arg("--version").output() {
+        match common::coverly_at(exe).arg("--version").output() {
             Err(e) if cfg!(target_os = "linux") && e.raw_os_error() == Some(ETXTBSY) => {
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
@@ -70,15 +72,14 @@ fn run(f: &Fx) -> Command {
 }
 
 fn run_at(f: &Fx, exe: &Path) -> Command {
-    let mut c = Command::new(exe);
-    c.env("COVERLY_SETTINGS", "")
-        .env("COVERLY_UPDATE_ENDPOINT", f.server.url("/latest.json"))
+    let mut c = common::coverly_at(exe);
+    c.env("COVERLY_UPDATE_ENDPOINT", f.server.url("/latest.json"))
         .env("COVERLY_UPDATE_PUBKEY", f.key.public_b64());
     c
 }
 
 fn same_as_built(exe: &Path) -> bool {
-    fs::read(exe).unwrap() == fs::read(assert_cmd::cargo::cargo_bin("coverly")).unwrap()
+    fs::read(exe).unwrap() == fs::read(common::coverly_exe()).unwrap()
 }
 
 #[test]
@@ -223,7 +224,10 @@ fn install_keeps_the_old_binary_when_the_folder_is_read_only() {
     fs::set_permissions(f.dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
     out.stderr(contains("could not replace"));
     assert!(same_as_built(&f.exe));
-    Command::new(&f.exe).arg("--version").assert().success();
+    common::coverly_at(&f.exe)
+        .arg("--version")
+        .assert()
+        .success();
 }
 
 #[cfg(unix)]

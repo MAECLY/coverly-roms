@@ -59,7 +59,12 @@ describe('App start screen', () => {
   it('shows the versions reported by app_info inside Tauri', async () => {
     mockIPC((cmd) =>
       cmd === 'app_info'
-        ? { name: 'Coverly ROMs', version: '9.9.9', core_version: '1.2.3' }
+        ? {
+            name: 'Coverly ROMs',
+            version: '9.9.9',
+            core_version: '1.2.3',
+            platform: 'macos',
+          }
         : undefined,
     );
     setBackend(createTauriBackend());

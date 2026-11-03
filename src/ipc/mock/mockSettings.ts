@@ -8,11 +8,37 @@
  * Sources (M6): the mock "build" has libretro and SteamGridDB, not
  * ScreenScraper (no developer credentials). "Test key" for SteamGridDB:
  * no key stored → `missing`; a key whose value started with `bad` →
- * `invalid` (only that boolean is remembered, in memory, never the value);
- * otherwise `ok`. ScreenScraper answers `unavailable`; libretro (no key)
- * is a `bad-request`.
+ * `invalid`, with `offline` → `offline` (only that verdict is remembered,
+ * in memory, never the value); otherwise `ok`. ScreenScraper answers
+ * `unavailable`; libretro (no key) is a `bad-request`.
+ *
+ * Integraciones (integrations spec): `integrationsView` computes each
+ * card's state with a TS port of the D6 precedence (test scaffolding; the
+ * shipped rule is `coverly_core::integrations::state`). «Probar conexión»
+ * and saving or forgetting a key change the card for the session, like
+ * the app's in-memory health, and so does a fill's gather (Rust's
+ * `note_troubles`: answered → `connected`, refused → `error`). URL switches, read once when the backend is
+ * created (like `?mockPick=`):
+ *
+ * - `?mockIntegrations=empty` nothing stored, catalogue off; `saved` all
+ *   three keys stored (SteamGridDB on); `error` SteamGridDB stored and
+ *   refused by its last test; `quota` a developer build whose ScreenScraper
+ *   account is stored and its daily quota used up; `dev` a developer build
+ *   with the account stored (its test reports a quota); `nodev` the
+ *   default, every official build: ScreenScraper `unavailable`.
+ * - `?mockKeychain=locked|denied|unavailable` the keychain refuses: saving
+ *   or clearing fails with `keychain-<kind>`, and credentialed cards are
+ *   `error` with that reason (never `not-configured`).
+ * - `?mockPlatform=macos|windows|linux` what `appInfo().platform` says
+ *   (picks the per-OS keychain copy; default `macos`).
  */
 import { CREDITS } from '@/lib/credits';
+import {
+  WORKING,
+  integration,
+  integrationForSource,
+  type Integration,
+} from '@/lib/integrations';
 import { previewProfile, validateProfile } from '@/lib/profileTemplate';
 import {
   DEFAULT_SETTINGS,
@@ -38,13 +64,21 @@ import {
   type CredentialKey,
   type CredentialStatus,
   type FoundTool,
+  type IntegrationReason,
+  type IntegrationState,
+  type IntegrationTestResult,
+  type IntegrationNotice,
+  type IntegrationView,
   type KeyCheck,
+  type KeychainKind,
   type ProfileFile,
   type ProfileInfo,
   type Settings,
   type SettingsNotice,
   type SourceId,
   type SourceInfo,
+  type SourceTrouble,
+  type SsQuota,
 } from '../types';
 
 /** Folder names and ids of the mock's systems: a custom quarantine may
@@ -87,6 +121,10 @@ export type MockSettingsApi = Pick<
   | 'clearCredential'
   | 'sourcesInfo'
   | 'testSourceKey'
+  | 'integrationsView'
+  | 'testIntegration'
+  | 'forgetIntegration'
+  | 'openIntegrationHelp'
 > & {
   /** Folders and links "opened", in order (`folder:logs`, `link:repo`). */
   readonly opened: string[];
@@ -99,21 +137,116 @@ export type MockSettingsApi = Pick<
   isSourceReady(id: SourceId): boolean;
   /** Enabled, but a stored key the fake API refuses (`bad…`). */
   isSourceRefused(id: SourceId): boolean;
+  /** The cards as `integrationsView` gives them, synchronously (the
+   * organise mock builds its plan notices from them). */
+  integrationViews(): IntegrationView[];
+  /** Enabled, but a needed credential is not stored (it was forgotten
+   * after the source was turned on): a gather reports `missing-key`. */
+  isSourceMissingKey(id: SourceId): boolean;
+  /** Rust's `note_troubles`: a source that answered a run is `connected`,
+   * a refused one `error`/`invalid`; a missing key changes nothing
+   * (presence already says it). */
+  noteTroubles(
+    troubles: readonly SourceTrouble[],
+    answered: readonly SourceId[],
+  ): void;
 };
 
-/** What the mock build carries (ScreenScraper needs dev credentials). */
-const BUILT: Record<SourceId, boolean> = {
-  libretro: true,
-  steamgriddb: true,
-  screenscraper: false,
-  embedded: true,
+export type MockIntegrationsScenario =
+  'empty' | 'saved' | 'error' | 'quota' | 'nodev' | 'dev';
+export const MOCK_INTEGRATIONS_SCENARIOS: readonly MockIntegrationsScenario[] =
+  ['empty', 'saved', 'error', 'quota', 'nodev', 'dev'];
+export type MockKeychainScenario = Exclude<KeychainKind, 'failed'>;
+export const MOCK_KEYCHAIN_SCENARIOS: readonly MockKeychainScenario[] = [
+  'locked',
+  'denied',
+  'unavailable',
+];
+export const MOCK_PLATFORMS = ['macos', 'windows', 'linux'] as const;
+
+function urlSwitch<T extends string>(
+  name: string,
+  allowed: readonly T[],
+): T | null {
+  try {
+    const v = new URLSearchParams(window.location.search).get(name);
+    return (allowed as readonly (string | null)[]).includes(v)
+      ? (v as T)
+      : null;
+  } catch {
+    return null; // no window
+  }
+}
+
+/** `?mockIntegrations=`, or null (the default build). */
+export const readMockIntegrations = () =>
+  urlSwitch('mockIntegrations', MOCK_INTEGRATIONS_SCENARIOS);
+/** `?mockKeychain=`, or null (a keychain that works). */
+export const readMockKeychain = () =>
+  urlSwitch('mockKeychain', MOCK_KEYCHAIN_SCENARIOS);
+/** `?mockPlatform=`, else `macos`. */
+export const readMockPlatform = (): string =>
+  urlSwitch('mockPlatform', MOCK_PLATFORMS) ?? 'macos';
+
+/** Like Rust's `sources_info`: what a source needs comes from the registry. */
+const NEEDS = (id: SourceId): readonly CredentialKey[] =>
+  integrationForSource(id)?.fields.map((f) => f.key) ?? [];
+
+/** What the developer-build ScreenScraper test reports. */
+const MOCK_SS_QUOTA: SsQuota = {
+  requests_today: 1234,
+  max_requests_per_day: 20_000,
+  max_threads: 1,
 };
-const NEEDS: Record<SourceId, readonly CredentialKey[]> = {
-  libretro: [],
-  steamgriddb: ['steamgriddb-api-key'],
-  screenscraper: [],
-  embedded: [],
+const MOCK_SS_USED_UP: SsQuota = {
+  requests_today: 20_000,
+  max_requests_per_day: 20_000,
+  max_threads: 1,
 };
+/** Like Rust's `QUOTA_TTL_SECS`: a used-up quota counts for a day. */
+const QUOTA_TTL_SECS = 24 * 60 * 60;
+
+/** What a test or job said, and when (unix seconds). */
+interface Seen {
+  verdict: KeyCheck;
+  at: number;
+}
+
+/** TS port of `coverly_core::integrations::state` (D6), for the mock. */
+export function mockCardState(i: {
+  entry: Integration;
+  enabled: boolean;
+  built: boolean;
+  /** Stored or not per key; a kind = the keychain could not be read. */
+  presence: Partial<Record<CredentialKey, boolean>> | KeychainKind;
+  health: Seen | undefined;
+  quota: { quota: SsQuota; at: number } | null;
+  now: number;
+}): { state: IntegrationState; reason?: IntegrationReason } {
+  if (!i.enabled) return { state: 'off' };
+  if (!i.built) return { state: 'unavailable' };
+  const presence = i.presence;
+  if (typeof presence === 'string')
+    return { state: 'error', reason: { kind: 'keychain', detail: presence } };
+  const missing = i.entry.fields.find((f) => f.required && !presence[f.key]);
+  if (missing)
+    return {
+      state: 'not-configured',
+      reason: { kind: 'missing', detail: missing.input },
+    };
+  const q = i.quota;
+  if (
+    q &&
+    q.quota.max_requests_per_day > 0 &&
+    q.quota.requests_today >= q.quota.max_requests_per_day &&
+    i.now - q.at < QUOTA_TTL_SECS
+  )
+    return { state: 'quota' };
+  const v = i.health?.verdict;
+  if (v === 'ok') return { state: 'connected' };
+  if (v === undefined || v === 'missing') return { state: 'saved' };
+  return { state: 'error', reason: { kind: 'check', detail: v } };
+}
 
 /** The simulated `titles.<REGION>.<lang>.json` + `ncas.json` download. */
 const MOCK_CATALOG_BYTES = 92_400_000;
@@ -189,6 +322,12 @@ export function createMockSettings(opts: {
   /** How long the simulated Switch catalogue download takes (default
    * 2 s; 0 in tests). */
   catalogMs?: number;
+  /** The `?mockIntegrations=` scenario (null = the default build). */
+  integrations?: MockIntegrationsScenario | null;
+  /** The `?mockKeychain=` failure (null = a keychain that works). */
+  keychain?: MockKeychainScenario | null;
+  /** «Now» for checks and quotas (unix seconds; default the clock). */
+  now?: number;
 }): MockSettingsApi {
   const { storage, builtins } = opts;
   const toolsFound = (opts.externalTools ?? []).map((t) => ({ ...t }));
@@ -238,8 +377,34 @@ export function createMockSettings(opts: {
       isObject(storedCreds) && storedCreds[k] === true,
     ]),
   ) as Record<CredentialKey, boolean>;
-  /** Keys whose stored value would be refused by the source (memory only). */
-  const rejected = new Set<CredentialKey>();
+  /** What the fake API says about a stored value (memory only): `bad…`
+   * is refused, `offline…` cannot be reached, `down…` reaches a service
+   * that does not answer. Never the value itself. */
+  const verdicts = new Map<
+    CredentialKey,
+    'invalid' | 'offline' | 'unavailable'
+  >();
+  const scenario = opts.integrations ?? null;
+  const keychain = opts.keychain ?? null;
+  const now = () => opts.now ?? Math.floor(Date.now() / 1000);
+  /** ScreenScraper is in this build only with developer credentials. */
+  const ssBuilt = scenario === 'dev' || scenario === 'quota';
+  const built = (id: SourceId) => id !== 'screenscraper' || ssBuilt;
+  /** The cards' health and the last ScreenScraper quota (memory only). */
+  const health = new Map<string, Seen>();
+  let ssQuota: { quota: SsQuota; at: number } | null = null;
+  /** Saving or clearing a key: what was said about the old one is gone. */
+  const forgetHealthOf = (key: CredentialKey) => {
+    const e = WORKING.find((w) => w.fields.some((f) => f.key === key));
+    if (!e) return;
+    health.delete(e.id);
+    if (e.id === 'screenscraper') ssQuota = null;
+  };
+  const keychainFails = () => {
+    if (keychain) throw new BackendError(`keychain-${keychain}`);
+  };
+  /** Stored and readable (a refusing keychain shows nothing stored). */
+  const present = (k: CredentialKey) => keychain === null && creds[k];
   let cacheBytes = 48 * 1024 * 1024;
   /** The Switch catalogue (adjustments D2): downloaded once «Descargar
    * ahora» (or turning it on) ran, in `catalogMs` with progress events
@@ -269,11 +434,57 @@ export function createMockSettings(opts: {
             }
           : { state: 'pending' };
 
+  // The scenario's starting point (memory only; the next change saves it).
+  const enableSources = (ids: readonly SourceId[]) => {
+    settings = cloneSettings(settings);
+    settings.sources.order = settings.sources.order.map((e) =>
+      ids.includes(e.id) ? { ...e, enabled: true } : e,
+    );
+  };
+  const seed = (keys: readonly CredentialKey[]) => {
+    for (const k of CREDENTIAL_KEYS) creds[k] = keys.includes(k);
+  };
+  const ssKeys: CredentialKey[] = [
+    'screenscraper-user',
+    'screenscraper-password',
+  ];
+  switch (scenario) {
+    case 'empty':
+      seed([]);
+      settings = cloneSettings(settings);
+      settings.catalogs.switch.enabled = false;
+      break;
+    case 'saved':
+      seed(CREDENTIAL_KEYS);
+      enableSources(['steamgriddb']);
+      break;
+    case 'error':
+      creds['steamgriddb-api-key'] = true;
+      verdicts.set('steamgriddb-api-key', 'invalid');
+      health.set('steamgriddb', { verdict: 'invalid', at: now() });
+      enableSources(['steamgriddb']);
+      break;
+    case 'quota':
+      for (const k of ssKeys) creds[k] = true;
+      ssQuota = { quota: { ...MOCK_SS_USED_UP }, at: now() };
+      enableSources(['screenscraper']);
+      break;
+    case 'dev':
+      for (const k of ssKeys) creds[k] = true;
+      enableSources(['screenscraper']);
+      break;
+    case 'nodev':
+    case null:
+      break;
+  }
+
   const save = () => write(storage, MOCK_STORAGE_KEYS.settings, settings);
   const emit = () => listeners.forEach((cb) => cb(cloneSettings(settings)));
   const status = (): CredentialStatus => ({
-    available: true,
-    set: { ...creds },
+    available: keychain !== 'unavailable',
+    set: Object.fromEntries(
+      CREDENTIAL_KEYS.map((k) => [k, present(k)]),
+    ) as Record<CredentialKey, boolean>,
   });
   const infos = (): ProfileInfo[] => [
     ...builtins.map((b) => structuredClone(b)),
@@ -286,10 +497,74 @@ export function createMockSettings(opts: {
   const sources = (): SourceInfo[] =>
     KNOWN_SOURCES.map((id) => ({
       id,
-      built: BUILT[id],
-      needs: [...NEEDS[id]],
-      ready: BUILT[id] && NEEDS[id].every((k) => creds[k]),
+      built: built(id),
+      needs: [...NEEDS(id)],
+      ready: built(id) && NEEDS(id).every(present),
     }));
+  /** The fake API's answer to one cheap request with the stored keys. */
+  const check = (source: SourceId): IntegrationTestResult => {
+    const keys = NEEDS(source);
+    if (keys.length === 0)
+      throw new BackendError(
+        'bad-request',
+        `no key to test for \`${String(source)}\``,
+      );
+    if (!built(source)) return { verdict: 'unavailable' };
+    keychainFails();
+    if (!keys.every((k) => creds[k])) return { verdict: 'missing' };
+    const said = keys.map((k) => verdicts.get(k)).find((v) => v);
+    if (said) return { verdict: said };
+    if (source !== 'screenscraper') return { verdict: 'ok' };
+    const quota = scenario === 'quota' ? MOCK_SS_USED_UP : MOCK_SS_QUOTA;
+    return { verdict: 'ok', quota: { ...quota } };
+  };
+  const enabledOf = (e: Integration) =>
+    e.source
+      ? settings.sources.order.some((o) => o.id === e.source && o.enabled)
+      : e.id === 'switch-catalog'
+        ? settings.catalogs.switch.enabled
+        : true;
+  /** Like Rust's `view_of`, field order and left-out optionals included. */
+  const view = (): IntegrationView[] =>
+    WORKING.map((e) => {
+      const on = enabledOf(e);
+      const isBuilt = e.source ? built(e.source) : true;
+      const presence: Partial<Record<CredentialKey, boolean>> | KeychainKind =
+        e.fields.length > 0 && keychain
+          ? keychain
+          : Object.fromEntries(e.fields.map((f) => [f.key, present(f.key)]));
+      const seen = health.get(e.id);
+      const quota = e.id === 'screenscraper' ? ssQuota : null;
+      const { state, reason } = mockCardState({
+        entry: e,
+        // A build that cannot use it cannot turn it on either.
+        enabled: on || !isBuilt,
+        built: isBuilt,
+        presence,
+        health: seen,
+        quota,
+        now: now(),
+      });
+      return {
+        id: e.id,
+        enabled: on,
+        built: isBuilt,
+        fields: e.fields.map((f) => ({ key: f.key, set: present(f.key) })),
+        state,
+        ...(reason && { reason }),
+        ...(seen && { checked_at: seen.at }),
+        ...(quota && { quota: { ...quota.quota }, quota_at: quota.at }),
+      };
+    });
+  const working = (id: string): Integration => {
+    const e = WORKING.find((w) => w.id === id);
+    if (!e)
+      throw new BackendError(
+        'bad-request',
+        `\`${id}\` is not a working integration`,
+      );
+    return e;
+  };
   const credentialKey = (key: string): CredentialKey => {
     const k = CREDENTIAL_KEYS.find((c) => c === key);
     if (!k) throw new BackendError('bad-request', 'unknown credential key');
@@ -321,10 +596,28 @@ export function createMockSettings(opts: {
     isSourceReady: (id) =>
       sources().some((i) => i.id === id && i.ready) &&
       settings.sources.order.some((e) => e.id === id && e.enabled) &&
-      !NEEDS[id].some((k) => rejected.has(k)),
+      !NEEDS(id).some((k) => verdicts.get(k) === 'invalid'),
+    noteTroubles(troubles, answered) {
+      const at = now();
+      for (const source of answered) {
+        const e = integrationForSource(source);
+        if (e) health.set(e.id, { verdict: 'ok', at });
+      }
+      // The mock's jobs only ever report `auth` (no mock run uses up a
+      // quota; `?mockIntegrations=quota` seeds that state instead).
+      for (const t of troubles) {
+        const e = integrationForSource(t.source);
+        if (e && t.kind === 'auth')
+          health.set(e.id, { verdict: 'invalid', at });
+      }
+    },
+    integrationViews: () => view(),
+    isSourceMissingKey: (id) =>
+      settings.sources.order.some((e) => e.id === id && e.enabled) &&
+      NEEDS(id).some((k) => !present(k)),
     isSourceRefused: (id) =>
       settings.sources.order.some((e) => e.id === id && e.enabled) &&
-      NEEDS[id].some((k) => creds[k] && rejected.has(k)),
+      NEEDS(id).some((k) => present(k) && verdicts.get(k) === 'invalid'),
     getSettings: () =>
       Promise.resolve({
         settings: cloneSettings(settings),
@@ -507,35 +800,89 @@ export function createMockSettings(opts: {
       if ([...v].length > 512 || /\p{Cc}/u.test(v)) {
         throw new BackendError('bad-request', 'credential value');
       }
+      keychainFails();
       creds[k] = v.length > 0;
-      if (v.startsWith('bad')) rejected.add(k);
-      else rejected.delete(k);
+      if (v.startsWith('bad')) verdicts.set(k, 'invalid');
+      else if (v.startsWith('offline')) verdicts.set(k, 'offline');
+      else if (v.startsWith('down')) verdicts.set(k, 'unavailable');
+      else verdicts.delete(k);
+      forgetHealthOf(k);
       write(storage, MOCK_STORAGE_KEYS.credentials, creds);
       return status();
     },
     async clearCredential(key) {
       const k = credentialKey(key);
+      keychainFails();
       creds[k] = false;
-      rejected.delete(k);
+      verdicts.delete(k);
+      forgetHealthOf(k);
       write(storage, MOCK_STORAGE_KEYS.credentials, creds);
       return status();
     },
     sourcesInfo: () => Promise.resolve(sources()),
     async testSourceKey(source): Promise<KeyCheck> {
-      switch (source) {
-        case 'steamgriddb': {
-          const k: CredentialKey = 'steamgriddb-api-key';
-          if (!creds[k]) return 'missing';
-          return rejected.has(k) ? 'invalid' : 'ok';
-        }
-        case 'screenscraper':
-          return 'unavailable';
-        default:
-          throw new BackendError(
-            'bad-request',
-            `no key to test for \`${String(source)}\``,
-          );
+      if (!(KNOWN_SOURCES as readonly string[]).includes(source))
+        throw new BackendError(
+          'bad-request',
+          `no key to test for \`${String(source)}\``,
+        );
+      return check(source).verdict;
+    },
+    integrationsView: () => Promise.resolve(view()),
+    async testIntegration(id) {
+      const e = working(id);
+      if (!e.test || !e.source)
+        throw new BackendError(
+          'bad-request',
+          `\`${id}\` has no connection test`,
+        );
+      const result = check(e.source);
+      const at = now();
+      health.set(id, { verdict: result.verdict, at });
+      if (result.quota) ssQuota = { quota: { ...result.quota }, at };
+      return result;
+    },
+    async forgetIntegration(id) {
+      const e = working(id);
+      if (e.fields.length === 0)
+        throw new BackendError('bad-request', `\`${id}\` has no credentials`);
+      keychainFails();
+      for (const f of e.fields) {
+        creds[f.key] = false;
+        verdicts.delete(f.key);
+        forgetHealthOf(f.key);
       }
+      write(storage, MOCK_STORAGE_KEYS.credentials, creds);
+      return view();
+    },
+    async openIntegrationHelp(id) {
+      // Like Rust: the URL comes from the registry, never the webview.
+      if (!integration(id)?.help_url)
+        throw new BackendError('bad-request', `\`${id}\` has no help page`);
+      opened.push(`help:${id}`);
     },
   };
+}
+
+/** Rust's `organize_notices` (integrations spec D28, plan IP-2): from the
+ * cards after a survey, ScreenScraper when it is enabled in a build that
+ * can use it but has no account or no quota left (online plans only),
+ * and the Switch catalogue when it is off and the pile has Switch items. */
+export function organizeNotices(
+  views: readonly IntegrationView[],
+  offline: boolean,
+  hasSwitch: boolean,
+): IntegrationNotice[] {
+  const out: IntegrationNotice[] = [];
+  const ss = views.find((v) => v.id === 'screenscraper');
+  if (ss && ss.enabled && ss.built && !offline) {
+    if (ss.state === 'not-configured')
+      out.push({ integration: ss.id, problem: 'missing' });
+    else if (ss.state === 'quota')
+      out.push({ integration: ss.id, problem: 'quota' });
+  }
+  const sw = views.find((v) => v.id === 'switch-catalog');
+  if (sw && hasSwitch && !sw.enabled)
+    out.push({ integration: sw.id, problem: 'off' });
+  return out;
 }

@@ -106,9 +106,15 @@ describe('searchSettings', () => {
 
 describe('credit entries', () => {
   it('finds a credit by its name, in the Credits tab', () => {
-    const hit = searchSettings('ScreenScraper', 'es')[0];
-    expect(hit?.id).toBe('credit-screenscraper');
+    const hit = searchSettings('Redump', 'es')[0];
+    expect(hit?.id).toBe('credit-redump');
     expect(hit?.section).toBe('credits');
+  });
+
+  it('puts a service card ahead of its credit', () => {
+    const ids = searchSettings('ScreenScraper', 'es').map((e) => e.id);
+    expect(ids[0]).toBe('integration-screenscraper');
+    expect(ids).toContain('credit-screenscraper');
   });
 
   it('keeps a setting ahead of a credit that only shares a word start', () => {
@@ -128,5 +134,57 @@ describe('the Credits tab', () => {
     expect(searchSettings(query, locale).map((e) => e.id)).toContain(
       'setting-credits-search',
     );
+  });
+});
+
+describe('integrations', () => {
+  const ids = (q: string, l: 'es' | 'en') =>
+    searchSettings(q, l).map((e) => e.id);
+
+  it.each(['es', 'en'] as const)('finds each card by its name (%s)', (l) => {
+    expect(ids('steamgriddb', l)[0]).toBe('integration-steamgriddb');
+    expect(ids('screenscraper', l)[0]).toBe('integration-screenscraper');
+    expect(ids('actualizaciones', 'es')).toContain('integration-updates');
+    expect(ids('updates', 'en')).toContain('integration-updates');
+  });
+
+  it.each(['es', 'en'] as const)('finds a card by its field (%s)', (l) => {
+    expect(ids('api key', l)[0]).toBe('integration-steamgriddb');
+    expect(ids('token', l)[0]).toBe('integration-steamgriddb');
+    expect(ids('password', l)[0]).toBe('integration-screenscraper');
+  });
+
+  it('finds ScreenScraper by «contraseña» and «usuario»', () => {
+    expect(ids('contraseña', 'es')[0]).toBe('integration-screenscraper');
+    expect(ids('usuario', 'es')).toContain('integration-screenscraper');
+  });
+
+  it.each(['es', 'en'] as const)(
+    'finds the coming-later list by a planned name (%s)',
+    (l) => {
+      expect(ids('igdb', l)[0]).toBe('integrations-planned');
+      expect(ids('retroachievements', l)).toContain('integrations-planned');
+    },
+  );
+
+  it.each(['es', 'en'] as const)(
+    'finds the Switch catalogue by titledb and its fallback by nlib (%s)',
+    (l) => {
+      expect(ids('titledb', l)).toContain(
+        'setting-integrations-switch-catalog',
+      );
+      const nlib = searchSettings('nlib', l);
+      const url = nlib.find(
+        (e) => e.id === 'setting-integrations-switch-catalog-fallback-url',
+      );
+      expect(url?.section).toBe('integrations');
+      expect(url?.fold).toBe('integrations-switch-advanced');
+    },
+  );
+
+  it('lands on the moved catalogue, never on a Sources id', () => {
+    expect(
+      searchSettings('titledb', 'es').some((e) => e.section === 'sources'),
+    ).toBe(false);
   });
 });

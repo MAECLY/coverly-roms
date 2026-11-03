@@ -8,6 +8,10 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
+/// The OS credential store, shared by the app and the CLI.
+#[cfg(feature = "keychain")]
+pub mod keychain;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CredentialKey {
@@ -45,6 +49,9 @@ pub enum CredentialError {
     Unavailable,
     #[error("the credential store is locked")]
     Locked,
+    /// The system (or the person at a prompt) refused access.
+    #[error("access to the credential store was denied")]
+    Denied,
     #[error("credential store error: {0}")]
     Failed(String),
     #[error("the value is too long or holds control characters")]
@@ -223,13 +230,17 @@ pub struct UserCredentials {
     pub password: Secret,
 }
 
-/// Environment variables the CLI reads keys from (it has no keychain).
+/// Environment variables the CLI reads keys from (before the keychain).
 pub const SGDB_KEY_ENV: &str = "COVERLY_SGDB_KEY";
 pub const SS_USER_ENV: &str = "COVERLY_SS_USER";
 pub const SS_PASSWORD_ENV: &str = "COVERLY_SS_PASSWORD";
 
+/// Per key, whether a usable value is stored; `Err` = the store failed.
+pub type Presence = Result<Vec<(CredentialKey, bool)>, CredentialError>;
+
 /// Every credential a fill may use, read once when the job starts (the
-/// app: keychain; the CLI: environment). Workers never touch the keychain.
+/// app: keychain; the CLI: environment, then keychain). Workers never
+/// touch the keychain.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SourceKeys {
     pub steamgriddb: Option<Secret>,
@@ -255,18 +266,31 @@ impl SourceKeys {
     /// [`Self::from_store`] and whether every read succeeded (a locked or
     /// failing store gives empty keys that are not worth remembering).
     pub fn read_store(store: &dyn CredentialStore) -> (SourceKeys, bool) {
-        let mut complete = true;
-        let mut get = |k| match store.get(k) {
+        let (keys, presence) = SourceKeys::read_with_presence(store);
+        (keys, presence.is_ok())
+    }
+
+    /// One pass over the store: the usable keys and, per key, whether a
+    /// usable value is stored (never the values). The presence is the
+    /// first error when any read failed: «could not look» is not «unset».
+    pub fn read_with_presence(store: &dyn CredentialStore) -> (SourceKeys, Presence) {
+        let mut first_error = None;
+        let values = CredentialKey::ALL.map(|k| match store.get(k) {
             Ok(v) => usable(v),
-            Err(_) => {
-                complete = false;
+            Err(e) => {
+                first_error.get_or_insert(e);
                 None
             }
+        });
+        let presence = match first_error {
+            Some(e) => Err(e),
+            None => Ok(CredentialKey::ALL
+                .into_iter()
+                .zip(values.iter().map(Option::is_some))
+                .collect()),
         };
-        let sgdb = get(CredentialKey::SteamgriddbApiKey);
-        let user = get(CredentialKey::ScreenscraperUser);
-        let password = get(CredentialKey::ScreenscraperPassword);
-        (SourceKeys::assemble(sgdb, user, password), complete)
+        let [sgdb, user, password] = values;
+        (SourceKeys::assemble(sgdb, user, password), presence)
     }
 
     /// The keys in the environment (`lookup` is `std::env::var` in the CLI).
@@ -297,6 +321,19 @@ impl SourceKeys {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keychain_names_are_pinned_so_stored_keys_keep_working() {
+        let names: Vec<&str> = CredentialKey::ALL.iter().map(|k| k.account()).collect();
+        assert_eq!(
+            names,
+            [
+                "steamgriddb-api-key",
+                "screenscraper-user",
+                "screenscraper-password"
+            ]
+        );
+    }
 
     #[test]
     fn a_secret_never_prints_its_value() {
@@ -359,5 +396,25 @@ mod tests {
         let user = k.screenscraper_user.clone().unwrap();
         assert_eq!((user.user.expose(), user.password.expose()), ("me", "pw"));
         assert!(!format!("{k:?}").contains("pw"));
+    }
+
+    #[test]
+    fn one_pass_gives_the_keys_and_what_is_stored_without_values() {
+        let store = MemoryStore::default();
+        store.set(CredentialKey::SteamgriddbApiKey, "sk-1").unwrap();
+        store.set(CredentialKey::ScreenscraperUser, "   ").unwrap();
+        let (keys, presence) = SourceKeys::read_with_presence(&store);
+        assert_eq!(store.reads(), CredentialKey::ALL.len());
+        assert!(keys.steamgriddb.is_some());
+        assert_eq!(
+            presence.unwrap(),
+            vec![
+                (CredentialKey::SteamgriddbApiKey, true),
+                (CredentialKey::ScreenscraperUser, false),
+                (CredentialKey::ScreenscraperPassword, false),
+            ]
+        );
+        let (_, failed) = SourceKeys::read_with_presence(&MemoryStore::unavailable());
+        assert_eq!(failed, Err(CredentialError::Unavailable));
     }
 }

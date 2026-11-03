@@ -206,6 +206,33 @@ describe('Tauri backend', () => {
     ]);
   });
 
+  it('sends the integration commands with the id', async () => {
+    const calls: [string, unknown][] = [];
+    const views = sample.integration_views;
+    mockIPC((cmd, args) => {
+      calls.push([cmd, args]);
+      if (cmd === 'integrations_view' || cmd === 'forget_integration')
+        return views;
+      if (cmd === 'test_integration') return sample.integration_test_result;
+      return null;
+    });
+    const b = createTauriBackend();
+    expect(await b.integrationsView()).toEqual(views);
+    expect(await b.testIntegration('screenscraper')).toEqual(
+      sample.integration_test_result,
+    );
+    expect(await b.forgetIntegration('steamgriddb')).toEqual(views);
+    await b.openIntegrationHelp('steamgriddb');
+    await b.openLink('roadmap');
+    expect(calls).toEqual([
+      ['integrations_view', {}],
+      ['test_integration', { id: 'screenscraper' }],
+      ['forget_integration', { id: 'steamgriddb' }],
+      ['open_integration_help', { id: 'steamgriddb' }],
+      ['open_link', { link: 'roadmap' }],
+    ]);
+  });
+
   it('lists the known systems', async () => {
     const calls: [string, unknown][] = [];
     mockIPC((cmd, args) => {

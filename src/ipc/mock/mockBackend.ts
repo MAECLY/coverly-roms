@@ -23,7 +23,15 @@ import {
   type MockExtractRate,
   type MockOrganizeTouch,
 } from './mockOrganize';
-import { createMockSettings } from './mockSettings';
+import {
+  createMockSettings,
+  organizeNotices,
+  readMockIntegrations,
+  readMockKeychain,
+  readMockPlatform,
+  type MockIntegrationsScenario,
+  type MockKeychainScenario,
+} from './mockSettings';
 import {
   createMockUpdates,
   readMockUpdateScenario,
@@ -76,6 +84,14 @@ export interface MockOptions {
   /** The external archive tools Settings → Organise lists as found
    * (default none). */
   externalTools?: readonly FoundTool[];
+  /** The integrations scenario (default: `?mockIntegrations=`, else the
+   * official build: no ScreenScraper). */
+  integrations?: MockIntegrationsScenario | null;
+  /** A refusing keychain (default: `?mockKeychain=`, else none). */
+  keychain?: MockKeychainScenario | null;
+  /** What `appInfo().platform` says (default: `?mockPlatform=`, else
+   * `macos`). */
+  platform?: string;
   /** The duplicates plans' library volume has a Trash (default true). */
   dedupeTrashAvailable?: boolean;
   /** The first duplicates apply of each job pauses (disk full) after this
@@ -516,6 +532,13 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     builtins: [...MOCK_BUILTIN_PROFILES],
     ...(opts.externalTools ? { externalTools: opts.externalTools } : {}),
     catalogMs: delayMs > 0 ? 2000 : 0,
+    integrations:
+      opts.integrations === undefined
+        ? readMockIntegrations()
+        : opts.integrations,
+    keychain: opts.keychain === undefined ? readMockKeychain() : opts.keychain,
+    // The live clock in the browser, so «hace 2 min» moves; tests pin it.
+    ...(opts.now !== undefined && { now: opts.now }),
   });
   const jobs = createMockJobs(
     {
@@ -535,6 +558,9 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       now,
       sgdbReady: () => settings.isSourceReady('steamgriddb'),
       sgdbRefused: () => settings.isSourceRefused('steamgriddb'),
+      sgdbMissing: () => settings.isSourceMissingKey('steamgriddb'),
+      noteTroubles: (troubles, answered) =>
+        settings.noteTroubles(troubles, answered),
       organizing: () => organize.isApplying() || dedupe.isDedupeApplying(),
     },
     {
@@ -553,6 +579,8 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       tick: () => new Promise<void>((r) => setTimeout(r, delayMs)),
       now,
       exports: jobs.exports,
+      integrationNotices: (offline, hasSwitch) =>
+        organizeNotices(settings.integrationViews(), offline, hasSwitch),
     },
     {
       pauseAfter: opts.organizePauseAfter ?? null,
@@ -582,6 +610,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const updateLog: string[] = [];
   const updates = createMockUpdates({
     scenario: opts.update ?? readMockUpdateScenario(),
+    platform: opts.platform ?? readMockPlatform(),
     tick: () => sleep(delayMs),
     log: updateLog,
     jobBusy: () => jobs.isBusy(),

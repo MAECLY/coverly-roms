@@ -121,7 +121,7 @@ PS5, Xbox, Xbox 360 y Xbox One se reconocen por la cabecera en claro de su
 propio formato, leyendo unos pocos kilobytes; no se lee nada cifrado, y Coverly
 nunca lee, pide, descarga ni incluye claves de consola. Los nombres de Switch
 salen del title ID, sin claves, con un catálogo opcional (blawar/titledb, MIT)
-que está apagado hasta que lo activas en Configuración → Fuentes; sin red se
+que está apagado hasta que lo activas en Configuración → Integraciones; sin red se
 usa el nombre del archivo, y un juego cuyo nombre no se puede leer sin claves
 aparece como «Cifrado» en vez de adivinarse. Un juego que es una carpeta (PS3,
 PS Vita, Wii U, PS4, Xbox…) se mueve como un solo elemento y nunca se parte,
@@ -169,12 +169,26 @@ antes de ejecutarlo. Los trabajos se pueden pausar, reanudar, cancelar y
 deshacer.
 
 **Configuración.** General, Biblioteca, Organizar, Duplicados, Perfiles, Arte,
-Coincidencias, Fuentes, Red, Seguridad, Avanzado, Agradecimientos y Acerca de,
-en tres grupos. Las opciones comunes van primero y el resto espera en _Opciones
-avanzadas_. Busca con ⌘F (Ctrl+F en Windows y Linux) y llega al ajuste. Las
-pantallas de Duplicados y Organizar abren su pestaña y vuelven con lo que
-habías elegido. Los perfiles de formato propios tienen vista previa de las
-rutas. Las claves de API se guardan en el llavero del sistema.
+Coincidencias, Fuentes, Integraciones, Red, Seguridad, Avanzado,
+Agradecimientos y Acerca de, en tres grupos. Las opciones comunes van primero y
+el resto espera en _Opciones avanzadas_. Busca con ⌘F (Ctrl+F en Windows y
+Linux) y llega al ajuste. Las pantallas de Duplicados y Organizar abren su
+pestaña y vuelven con lo que habías elegido. Los perfiles de formato propios
+tienen vista previa de las rutas.
+
+**Integraciones.** Configuración → Integraciones tiene una tarjeta por cada
+servicio con el que Coverly habla en tu nombre: SteamGridDB (clave de API),
+ScreenScraper (cuenta), el catálogo de nombres de Switch y un enlace a
+Actualizaciones. Cada tarjeta dice para qué sirve el servicio, muestra su
+estado (sin configurar, guardada, conectado, error con qué hacer, cuota
+agotada, desactivado) y tiene «Probar conexión», «Cómo conseguir la clave» (la
+página de cuenta del propio servicio), desactivar sin borrar y «Olvidar
+credenciales». Las claves se guardan en el llavero del sistema y nunca se
+vuelven a mostrar; si el llavero está bloqueado o niega el acceso, el aviso
+dice qué hacer en tu sistema. La cuota diaria de ScreenScraper se muestra
+cuando el servicio la informa. Rellenar, Organizar y la línea de comandos
+llevan a la tarjeta cuando falta una cuenta o se agota una cuota. Las claves
+que ya habías guardado siguen funcionando.
 
 **Agradecimientos.** Configuración → Agradecimientos lista cada fuente de
 portadas y metadatos, base de datos, referencia técnica, biblioteca y
@@ -401,8 +415,9 @@ CPC, PICO-8, ScummVM y DOS.
   (`thumbnails.libretro.com`): la de serie. Sin cuenta.
 - **[SteamGridDB](https://www.steamgriddb.com/)**: opcional, con tu propia
   clave de API. Los votos de su comunidad alimentan la estrategia Popularidad.
-  En la app la clave se guarda en el llavero del sistema; la CLI la lee de
-  `COVERLY_SGDB_KEY`.
+  Se configura en Configuración → Integraciones y se guarda en el llavero del
+  sistema; la CLI lee primero `COVERLY_SGDB_KEY` y, si no está, la clave que
+  guardó la app.
 - **ScreenScraper**: previsto para una versión posterior, aún no disponible
   como fuente de imágenes. Hoy solo se usa para identificar archivos al
   organizar, si lo tienes configurado.
@@ -511,17 +526,18 @@ descarga que no pasa la comprobación no se instala. Hay canal estable y beta.
 `coverly` es la misma lógica que la app, para la terminal. Como la app, no
 escribe nada salvo que pases `--apply`.
 
-| Orden      | Qué hace                                                                                                       |
-| ---------- | -------------------------------------------------------------------------------------------------------------- |
-| `audit`    | Informa de qué ROMs no tienen portada, captura o título (solo lectura)                                         |
-| `catalog`  | Gestiona el catálogo opcional de nombres de Switch (`switch status`, `update`, `remove`)                       |
-| `fill`     | Rellena las imágenes que faltan desde las fuentes activas (simulación salvo con `--apply`)                     |
-| `organize` | Reparte un montón de ROMs sueltas en una carpeta por sistema (simulación salvo con `--apply`)                  |
-| `dedupe`   | Encuentra el mismo juego guardado dos veces en un sistema y aparta las copias (simulación salvo con `--apply`) |
-| `profiles` | Lista los perfiles de formato, de serie y propios                                                              |
-| `systems`  | Lista los sistemas conocidos y sus nombres de carpeta                                                          |
-| `undo`     | Deshace el último trabajo (relleno, organización o duplicados), o el que indiques con `--job`                  |
-| `update`   | Comprueba si hay un `coverly` más nuevo, o lo instala (verificado con minisign)                                |
+| Orden          | Qué hace                                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------------------------- |
+| `audit`        | Informa de qué ROMs no tienen portada, captura o título (solo lectura)                                         |
+| `catalog`      | Gestiona el catálogo opcional de nombres de Switch (`switch status`, `update`, `remove`)                       |
+| `fill`         | Rellena las imágenes que faltan desde las fuentes activas (simulación salvo con `--apply`)                     |
+| `integrations` | Lista, prueba, guarda u olvida las cuentas y claves de servicios en línea (`list`, `test`, `set`, `forget`)    |
+| `organize`     | Reparte un montón de ROMs sueltas en una carpeta por sistema (simulación salvo con `--apply`)                  |
+| `dedupe`       | Encuentra el mismo juego guardado dos veces en un sistema y aparta las copias (simulación salvo con `--apply`) |
+| `profiles`     | Lista los perfiles de formato, de serie y propios                                                              |
+| `systems`      | Lista los sistemas conocidos y sus nombres de carpeta                                                          |
+| `undo`         | Deshace el último trabajo (relleno, organización o duplicados), o el que indiques con `--job`                  |
+| `update`       | Comprueba si hay un `coverly` más nuevo, o lo instala (verificado con minisign)                                |
 
 La ayuda de `coverly` está en inglés; la tabla traduce su descripción.
 
@@ -536,6 +552,9 @@ coverly dedupe /Volumes/SD                    # simulación: qué copia se queda
 coverly dedupe /Volumes/SD --apply            # las aparta en /Volumes/SD/_Duplicados
 coverly dedupe /Volumes/SD --apply --trash    # o las manda a la Papelera
 coverly catalog switch update                 # descarga el catálogo opcional de nombres de Switch
+coverly integrations list                     # qué servicios están activos y qué claves hay guardadas
+printf %s "$KEY" | coverly integrations set steamgriddb   # guarda una clave, leída de stdin
+coverly integrations test steamgriddb         # una petición con la clave guardada
 coverly undo --list
 coverly undo                                  # deshace el último trabajo
 ```
@@ -568,9 +587,20 @@ candidatos e índices en caché), `--report table|json`, `--output ARCHIVO`.
 también los trabajos posteriores que tocaron la misma carpeta, del más nuevo al
 más antiguo).
 
-**Variables de entorno:** `COVERLY_SGDB_KEY` (clave de SteamGridDB; la CLI no
-usa el llavero), `COVERLY_SS_USER` y `COVERLY_SS_PASSWORD` (cuenta de
-ScreenScraper, para `organize`).
+**`integrations`:** `list [--json]`, `test ID [--json]`, `set ID [--field
+user|password|api-key] [--from-env VARIABLE]`, `forget ID [--yes]`. `set` nunca
+recibe el secreto como argumento: lo lee de stdin (sin eco si lo escribes) o
+de la variable que indique `--from-env`. Ninguna salida muestra un valor, solo
+`set` o `not set`. Códigos de salida: 0 bien, 1 la prueba falló (clave
+incorrecta, falta, servicio caído) o el llavero lo rechazó, 2 uso incorrecto,
+5 sin red o límite de peticiones.
+
+**Variables de entorno:** `COVERLY_SGDB_KEY` (clave de SteamGridDB),
+`COVERLY_SS_USER` y `COVERLY_SS_PASSWORD` (cuenta de ScreenScraper, para
+`organize`). Si la variable está definida, manda; si no, la CLI usa la clave
+que la app guardó en el llavero del sistema, y solo hacia la dirección del
+propio servicio (nunca con `--steamgriddb-url` ni otro destino propio).
+`COVERLY_NO_KEYCHAIN=1` desactiva el llavero.
 
 `coverly <orden> --help` lista todas las opciones.
 
@@ -585,8 +615,11 @@ ScreenScraper, para `organize`).
   los archivos de claves y licencias de la tarjeta no se tocan.
 - **Las imágenes se recodifican** antes de escribirse, así que no llevan
   metadatos.
-- **Tu clave de SteamGridDB se queda en el llavero del sistema** y solo se
-  envía a SteamGridDB, en una cabecera `Authorization: Bearer`.
+- **Tus claves se quedan en el llavero del sistema.** La de SteamGridDB solo
+  se envía a SteamGridDB, en una cabecera `Authorization: Bearer`, y la cuenta
+  de ScreenScraper solo a ScreenScraper. Nada vuelve a mostrar una clave
+  guardada, y los registros solo dicen si hay una o no. Abrir Configuración no
+  envía nada; «Probar conexión» hace una petición cuando la pulsas.
 - **La auditoría solo lee.** Rellenar, organizar y apartar duplicados no
   escriben nada hasta que aplicas, nunca fuera de la raíz de la biblioteca, y
   cada trabajo se puede deshacer. Los duplicados se apartan o van a la
@@ -658,7 +691,8 @@ tarjeta, y Deshacer la devuelve.
 <summary><b>¿Necesito una cuenta?</b></summary>
 
 No. libretro-thumbnails funciona sin cuenta. SteamGridDB es opcional: usa tu
-propia clave, que se guarda en el llavero del sistema.
+propia clave, que se guarda en el llavero del sistema; añádela en
+Configuración → Integraciones.
 
 </details>
 

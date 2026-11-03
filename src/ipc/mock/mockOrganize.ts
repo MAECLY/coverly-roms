@@ -87,6 +87,7 @@ import {
   type OrganizeItem,
   type OrganizeItemOutcome,
   type OrganizeJobView,
+  type IntegrationNotice,
   type OrganizePlan,
   type OrganizeProgressEvent,
   type OrganizeReport,
@@ -1529,6 +1530,11 @@ export interface MockOrganizeHost {
   tick(): Promise<void>;
   now: number;
   exports: MockExport[];
+  /** Rust's plan notices (integrations IP-2), from the integration cards. */
+  integrationNotices?(
+    offline: boolean,
+    hasSwitch: boolean,
+  ): IntegrationNotice[];
 }
 
 export interface MockOrganizeOptions {
@@ -2286,6 +2292,11 @@ export function createMockOrganize(
     const updates = items.filter((i) =>
       i.notes.some((n) => n.kind === 'update' || n.kind === 'dlc'),
     ).length;
+    const notices =
+      host.integrationNotices?.(
+        r.offline,
+        items.some((i) => i.system_id === 'switch'),
+      ) ?? [];
     const plan: OrganizePlan = {
       source_root: r.source,
       target_root: r.target,
@@ -2322,6 +2333,8 @@ export function createMockOrganize(
         r.trash && duplicates.length > 0 && r.duplicates === 'set-aside',
       // Rows that are an update or DLC of a game; Rust omits it when 0.
       ...(updates > 0 && { updates }),
+      // Rust leaves the notices out when there are none.
+      ...(notices.length > 0 && { integration_notices: notices }),
     };
     return { plan, files };
   }

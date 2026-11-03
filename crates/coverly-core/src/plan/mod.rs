@@ -3,7 +3,7 @@
 //! reaches the auto threshold, `review` between the thresholds, `none`
 //! otherwise. Shown as the dry run; applied by `jobs::apply_plan`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ use crate::matching::{
 };
 use crate::profiles::{Media, Profile};
 use crate::progress::PauseKind;
-use crate::sources::{Candidate, MatchKind};
+use crate::sources::{Candidate, MatchKind, SourceTrouble};
 use crate::systems::SystemDb;
 
 /// Plan settings (spec §9 defaults).
@@ -212,6 +212,12 @@ pub struct Plan {
     /// The kind of `paused`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pause_kind: Option<PauseKind>,
+    /// The sources that refused the gather (from [`Gathered::troubles`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub troubles: Vec<SourceTrouble>,
+    /// The sources that answered the gather (from [`Gathered::answered`]).
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub answered: BTreeSet<String>,
 }
 
 impl Plan {
@@ -228,6 +234,8 @@ impl Plan {
             warnings: Vec::new(),
             paused: None,
             pause_kind: None,
+            troubles: Vec::new(),
+            answered: BTreeSet::new(),
         };
         plan.recount();
         plan
@@ -433,6 +441,8 @@ pub fn build_plan(
         warnings: gathered.warnings.clone(),
         paused: gathered.paused.clone(),
         pause_kind: gathered.pause_kind,
+        troubles: gathered.troubles.clone(),
+        answered: gathered.answered.clone(),
     }
 }
 

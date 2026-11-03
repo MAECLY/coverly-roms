@@ -59,6 +59,8 @@ export function createMockUpdates(opts: {
   tick: () => Promise<void>;
   log: string[];
   jobBusy: () => boolean;
+  /** What `appInfo().platform` says (default `macos`). */
+  platform?: string;
 }): MockUpdatesApi {
   const listeners = new Set<(p: UpdateProgress) => void>();
   let phase: 'idle' | 'available' | 'downloaded' | 'installed' = 'idle';
@@ -73,6 +75,7 @@ export function createMockUpdates(opts: {
         name: 'Coverly ROMs',
         version: APP_VERSION,
         core_version: APP_VERSION,
+        platform: opts.platform ?? 'macos',
       }),
     async checkForUpdates(trigger) {
       opts.log.push(`check:${trigger}`);

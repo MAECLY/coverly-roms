@@ -83,6 +83,7 @@
       "art": "Arte",
       "matching": "Coincidencias",
       "sources": "Fuentes",
+      "integrations": "Integraciones",
       "network": "Red",
       "safety": "Seguridad",
       "advanced": "Avanzado",
@@ -179,58 +180,8 @@
         "embedded": "Usa el icono que traen algunos juegos: primero en PS4, PS5, Xbox One y Xbox Series; en PS3, PS Vita, Wii U, 3DS y Xbox 360, cuando no hay carátula en otra fuente"
       },
       "notBuilt": "No disponible en esta versión",
-      "needsKey": "Guarda una clave de API abajo para activarla",
       "up": "Subir {name}",
-      "down": "Bajar {name}",
-      "credentials": "Cuentas",
-      "credentialsHint": "Se guardan en el llavero del sistema, nunca en el archivo de configuración, y no se vuelven a mostrar.",
-      "credential": {
-        "steamgriddb-api-key": "Clave de API de SteamGridDB",
-        "screenscraper-user": "Usuario de ScreenScraper",
-        "screenscraper-password": "Contraseña de ScreenScraper"
-      },
-      "save": "Guardar {what}",
-      "saveShort": "Guardar",
-      "show": "Mostrar {what}",
-      "remove": "Quitar {what}",
-      "removeShort": "Quitar",
-      "stored": "Guardada en el llavero del sistema.",
-      "notStored": "Sin configurar.",
-      "testKey": "Probar",
-      "testKeyLabel": "Probar {what}",
-      "testing": "Probando…",
-      "check": {
-        "ok": "La clave funciona.",
-        "invalid": "La clave fue rechazada.",
-        "missing": "No hay ninguna clave guardada.",
-        "offline": "No se pudo contactar con el servidor.",
-        "rate-limited": "El servidor pide esperar; inténtalo más tarde.",
-        "unavailable": "El servidor no pudo comprobarla ahora."
-      },
-      "switchCatalog": {
-        "title": "Catálogo de Switch",
-        "label": "Catálogo de nombres de Switch",
-        "hint": "Descarga la lista pública de blawar/titledb (unos {size}, se queda en tu equipo) para poner nombre a los juegos de Switch. No usa ni pide claves.",
-        "statusOff": "Desactivado",
-        "status": "{count} títulos, actualizado el {date}",
-        "statusFallback": "{count} títulos de la lista de Estados Unidos, actualizado el {date}",
-        "downloading": "Descargando {done} de {total}",
-        "downloadingUnknown": "Descargando {done}",
-        "pending": "Descarga del catálogo pendiente",
-        "failedOld": "No se pudo actualizar; se usan los datos del {date}.",
-        "failedNone": "No se pudo descargar; se usan los nombres de archivo.",
-        "rejected": "El catálogo trae datos que Coverly no acepta; se mantiene el anterior.",
-        "removeFailed": "No se pudo borrar; cierra otras ventanas de Coverly.",
-        "download": "Descargar ahora",
-        "check": "Buscar actualización",
-        "remove": "Borrar catálogo",
-        "icons": "Iconos de Switch",
-        "iconsHint": "Se descargan solo cuando se ven y solo se muestran en Coverly.",
-        "fallback": "Respaldo en línea",
-        "fallbackUrl": "Dirección del respaldo",
-        "fallbackHint": "Si un juego no está en el catálogo, se envía su title ID a este servicio para preguntar el nombre.",
-        "fallbackHttps": "Tiene que empezar por {scheme}"
-      }
+      "down": "Bajar {name}"
     },
     "network": {
       "concurrency": "Descargas simultáneas",
@@ -496,7 +447,24 @@
     "volume-gone": "El volumen de la biblioteca se ha retirado o ya no está accesible: {detail}",
     "keychain-unavailable": "Este sistema no tiene un almacén de credenciales (llavero) que Coverly ROMs pueda usar.",
     "keychain-locked": "El llavero está bloqueado. Desbloquéalo y vuelve a intentarlo.",
+    "keychain-denied": "El sistema no dio permiso para usar el llavero.",
     "keychain-failed": "El llavero rechazó la petición: {detail}",
+    "keychainOs": {
+      "locked": {
+        "macos": "El llavero de macOS está bloqueado. Desbloquéalo en Acceso a Llaveros y vuelve a intentarlo; desde una sesión SSH, ejecuta antes «security unlock-keychain».",
+        "linux": "El depósito de claves está bloqueado. Desbloquéalo en Contraseñas y claves o en KWalletManager y vuelve a intentarlo."
+      },
+      "denied": {
+        "macos": "macOS no dio permiso para usar el llavero. Vuelve a intentarlo y elige «Permitir» en el aviso.",
+        "windows": "Windows denegó el acceso al Administrador de credenciales. Comprueba que tu cuenta no tiene restricciones de directiva.",
+        "linux": "El servicio de secretos denegó el acceso. Acepta el aviso de desbloqueo; en Flatpak, permite «org.freedesktop.secrets»."
+      },
+      "unavailable": {
+        "macos": "No se encuentra el llavero de inicio de sesión. Revísalo en Acceso a Llaveros.",
+        "windows": "El Administrador de credenciales no está disponible en esta sesión. Abre Coverly ROMs desde tu sesión de Windows (no como servicio ni tarea programada) o cierra sesión y vuelve a entrar.",
+        "linux": "No hay un servicio de secretos en marcha o no tiene un depósito por defecto. Instala o inicia GNOME Keyring o KWallet, crea un depósito «Inicio de sesión» y vuelve a abrir Coverly ROMs."
+      }
+    },
     "update-offline": "No se pudo contactar con el servidor de actualizaciones. Comprueba la conexión y reinténtalo.",
     "update-signature": "La actualización descargada no superó la comprobación de firma y NO se instaló. No se cambió nada.",
     "update-unavailable": "No se encontró ninguna actualización para este canal y sistema: todavía no hay ninguna publicada o el servidor de actualizaciones no pudo darla.",
@@ -1092,7 +1060,7 @@
       "priority": "Prefiere la primera fuente y después el orden de abajo.",
       "popularity": "Prefiere la imagen con más votos en SteamGridDB; sin votos, la variante en la que más fuentes y tipos de arte coinciden; después, la prioridad de fuentes."
     },
-    "popularityNoKey": "SteamGridDB no está listo, así que no se usan votos: añade una clave en Ajustes → Fuentes.",
+    "popularityNoKey": "SteamGridDB no está listo, así que no se usan votos.",
     "regions": "Orden de regiones",
     "regionRom": "La región de la propia ROM",
     "moveUp": "Subir {region}",
@@ -1661,5 +1629,217 @@
   },
   "progress": {
     "perMinute": "{n} por minuto"
+  },
+  "integrations": {
+    "intro": "Cuentas, claves y servicios que Coverly ROMs usa en tu nombre. Las claves se guardan en el llavero del sistema y nunca se vuelven a mostrar.",
+    "group": {
+      "art": "Portadas y arte",
+      "names": "Nombres y metadatos",
+      "achievements": "Logros",
+      "catalogs": "Catálogos",
+      "updates": "Actualizaciones",
+      "planned": "Próximamente"
+    },
+    "enabled": "Activado",
+    "show": "Mostrar {what}",
+    "save": "Guardar",
+    "saveWhat": "Guardar {what}",
+    "saving": "Guardando…",
+    "field": {
+      "user": {
+        "label": "Usuario",
+        "saved": "Guardado en el llavero"
+      },
+      "password": {
+        "label": "Contraseña",
+        "saved": "Guardada en el llavero"
+      },
+      "api-key": {
+        "label": "Clave de API",
+        "saved": "Guardada en el llavero"
+      },
+      "client-id": {
+        "label": "Client ID",
+        "saved": "Guardado en el llavero"
+      },
+      "secret": {
+        "label": "Secret",
+        "saved": "Guardado en el llavero"
+      }
+    },
+    "needs": {
+      "user": "usuario",
+      "password": "contraseña",
+      "api-key": "clave de API",
+      "client-id": "client ID",
+      "secret": "secret",
+      "none": "sin cuenta"
+    },
+    "test": "Probar conexión",
+    "testing": "Probando…",
+    "forget": "Olvidar credenciales",
+    "forgetConfirm": "¿Olvidar las credenciales de {name}? Se borran del llavero de este equipo.",
+    "forgetYes": "Olvidar",
+    "cancel": "Cancelar",
+    "savedAnnounce": "{field}: se ha guardado en el llavero.",
+    "howTo": "Cómo conseguir la clave",
+    "howToAccount": "Cómo conseguir la cuenta",
+    "privacy": "Qué se envía",
+    "credit": "Crédito en Agradecimientos",
+    "order": "Fuentes: posición {n} de {total}",
+    "configure": "Configurar",
+    "configureIn": "Configurar en Integraciones",
+    "configureService": "Configurar {name}",
+    "quotaToday": "Hoy: {used} de {max} peticiones",
+    "threads": "Hilos: {n}",
+    "seen": "Visto {time}",
+    "links": {
+      "network": "Proxy y límites en Red",
+      "sources": "Orden de fuentes en Fuentes",
+      "credits": "Créditos en Agradecimientos",
+      "label": "Pestañas relacionadas"
+    },
+    "planned": {
+      "plan": "Ver el plan"
+    },
+    "releases": "Ver versiones",
+    "empty": "Para empezar, consigue una clave gratuita de SteamGridDB: añade portadas a juegos que libretro no tiene.",
+    "emptyScreenscraper": "ScreenScraper, con cuenta, identifica ROMs por su hash.",
+    "ssUnavailable": "Esta versión aún no incluye acceso a ScreenScraper. Puedes guardar tu cuenta para cuando llegue.",
+    "state": {
+      "off": "Desactivado",
+      "unavailable": "No disponible",
+      "not-configured": "Sin configurar",
+      "saved": "Guardada",
+      "connected": "Conectado",
+      "error": "Error",
+      "quota": "Cuota agotada",
+      "pending": "Pendiente",
+      "downloading": "Descargando",
+      "ready": "Listo",
+      "on-launch": "Al abrir",
+      "manual": "Manual"
+    },
+    "stateLine": {
+      "off": {
+        "fill": "Actívalo para usarlo al rellenar portadas.",
+        "organize": "Actívalo para usar sus nombres al organizar."
+      },
+      "missing": {
+        "api-key": "Falta la clave de API.",
+        "account": "Falta la cuenta.",
+        "user": "Falta el usuario.",
+        "password": "Falta la contraseña."
+      },
+      "saved": "Sin comprobar en esta sesión.",
+      "connected": "Comprobado {time}.",
+      "quota": "Has usado {used} de {max} peticiones hoy. Vuelve mañana; mientras, el relleno sigue con las demás fuentes.",
+      "quotaUsedUp": "Cuota diaria agotada. Vuelve mañana; mientras, el relleno sigue con las demás fuentes."
+    },
+    "check": {
+      "ok": "Funciona.",
+      "invalid": "Credenciales incorrectas. Revisa la clave o vuelve a generarla en la web del servicio.",
+      "missing": "Falta la clave. Guárdala arriba y vuelve a probar.",
+      "offline": "Sin red. Comprueba la conexión o el proxy en Red.",
+      "rate-limited": "Cuota agotada, demasiadas peticiones o API cerrada por ahora. Prueba más tarde.",
+      "unavailable": "El servicio no responde. Puede estar caído; prueba más tarde."
+    },
+    "catalog": {
+      "offHint": "Al desactivarlo se borra el catálogo descargado y se apagan los iconos y el respaldo; se puede volver a descargar."
+    },
+    "switchCatalog": {
+      "label": "Catálogo de nombres de Switch",
+      "hint": "Descarga la lista pública de blawar/titledb (unos {size}, se queda en tu equipo) para poner nombre a los juegos de Switch. No usa ni pide claves.",
+      "status": "{count} títulos, actualizado el {date}",
+      "statusFallback": "{count} títulos de la lista de Estados Unidos, actualizado el {date}",
+      "downloading": "Descargando {done} de {total}",
+      "downloadingUnknown": "Descargando {done}",
+      "pending": "Descarga del catálogo pendiente",
+      "failedOld": "No se pudo actualizar; se usan los datos del {date}.",
+      "failedNone": "No se pudo descargar; se usan los nombres de archivo.",
+      "rejected": "El catálogo trae datos que Coverly no acepta; se mantiene el anterior.",
+      "removeFailed": "No se pudo borrar; cierra otras ventanas de Coverly.",
+      "download": "Descargar ahora",
+      "check": "Buscar actualización",
+      "remove": "Borrar catálogo",
+      "icons": "Iconos de Switch",
+      "iconsHint": "Se descargan solo cuando se ven y solo se muestran en Coverly.",
+      "fallback": "Respaldo en línea",
+      "fallbackUrl": "Dirección del respaldo",
+      "fallbackHint": "Si un juego no está en el catálogo, se envía su title ID a este servicio para preguntar el nombre.",
+      "fallbackHttps": "Tiene que empezar por {scheme}"
+    },
+    "badValue": "La clave no es válida: tiene caracteres de control o es demasiado larga.",
+    "missingAccount": "Sin cuenta",
+    "missingKey": "Sin clave",
+    "updates": {
+      "channel": "Canal: {channel}",
+      "change": "Cambiar en General",
+      "checkOnLaunch": "Buscar al abrir, en General"
+    },
+    "notice": {
+      "missing": "{name} sin clave",
+      "missingAccount": "{name} sin cuenta",
+      "rejected": "{name} rechazó las credenciales",
+      "quota": "Cuota de {name} agotada por hoy",
+      "off": "{name} desactivado"
+    },
+    "organize": {
+      "switchOff": "Los nombres de Switch salen del archivo; activa el catálogo de Switch para usar los oficiales."
+    },
+    "keywords": {
+      "planned": "próximamente, igdb, retroachievements, thegamesdb, rawg, microsoft store, gametdb, wikidata, twitch",
+      "fallback": "nlib, api.nlib.cc, title ID, respaldo"
+    },
+    "service": {
+      "steamgriddb": {
+        "use": "Portadas hechas por la comunidad para juegos que libretro no tiene.",
+        "unlocks": "Portadas verticales; más adelante, anchas, fondos, logos e iconos.",
+        "steps": "Inicia sesión con Steam, abre Preferencias › API y genera una clave.",
+        "privacy": "Se envía el nombre del juego que buscas y tu clave. Nunca rutas, hashes ni el resto de tu biblioteca.",
+        "keywords": "api key, clave de api, clave, token, steam"
+      },
+      "screenscraper": {
+        "use": "Medios e identificación por hash en Organizar, con tu cuenta.",
+        "unlocks": "Capturas, pantallas de título e identificación exacta de ROMs.",
+        "steps": "Crea una cuenta gratuita y usa aquí tu usuario y contraseña.",
+        "privacy": "Se envían el nombre del archivo, su tamaño, sus hashes CRC, MD5 y SHA-1 y el sistema (o el título, si no hay hash), con tu usuario y contraseña cifrados por HTTPS. Nunca la ruta completa ni el contenido de los archivos.",
+        "keywords": "usuario, contraseña, cuenta, password, login, cuota, hilos"
+      },
+      "switch-catalog": {
+        "name": "Catálogo de Switch",
+        "use": "Nombres, editora y fecha de los juegos de Switch por title ID al organizar.",
+        "unlocks": "Nombres de Switch en Organizar e iconos de la eShop.",
+        "privacy": "Se descarga un archivo público; no se envía nada de tu biblioteca. Los iconos, si los activas, se piden a la eShop de Nintendo, juego a juego. El respaldo en línea, si lo activas, recibe el title ID que falta.",
+        "keywords": "titledb, nlib, title id, eshop, iconos"
+      },
+      "updates": {
+        "name": "Actualizaciones de Coverly",
+        "use": "Comprueba si hay una versión nueva de Coverly ROMs en GitHub.",
+        "privacy": "Se descarga un archivo público («latest.json») de las versiones de Coverly ROMs en GitHub; no se envía nada de tu biblioteca. GitHub ve tu dirección IP, como en cualquier descarga.",
+        "keywords": "actualizaciones, versión, canal, github, latest.json"
+      },
+      "igdb": {
+        "use": "Arte, metadatos e IDs externos"
+      },
+      "retroachievements": {
+        "use": "Logros por juego"
+      },
+      "thegamesdb": {
+        "use": "Fanart, logos y fichas"
+      },
+      "rawg": {
+        "use": "Fondos y fichas, solo para ver"
+      },
+      "microsoft-store": {
+        "use": "Arte y nombres por ID de la tienda"
+      },
+      "gametdb": {
+        "use": "Cajas, discos y nombres por ID de juego"
+      },
+      "wikidata": {
+        "use": "Puente entre los IDs de cada servicio"
+      }
+    }
   }
 }

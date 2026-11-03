@@ -278,3 +278,29 @@ fn popularity_items_explain_votes_and_a_pick_becomes_the_users() {
     plan.decide(&BTreeMap::from([(n, Decision::Pick { candidate: 1 })]));
     assert_eq!(plan.items[n].reason, Some(PickReason::User));
 }
+
+#[test]
+fn the_plan_carries_the_troubles_and_answered_sources_of_the_gather() {
+    use coverly_core::sources::{SourceTrouble, TroubleKind};
+    let dir = lib();
+    let profile = common::profile("anbernic-stock");
+    let db = SystemDb::builtin();
+    let mut g = gathered(dir.path());
+    let plan = build_plan(dir.path(), &profile, &db, &g, &PlanOptions::default());
+    let json = serde_json::to_value(&plan).unwrap();
+    assert!(
+        json.get("troubles").is_none() && json.get("answered").is_none(),
+        "both skip when empty, so plan JSON is unchanged"
+    );
+    g.troubles = vec![SourceTrouble {
+        source: "screenscraper".into(),
+        kind: TroubleKind::Exhausted,
+    }];
+    g.answered.insert("libretro".into());
+    let plan = build_plan(dir.path(), &profile, &db, &g, &PlanOptions::default());
+    assert_eq!(plan.troubles, g.troubles);
+    assert_eq!(plan.answered, g.answered);
+    let json = serde_json::to_value(&plan).unwrap();
+    assert_eq!(json["troubles"][0]["kind"], "exhausted");
+    assert_eq!(json["answered"][0], "libretro");
+}

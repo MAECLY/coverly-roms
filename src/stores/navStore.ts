@@ -10,6 +10,7 @@ export type SettingsSection =
   | 'art'
   | 'matching'
   | 'sources'
+  | 'integrations'
   | 'network'
   | 'safety'
   | 'advanced'
@@ -25,6 +26,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'art',
   'matching',
   'sources',
+  'integrations',
   'network',
   'safety',
   'advanced',
@@ -46,6 +48,7 @@ export const SETTINGS_GROUPS: Readonly<
   art: 'covers',
   matching: 'covers',
   sources: 'covers',
+  integrations: 'covers',
   network: 'app',
   safety: 'app',
   advanced: 'app',

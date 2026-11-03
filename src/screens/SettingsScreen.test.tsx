@@ -80,6 +80,7 @@ describe('Settings screen', () => {
       'Art',
       'Matching',
       'Sources',
+      'Integrations',
       'Network',
       'Safety',
       'Advanced',
@@ -141,6 +142,26 @@ describe('Settings screen', () => {
     await waitFor(() => expect(list).toHaveFocus());
     expect(list).toHaveAttribute('id', 'setting-matching-regions');
     expect(useNavStore.getState().focusSetting).toBeNull();
+  });
+
+  it('lands on the row of a setting that is turned off', async () => {
+    await start();
+    act(() =>
+      useNavStore.getState().openSettings('integrations', {
+        focus: 'setting-integrations-switch-catalog-fallback-url',
+      }),
+    );
+    const field = await screen.findByRole('textbox', {
+      name: 'Fallback address',
+    });
+    expect(field).toBeDisabled();
+    const row = field.closest<HTMLElement>('[data-setting-row]');
+    await waitFor(() => expect(row).toHaveFocus());
+    expect(row).toHaveAttribute('data-arrived', 'true');
+    expect(useNavStore.getState().focusSetting).toBeNull();
+    // Leaving the row takes it out of the page again.
+    act(() => row?.blur());
+    expect(row).not.toHaveAttribute('tabindex');
   });
 
   it('focuses the tab when the target is missing', async () => {
@@ -475,35 +496,19 @@ describe('Settings screen', () => {
     );
   });
 
-  it('ignores a key test that ends after the key was saved or removed', async () => {
+  it('shows Integrations through its section, waiting for the settings like other tabs', async () => {
+    expect(SECTION_COMPONENTS.integrations).toBeTypeOf('function');
     await start();
-    act(() => useNavStore.getState().openSettings('sources'));
-    await backend.setCredential('steamgriddb-api-key', 'sk-old');
-    const pending: ((v: 'ok' | 'invalid') => void)[] = [];
-    backend.testSourceKey = () =>
-      new Promise((resolve) => pending.push(resolve));
-    const field = await screen.findByLabelText('SteamGridDB API key');
-    const testButton = await screen.findByRole('button', {
-      name: 'Test the SteamGridDB API key',
-    });
-    await waitFor(() => expect(testButton).toBeEnabled());
-    // Test the old key, then save a new one before the answer comes.
-    await userEvent.click(testButton);
-    await userEvent.type(field, 'sk-new');
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Save SteamGridDB API key' }),
+    act(() => useSettingsStore.setState({ status: 'loading' }));
+    act(() => useNavStore.getState().openSettings('integrations'));
+    const panel = await screen.findByRole('tabpanel', { name: 'Integrations' });
+    expect(within(panel).getByRole('status')).toHaveTextContent(
+      'Loading settings…',
     );
-    await act(async () => pending.shift()!('invalid'));
-    expect(screen.queryByText('The key was refused.')).not.toBeInTheDocument();
-    // Test again, then remove the key before the answer comes.
-    await waitFor(() => expect(testButton).toBeEnabled());
-    await userEvent.click(testButton);
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Remove SteamGridDB API key' }),
-    );
-    await act(async () => pending.shift()!('ok'));
-    expect(screen.queryByText('The key works.')).not.toBeInTheDocument();
-    expect(testButton).not.toHaveTextContent('Testing…');
+    act(() => useSettingsStore.setState({ status: 'ready' }));
+    expect(
+      await within(panel).findByText(/Accounts, keys and services/),
+    ).toBeInTheDocument();
   });
 
   it('shows About with the licence and opens fixed links only', async () => {
@@ -526,8 +531,11 @@ describe('Settings screen', () => {
       act(() => useNavStore.getState().openSettings(section));
       await screen.findByRole('tabpanel', {
         name:
-          { duplicates: 'Duplicates', sources: 'Sources' }[section as string] ??
-          'General',
+          {
+            duplicates: 'Duplicates',
+            sources: 'Sources',
+            integrations: 'Integrations',
+          }[section as string] ?? 'General',
       });
       return screen.getByRole('combobox', { name: 'Search settings' });
     }
@@ -602,10 +610,9 @@ describe('Settings screen', () => {
     });
 
     it('types a slash inside a hidden API key instead of searching', async () => {
-      const search = await openOn('MacIntel', 'sources');
-      const key = (await screen.findByLabelText(
-        'SteamGridDB API key',
-      )) as HTMLInputElement;
+      const search = await openOn('MacIntel', 'integrations');
+      // Only SteamGridDB asks for an API key.
+      const key = (await screen.findByLabelText('API key')) as HTMLInputElement;
       expect(key).toHaveAttribute('type', 'password');
       await userEvent.click(key);
       await userEvent.keyboard('ab/cd');
@@ -638,6 +645,59 @@ describe('Settings screen', () => {
       expect(useNavStore.getState().openFolds).toContain('organize-advanced');
       expect(search).toHaveValue('');
       expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+
+    it('moves focus to the tab a related-tab link opens', async () => {
+      await openOn('MacIntel', 'integrations');
+      await userEvent.click(
+        await screen.findByRole('button', {
+          name: 'Proxy and limits in Network',
+        }),
+      );
+      const tab = screen.getByRole('tab', { name: /^Network/ });
+      await waitFor(() => expect(tab).toHaveFocus());
+      expect(useNavStore.getState().section).toBe('network');
+    });
+
+    it('names the integration card a setting sits in', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'switch icons');
+      const results = screen.getByRole('listbox');
+      expect(
+        within(results)
+          .getAllByRole('option', { name: /Switch icons/ })
+          .map((o) => o.textContent),
+      ).toContain('Switch iconsIntegrations › Switch catalogue');
+    });
+
+    it('lands on the SteamGridDB card from «api key», opening it', async () => {
+      await backend.setCredential('steamgriddb-api-key', 'sk');
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'api key');
+      const results = screen.getByRole('listbox');
+      expect(within(results).getAllByRole('option')[0]).toHaveTextContent(
+        /^SteamGridDBIntegrations$/,
+      );
+      await userEvent.keyboard('{Enter}');
+      const header = await waitFor(() => {
+        const el = document.getElementById('integration-steamgriddb');
+        if (!el) throw new Error('no card yet');
+        return el;
+      });
+      await waitFor(() => expect(header).toHaveFocus());
+      expect(useNavStore.getState().section).toBe('integrations');
+      expect(header).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('names the fold of the nlib fallback address inside Integrations', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'nlib');
+      const results = screen.getByRole('listbox');
+      expect(
+        within(results)
+          .getAllByRole('option', { name: /Fallback address/ })
+          .map((o) => o.textContent),
+      ).toContain('Fallback addressIntegrations › Advanced options');
     });
 
     it('clears with Escape and then returns to the selected tab', async () => {

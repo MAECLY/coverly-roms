@@ -252,6 +252,51 @@ fn an_online_plan_with_a_switch_item_fetches_the_catalogue_first() {
 }
 
 #[test]
+fn a_plan_with_switch_items_names_the_catalogue_while_it_is_off() {
+    use coverly_core::integrations::{Notice, Problem};
+    let server = MockServer::start();
+    let config = TempDir::new().unwrap();
+    let st = state(&config, &server);
+    let pile = TempDir::new().unwrap();
+    write_old(pile.path(), "Quest [0100000000AA0000][v0].nsp", b"PFS0");
+    let off = Notice {
+        integration: "switch-catalog".into(),
+        problem: Problem::Off,
+    };
+    // Off by default: names come from the file, and the plan says so.
+    let view = st
+        .organize_plan(&request(pile.path(), true), &[], Arc::new(Quiet::default()))
+        .unwrap();
+    assert_eq!(view.plan.integration_notices, vec![off.clone()]);
+    let json = serde_json::to_value(&view.plan).unwrap();
+    assert_eq!(
+        json["integration_notices"],
+        json!([{ "integration": "switch-catalog", "problem": "off" }])
+    );
+    // On: nothing to say.
+    switch_on(&st);
+    let view = st
+        .organize_plan(&request(pile.path(), true), &[], Arc::new(Quiet::default()))
+        .unwrap();
+    assert!(view.plan.integration_notices.is_empty());
+    let json = serde_json::to_value(&view.plan).unwrap();
+    assert!(json.get("integration_notices").is_none());
+    // No Switch item: nothing either, even with the catalogue off.
+    st.update_settings(&json!({ "catalogs": { "switch": { "enabled": false } } }))
+        .unwrap();
+    let other = TempDir::new().unwrap();
+    write_old(other.path(), "Alpha (USA).gba", &fixtures::gba_tagged(b'A'));
+    let view = st
+        .organize_plan(
+            &request(other.path(), true),
+            &[],
+            Arc::new(Quiet::default()),
+        )
+        .unwrap();
+    assert!(!view.plan.integration_notices.contains(&off));
+}
+
+#[test]
 fn credit_links_resolve_from_the_compiled_credits_only() {
     assert_eq!(
         credit_url("screenscraper", CreditLink::Site).unwrap(),

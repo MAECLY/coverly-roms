@@ -38,19 +38,6 @@ async function open(section: SettingsSection) {
 
 const saved = async () => (await backend.getSettings()).settings;
 
-/** The «Test» verdict: the panel's live region other than the Switch
- * catalogue's status line. */
-const keyVerdict = (panel: HTMLElement) =>
-  within(panel)
-    .queryAllByRole('status')
-    .find((e) => e.dataset.testid !== 'switch-catalog-status') ?? null;
-const findKeyVerdict = (panel: HTMLElement) =>
-  waitFor(() => {
-    const v = keyVerdict(panel);
-    if (!v) throw new Error('no verdict yet');
-    return v;
-  });
-
 describe('settings sections', () => {
   beforeEach(() => {
     backend = createMockBackend({
@@ -252,141 +239,6 @@ describe('settings sections', () => {
     expect((await saved()).matching.review_threshold).toBe(0.65);
   });
 
-  it('sources: SteamGridDB turns on once a key is stored; the key never comes back', async () => {
-    const panel = await open('sources');
-    const sgdb = within(panel).getByRole('switch', { name: /SteamGridDB/ });
-    expect(sgdb).toBeDisabled();
-    expect(
-      within(panel).getByText('Store an API key below to turn it on'),
-    ).toBeInTheDocument();
-    const key = within(panel).getByLabelText('SteamGridDB API key');
-    expect(key).toHaveAttribute('type', 'password');
-    await userEvent.type(key, 'sk-SECRET');
-    await userEvent.click(
-      within(panel).getByRole('button', { name: 'Save SteamGridDB API key' }),
-    );
-    expect(
-      await within(panel).findByText('Saved in the system keychain.'),
-    ).toBeInTheDocument();
-    expect(key).toHaveValue('');
-    expect(sgdb).toBeEnabled();
-    expect(
-      within(panel).queryByText('Store an API key below to turn it on'),
-    ).not.toBeInTheDocument();
-    await userEvent.click(sgdb);
-    expect(
-      (await saved()).sources.order.find((e) => e.id === 'steamgriddb')!
-        .enabled,
-    ).toBe(true);
-    expect(document.body.innerHTML).not.toContain('sk-SECRET');
-    await userEvent.click(
-      within(panel).getByRole('button', { name: 'Remove SteamGridDB API key' }),
-    );
-    expect((await backend.credentialStatus()).set['steamgriddb-api-key']).toBe(
-      false,
-    );
-  });
-
-  it('sources: the typed key can be shown, and is hidden again once saved', async () => {
-    const panel = await open('sources');
-    const key = within(panel).getByLabelText('SteamGridDB API key');
-    const show = within(panel).getByRole('button', {
-      name: 'Show SteamGridDB API key',
-    });
-    expect(show).toBeDisabled();
-    await userEvent.type(key, 'sk-PEEK');
-    await userEvent.click(show);
-    expect(show).toHaveAttribute('aria-pressed', 'true');
-    expect(key).toHaveAttribute('type', 'text');
-    await userEvent.click(
-      within(panel).getByRole('button', { name: 'Save SteamGridDB API key' }),
-    );
-    await within(panel).findByText('Saved in the system keychain.');
-    expect(key).toHaveAttribute('type', 'password');
-    expect(show).toHaveAttribute('aria-pressed', 'false');
-    expect(document.body.innerHTML).not.toContain('sk-PEEK');
-  });
-
-  it('sources: screenscraper says not available in this build', async () => {
-    const panel = await open('sources');
-    expect(
-      within(panel).getByRole('switch', { name: /ScreenScraper/ }),
-    ).toBeDisabled();
-    expect(
-      within(panel).getByText('Not available in this build'),
-    ).toBeInTheDocument();
-    expect(
-      within(panel).queryByRole('button', {
-        name: 'Test the ScreenScraper password',
-      }),
-    ).not.toBeInTheDocument();
-  });
-
-  it('sources: Test reports ok, invalid and missing without showing the key', async () => {
-    const panel = await open('sources');
-    const test = within(panel).getByRole('button', {
-      name: 'Test the SteamGridDB API key',
-    });
-    expect(test).toBeDisabled();
-    const key = within(panel).getByLabelText('SteamGridDB API key');
-    await userEvent.type(key, 'bad-key');
-    await userEvent.click(
-      within(panel).getByRole('button', { name: 'Save SteamGridDB API key' }),
-    );
-    await within(panel).findByText('Saved in the system keychain.');
-    await userEvent.click(test);
-    expect(await findKeyVerdict(panel)).toHaveTextContent(
-      'The key was refused.',
-    );
-    await userEvent.type(key, 'sk-good');
-    await userEvent.click(
-      within(panel).getByRole('button', { name: 'Save SteamGridDB API key' }),
-    );
-    // A new key forgets the previous result.
-    expect(keyVerdict(panel)).toBeNull();
-    await userEvent.click(test);
-    expect(await findKeyVerdict(panel)).toHaveTextContent('The key works.');
-    expect(document.body.innerHTML).not.toContain('sk-good');
-    expect(document.body.innerHTML).not.toContain('bad-key');
-  });
-
-  it('sources: Test says the key is missing when it was removed elsewhere', async () => {
-    await backend.setCredential('steamgriddb-api-key', 'sk');
-    const panel = await open('sources');
-    const test = within(panel).getByRole('button', {
-      name: 'Test the SteamGridDB API key',
-    });
-    await waitFor(() => expect(test).toBeEnabled());
-    await backend.clearCredential('steamgriddb-api-key');
-    await userEvent.click(test);
-    expect(await findKeyVerdict(panel)).toHaveTextContent('No key is stored.');
-  });
-
-  it('sources: an enabled source without its key can still be turned off', async () => {
-    await backend.setCredential('steamgriddb-api-key', 'sk');
-    await backend.updateSettings({
-      sources: {
-        order: [
-          { id: 'libretro', enabled: true },
-          { id: 'steamgriddb', enabled: true },
-          { id: 'screenscraper', enabled: false },
-        ],
-      },
-    });
-    await backend.clearCredential('steamgriddb-api-key');
-    const panel = await open('sources');
-    const sgdb = within(panel).getByRole('switch', { name: /SteamGridDB/ });
-    expect(sgdb).toBeChecked();
-    expect(sgdb).toBeEnabled();
-    await userEvent.click(sgdb);
-    expect(
-      (await saved()).sources.order.find((e) => e.id === 'steamgriddb')!
-        .enabled,
-    ).toBe(false);
-    // Once off, it cannot be turned on again without a key.
-    await waitFor(() => expect(sgdb).toBeDisabled());
-  });
-
   it('sources: the image from the game files says what it is, needs no key and can be moved', async () => {
     await backend.updateSettings({ general: { language: 'es' } });
     render(<Root />);
@@ -402,7 +254,7 @@ describe('settings sections', () => {
       ),
     );
     expect(row).toBeEnabled();
-    // No key field: only SteamGridDB and ScreenScraper have credentials.
+    // No key field: credentials live in Integrations.
     expect(
       within(panel).queryByLabelText(/Imagen incluida en el juego/, {
         selector: 'input:not([role="switch"])',
@@ -423,22 +275,6 @@ describe('settings sections', () => {
       within(panel).getByText(
         `Imagen incluida en el juego: posición ${at} de ${order.length}`,
       ),
-    ).toBeInTheDocument();
-  });
-
-  it('sources: speaks Spanish', async () => {
-    await backend.updateSettings({ general: { language: 'es' } });
-    render(<Root />);
-    await screen.findByRole('button', { name: 'Configuración' });
-    act(() => useNavStore.getState().openSettings('sources'));
-    const panel = await screen.findByRole('tabpanel');
-    expect(
-      await within(panel).findByText('No disponible en esta versión'),
-    ).toBeInTheDocument();
-    expect(
-      within(panel).getByRole('button', {
-        name: 'Probar Clave de API de SteamGridDB',
-      }),
     ).toBeInTheDocument();
   });
 

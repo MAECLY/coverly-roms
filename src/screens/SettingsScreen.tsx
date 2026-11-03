@@ -14,6 +14,7 @@ import { CreditsSection } from '@/components/settings/CreditsSection';
 import { ArtSection } from '@/components/settings/ArtSection';
 import { DuplicatesSection } from '@/components/settings/DuplicatesSection';
 import { GeneralSection } from '@/components/settings/GeneralSection';
+import { IntegrationsSection } from '@/components/settings/IntegrationsSection';
 import { LibrarySection } from '@/components/settings/LibrarySection';
 import { OrganizeSection } from '@/components/settings/OrganizeSection';
 import { MatchingSection } from '@/components/settings/MatchingSection';
@@ -59,6 +60,7 @@ export const SECTION_COMPONENTS: Record<
   art: ArtSection,
   matching: MatchingSection,
   sources: SourcesSection,
+  integrations: IntegrationsSection,
   network: NetworkSection,
   safety: SafetySection,
   advanced: AdvancedSection,
@@ -84,6 +86,20 @@ function arrive(el: HTMLElement) {
     behavior: reduce ? 'auto' : 'smooth',
   });
   el.focus({ preventScroll: true });
+  // A turned-off control cannot take focus: land on its row instead, so
+  // focus does not stay in the search, and drop the row from the tab
+  // order once focus leaves it.
+  if (
+    document.activeElement !== el &&
+    row !== el &&
+    !row.hasAttribute('tabindex')
+  ) {
+    row.tabIndex = -1;
+    row.addEventListener('blur', () => row.removeAttribute('tabindex'), {
+      once: true,
+    });
+    row.focus({ preventScroll: true });
+  }
   row.dataset.arrived = 'true';
   window.clearTimeout(unmark.get(row));
   unmark.set(
@@ -181,6 +197,20 @@ export function SettingsScreen() {
   useEffect(() => {
     if (useNavStore.getState().focusSetting === null) heading.current?.focus();
   }, []);
+  // A link to another tab (Integraciones' «Proxy y límites en Red») goes
+  // with its panel: focus would fall to the page, so it moves to the tab
+  // it opened instead.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const el = document.activeElement;
+      if (useNavStore.getState().focusSetting !== null) return;
+      if (el && el !== document.body && el.isConnected) return;
+      tabList.current
+        ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+        ?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [section]);
   useEffect(() => {
     // Root loads them at start; this covers a screen shown without it.
     if (useSettingsStore.getState().status === 'idle')
@@ -199,12 +229,22 @@ export function SettingsScreen() {
       const nav = useNavStore.getState();
       const el = document.getElementById(focusSetting);
       if (!el) return false;
-      // Folded content is mounted but hidden (SP-3): open it, land next
-      // render.
-      const fold = el.closest<HTMLElement>('[data-advanced-fold]')?.dataset
-        .advancedFold;
-      if (fold && !nav.openFolds.includes(fold)) {
-        nav.setFold(fold, true);
+      // Folded content is mounted but hidden (SP-3): open every closed
+      // fold around it (a fold inside an integration card sits in two),
+      // land next render.
+      const closed: string[] = [];
+      for (
+        let node = el.closest<HTMLElement>('[data-advanced-fold]');
+        node;
+        node =
+          node.parentElement?.closest<HTMLElement>('[data-advanced-fold]') ??
+          null
+      ) {
+        const fold = node.dataset.advancedFold;
+        if (fold && !nav.openFolds.includes(fold)) closed.push(fold);
+      }
+      if (closed.length > 0) {
+        for (const fold of closed) nav.setFold(fold, true);
         return true;
       }
       arrive(el);

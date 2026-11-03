@@ -1,6 +1,8 @@
 //! `coverly catalog switch …` and the catalogue inside `coverly organize`
 //! (adjustments spec D2–D5, plan P-2), against a MockServer only.
 
+mod common;
+
 use std::fs;
 use std::path::Path;
 
@@ -28,7 +30,7 @@ fn settings(dir: &Path, enabled: bool) -> std::path::PathBuf {
 }
 
 fn catalog(settings: &Path, data: &Path, args: &[&str]) -> Command {
-    let mut cmd = Command::cargo_bin("coverly").unwrap();
+    let mut cmd = common::coverly();
     cmd.env(SETTINGS_ENV, settings)
         .args(["catalog", "switch"])
         .args(args)
@@ -69,7 +71,8 @@ fn update_with_the_setting_off_says_how_to_turn_it_on() {
     .assert()
     .code(2)
     .stderr(contains("the Switch catalogue is off"))
-    .stderr(contains("catalogs.switch.enabled"));
+    .stderr(contains("catalogs.switch.enabled"))
+    .stderr(contains("Integrations settings"));
     assert_eq!(server.requests().len(), 0);
     assert!(!data.path().join(CATALOG_FILE).exists());
 }
@@ -138,7 +141,7 @@ fn a_failed_download_is_an_error() {
 
 /// `coverly organize` on a pile with one Switch file, catalogue on.
 fn organize(settings: &Path, data: &Path, cache: &Path, pile: &Path, extra: &[&str]) -> Command {
-    let mut cmd = Command::cargo_bin("coverly").unwrap();
+    let mut cmd = common::coverly();
     cmd.env(SETTINGS_ENV, settings)
         .arg("organize")
         .args(extra)

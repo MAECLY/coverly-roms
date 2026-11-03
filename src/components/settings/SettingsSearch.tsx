@@ -5,12 +5,22 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import { LocaleContext } from '@/i18n/core';
-import { useT } from '@/i18n/useT';
+import { useT, type TFunction } from '@/i18n/useT';
+import { integration, integrationName } from '@/lib/integrations';
 import { isMac, modKeyLabel } from '@/lib/keyboard';
 
 import { MonoIn } from './Field';
-import type { SettingEntry } from './registry';
+import type { SettingEntry, SettingsFold } from './registry';
 import { entryLabel } from './search';
+
+/** Where inside its tab a folded entry is: an integration card's body is
+ * named after its service, any other fold is «Opciones avanzadas». */
+function foldName(t: TFunction, fold: SettingsFold): string {
+  const card = fold.startsWith('integration-')
+    ? integration(fold.slice('integration-'.length))
+    : undefined;
+  return card ? integrationName(card, t) : t('settings.advancedOptions');
+}
 
 export const RESULTS_ID = 'settings-results';
 const optionId = (i: number) => `settings-result-${i}`;
@@ -175,7 +185,7 @@ export function SettingsResults({
               {e.fold
                 ? t('settings.search.where', {
                     section: t(`settings.section.${e.section}`),
-                    fold: t('settings.advancedOptions'),
+                    fold: foldName(t, e.fold),
                   })
                 : t(`settings.section.${e.section}`)}
             </span>

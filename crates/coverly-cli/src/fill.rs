@@ -1,7 +1,7 @@
 //! `coverly fill`: identify ROMs, gather art from the enabled sources
 //! (libretro-thumbnails, SteamGridDB with a key, …), show the plan and
-//! (with `--apply`) write the art. Source keys come from the environment:
-//! the CLI has no keychain.
+//! (with `--apply`) write the art. Source keys come from the environment,
+//! then from the keys the app saved in the system keychain (`keys`).
 
 use std::fmt::Write as _;
 use std::fs::File;
@@ -12,7 +12,7 @@ use std::sync::atomic::AtomicBool;
 use clap::{Args, ValueEnum};
 use coverly_core::art::resolve_art;
 use coverly_core::cache::{Cache, CACHE_FILE};
-use coverly_core::credentials::{SourceKeys, SGDB_KEY_ENV};
+use coverly_core::credentials::{DevCredentials, SGDB_KEY_ENV};
 use coverly_core::fill::{Endpoints, FillEnv, FillSettings};
 use coverly_core::gather::Scope;
 use coverly_core::identify::dat::DATABASE_BASE;
@@ -34,6 +34,7 @@ use coverly_core::systems::SystemDb;
 use coverly_core::write::OverwritePolicy;
 
 use crate::audit::MediaArg;
+use crate::keys::{cli_store, resolve_keys, KeyPlan};
 use crate::profile::{check_root, choose_profile, detection_note, Chosen};
 use crate::{media_name, print_stdout, table, Failure};
 
@@ -41,7 +42,9 @@ use crate::{media_name, print_stdout, table, Failure};
 const PREVIEW: usize = 20;
 
 #[derive(Debug, Args)]
-#[command(after_help = "SteamGridDB key: COVERLY_SGDB_KEY (the CLI has no keychain).")]
+#[command(
+    after_help = "SteamGridDB key: COVERLY_SGDB_KEY or `coverly integrations set steamgriddb` (saved in the system keychain)."
+)]
 pub struct FillArgs {
     /// Library root (e.g. the SD card), the folder holding `ROMS`, `Roms`…
     root: PathBuf,
@@ -323,7 +326,22 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
             .clone()
             .unwrap_or_else(|| SCREENSCRAPER_BASE.into()),
     };
-    let keys = SourceKeys::from_env(|name| std::env::var(name).ok());
+    let enabled = |id: &str| fill.sources.iter().any(|s| s == id);
+    let steamgriddb = enabled("steamgriddb");
+    let screenscraper = enabled("screenscraper") && DevCredentials::from_build().is_some();
+    let plan = KeyPlan {
+        steamgriddb,
+        screenscraper,
+        default_endpoints: (!steamgriddb || args.steamgriddb_url.is_none())
+            && (!screenscraper || args.screenscraper_url.is_none()),
+    };
+    let keychain = cli_store();
+    let keys = resolve_keys(
+        |name| std::env::var(name).ok(),
+        keychain.as_deref(),
+        plan,
+        &mut |m| eprintln!("note: {m}"),
+    );
     let env = FillEnv {
         cache: &cache,
         http: &http,
@@ -402,7 +420,8 @@ fn chosen_sources(ids: &[String]) -> Result<Vec<String>, Failure> {
         }
         if !KNOWN_SOURCES.contains(&id.as_str()) {
             return Err(Failure::usage(format!(
-                "unknown source `{id}` (known: {}; the SteamGridDB key comes from {SGDB_KEY_ENV})",
+                "unknown source `{id}` (known: {}; the SteamGridDB key comes from {SGDB_KEY_ENV} \
+                 or `coverly integrations set steamgriddb`)",
                 KNOWN_SOURCES.join(", ")
             )));
         }

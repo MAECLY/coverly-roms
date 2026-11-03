@@ -2,9 +2,9 @@
 
 pub mod dedupe;
 pub mod error;
+pub mod integrations;
 pub mod ipc;
 pub mod jobs;
-pub mod keychain;
 pub mod library;
 pub mod logging;
 pub mod organize;
@@ -14,6 +14,7 @@ pub mod sources;
 pub mod state;
 pub mod update;
 
+pub use coverly_core::credentials::keychain;
 pub use ipc::{app_info, AppInfo, APP_NAME};
 
 use coverly_core::paths::{config_dir, AppDirs};
@@ -47,6 +48,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ipc::app_info,
+            integrations::integrations_view,
+            integrations::test_integration,
+            integrations::forget_integration,
+            integrations::open_integration_help,
             ipc::open_library,
             ipc::recent_libraries,
             ipc::forget_recent_library,
@@ -145,6 +150,15 @@ mod tests {
     }
 
     #[test]
+    fn app_info_names_the_platform() {
+        let info = app_info();
+        if ["macos", "windows", "linux"].contains(&std::env::consts::OS) {
+            assert_eq!(info.platform, std::env::consts::OS);
+        }
+        assert!(!info.platform.is_empty());
+    }
+
+    #[test]
     fn list_systems_names_every_builtin_system_by_name() {
         let systems = ipc::list_systems();
         assert_eq!(
@@ -185,5 +199,6 @@ mod tests {
         let json = serde_json::to_value(app_info()).unwrap();
         assert_eq!(json["name"], "Coverly ROMs");
         assert!(json.get("core_version").is_some());
+        assert_eq!(json["platform"], std::env::consts::OS);
     }
 }

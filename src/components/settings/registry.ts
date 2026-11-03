@@ -1,12 +1,19 @@
 import { DEDUPE_LEVELS } from '@/ipc/types';
 import { CREDITS, type LocalText } from '@/lib/credits';
+import { translate } from '@/i18n/core';
+import { integrationDomId, WORKING } from '@/lib/integrations';
 import type { SettingsSection } from '@/stores/navStore';
 
 export type SettingsFold =
   | 'library-advanced'
   | 'organize-advanced'
   | 'duplicates-advanced'
-  | 'sources-advanced';
+  | 'integrations-switch-advanced'
+  /** An integration card's body (D14): its controls are folded inside. */
+  | `integration-${string}`;
+
+/** The catalogue has this key (the registry's optional texts). */
+const hasText = (key: string) => translate('en', key) !== key;
 
 export interface SettingEntry {
   /** DOM id to focus: settingId(path) of the control, or a list anchor (SP-1). */
@@ -296,31 +303,64 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     section: 'matching',
     label: 'settings.matching.maxHash',
   },
-  // Fuentes: the optional Switch name catalogue (adjustments §9.2)
+  // Integraciones, generated from the registry (a new working entry is
+  // indexed with no hand edit here): each card, found by its service and
+  // its fields (D15)…
+  ...WORKING.map((e): SettingEntry => {
+    const name = `integrations.service.${e.id}.name`;
+    const keywords = `integrations.service.${e.id}.keywords`;
+    return {
+      id: integrationDomId(e.id),
+      section: 'integrations',
+      label: hasText(name) ? name : { es: e.name, en: e.name },
+      hint: `integrations.service.${e.id}.use`,
+      ...(hasText(keywords) && { keywords }),
+    };
+  }),
+  // …each card's «Activado» switch…
+  ...WORKING.filter((e) => e.source && e.setting).map((e): SettingEntry => ({
+    id: `setting-${e.setting!.replace(/[^a-zA-Z0-9]+/g, '-')}`,
+    section: 'integrations',
+    fold: `integration-${e.id}`,
+    label: 'integrations.enabled',
+    hint: `integrations.service.${e.id}.use`,
+  })),
+  // …and the Switch catalogue, moved here from Fuentes (D7, D23).
   {
-    id: 'setting-sources-switch-catalog',
-    section: 'sources',
-    label: 'settings.sources.switchCatalog.label',
+    id: 'setting-integrations-switch-catalog',
+    section: 'integrations',
+    fold: 'integration-switch-catalog',
+    label: 'integrations.switchCatalog.label',
     keywords: 'settings.keywords.switchCatalog',
   },
   {
-    id: 'setting-sources-switch-catalog-icons',
-    section: 'sources',
-    label: 'settings.sources.switchCatalog.icons',
-    hint: 'settings.sources.switchCatalog.iconsHint',
+    id: 'setting-integrations-switch-catalog-icons',
+    section: 'integrations',
+    fold: 'integration-switch-catalog',
+    label: 'integrations.switchCatalog.icons',
+    hint: 'integrations.switchCatalog.iconsHint',
   },
   {
-    id: 'setting-sources-switch-catalog-fallback',
-    section: 'sources',
-    fold: 'sources-advanced',
-    label: 'settings.sources.switchCatalog.fallback',
-    hint: 'settings.sources.switchCatalog.fallbackHint',
+    id: 'setting-integrations-switch-catalog-fallback',
+    section: 'integrations',
+    fold: 'integrations-switch-advanced',
+    label: 'integrations.switchCatalog.fallback',
+    hint: 'integrations.switchCatalog.fallbackHint',
   },
   {
-    id: 'setting-sources-switch-catalog-fallback-url',
-    section: 'sources',
-    fold: 'sources-advanced',
-    label: 'settings.sources.switchCatalog.fallbackUrl',
+    id: 'setting-integrations-switch-catalog-fallback-url',
+    section: 'integrations',
+    fold: 'integrations-switch-advanced',
+    label: 'integrations.switchCatalog.fallbackUrl',
+    keywords: 'integrations.keywords.fallback',
+  },
+  // …and «Próximamente»: the planned names lead to the list (and its
+  // roadmap link) without pretending they work.
+  {
+    id: 'integrations-planned',
+    section: 'integrations',
+    label: 'integrations.group.planned',
+    keywords: 'integrations.keywords.planned',
   },
   // Red
   {

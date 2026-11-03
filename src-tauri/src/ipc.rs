@@ -11,9 +11,10 @@ use coverly_core::credits::CreditLink;
 use coverly_core::organize::LargeConfirm;
 use coverly_core::profiles::custom::{PreviewExample, ProfileFile};
 use coverly_core::profiles::Media;
-use coverly_core::sources::KeyCheck;
+use coverly_core::sources::{KeyCheck, SourceTrouble};
 use coverly_core::systems::SystemDb;
 use serde::Serialize;
+use std::collections::BTreeSet;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -70,6 +71,9 @@ pub struct AppInfo {
     pub name: String,
     pub version: String,
     pub core_version: String,
+    /// `std::env::consts::OS` (`macos`, `windows`, `linux`, …): picks the
+    /// per-OS keychain copy; other values get the generic one.
+    pub platform: &'static str,
 }
 
 /// Who we are and which versions are running.
@@ -79,6 +83,7 @@ pub fn app_info() -> AppInfo {
         name: APP_NAME.to_owned(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
         core_version: coverly_core::VERSION.to_owned(),
+        platform: std::env::consts::OS,
     }
 }
 
@@ -112,7 +117,7 @@ pub fn list_systems() -> Vec<SystemInfo> {
     systems
 }
 
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, IpcError> + Send + 'static,
 ) -> Result<T, IpcError> {
     tauri::async_runtime::spawn_blocking(f)
@@ -227,6 +232,9 @@ impl JobEvents for TauriEvents {
     }
     fn changed(&self, view: JobView) {
         let _ = self.0.emit(JOB_CHANGED_EVENT, view);
+    }
+    fn gathered(&self, troubles: &[SourceTrouble], answered: &BTreeSet<String>) {
+        self.0.state::<AppState>().note_troubles(troubles, answered);
     }
     fn written(&self, generation: u64, ids: Vec<u32>) {
         let state = self.0.state::<AppState>();

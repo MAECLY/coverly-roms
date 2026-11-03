@@ -14,6 +14,7 @@ import {
 import { mockClass, mockFailure } from '@/ipc/mock/mockJobs';
 import { useFilterStore } from '@/stores/filterStore';
 import { useJobStore } from '@/stores/jobStore';
+import { resetNavStore, useNavStore } from '@/stores/navStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
@@ -60,6 +61,8 @@ describe('Fill wizard', () => {
   afterEach(() => {
     restore();
     setBackend(null);
+    resetNavStore();
+    vi.restoreAllMocks();
   });
 
   it('walks the wizard to a dry-run summary and runs it', async () => {
@@ -164,9 +167,195 @@ describe('Fill wizard', () => {
     expect(
       within(dialog).getByRole('radio', { name: 'Popularity (votes)' }),
     ).toHaveAccessibleDescription(/most SteamGridDB votes/);
+    const note = await within(dialog).findByRole('note');
+    expect(note).toHaveTextContent(
+      'SteamGridDB is not ready, so votes are not used.',
+    );
+    // It no longer sends the user hunting in Settings: «Set up» opens the card.
+    const setUp = within(note).getByRole('button', { name: 'Set up' });
+    expect(setUp).toHaveAttribute('data-settings-opener');
+    const open = vi.spyOn(useNavStore.getState(), 'openSettings');
+    await userEvent.click(setUp);
+    expect(open).toHaveBeenCalledWith('integrations', {
+      focus: 'integration-steamgriddb',
+    });
+  });
+
+  it('comes back from the SteamGridDB card on the step it left', async () => {
+    await setup();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    let dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Whole library/ }),
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: 'Screenshot' }),
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /^Popularity \(votes\)/ }),
+    );
+    const note = await within(dialog).findByRole('note');
+    await userEvent.click(within(note).getByRole('button', { name: 'Set up' }));
+    await screen.findByRole('heading', { name: 'Settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    dialog = await screen.findByRole('dialog', { name: 'Fill missing art' });
+    expect(within(dialog).getByText('Step 3 of 5')).toBeInTheDocument();
     expect(
-      await within(dialog).findByText(/SteamGridDB is not ready/),
-    ).toBeInTheDocument();
+      within(dialog).getByRole('radio', { name: 'Popularity (votes)' }),
+    ).toBeChecked();
+    const setUp = await within(dialog).findByRole('button', { name: 'Set up' });
+    await waitFor(() => expect(setUp).toHaveFocus());
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Back' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Back' }));
+    expect(
+      within(dialog).getByRole('radio', { name: /Whole library/ }),
+    ).toBeChecked();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    expect(
+      within(dialog).getByRole('checkbox', { name: 'Screenshot' }),
+    ).toBeChecked();
+    // Closing the wizard forgets the draft: it opens fresh next time.
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Close' }),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    expect(within(dialog).getByText('Step 1 of 5')).toBeInTheDocument();
+  });
+
+  it('focuses the chosen strategy when the key was saved on the card', async () => {
+    const { backend } = await setup();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /^Popularity \(votes\)/ }),
+    );
+    const note = await within(dialog).findByRole('note');
+    await userEvent.click(within(note).getByRole('button', { name: 'Set up' }));
+    await screen.findByRole('heading', { name: 'Settings' });
+    await backend.setCredential('steamgriddb-api-key', 'sk');
+    await act(() =>
+      useSettingsStore.getState().update({
+        sources: {
+          order: [
+            { id: 'libretro', enabled: true },
+            { id: 'steamgriddb', enabled: true },
+            { id: 'screenscraper', enabled: false },
+          ],
+        },
+      }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    const back = await screen.findByRole('dialog', {
+      name: 'Fill missing art',
+    });
+    const popularity = within(back).getByRole('radio', {
+      name: 'Popularity (votes)',
+    });
+    await waitFor(() => expect(popularity).toHaveFocus());
+    expect(within(back).queryByRole('note')).not.toBeInTheDocument();
+  });
+
+  describe('summary notices', () => {
+    async function enableSgdb(
+      backend: Awaited<ReturnType<typeof setup>>['backend'],
+      key: string,
+    ) {
+      await backend.setCredential('steamgriddb-api-key', key);
+      await act(() =>
+        useSettingsStore.getState().update({
+          sources: {
+            order: [
+              { id: 'libretro', enabled: true },
+              { id: 'steamgriddb', enabled: true },
+              { id: 'screenscraper', enabled: false },
+            ],
+          },
+        }),
+      );
+    }
+
+    async function preview() {
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Fill missing art' }),
+      );
+      const dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+      await toPreview(dialog, /Whole library/);
+      await within(dialog).findByRole(
+        'table',
+        { name: 'Dry run' },
+        { timeout: 5000 },
+      );
+      return dialog;
+    }
+
+    it('links a key forgotten after SteamGridDB was turned on', async () => {
+      const { backend } = await setup();
+      await enableSgdb(backend, 'sk');
+      await backend.clearCredential('steamgriddb-api-key');
+      const dialog = await preview();
+      const note = within(dialog).getByRole('note');
+      expect(note).toHaveTextContent('SteamGridDB has no key');
+      const open = vi.spyOn(useNavStore.getState(), 'openSettings');
+      await userEvent.click(
+        within(note).getByRole('button', { name: 'Set up' }),
+      );
+      expect(open).toHaveBeenCalledWith('integrations', {
+        focus: 'integration-steamgriddb',
+      });
+    });
+
+    it('comes back on the last choice when the dry run ended in Settings', async () => {
+      const { backend } = await setup();
+      await enableSgdb(backend, 'sk');
+      await backend.clearCredential('steamgriddb-api-key');
+      const dialog = await preview();
+      const note = within(dialog).getByRole('note');
+      await userEvent.click(
+        within(note).getByRole('button', { name: 'Set up' }),
+      );
+      await screen.findByRole('heading', { name: 'Settings' });
+      await act(async () => {
+        await useJobStore.getState().cancel();
+      });
+      await waitFor(() =>
+        expect(useJobStore.getState().job?.state).toBe('cancelled'),
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+      const back = await screen.findByRole('dialog', {
+        name: 'Fill missing art',
+      });
+      expect(within(back).getByText('Step 4 of 5')).toBeInTheDocument();
+      expect(
+        within(back).getByRole('button', { name: 'Preview (dry run)' }),
+      ).toBeEnabled();
+    });
+
+    it('links a refused key', async () => {
+      const { backend } = await setup();
+      await enableSgdb(backend, 'bad-key');
+      const dialog = await preview();
+      expect(within(dialog).getByRole('note')).toHaveTextContent(
+        'SteamGridDB rejected the credentials',
+      );
+    });
+
+    it('says nothing when every source answered', async () => {
+      const { backend } = await setup();
+      await enableSgdb(backend, 'sk');
+      const dialog = await preview();
+      expect(within(dialog).queryByRole('note')).not.toBeInTheDocument();
+    });
   });
 
   it('keeps the scope disabled when it has nothing to fill', async () => {

@@ -9,6 +9,13 @@
 //! signature, or this build has no update key). `catalog switch update`
 //! with the catalogue setting off is bad usage (2).
 //!
+//! `integrations` (spec D20): 1 also when a connection test says
+//! `invalid`, `missing` or `unavailable`, or the keychain fails or is off;
+//! 2 also for an unknown or planned integration id, a service without
+//! credentials or test, a secret given as an argument, and `forget`
+//! without a terminal or `--yes`; 5 also when a test says `offline` or
+//! `rate-limited`.
+//!
 //! Defaults come from the app's settings file (read-only; see
 //! [`settings::SETTINGS_ENV`]); flags override them.
 
@@ -16,6 +23,8 @@ mod audit;
 mod catalog;
 mod dedupe;
 mod fill;
+mod integrations;
+mod keys;
 mod organize;
 mod profile;
 mod settings;
@@ -51,6 +60,9 @@ enum Command {
     Dedupe(Box<dedupe::DedupeArgs>),
     /// Fill missing art from the enabled sources (dry run unless --apply).
     Fill(Box<fill::FillArgs>),
+    /// Manage the accounts and keys of online services (values are never
+    /// printed).
+    Integrations(integrations::IntegrationsArgs),
     /// Sort a pile of loose ROMs into one folder per system (dry run
     /// unless --apply).
     Organize(Box<organize::OrganizeArgs>),
@@ -102,6 +114,7 @@ fn main() -> ExitCode {
         Command::Catalog(args) => catalog::run(&args),
         Command::Dedupe(args) => dedupe::run(&args),
         Command::Fill(args) => fill::run(&args),
+        Command::Integrations(args) => integrations::run(&args),
         Command::Organize(args) => organize::run(&args),
         Command::Undo(args) => undo::run(&args),
         Command::Update(args) => update::run(&args),

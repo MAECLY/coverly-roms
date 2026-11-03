@@ -829,6 +829,7 @@ dependencies = [
  "flate2",
  "image",
  "insta",
+ "keyring",
  "libc",
  "lz4_flex",
  "lzma-rust2",
@@ -841,6 +842,8 @@ dependencies = [
  "quick-xml 0.38.4",
  "rusqlite",
  "ruzstd",
+ "secret-service",
+ "security-framework",
  "semver",
  "serde",
  "serde_json",
@@ -853,6 +856,7 @@ dependencies = [
  "unicode-normalization",
  "ureq",
  "walkdir",
+ "windows-native-keyring-store",
  "windows-sys 0.61.2",
  "zip 9.0.3",
 ]
@@ -862,7 +866,6 @@ name = "coverly-roms"
 version = "0.3.0"
 dependencies = [
  "coverly-core",
- "keyring",
  "log",
  "serde",
  "serde_json",

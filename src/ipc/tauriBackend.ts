@@ -26,6 +26,8 @@ import type {
   EntryArtUpdate,
   FolderProbe,
   IdentityView,
+  IntegrationTestResult,
+  IntegrationView,
   JobHistoryItem,
   JobItemView,
   JobProgressEvent,
@@ -286,6 +288,12 @@ export function createTauriBackend(): Backend {
       call<CredentialStatus>('clear_credential', { key }),
     sourcesInfo: () => call<SourceInfo[]>('sources_info'),
     testSourceKey: (source) => call<KeyCheck>('test_source_key', { source }),
+    integrationsView: () => call<IntegrationView[]>('integrations_view'),
+    testIntegration: (id) =>
+      call<IntegrationTestResult>('test_integration', { id }),
+    forgetIntegration: (id) =>
+      call<IntegrationView[]>('forget_integration', { id }),
+    openIntegrationHelp: (id) => call<void>('open_integration_help', { id }),
     searchEntryArt: (generation, entryId, media, query) =>
       call<CandidateView[]>('search_entry_art', {
         generation,

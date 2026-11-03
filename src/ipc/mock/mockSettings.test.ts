@@ -1,12 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_SETTINGS } from '@/lib/settingsRules';
 import { MemoryStorage } from '@/test/storage';
 
 import { BackendError } from '../errors';
-import type { CatalogStatus } from '../types';
+import type { CatalogStatus, IntegrationView, SettingsPatch } from '../types';
 import { FIXTURE_NOW } from './fixture';
-import { createMockBackend } from './mockBackend';
+import { createMockBackend, type MockOptions } from './mockBackend';
+import {
+  readMockIntegrations,
+  readMockKeychain,
+  readMockPlatform,
+} from './mockSettings';
 
 const make = (storage: Storage | null = new MemoryStorage()) =>
   createMockBackend({ delayMs: 0, now: FIXTURE_NOW, storage });
@@ -101,6 +106,13 @@ describe('mock settings', () => {
       ['embedded', true, true],
     ]);
     expect(info[1]!.needs).toEqual(['steamgriddb-api-key']);
+    // Like Rust, `needs` comes from the registry: ScreenScraper lists its
+    // account even in a build that cannot use it.
+    expect(info[2]!.needs).toEqual([
+      'screenscraper-user',
+      'screenscraper-password',
+    ]);
+    expect(info[0]!.needs).toEqual([]);
     expect(await m.testSourceKey('steamgriddb')).toBe('missing');
     await m.setCredential('steamgriddb-api-key', 'bad-key');
     expect(await m.testSourceKey('steamgriddb')).toBe('invalid');
@@ -528,5 +540,335 @@ describe('mock settings', () => {
     expect((await m.catalogStatus()).state).toBe('downloading');
     await m.catalogCancel();
     expect((await running).state).toBe('pending');
+  });
+});
+
+describe('mock integrations', () => {
+  afterEach(() => window.history.replaceState(null, '', '/'));
+
+  const backend = (o: MockOptions = {}) =>
+    createMockBackend({
+      delayMs: 0,
+      now: FIXTURE_NOW,
+      storage: new MemoryStorage(),
+      ...o,
+    });
+  const card = (views: IntegrationView[], id: string) => {
+    const v = views.find((x) => x.id === id);
+    if (!v) throw new Error(`no card ${id}`);
+    return v;
+  };
+  const sgdbOn = {
+    sources: {
+      order: [
+        { id: 'libretro', enabled: true },
+        { id: 'steamgriddb', enabled: true },
+        { id: 'screenscraper', enabled: false },
+        { id: 'embedded', enabled: true },
+      ],
+    },
+  } satisfies SettingsPatch;
+
+  it('default: one card per working integration, SteamGridDB follows its key and test', async () => {
+    const m = backend();
+    let v = await m.integrationsView();
+    expect(v.map((x) => x.id)).toEqual([
+      'steamgriddb',
+      'screenscraper',
+      'switch-catalog',
+      'updates',
+    ]);
+    // Off in Fuentes by default (D6: `off` comes first).
+    expect(card(v, 'steamgriddb')).toEqual({
+      id: 'steamgriddb',
+      enabled: false,
+      built: true,
+      fields: [{ key: 'steamgriddb-api-key', set: false }],
+      state: 'off',
+    });
+    // No developer credentials, like every official build.
+    expect(card(v, 'screenscraper')).toMatchObject({
+      built: false,
+      state: 'unavailable',
+    });
+    expect(card(v, 'switch-catalog')).toMatchObject({
+      enabled: false,
+      fields: [],
+      state: 'off',
+    });
+    expect(card(v, 'updates')).toMatchObject({ enabled: true, state: 'saved' });
+
+    await m.updateSettings(sgdbOn);
+    v = await m.integrationsView();
+    expect(card(v, 'steamgriddb')).toMatchObject({
+      enabled: true,
+      state: 'not-configured',
+      reason: { kind: 'missing', detail: 'api-key' },
+    });
+    await m.setCredential('steamgriddb-api-key', 'x');
+    v = await m.integrationsView();
+    expect(card(v, 'steamgriddb')).toEqual({
+      id: 'steamgriddb',
+      enabled: true,
+      built: true,
+      fields: [{ key: 'steamgriddb-api-key', set: true }],
+      state: 'saved',
+    });
+    expect(await m.testIntegration('steamgriddb')).toEqual({ verdict: 'ok' });
+    expect(card(await m.integrationsView(), 'steamgriddb')).toMatchObject({
+      state: 'connected',
+      checked_at: FIXTURE_NOW,
+    });
+
+    // Saving another key drops what the last test said about the old one.
+    await m.setCredential('steamgriddb-api-key', 'bad-key');
+    expect(card(await m.integrationsView(), 'steamgriddb').state).toBe('saved');
+    expect(await m.testIntegration('steamgriddb')).toEqual({
+      verdict: 'invalid',
+    });
+    expect(card(await m.integrationsView(), 'steamgriddb')).toMatchObject({
+      state: 'error',
+      reason: { kind: 'check', detail: 'invalid' },
+      checked_at: FIXTURE_NOW,
+    });
+    await m.setCredential('steamgriddb-api-key', 'offline-key');
+    expect((await m.testIntegration('steamgriddb')).verdict).toBe('offline');
+    expect(card(await m.integrationsView(), 'steamgriddb')).toMatchObject({
+      state: 'error',
+      reason: { kind: 'check', detail: 'offline' },
+    });
+    await m.setCredential('steamgriddb-api-key', 'down-key');
+    expect((await m.testIntegration('steamgriddb')).verdict).toBe(
+      'unavailable',
+    );
+    expect(card(await m.integrationsView(), 'steamgriddb')).toMatchObject({
+      state: 'error',
+      reason: { kind: 'check', detail: 'unavailable' },
+    });
+
+    expect(await m.testIntegration('screenscraper')).toEqual({
+      verdict: 'unavailable',
+    });
+    for (const id of ['switch-catalog', 'updates', 'igdb', 'nope'])
+      await expect(m.testIntegration(id)).rejects.toMatchObject({
+        code: 'bad-request',
+      });
+  });
+
+  it('the catalogue card follows its switch; the state is mapped in the UI (IP-1)', async () => {
+    const m = backend();
+    await m.updateSettings({ catalogs: { switch: { enabled: true } } });
+    expect(card(await m.integrationsView(), 'switch-catalog')).toMatchObject({
+      enabled: true,
+      state: 'saved',
+    });
+  });
+
+  it('?mockIntegrations=empty: nothing stored and the catalogue off', async () => {
+    const storage = new MemoryStorage();
+    const seeded = backend({ storage });
+    await seeded.setCredential('steamgriddb-api-key', 'x');
+    await seeded.updateSettings({ catalogs: { switch: { enabled: true } } });
+    window.history.replaceState(null, '', '/?mockIntegrations=empty');
+    const m = backend({ storage });
+    const v = await m.integrationsView();
+    expect(v.flatMap((x) => x.fields).every((f) => !f.set)).toBe(true);
+    expect(card(v, 'switch-catalog').state).toBe('off');
+    expect(Object.values((await m.credentialStatus()).set)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  it('?mockIntegrations=saved: all three keys stored', async () => {
+    window.history.replaceState(null, '', '/?mockIntegrations=saved');
+    const m = backend();
+    const st = await m.credentialStatus();
+    expect(Object.values(st.set)).toEqual([true, true, true]);
+    const v = await m.integrationsView();
+    expect(card(v, 'steamgriddb').state).toBe('saved');
+    expect(card(v, 'screenscraper')).toMatchObject({
+      state: 'unavailable',
+      fields: [
+        { key: 'screenscraper-user', set: true },
+        { key: 'screenscraper-password', set: true },
+      ],
+    });
+  });
+
+  it('?mockIntegrations=error: SteamGridDB stored and refused', async () => {
+    window.history.replaceState(null, '', '/?mockIntegrations=error');
+    const m = backend();
+    expect(card(await m.integrationsView(), 'steamgriddb')).toMatchObject({
+      enabled: true,
+      state: 'error',
+      reason: { kind: 'check', detail: 'invalid' },
+      checked_at: FIXTURE_NOW,
+    });
+    expect(await m.testSourceKey('steamgriddb')).toBe('invalid');
+  });
+
+  it('?mockIntegrations=quota: a dev build whose ScreenScraper quota is used up', async () => {
+    window.history.replaceState(null, '', '/?mockIntegrations=quota');
+    const m = backend();
+    expect(card(await m.integrationsView(), 'screenscraper')).toEqual({
+      id: 'screenscraper',
+      enabled: true,
+      built: true,
+      fields: [
+        { key: 'screenscraper-user', set: true },
+        { key: 'screenscraper-password', set: true },
+      ],
+      state: 'quota',
+      quota: {
+        requests_today: 20_000,
+        max_requests_per_day: 20_000,
+        max_threads: 1,
+      },
+      quota_at: FIXTURE_NOW,
+    });
+  });
+
+  it('?mockIntegrations=nodev is the default; dev builds ScreenScraper with a quota on test', async () => {
+    window.history.replaceState(null, '', '/?mockIntegrations=nodev');
+    expect(
+      card(await backend().integrationsView(), 'screenscraper').state,
+    ).toBe('unavailable');
+    window.history.replaceState(null, '', '/?mockIntegrations=dev');
+    const m = backend();
+    expect((await m.sourcesInfo())[2]).toMatchObject({
+      id: 'screenscraper',
+      built: true,
+    });
+    expect(card(await m.integrationsView(), 'screenscraper')).toMatchObject({
+      built: true,
+      state: 'saved',
+    });
+    const quota = {
+      requests_today: 1234,
+      max_requests_per_day: 20_000,
+      max_threads: 1,
+    };
+    expect(await m.testIntegration('screenscraper')).toEqual({
+      verdict: 'ok',
+      quota,
+    });
+    expect(card(await m.integrationsView(), 'screenscraper')).toMatchObject({
+      state: 'connected',
+      quota,
+      quota_at: FIXTURE_NOW,
+      checked_at: FIXTURE_NOW,
+    });
+    // «Olvidar credenciales» clears both keys and what the test said.
+    const after = card(
+      await m.forgetIntegration('screenscraper'),
+      'screenscraper',
+    );
+    expect(after).toMatchObject({
+      state: 'not-configured',
+      reason: { kind: 'missing', detail: 'user' },
+    });
+    expect(after.quota).toBeUndefined();
+    expect(after.checked_at).toBeUndefined();
+    const st = await m.credentialStatus();
+    expect(st.set['screenscraper-user']).toBe(false);
+    expect(st.set['screenscraper-password']).toBe(false);
+    expect(await m.testIntegration('screenscraper')).toEqual({
+      verdict: 'missing',
+    });
+  });
+
+  it('an unknown scenario is the default', () => {
+    expect(readMockIntegrations()).toBeNull();
+    window.history.replaceState(null, '', '/?mockIntegrations=lots');
+    expect(readMockIntegrations()).toBeNull();
+    window.history.replaceState(null, '', '/?mockIntegrations=quota');
+    expect(readMockIntegrations()).toBe('quota');
+  });
+
+  it.each(['locked', 'denied', 'unavailable'] as const)(
+    '?mockKeychain=%s: saving fails and credentialed cards say why',
+    async (kind) => {
+      expect(readMockKeychain()).toBeNull();
+      window.history.replaceState(
+        null,
+        '',
+        `/?mockKeychain=${kind}&mockIntegrations=saved`,
+      );
+      expect(readMockKeychain()).toBe(kind);
+      const m = backend();
+      const st = await m.credentialStatus();
+      expect(st.available).toBe(kind !== 'unavailable');
+      expect(Object.values(st.set)).toEqual([false, false, false]);
+      await expect(
+        m.setCredential('steamgriddb-api-key', 'x'),
+      ).rejects.toMatchObject({ code: `keychain-${kind}` });
+      await expect(
+        m.clearCredential('steamgriddb-api-key'),
+      ).rejects.toMatchObject({ code: `keychain-${kind}` });
+      await expect(m.forgetIntegration('steamgriddb')).rejects.toMatchObject({
+        code: `keychain-${kind}`,
+      });
+      const v = await m.integrationsView();
+      for (const id of ['steamgriddb'] as const)
+        expect(card(v, id)).toMatchObject({
+          state: 'error',
+          reason: { kind: 'keychain', detail: kind },
+          fields: [{ key: 'steamgriddb-api-key', set: false }],
+        });
+      // A card without fields never reads the keychain.
+      expect(card(v, 'updates').state).toBe('saved');
+      expect(card(v, 'switch-catalog').state).toBe('off');
+    },
+  );
+
+  it('?mockPlatform= picks appInfo().platform', async () => {
+    expect(readMockPlatform()).toBe('macos');
+    for (const p of ['macos', 'windows', 'linux'] as const) {
+      window.history.replaceState(null, '', `/?mockPlatform=${p}`);
+      expect((await backend().appInfo()).platform).toBe(p);
+    }
+    window.history.replaceState(null, '', '/?mockPlatform=amiga');
+    expect(readMockPlatform()).toBe('macos');
+    expect((await backend({ platform: 'linux' }).appInfo()).platform).toBe(
+      'linux',
+    );
+  });
+
+  it('forget refuses planned, unknown and field-less integrations', async () => {
+    const m = backend();
+    for (const id of ['igdb', 'nope', 'switch-catalog', 'updates'])
+      await expect(m.forgetIntegration(id)).rejects.toMatchObject({
+        code: 'bad-request',
+      });
+  });
+
+  it('opens the official help page of an integration by id, and the roadmap', async () => {
+    const m = backend();
+    await m.openIntegrationHelp('steamgriddb');
+    await m.openIntegrationHelp('screenscraper');
+    await m.openLink('roadmap');
+    expect(m.opened).toEqual([
+      'help:steamgriddb',
+      'help:screenscraper',
+      'link:roadmap',
+    ]);
+    for (const id of ['updates', 'nope'])
+      await expect(m.openIntegrationHelp(id)).rejects.toMatchObject({
+        code: 'bad-request',
+      });
+  });
+
+  it('never stores a credential value', async () => {
+    window.localStorage.clear();
+    const m = backend({ storage: window.localStorage });
+    await m.setCredential('steamgriddb-api-key', 'sk-SECRET');
+    await m.setCredential('screenscraper-password', 'sk-SECRET');
+    await m.testIntegration('steamgriddb');
+    await m.integrationsView();
+    expect(JSON.stringify(window.localStorage)).not.toContain('sk-SECRET');
+    expect(JSON.stringify(await m.integrationsView())).not.toContain('SECRET');
+    window.localStorage.clear();
   });
 });

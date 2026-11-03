@@ -1,6 +1,8 @@
 //! `coverly organize` end to end on tempdir piles (never the real network:
 //! `--offline` or a MockServer through `--database-url`).
 
+mod common;
+
 use std::fs;
 use std::path::Path;
 
@@ -19,7 +21,7 @@ const FAKE_TRASH_ENV: &str = "COVERLY_TEST_FAKE_TRASH";
 
 /// `coverly <args…>` with private data/cache dirs and no user settings file.
 fn coverly(data: &Path, cache: &Path, args: &[&str]) -> Command {
-    let mut cmd = Command::cargo_bin("coverly").unwrap();
+    let mut cmd = common::coverly();
     cmd.env(SETTINGS_ENV, data.join("no-settings.json"))
         .env(FAKE_TRASH_ENV, data.join("trash"));
     cmd.args(args)
@@ -347,7 +349,7 @@ fn catalogues_come_from_the_database_url_when_online() {
 
 /// `coverly undo <args…>` with the same private data dir.
 fn undo(data: &Path, args: &[&str]) -> Command {
-    let mut cmd = Command::cargo_bin("coverly").unwrap();
+    let mut cmd = common::coverly();
     cmd.env(SETTINGS_ENV, data.join("no-settings.json"))
         .env(FAKE_TRASH_ENV, data.join("trash"));
     cmd.arg("undo").args(args).arg("--data-dir").arg(data);

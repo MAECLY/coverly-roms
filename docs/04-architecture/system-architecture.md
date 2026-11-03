@@ -65,12 +65,14 @@ coverly-roms/
 │  │  ├─ progress.rs time.rs  progress events, time helpers                         [M2]
 │  │  ├─ fill/                FillEnv facade: plan, apply, search by title, picks   [M4/M5]
 │  │  ├─ settings/            model, tolerant load + migration, validate, patch, apply [M5]
-│  │  ├─ credentials.rs       CredentialStore trait, closed keys, MemoryStore       [M5]
+│  │  ├─ credentials/         CredentialStore trait, closed keys, MemoryStore; keychain.rs
+│  │  │                       (OS keychain, feature `keychain`, app and CLI)        [M5]
+│  │  ├─ integrations.rs      the integrations registry (integrations/integrations.json)
 │  │  └─ gamelist.rs          byte-preserving Batocera/Knulli gamelist.xml merge    [M5]
 │  └─ coverly-cli/            binary `coverly`
 ├─ src-tauri/src/            Tauri 2 app: ipc.rs (commands), state.rs (AppState), library/, jobs/,
-│                            prefs.rs (settings views, links), profiles.rs, keychain.rs (OS keychain
-│                            CredentialStore), logging.rs (file logger, live level)          [M3–M5]
+│                            prefs.rs (settings views, links), profiles.rs, integrations.rs (the
+│                            «Integraciones» cards), logging.rs (file logger, live level)    [M3–M5]
 ├─ src/                       React UI
 ├─ locales/{en,es}/ui.json    UI strings
 └─ docs/

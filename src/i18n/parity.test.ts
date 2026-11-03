@@ -30,6 +30,24 @@ describe('locales', () => {
       expect(vars(value(en, key)), key).toEqual(vars(value(es, key)));
   });
 
+  it('never puts Markdown code marks in copy (they render as literal backticks)', () => {
+    const value = (catalog: object, key: string): string =>
+      key
+        .split('.')
+        .reduce<unknown>(
+          (node, part) => (node as Record<string, unknown>)[part],
+          catalog,
+        ) as string;
+    for (const [name, catalog] of [
+      ['en', en],
+      ['es', es],
+    ] as const)
+      for (const key of flatten(catalog))
+        expect(value(catalog, key).includes('`'), `${name}: ${key}`).toBe(
+          false,
+        );
+  });
+
   it('drops the old extraction line with its misleading file count', () => {
     for (const catalog of [en, es])
       expect(flatten(catalog)).not.toContain('organize.extracting');

@@ -2062,5 +2062,96 @@
     { "state": "failed-none" },
     { "state": "rejected" },
     { "state": "remove-failed" }
+  ],
+  "integration_views": [
+    {
+      "id": "steamgriddb",
+      "enabled": true,
+      "built": true,
+      "fields": [{ "key": "steamgriddb-api-key", "set": true }],
+      "state": "error",
+      "reason": { "kind": "check", "detail": "invalid" },
+      "checked_at": 1793577600
+    },
+    {
+      "id": "screenscraper",
+      "enabled": true,
+      "built": true,
+      "fields": [
+        { "key": "screenscraper-user", "set": true },
+        { "key": "screenscraper-password", "set": true }
+      ],
+      "state": "quota",
+      "checked_at": 1793577600,
+      "quota": {
+        "requests_today": 20000,
+        "max_requests_per_day": 20000,
+        "max_threads": 1
+      },
+      "quota_at": 1793577660
+    },
+    {
+      "id": "switch-catalog",
+      "enabled": false,
+      "built": true,
+      "fields": [],
+      "state": "off"
+    },
+    {
+      "id": "steamgriddb",
+      "enabled": true,
+      "built": true,
+      "fields": [{ "key": "steamgriddb-api-key", "set": false }],
+      "state": "not-configured",
+      "reason": { "kind": "missing", "detail": "api-key" }
+    },
+    {
+      "id": "screenscraper",
+      "enabled": true,
+      "built": true,
+      "fields": [
+        { "key": "screenscraper-user", "set": false },
+        { "key": "screenscraper-password", "set": false }
+      ],
+      "state": "error",
+      "reason": { "kind": "keychain", "detail": "locked" }
+    },
+    {
+      "id": "updates",
+      "enabled": true,
+      "built": true,
+      "fields": [],
+      "state": "saved"
+    }
+  ],
+  "integration_states": [
+    "off",
+    "unavailable",
+    "not-configured",
+    "saved",
+    "connected",
+    "error",
+    "quota"
+  ],
+  "keychain_kinds": ["unavailable", "locked", "denied", "failed"],
+  "integration_test_result": {
+    "verdict": "ok",
+    "quota": {
+      "requests_today": 1234,
+      "max_requests_per_day": 20000,
+      "max_threads": 1
+    }
+  },
+  "integration_test_result_bare": { "verdict": "invalid" },
+  "source_troubles": [
+    { "source": "steamgriddb", "kind": "missing-key" },
+    { "source": "steamgriddb", "kind": "auth" },
+    { "source": "screenscraper", "kind": "exhausted" }
+  ],
+  "integration_notices": [
+    { "integration": "steamgriddb", "problem": "missing" },
+    { "integration": "screenscraper", "problem": "rejected" },
+    { "integration": "screenscraper", "problem": "quota" },
+    { "integration": "switch-catalog", "problem": "off" }
   ]
 }

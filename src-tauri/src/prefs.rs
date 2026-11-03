@@ -83,6 +83,8 @@ pub enum LinkId {
     Trademarks,
     Releases,
     Issues,
+    /// The roadmap the «Próximamente» list of Integraciones links to.
+    Roadmap,
 }
 
 pub fn link_url(id: LinkId) -> &'static str {
@@ -95,6 +97,7 @@ pub fn link_url(id: LinkId) -> &'static str {
         LinkId::Trademarks => "https://github.com/MAECLY/coverly-roms/blob/main/TRADEMARKS.md",
         LinkId::Releases => "https://github.com/MAECLY/coverly-roms/releases",
         LinkId::Issues => "https://github.com/MAECLY/coverly-roms/issues",
+        LinkId::Roadmap => "https://github.com/MAECLY/coverly-roms/blob/main/TODO.md",
     }
 }
 
@@ -143,6 +146,7 @@ mod tests {
             LinkId::Trademarks,
             LinkId::Releases,
             LinkId::Issues,
+            LinkId::Roadmap,
         ] {
             assert!(
                 link_url(id).starts_with("https://github.com/MAECLY/coverly-roms"),
@@ -153,5 +157,6 @@ mod tests {
             serde_json::to_value(LinkId::Trademarks).unwrap(),
             "trademarks"
         );
+        assert_eq!(serde_json::to_value(LinkId::Roadmap).unwrap(), "roadmap");
     }
 }

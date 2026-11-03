@@ -486,6 +486,7 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         duplicates: vec![],
         set_aside_trash: false,
         updates: 0,
+        integration_notices: Vec::new(),
     }
 }
 
@@ -1554,6 +1555,124 @@ fn catalogue_statuses_match_the_shared_sample() {
             CatalogStatus::FailedNone,
             CatalogStatus::Rejected,
             CatalogStatus::RemoveFailed,
+        ],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+/// Every `State`, in declaration order; fails to compile when one is added.
+#[allow(dead_code)]
+fn every_integration_state_is_listed(s: coverly_core::integrations::State) {
+    use coverly_core::integrations::State as S;
+    match s {
+        S::Off
+        | S::Unavailable
+        | S::NotConfigured
+        | S::Saved
+        | S::Connected
+        | S::Error
+        | S::Quota => {}
+    }
+}
+
+#[test]
+fn integration_views_match_the_shared_sample() {
+    use coverly_core::integrations::{
+        Input, KeychainKind, Notice, Problem, Reason, SsQuota, State,
+    };
+    use coverly_core::sources::{SourceTrouble, TroubleKind};
+    use coverly_roms_lib::integrations::{FieldView, IntegrationView, TestResult};
+
+    let field = |key, set| FieldView { key, set };
+    let view = |id: &str, enabled, fields, state| IntegrationView {
+        id: id.into(),
+        enabled,
+        built: true,
+        fields,
+        state,
+        reason: None,
+        checked_at: None,
+        quota: None,
+        quota_at: None,
+    };
+    let used_up = SsQuota {
+        requests_today: 20_000,
+        max_requests_per_day: 20_000,
+        max_threads: 1,
+    };
+    let ss = |set| {
+        vec![
+            field(CredentialKey::ScreenscraperUser, set),
+            field(CredentialKey::ScreenscraperPassword, set),
+        ]
+    };
+    let actual = json!({
+        "integration_views": [
+            IntegrationView {
+                reason: Some(Reason::Check(KeyCheck::Invalid)),
+                checked_at: Some(1_793_577_600),
+                ..view("steamgriddb", true, vec![field(CredentialKey::SteamgriddbApiKey, true)], State::Error)
+            },
+            IntegrationView {
+                checked_at: Some(1_793_577_600),
+                quota: Some(used_up),
+                quota_at: Some(1_793_577_660),
+                ..view("screenscraper", true, ss(true), State::Quota)
+            },
+            view("switch-catalog", false, vec![], State::Off),
+            IntegrationView {
+                reason: Some(Reason::Missing(Input::ApiKey)),
+                ..view("steamgriddb", true, vec![field(CredentialKey::SteamgriddbApiKey, false)], State::NotConfigured)
+            },
+            IntegrationView {
+                reason: Some(Reason::Keychain(KeychainKind::Locked)),
+                ..view("screenscraper", true, ss(false), State::Error)
+            },
+            view("updates", true, vec![], State::Saved),
+        ],
+        "integration_states": [
+            State::Off,
+            State::Unavailable,
+            State::NotConfigured,
+            State::Saved,
+            State::Connected,
+            State::Error,
+            State::Quota,
+        ],
+        "keychain_kinds": [
+            KeychainKind::Unavailable,
+            KeychainKind::Locked,
+            KeychainKind::Denied,
+            KeychainKind::Failed,
+        ],
+        "integration_test_result": TestResult {
+            verdict: KeyCheck::Ok,
+            quota: Some(SsQuota {
+                requests_today: 1234,
+                max_requests_per_day: 20_000,
+                max_threads: 1,
+            }),
+        },
+        "integration_test_result_bare": TestResult { verdict: KeyCheck::Invalid, quota: None },
+        "source_troubles": [
+            SourceTrouble { source: "steamgriddb".into(), kind: TroubleKind::MissingKey },
+            SourceTrouble { source: "steamgriddb".into(), kind: TroubleKind::Auth },
+            SourceTrouble { source: "screenscraper".into(), kind: TroubleKind::Exhausted },
+        ],
+        "integration_notices": [
+            Notice { integration: "steamgriddb".into(), problem: Problem::Missing },
+            Notice { integration: "screenscraper".into(), problem: Problem::Rejected },
+            Notice { integration: "screenscraper".into(), problem: Problem::Quota },
+            Notice { integration: "switch-catalog".into(), problem: Problem::Off },
         ],
     });
     let expected: Value =

@@ -1,6 +1,8 @@
 //! `coverly fill` and `coverly undo` end to end, against a local mock
 //! server (never the real network).
 
+mod common;
+
 use std::fs;
 
 use assert_cmd::Command;
@@ -61,8 +63,7 @@ fn fixture() -> Fixture {
 }
 
 fn fill_cmd() -> Command {
-    let mut cmd = Command::cargo_bin("coverly").unwrap();
-    cmd.env("COVERLY_SETTINGS", "");
+    let mut cmd = common::coverly();
     cmd.arg("fill");
     cmd
 }
@@ -118,9 +119,7 @@ fn apply_writes_a_resized_png_and_undo_removes_it() {
         .stdout(contains("filled 1"));
     let (w, h) = probe_dimensions(&fs::read(cover(&f)).unwrap()).unwrap();
     assert!(w <= 250 && h <= 360, "{w}x{h}");
-    Command::cargo_bin("coverly")
-        .unwrap()
-        .env("COVERLY_SETTINGS", "")
+    common::coverly()
         .args(["undo", "--data-dir"])
         .arg(f.data.path())
         .assert()
@@ -140,9 +139,7 @@ fn relative_root_is_journaled_absolute_so_undo_works_elsewhere() {
     cmd.assert().success().stdout(contains("filled 1"));
     assert!(cover(&f).exists());
     let elsewhere = TempDir::new().unwrap();
-    Command::cargo_bin("coverly")
-        .unwrap()
-        .env("COVERLY_SETTINGS", "")
+    common::coverly()
         .current_dir(elsewhere.path())
         .args(["undo", "--data-dir"])
         .arg(f.data.path())
@@ -156,9 +153,7 @@ fn relative_root_is_journaled_absolute_so_undo_works_elsewhere() {
 fn undo_list_shows_the_job() {
     let f = fixture();
     fill(&f).arg("--apply").assert().success();
-    Command::cargo_bin("coverly")
-        .unwrap()
-        .env("COVERLY_SETTINGS", "")
+    common::coverly()
         .args(["undo", "--list", "--data-dir"])
         .arg(f.data.path())
         .assert()
@@ -219,9 +214,7 @@ fn rate_limit_exits_5() {
 #[test]
 fn undo_with_no_jobs_fails() {
     let data = TempDir::new().unwrap();
-    Command::cargo_bin("coverly")
-        .unwrap()
-        .env("COVERLY_SETTINGS", "")
+    common::coverly()
         .args(["undo", "--data-dir"])
         .arg(data.path())
         .assert()
@@ -351,6 +344,10 @@ fn without_a_key_the_cli_warns_and_still_uses_libretro() {
         .assert()
         .success()
         .stderr(contains("warning: steamgriddb: no API key stored; skipped"))
+        // A mock endpoint: saved keys are never sent there.
+        .stderr(contains(
+            "note: saved keys are not sent to a custom endpoint",
+        ))
         .stdout(contains("filled 1"));
     assert!(f
         .server
@@ -367,14 +364,30 @@ fn an_unknown_source_is_refused() {
         .arg("libretro,nope")
         .assert()
         .code(2)
-        .stderr(contains("unknown source `nope`"));
+        .stderr(contains("unknown source `nope`"))
+        .stderr(contains("coverly integrations set steamgriddb"));
+}
+
+#[test]
+fn with_the_keychain_off_a_missing_key_says_so_once() {
+    let f = fixture();
+    let out = fill(&f)
+        .arg("--sources")
+        .arg("libretro,steamgriddb")
+        .env_remove("COVERLY_SGDB_KEY")
+        .assert()
+        .get_output()
+        .clone();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(err.matches("note: keychain: off").count(), 1, "{err}");
 }
 
 #[test]
 fn fill_help_names_the_key_variable() {
-    fill_cmd()
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(contains("COVERLY_SGDB_KEY").and(contains("--sources")));
+    fill_cmd().arg("--help").assert().success().stdout(
+        contains("COVERLY_SGDB_KEY")
+            .and(contains("coverly integrations set steamgriddb"))
+            .and(contains("system keychain"))
+            .and(contains("--sources")),
+    );
 }

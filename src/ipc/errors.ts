@@ -30,6 +30,7 @@ export const ERROR_CODES = [
   'volume-gone',
   'keychain-unavailable',
   'keychain-locked',
+  'keychain-denied',
   'keychain-failed',
   'update-offline',
   'update-signature',

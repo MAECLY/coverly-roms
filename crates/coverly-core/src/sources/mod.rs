@@ -197,6 +197,39 @@ impl SourceError {
     }
 }
 
+/// Why a source stopped answering for a run, as data (the warning string
+/// says the same to a person; this is what Settings and notices read).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TroubleKind {
+    /// No key or account is stored.
+    MissingKey,
+    /// The key or account was refused.
+    Auth,
+    /// The daily quota is used up.
+    Exhausted,
+}
+
+/// A source that refused a run, and why.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceTrouble {
+    pub source: String,
+    pub kind: TroubleKind,
+}
+
+impl SourceError {
+    /// The trouble a source-wide error means; `None` for every other error
+    /// (exactly the errors [`SourceError::is_source_wide`] accepts have one).
+    pub fn trouble(&self) -> Option<TroubleKind> {
+        match self {
+            SourceError::MissingKey { .. } => Some(TroubleKind::MissingKey),
+            SourceError::Auth { .. } => Some(TroubleKind::Auth),
+            SourceError::Exhausted { .. } => Some(TroubleKind::Exhausted),
+            _ => None,
+        }
+    }
+}
+
 /// What one cheap authenticated request said about a key ("Test key").
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -332,6 +365,50 @@ mod tests {
         assert!(auth.is_source_wide() && missing.is_source_wide() && quota.is_source_wide());
         assert!(!bad.is_source_wide());
         assert!(!SourceError::from(NetError::Timeout).is_source_wide());
+    }
+
+    #[test]
+    fn every_source_wide_error_has_a_trouble_and_no_other_does() {
+        let src = || "screenscraper".to_string();
+        let cases = [
+            (
+                SourceError::MissingKey { source: src() },
+                Some(TroubleKind::MissingKey),
+            ),
+            (
+                SourceError::Auth {
+                    source: src(),
+                    status: 403,
+                },
+                Some(TroubleKind::Auth),
+            ),
+            (
+                SourceError::Exhausted {
+                    source: src(),
+                    status: 430,
+                },
+                Some(TroubleKind::Exhausted),
+            ),
+            (
+                SourceError::BadResponse {
+                    source: src(),
+                    detail: "x".into(),
+                },
+                None,
+            ),
+            (SourceError::from(NetError::Timeout), None),
+            (SourceError::NotFound("u".into()), None),
+        ];
+        for (e, want) in cases {
+            assert_eq!(e.trouble(), want, "{e}");
+            assert_eq!(e.trouble().is_some(), e.is_source_wide(), "{e}");
+        }
+        let json = serde_json::to_string(&SourceTrouble {
+            source: src(),
+            kind: TroubleKind::MissingKey,
+        })
+        .unwrap();
+        assert_eq!(json, r#"{"source":"screenscraper","kind":"missing-key"}"#);
     }
 
     #[test]
