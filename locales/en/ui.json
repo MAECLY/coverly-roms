@@ -190,13 +190,8 @@
         "screenscraper-user": "ScreenScraper user",
         "screenscraper-password": "ScreenScraper password"
       },
-      "save": "Save {what}",
-      "saveShort": "Save",
-      "show": "Show {what}",
       "remove": "Remove {what}",
       "removeShort": "Remove",
-      "stored": "Saved in the system keychain.",
-      "notStored": "Not set.",
       "testKey": "Test",
       "testKeyLabel": "Test the {what}",
       "testing": "Testing…",

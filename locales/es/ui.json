@@ -190,13 +190,8 @@
         "screenscraper-user": "Usuario de ScreenScraper",
         "screenscraper-password": "Contraseña de ScreenScraper"
       },
-      "save": "Guardar {what}",
-      "saveShort": "Guardar",
-      "show": "Mostrar {what}",
       "remove": "Quitar {what}",
       "removeShort": "Quitar",
-      "stored": "Guardada en el llavero del sistema.",
-      "notStored": "Sin configurar.",
       "testKey": "Probar",
       "testKeyLabel": "Probar {what}",
       "testing": "Probando…",
