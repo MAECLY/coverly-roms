@@ -71,7 +71,8 @@ fn update_with_the_setting_off_says_how_to_turn_it_on() {
     .assert()
     .code(2)
     .stderr(contains("the Switch catalogue is off"))
-    .stderr(contains("catalogs.switch.enabled"));
+    .stderr(contains("catalogs.switch.enabled"))
+    .stderr(contains("Integrations settings"));
     assert_eq!(server.requests().len(), 0);
     assert!(!data.path().join(CATALOG_FILE).exists());
 }

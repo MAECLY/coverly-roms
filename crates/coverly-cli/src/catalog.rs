@@ -54,7 +54,7 @@ enum SwitchAction {
 }
 
 /// Where the setting lives, for the `update` refusal.
-pub const ENABLE_HINT: &str = "turn on «Catálogo de Switch» in the app's Sources settings \
+pub const ENABLE_HINT: &str = "turn on «Catálogo de Switch» in the app's Integrations settings \
 (`catalogs.switch.enabled: true` in the settings file)";
 
 fn fail(e: impl std::fmt::Display) -> Failure {

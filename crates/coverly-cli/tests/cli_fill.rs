@@ -344,6 +344,10 @@ fn without_a_key_the_cli_warns_and_still_uses_libretro() {
         .assert()
         .success()
         .stderr(contains("warning: steamgriddb: no API key stored; skipped"))
+        // A mock endpoint: saved keys are never sent there.
+        .stderr(contains(
+            "note: saved keys are not sent to a custom endpoint",
+        ))
         .stdout(contains("filled 1"));
     assert!(f
         .server
@@ -360,14 +364,30 @@ fn an_unknown_source_is_refused() {
         .arg("libretro,nope")
         .assert()
         .code(2)
-        .stderr(contains("unknown source `nope`"));
+        .stderr(contains("unknown source `nope`"))
+        .stderr(contains("coverly integrations set steamgriddb"));
+}
+
+#[test]
+fn with_the_keychain_off_a_missing_key_says_so_once() {
+    let f = fixture();
+    let out = fill(&f)
+        .arg("--sources")
+        .arg("libretro,steamgriddb")
+        .env_remove("COVERLY_SGDB_KEY")
+        .assert()
+        .get_output()
+        .clone();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(err.matches("note: keychain: off").count(), 1, "{err}");
 }
 
 #[test]
 fn fill_help_names_the_key_variable() {
-    fill_cmd()
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(contains("COVERLY_SGDB_KEY").and(contains("--sources")));
+    fill_cmd().arg("--help").assert().success().stdout(
+        contains("COVERLY_SGDB_KEY")
+            .and(contains("coverly integrations set steamgriddb"))
+            .and(contains("system keychain"))
+            .and(contains("--sources")),
+    );
 }

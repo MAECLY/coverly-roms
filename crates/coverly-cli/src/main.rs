@@ -16,6 +16,7 @@ mod audit;
 mod catalog;
 mod dedupe;
 mod fill;
+mod keys;
 mod organize;
 mod profile;
 mod settings;

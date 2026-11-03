@@ -15,7 +15,7 @@ use coverly_core::archive::{FoundTool, Tool};
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::catalog::{SwitchCatalog, TitleNames};
 use coverly_core::consoles::PartKind;
-use coverly_core::credentials::SourceKeys;
+use coverly_core::credentials::{DevCredentials, SourceKeys};
 use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
 use coverly_core::identify::evidence::{Evidence, IdLevel};
 use coverly_core::identify::sniff::NotARom;
@@ -40,6 +40,7 @@ use coverly_core::write::trash::process_trash;
 use crate::catalog::{catalog_http, ui_locale};
 use crate::dedupe::{reason_text, relation_text};
 use crate::fill::write_file;
+use crate::keys::{cli_store, resolve_keys, KeyPlan};
 use crate::profile::{check_folder, profile_ids};
 use crate::{print_stdout, table, Failure};
 
@@ -808,7 +809,25 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         .unwrap_or_else(|| DATABASE_BASE.into());
     let store = DatStore::new(&http, &cache, base);
     let dats = (!opts.offline && opts.download_dats).then_some(&store);
-    let keys = SourceKeys::from_env(|name| std::env::var(name).ok());
+    // The account is only needed when the lookup can run at all.
+    let ss_on = !opts.offline
+        && DevCredentials::from_build().is_some()
+        && s.sources
+            .order
+            .iter()
+            .any(|e| e.id == "screenscraper" && e.enabled);
+    let plan = KeyPlan {
+        steamgriddb: false,
+        screenscraper: ss_on,
+        default_endpoints: args.screenscraper_url.is_none(),
+    };
+    let keychain = cli_store();
+    let keys = resolve_keys(
+        |name| std::env::var(name).ok(),
+        keychain.as_deref(),
+        plan,
+        &mut |m| eprintln!("note: {m}"),
+    );
     let screenscraper = online_wanted(s, &keys, opts.offline)
         .then(|| {
             let dev = keys.screenscraper_dev.clone()?;
