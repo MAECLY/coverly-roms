@@ -378,8 +378,12 @@ export function createMockSettings(opts: {
     ]),
   ) as Record<CredentialKey, boolean>;
   /** What the fake API says about a stored value (memory only): `bad…`
-   * is refused, `offline…` cannot be reached. Never the value itself. */
-  const verdicts = new Map<CredentialKey, 'invalid' | 'offline'>();
+   * is refused, `offline…` cannot be reached, `down…` reaches a service
+   * that does not answer. Never the value itself. */
+  const verdicts = new Map<
+    CredentialKey,
+    'invalid' | 'offline' | 'unavailable'
+  >();
   const scenario = opts.integrations ?? null;
   const keychain = opts.keychain ?? null;
   const now = () => opts.now ?? Math.floor(Date.now() / 1000);
@@ -800,6 +804,7 @@ export function createMockSettings(opts: {
       creds[k] = v.length > 0;
       if (v.startsWith('bad')) verdicts.set(k, 'invalid');
       else if (v.startsWith('offline')) verdicts.set(k, 'offline');
+      else if (v.startsWith('down')) verdicts.set(k, 'unavailable');
       else verdicts.delete(k);
       forgetHealthOf(k);
       write(storage, MOCK_STORAGE_KEYS.credentials, creds);

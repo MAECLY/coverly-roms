@@ -637,6 +637,14 @@ describe('mock integrations', () => {
       state: 'error',
       reason: { kind: 'check', detail: 'offline' },
     });
+    await m.setCredential('steamgriddb-api-key', 'down-key');
+    expect((await m.testIntegration('steamgriddb')).verdict).toBe(
+      'unavailable',
+    );
+    expect(card(await m.integrationsView(), 'steamgriddb')).toMatchObject({
+      state: 'error',
+      reason: { kind: 'check', detail: 'unavailable' },
+    });
 
     expect(await m.testIntegration('screenscraper')).toEqual({
       verdict: 'unavailable',
