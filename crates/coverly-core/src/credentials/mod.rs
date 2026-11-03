@@ -235,11 +235,11 @@ pub const SGDB_KEY_ENV: &str = "COVERLY_SGDB_KEY";
 pub const SS_USER_ENV: &str = "COVERLY_SS_USER";
 pub const SS_PASSWORD_ENV: &str = "COVERLY_SS_PASSWORD";
 
-/// Every credential a fill may use, read once when the job starts (the
-/// app: keychain; the CLI: environment). Workers never touch the keychain.
 /// Per key, whether a usable value is stored; `Err` = the store failed.
 pub type Presence = Result<Vec<(CredentialKey, bool)>, CredentialError>;
 
+/// Every credential a fill may use, read once when the job starts (the
+/// app: keychain; the CLI: environment). Workers never touch the keychain.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SourceKeys {
     pub steamgriddb: Option<Secret>,
