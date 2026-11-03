@@ -35,6 +35,7 @@
   <a href="https://coverly-roms.maecly.com/"><b>Web</b></a> ·
   <a href="#instalar">Descargar</a> ·
   <a href="#cómo-funciona">Cómo funciona</a> ·
+  <a href="#integraciones">Integraciones</a> ·
   <a href="#preguntas">Preguntas</a> ·
   <a href="https://coverly-roms.maecly.com/features/">Funciones</a> ·
   <a href="https://coverly-roms.maecly.com/roadmap/">Hoja de ruta</a> ·
@@ -52,7 +53,7 @@
 </p>
 
 > [!NOTE]
-> **Primeros pasos, dicho claro.** La v0.3.0 es la versión actual. Coverly ROMs
+> **Primeros pasos, dicho claro.** La v0.4.0 es la versión actual. Coverly ROMs
 > aún no se ha probado en consolas reales. Las versiones todavía no están
 > firmadas con un certificado de Apple ni de Microsoft, así que la primera vez
 > aparece un aviso (ver [Instalar](#instalar)). Si lo pruebas en una consola,
@@ -188,7 +189,8 @@ vuelven a mostrar; si el llavero está bloqueado o niega el acceso, el aviso
 dice qué hacer en tu sistema. La cuota diaria de ScreenScraper se muestra
 cuando el servicio la informa. Rellenar, Organizar y la línea de comandos
 llevan a la tarjeta cuando falta una cuenta o se agota una cuota. Las claves
-que ya habías guardado siguen funcionando.
+que ya habías guardado siguen funcionando. Cómo configurar cada una está en
+[Integraciones](#integraciones).
 
 **Agradecimientos.** Configuración → Agradecimientos lista cada fuente de
 portadas y metadatos, base de datos, referencia técnica, biblioteca y
@@ -202,8 +204,7 @@ inglés y español; temas claro y oscuro; actualizaciones desde la app.
 
 Todas las funciones, una a una, están en la [página de
 funciones](https://coverly-roms.maecly.com/features/), y lo que viene después,
-en la [hoja de ruta](https://coverly-roms.maecly.com/roadmap/). Las dos páginas
-se publican con la próxima actualización de la web.
+en la [hoja de ruta](https://coverly-roms.maecly.com/roadmap/).
 
 ## Cómo funciona
 
@@ -427,6 +428,57 @@ CPC, PICO-8, ScummVM y DOS.
 
 Más detalle (en inglés): [docs/04-architecture/art-sources.md](docs/04-architecture/art-sources.md).
 
+## Integraciones
+
+Coverly funciona sin ninguna cuenta. En Configuración → Integraciones añades
+las opcionales y activas o desactivas los servicios en línea:
+
+| Servicio                      | Qué añade                                                        | Qué necesita                                                                                                         |
+| ----------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| SteamGridDB                   | Portadas de la comunidad al rellenar, y los votos de Popularidad | Tu propia clave de API, de la [página de API de SteamGridDB](https://www.steamgriddb.com/profile/preferences/api)    |
+| ScreenScraper                 | Identificar archivos por hash al organizar                       | Una cuenta gratuita, de la [página de registro de ScreenScraper](https://www.screenscraper.fr/membreinscription.php) |
+| Catálogo de nombres de Switch | Nombres, editora y fecha de los juegos de Switch por title ID    | Nada; está apagado hasta que lo activas                                                                              |
+| Actualizaciones de Coverly    | Comprueba si hay una versión nueva de Coverly ROMs en GitHub     | Nada; se desactiva en Configuración → General                                                                        |
+
+**Cómo conseguir una clave.** «Cómo conseguir la clave», en cada tarjeta, abre
+la página de cuenta del propio servicio, nunca una web de terceros.
+SteamGridDB: inicia sesión con Steam, abre Preferencias › API, genera una clave
+y pégala en la tarjeta. ScreenScraper: crea una cuenta gratuita y escribe su
+usuario y contraseña. Después pulsa **Probar conexión**: la tarjeta dice si
+funciona, si la clave es incorrecta, si no hay conexión o el servicio está
+caído y, en ScreenScraper, cuánto de la cuota diaria se ha usado.
+
+**Qué se envía.** Cada tarjeta lo dice. A SteamGridDB, el nombre del juego que
+buscas y tu clave; a ScreenScraper, el nombre del archivo, su tamaño, sus
+hashes y el sistema, con tu cuenta, por HTTPS (nunca la ruta completa ni el
+contenido de los archivos); el catálogo de Switch y la comprobación de
+actualizaciones descargan archivos públicos y no envían nada de tu biblioteca.
+
+**Dónde se guardan las claves.** En el llavero del sistema: Llavero en macOS,
+Administrador de credenciales en Windows y el Secret Service (GNOME Keyring o
+KWallet) en Linux. Una clave guardada no se vuelve a mostrar, ni en la app, ni
+en los registros, ni al exportar la configuración, ni en la CLI; solo dicen si
+hay una o no. «Olvidar credenciales» la borra del llavero, y desactivar un
+servicio la conserva para más adelante.
+
+**Desde la línea de comandos.** `coverly integrations` usa la misma lista y las
+mismas entradas del llavero que la app:
+
+```bash
+coverly integrations list                          # cada servicio, activo o no, y qué claves hay guardadas
+coverly integrations set steamgriddb               # pide la clave sin mostrar lo que escribes
+coverly integrations set steamgriddb --from-env COVERLY_SGDB_KEY  # o la lee de una variable
+coverly integrations set screenscraper --field user
+coverly integrations set screenscraper --field password
+coverly integrations test steamgriddb              # una petición con la clave guardada
+coverly integrations forget steamgriddb            # pregunta antes; --yes sin terminal
+```
+
+`set` nunca recibe el secreto como argumento, así que no acaba en el historial
+de tu terminal: escríbelo en el aviso oculto, pásalo por stdin o nombra una
+variable con `--from-env`. Las opciones y los códigos de salida están en
+[Línea de comandos](#línea-de-comandos).
+
 ## Instalar
 
 Descarga el archivo para tu ordenador desde la
@@ -553,7 +605,7 @@ coverly dedupe /Volumes/SD --apply            # las aparta en /Volumes/SD/_Dupli
 coverly dedupe /Volumes/SD --apply --trash    # o las manda a la Papelera
 coverly catalog switch update                 # descarga el catálogo opcional de nombres de Switch
 coverly integrations list                     # qué servicios están activos y qué claves hay guardadas
-printf %s "$KEY" | coverly integrations set steamgriddb   # guarda una clave, leída de stdin
+coverly integrations set steamgriddb          # guarda una clave, escrita en un aviso oculto
 coverly integrations test steamgriddb         # una petición con la clave guardada
 coverly undo --list
 coverly undo                                  # deshace el último trabajo
@@ -609,8 +661,10 @@ propio servicio (nunca con `--steamgriddb-url` ni otro destino propio).
 ## Privacidad y seguridad
 
 - **Sin telemetría ni cuenta.** La app solo se conecta a las fuentes de
-  imágenes que actives, al catálogo de nombres de Switch si lo activas y, si no
-  lo desactivas, a la comprobación de actualizaciones.
+  imágenes que actives, a los servicios que configures en Configuración →
+  Integraciones, al catálogo de nombres de Switch si lo activas y, si no lo
+  desactivas, a la comprobación de actualizaciones. Cada tarjeta de
+  Integraciones dice qué envía.
 - **Sin claves de consola.** Coverly nunca las lee, pide, descarga ni incluye;
   los archivos de claves y licencias de la tarjeta no se tocan.
 - **Las imágenes se recodifican** antes de escribirse, así que no llevan
@@ -618,8 +672,10 @@ propio servicio (nunca con `--steamgriddb-url` ni otro destino propio).
 - **Tus claves se quedan en el llavero del sistema.** La de SteamGridDB solo
   se envía a SteamGridDB, en una cabecera `Authorization: Bearer`, y la cuenta
   de ScreenScraper solo a ScreenScraper. Nada vuelve a mostrar una clave
-  guardada, y los registros solo dicen si hay una o no. Abrir Configuración no
-  envía nada; «Probar conexión» hace una petición cuando la pulsas.
+  guardada, y los registros solo dicen si hay una o no. La configuración, su
+  exportación y su importación nunca llevan una clave ni una contraseña, y
+  `coverly integrations` nunca imprime una. Abrir Configuración no envía nada;
+  «Probar conexión» hace una petición cuando la pulsas.
 - **La auditoría solo lee.** Rellenar, organizar y apartar duplicados no
   escriben nada hasta que aplicas, nunca fuera de la raíz de la biblioteca, y
   cada trabajo se puede deshacer. Los duplicados se apartan o van a la
@@ -744,9 +800,11 @@ están en [Instalar](#instalar).
 <summary><b>¿Envía datos a algún sitio?</b></summary>
 
 No hay telemetría. La app solo se conecta a las fuentes de imágenes que
-actives, al catálogo de nombres de Switch si lo activas y, si no lo desactivas,
-a la comprobación de actualizaciones al arrancar. Las imágenes se
-recodifican, así que no llevan metadatos.
+actives, a los servicios que configures en Configuración → Integraciones, al
+catálogo de nombres de Switch si lo activas y, si no lo desactivas, a la
+comprobación de actualizaciones al arrancar. Cada tarjeta de Integraciones dice
+exactamente qué envía. Las imágenes se recodifican, así que no llevan
+metadatos.
 
 </details>
 
