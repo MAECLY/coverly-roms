@@ -27,6 +27,7 @@ const FOLDS: readonly SettingsFold[] = [
   'organize-advanced',
   'duplicates-advanced',
   'sources-advanced',
+  'integrations-switch-advanced',
 ];
 
 /** Ids that belong to a control but are not one (its help, hint, error,
@@ -112,6 +113,7 @@ describe('settings registry', () => {
     expect(foldCount('library-advanced')).toBe(2);
     expect(foldCount('organize-advanced')).toBe(1);
     expect(foldCount('sources-advanced')).toBe(2);
+    expect(foldCount('integrations-switch-advanced')).toBe(2);
     expect(
       FOLDS.every((f) => foldCount(f) > 0),
       'every fold holds at least one setting',

@@ -4,11 +4,7 @@ import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/i18n/useT';
 import { integration, integrationDomId } from '@/lib/integrations';
-import { useNavStore, type SettingsSection } from '@/stores/navStore';
-
-/** The Settings tab of the integration cards. It joins `SettingsSection`
- * with the tab itself; until then the store keeps the current tab. */
-const INTEGRATIONS_SECTION = 'integrations' as SettingsSection;
+import { useNavStore } from '@/stores/navStore';
 
 /**
  * «Configurar» next to a notice, or «Configurar en Integraciones» in
@@ -38,7 +34,7 @@ export function IntegrationLink({
       data-settings-opener
       aria-describedby={describedBy}
       onClick={() =>
-        useNavStore.getState().openSettings(INTEGRATIONS_SECTION, {
+        useNavStore.getState().openSettings('integrations', {
           focus: integrationDomId(id),
         })
       }

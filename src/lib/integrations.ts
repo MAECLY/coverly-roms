@@ -201,9 +201,9 @@ export function integrationDomId(id: string): string {
  * from the existing `CatalogStatus` rather than computed in Rust. */
 export interface CardState {
   state: IntegrationState;
-  /** A catalogue word that replaces the generic tag («Pendiente»,
-   * «Descargando», «Listo»). */
-  label?: 'pending' | 'downloading' | 'ready';
+  /** A word that replaces the generic tag: the catalogue's («Pendiente»,
+   * «Descargando», «Listo») or the updater's («Al abrir», «Manual»). */
+  label?: 'pending' | 'downloading' | 'ready' | 'on-launch' | 'manual';
   progress?: { done: number; total: number | null };
   /** The failed catalogue state; its existing copy says why and what to do. */
   reason?: 'failed-old' | 'failed-none' | 'rejected' | 'remove-failed';
@@ -242,4 +242,12 @@ export function integrationName(
   const key = `integrations.service.${entry.id}.name`;
   const text = t(key);
   return text === key ? entry.name : text;
+}
+
+/** The Actualizaciones card's tag: it has nothing to connect to or store,
+ * so it says whether Coverly looks for a new version on launch (D24). */
+export function updatesCardState(checkOnLaunch: boolean): CardState {
+  return checkOnLaunch
+    ? { state: 'connected', label: 'on-launch' }
+    : { state: 'off', label: 'manual' };
 }

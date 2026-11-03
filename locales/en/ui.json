@@ -1760,7 +1760,9 @@
       "quota": "Quota used up",
       "pending": "Pending",
       "downloading": "Downloading",
-      "ready": "Ready"
+      "ready": "Ready",
+      "on-launch": "On launch",
+      "manual": "Manual"
     },
     "stateLine": {
       "off": {

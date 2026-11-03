@@ -1760,7 +1760,9 @@
       "quota": "Cuota agotada",
       "pending": "Pendiente",
       "downloading": "Descargando",
-      "ready": "Listo"
+      "ready": "Listo",
+      "on-launch": "Al abrir",
+      "manual": "Manual"
     },
     "stateLine": {
       "off": {

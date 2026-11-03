@@ -80,6 +80,7 @@ describe('Settings screen', () => {
       'Art',
       'Matching',
       'Sources',
+      'Integrations',
       'Network',
       'Safety',
       'Advanced',
@@ -506,6 +507,21 @@ describe('Settings screen', () => {
     expect(testButton).not.toHaveTextContent('Testing…');
   });
 
+  it('shows Integrations through its section, waiting for the settings like other tabs', async () => {
+    expect(SECTION_COMPONENTS.integrations).toBeTypeOf('function');
+    await start();
+    act(() => useSettingsStore.setState({ status: 'loading' }));
+    act(() => useNavStore.getState().openSettings('integrations'));
+    const panel = await screen.findByRole('tabpanel', { name: 'Integrations' });
+    expect(within(panel).getByRole('status')).toHaveTextContent(
+      'Loading settings…',
+    );
+    act(() => useSettingsStore.setState({ status: 'ready' }));
+    expect(
+      await within(panel).findByText(/Accounts, keys and services/),
+    ).toBeInTheDocument();
+  });
+
   it('shows About with the licence and opens fixed links only', async () => {
     await start();
     act(() => useNavStore.getState().openSettings('about'));
@@ -638,6 +654,17 @@ describe('Settings screen', () => {
       expect(useNavStore.getState().openFolds).toContain('organize-advanced');
       expect(search).toHaveValue('');
       expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+
+    it('names the integration card a setting sits in', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'switch icons');
+      const results = screen.getByRole('listbox');
+      expect(
+        within(results)
+          .getAllByRole('option', { name: /Switch icons/ })
+          .map((o) => o.textContent),
+      ).toContain('Switch iconsIntegrations › Switch catalogue');
     });
 
     it('clears with Escape and then returns to the selected tab', async () => {

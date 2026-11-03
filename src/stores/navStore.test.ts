@@ -88,9 +88,23 @@ describe('navStore settings round trip', () => {
 
 describe('settings tabs', () => {
   it('has Credits as the last tab, after About, outside any group', () => {
-    expect(SETTINGS_SECTIONS).toHaveLength(13);
+    expect(SETTINGS_SECTIONS).toHaveLength(14);
     expect(SETTINGS_SECTIONS.slice(-2)).toEqual(['about', 'credits']);
     expect(SETTINGS_GROUPS.credits).toBeNull();
+  });
+
+  it('has Integrations right after Sources, in the covers group', () => {
+    const i = SETTINGS_SECTIONS.indexOf('integrations');
+    expect(SETTINGS_SECTIONS[i - 1]).toBe('sources');
+    expect(SETTINGS_SECTIONS[i + 1]).toBe('network');
+    expect(SETTINGS_GROUPS.integrations).toBe('covers');
+  });
+
+  it('opens the Integrations tab focused on a card', () => {
+    resetNavStore();
+    nav().openSettings('integrations', { focus: 'integration-screenscraper' });
+    expect(nav().section).toBe('integrations');
+    expect(nav().focusSetting).toBe('integration-screenscraper');
   });
 
   it('opens the Credits tab', () => {

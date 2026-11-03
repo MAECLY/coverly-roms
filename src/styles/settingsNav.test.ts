@@ -55,8 +55,8 @@ describe('settings tab column on a 760 px window', () => {
     expect(rule('.settings-nav')).toMatch(/flex: 0 0 12rem;/);
   });
 
-  it('every one of the 13 tab names fits that column on one line', () => {
-    expect(SETTINGS_SECTIONS).toHaveLength(13);
+  it('every one of the 14 tab names fits that column on one line', () => {
+    expect(SETTINGS_SECTIONS).toHaveLength(14);
     // 12rem minus the tab padding holds about 20 characters at 13 px.
     const long = [es, en].flatMap((c) =>
       SETTINGS_SECTIONS.map((s) => c.settings.section[s]).filter(

@@ -14,6 +14,7 @@ import { CreditsSection } from '@/components/settings/CreditsSection';
 import { ArtSection } from '@/components/settings/ArtSection';
 import { DuplicatesSection } from '@/components/settings/DuplicatesSection';
 import { GeneralSection } from '@/components/settings/GeneralSection';
+import { IntegrationsSection } from '@/components/settings/IntegrationsSection';
 import { LibrarySection } from '@/components/settings/LibrarySection';
 import { OrganizeSection } from '@/components/settings/OrganizeSection';
 import { MatchingSection } from '@/components/settings/MatchingSection';
@@ -59,6 +60,7 @@ export const SECTION_COMPONENTS: Record<
   art: ArtSection,
   matching: MatchingSection,
   sources: SourcesSection,
+  integrations: IntegrationsSection,
   network: NetworkSection,
   safety: SafetySection,
   advanced: AdvancedSection,
@@ -199,12 +201,22 @@ export function SettingsScreen() {
       const nav = useNavStore.getState();
       const el = document.getElementById(focusSetting);
       if (!el) return false;
-      // Folded content is mounted but hidden (SP-3): open it, land next
-      // render.
-      const fold = el.closest<HTMLElement>('[data-advanced-fold]')?.dataset
-        .advancedFold;
-      if (fold && !nav.openFolds.includes(fold)) {
-        nav.setFold(fold, true);
+      // Folded content is mounted but hidden (SP-3): open every closed
+      // fold around it (a fold inside an integration card sits in two),
+      // land next render.
+      const closed: string[] = [];
+      for (
+        let node = el.closest<HTMLElement>('[data-advanced-fold]');
+        node;
+        node =
+          node.parentElement?.closest<HTMLElement>('[data-advanced-fold]') ??
+          null
+      ) {
+        const fold = node.dataset.advancedFold;
+        if (fold && !nav.openFolds.includes(fold)) closed.push(fold);
+      }
+      if (closed.length > 0) {
+        for (const fold of closed) nav.setFold(fold, true);
         return true;
       }
       arrive(el);
