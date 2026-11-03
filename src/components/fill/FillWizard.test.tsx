@@ -315,6 +315,32 @@ describe('Fill wizard', () => {
       });
     });
 
+    it('comes back on the last choice when the dry run ended in Settings', async () => {
+      const { backend } = await setup();
+      await enableSgdb(backend, 'sk');
+      await backend.clearCredential('steamgriddb-api-key');
+      const dialog = await preview();
+      const note = within(dialog).getByRole('note');
+      await userEvent.click(
+        within(note).getByRole('button', { name: 'Set up' }),
+      );
+      await screen.findByRole('heading', { name: 'Settings' });
+      await act(async () => {
+        await useJobStore.getState().cancel();
+      });
+      await waitFor(() =>
+        expect(useJobStore.getState().job?.state).toBe('cancelled'),
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+      const back = await screen.findByRole('dialog', {
+        name: 'Fill missing art',
+      });
+      expect(within(back).getByText('Step 4 of 5')).toBeInTheDocument();
+      expect(
+        within(back).getByRole('button', { name: 'Preview (dry run)' }),
+      ).toBeEnabled();
+    });
+
     it('links a refused key', async () => {
       const { backend } = await setup();
       await enableSgdb(backend, 'bad-key');

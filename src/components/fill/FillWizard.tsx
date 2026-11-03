@@ -179,7 +179,10 @@ export function FillWizard({
   const [step, setStep] = useState<Step>(() =>
     inPlay(useJobStore.getState().job, view.generation)
       ? 'summary'
-      : (restored?.step ?? 'scope'),
+      : // The dry run it left on ended meanwhile: back on the last choice.
+        restored?.step === 'summary'
+        ? 'overwrite'
+        : (restored?.step ?? 'scope'),
   );
   const [scope, setScope] = useState<FillScope>(
     restored?.scope ??
