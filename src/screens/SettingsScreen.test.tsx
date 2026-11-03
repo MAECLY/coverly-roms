@@ -144,6 +144,26 @@ describe('Settings screen', () => {
     expect(useNavStore.getState().focusSetting).toBeNull();
   });
 
+  it('lands on the row of a setting that is turned off', async () => {
+    await start();
+    act(() =>
+      useNavStore.getState().openSettings('integrations', {
+        focus: 'setting-integrations-switch-catalog-fallback-url',
+      }),
+    );
+    const field = await screen.findByRole('textbox', {
+      name: 'Fallback address',
+    });
+    expect(field).toBeDisabled();
+    const row = field.closest<HTMLElement>('[data-setting-row]');
+    await waitFor(() => expect(row).toHaveFocus());
+    expect(row).toHaveAttribute('data-arrived', 'true');
+    expect(useNavStore.getState().focusSetting).toBeNull();
+    // Leaving the row takes it out of the page again.
+    act(() => row?.blur());
+    expect(row).not.toHaveAttribute('tabindex');
+  });
+
   it('focuses the tab when the target is missing', async () => {
     await start();
     act(() =>

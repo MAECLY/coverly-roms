@@ -86,6 +86,20 @@ function arrive(el: HTMLElement) {
     behavior: reduce ? 'auto' : 'smooth',
   });
   el.focus({ preventScroll: true });
+  // A turned-off control cannot take focus: land on its row instead, so
+  // focus does not stay in the search, and drop the row from the tab
+  // order once focus leaves it.
+  if (
+    document.activeElement !== el &&
+    row !== el &&
+    !row.hasAttribute('tabindex')
+  ) {
+    row.tabIndex = -1;
+    row.addEventListener('blur', () => row.removeAttribute('tabindex'), {
+      once: true,
+    });
+    row.focus({ preventScroll: true });
+  }
   row.dataset.arrived = 'true';
   window.clearTimeout(unmark.get(row));
   unmark.set(
