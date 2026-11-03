@@ -55,6 +55,7 @@ import { noticesFromTroubles } from '@/lib/integrations';
 import { systemByFolder } from '@/lib/systemLookup';
 import { cn } from '@/lib/utils';
 import { useJobStore } from '@/stores/jobStore';
+import { useNavStore } from '@/stores/navStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useViewStore } from '@/stores/viewStore';
 
@@ -70,6 +71,27 @@ const STEPS: readonly Step[] = [
 ];
 const SCOPES: readonly FillScope[] = ['selection', 'filter', 'library'];
 const OVERWRITES: readonly OverwritePolicy[] = ['never', 'backup'];
+
+/** The choices of a wizard that left for Settings (a «Set up» link): the
+ * library screen unmounts while Settings shows, so Back would otherwise
+ * reopen it on the first step with its defaults. One at a time; taken by
+ * the next wizard of the same library. */
+interface Draft {
+  generation: number;
+  step: Step;
+  scope: FillScope;
+  media: Media[];
+  strategy: StrategyKind;
+  regions: RegionPref[];
+  overwrite: OverwritePolicy | null;
+}
+let draft: Draft | null = null;
+
+function takeDraft(generation: number): Draft | null {
+  const d = draft;
+  draft = null;
+  return d !== null && d.generation === generation ? d : null;
+}
 
 /** A job the summary step can show: a dry run of this library still in play. */
 function inPlay(job: JobView | null, generation: number): boolean {
@@ -153,22 +175,52 @@ export function FillWizard({
   /** Only a plan this wizard started may run by itself, and only once. */
   const startedHere = useRef(false);
   const autoRan = useRef(false);
+  const [restored] = useState(() => takeDraft(view.generation));
   const [step, setStep] = useState<Step>(() =>
-    inPlay(useJobStore.getState().job, view.generation) ? 'summary' : 'scope',
+    inPlay(useJobStore.getState().job, view.generation)
+      ? 'summary'
+      : (restored?.step ?? 'scope'),
   );
   const [scope, setScope] = useState<FillScope>(
-    selectedId !== null
-      ? 'selection'
-      : visible.length < view.entries.length
-        ? 'filter'
-        : 'library',
+    restored?.scope ??
+      (selectedId !== null
+        ? 'selection'
+        : visible.length < view.entries.length
+          ? 'filter'
+          : 'library'),
   );
-  const [media, setMedia] = useState<Media[]>(defaults.media);
-  const [strategy, setStrategy] = useState<StrategyKind>(defaults.strategy);
-  const [regions, setRegions] = useState<RegionPref[]>(defaults.regions);
+  const [media, setMedia] = useState<Media[]>(
+    restored?.media ?? defaults.media,
+  );
+  const [strategy, setStrategy] = useState<StrategyKind>(
+    restored?.strategy ?? defaults.strategy,
+  );
+  const [regions, setRegions] = useState<RegionPref[]>(
+    restored?.regions ?? defaults.regions,
+  );
   // `null` while the "ask" setting waits for the user's choice (D25).
   const [overwrite, setOverwrite] = useState<OverwritePolicy | null>(
-    defaults.overwrite,
+    restored ? restored.overwrite : defaults.overwrite,
+  );
+  // Leaving for Settings keeps the choices for Back; closing forgets them.
+  const choices = useRef<Draft | null>(null);
+  useEffect(() => {
+    choices.current = {
+      generation: view.generation,
+      step,
+      scope,
+      media,
+      strategy,
+      regions,
+      overwrite,
+    };
+  }, [view.generation, step, scope, media, strategy, regions, overwrite]);
+  useEffect(
+    () => () => {
+      if (useNavStore.getState().screen === 'settings' && choices.current)
+        draft = choices.current;
+    },
+    [],
   );
   const index = STEPS.indexOf(step);
   const uid = useId();
@@ -192,6 +244,24 @@ export function FillWizard({
       alive = false;
     };
   }, [wantSources]);
+  // Back from the card: the «Set up» link that left shows once readiness is
+  // known again, so focus returns to it then (App's Back focus runs before
+  // it exists); with the key now saved there is no link, and the chosen
+  // strategy takes focus instead.
+  const backFrom = useRef(
+    restored !== null && restored.strategy === 'popularity',
+  );
+  useEffect(() => {
+    if (!backFrom.current || sources === null) return;
+    backFrom.current = false;
+    const root = contentRef.current;
+    (
+      root?.querySelector<HTMLElement>(
+        '[role="note"] [data-settings-opener]',
+      ) ??
+      root?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')
+    )?.focus();
+  }, [sources]);
   const sgdbVotes =
     sources?.some((i) => i.id === 'steamgriddb' && i.ready) === true &&
     (settings?.sources.order.some((e) => e.id === 'steamgriddb' && e.enabled) ??

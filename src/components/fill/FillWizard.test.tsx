@@ -181,6 +181,91 @@ describe('Fill wizard', () => {
     });
   });
 
+  it('comes back from the SteamGridDB card on the step it left', async () => {
+    await setup();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    let dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Whole library/ }),
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: 'Screenshot' }),
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /^Popularity \(votes\)/ }),
+    );
+    const note = await within(dialog).findByRole('note');
+    await userEvent.click(within(note).getByRole('button', { name: 'Set up' }));
+    await screen.findByRole('heading', { name: 'Settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    dialog = await screen.findByRole('dialog', { name: 'Fill missing art' });
+    expect(within(dialog).getByText('Step 3 of 5')).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('radio', { name: 'Popularity (votes)' }),
+    ).toBeChecked();
+    const setUp = await within(dialog).findByRole('button', { name: 'Set up' });
+    await waitFor(() => expect(setUp).toHaveFocus());
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Back' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Back' }));
+    expect(
+      within(dialog).getByRole('radio', { name: /Whole library/ }),
+    ).toBeChecked();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    expect(
+      within(dialog).getByRole('checkbox', { name: 'Screenshot' }),
+    ).toBeChecked();
+    // Closing the wizard forgets the draft: it opens fresh next time.
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Close' }),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    expect(within(dialog).getByText('Step 1 of 5')).toBeInTheDocument();
+  });
+
+  it('focuses the chosen strategy when the key was saved on the card', async () => {
+    const { backend } = await setup();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /^Popularity \(votes\)/ }),
+    );
+    const note = await within(dialog).findByRole('note');
+    await userEvent.click(within(note).getByRole('button', { name: 'Set up' }));
+    await screen.findByRole('heading', { name: 'Settings' });
+    await backend.setCredential('steamgriddb-api-key', 'sk');
+    await act(() =>
+      useSettingsStore.getState().update({
+        sources: {
+          order: [
+            { id: 'libretro', enabled: true },
+            { id: 'steamgriddb', enabled: true },
+            { id: 'screenscraper', enabled: false },
+          ],
+        },
+      }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    const back = await screen.findByRole('dialog', {
+      name: 'Fill missing art',
+    });
+    const popularity = within(back).getByRole('radio', {
+      name: 'Popularity (votes)',
+    });
+    await waitFor(() => expect(popularity).toHaveFocus());
+    expect(within(back).queryByRole('note')).not.toBeInTheDocument();
+  });
+
   describe('summary notices', () => {
     async function enableSgdb(
       backend: Awaited<ReturnType<typeof setup>>['backend'],
