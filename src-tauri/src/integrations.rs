@@ -603,6 +603,38 @@ mod tests {
     }
 
     #[test]
+    fn a_connection_test_with_a_refusing_keychain_says_why_not_missing() {
+        // «We could not look» is not «no key»: the test answers with the
+        // keychain error (the mock's `?mockKeychain=` does the same), so
+        // «Probar conexión» shows what to do instead of «falta la clave».
+        let (st, _d) = app(Arc::new(MemoryStore::unavailable()), None);
+        enable(&st, "steamgriddb");
+        assert_eq!(
+            st.test_integration("steamgriddb").unwrap_err(),
+            IpcError::KeychainUnavailable
+        );
+        assert_eq!(
+            st.test_source_key("steamgriddb").unwrap_err(),
+            IpcError::KeychainUnavailable
+        );
+        // Nothing was learnt about the key: the card keeps the keychain reason.
+        let view = st.integrations_view();
+        let sgdb = card(&view, "steamgriddb");
+        assert_eq!(
+            sgdb.reason,
+            Some(Reason::Keychain(KeychainKind::Unavailable))
+        );
+        assert_eq!(sgdb.checked_at, None);
+        // A build without ScreenScraper says so without asking the keychain.
+        if DevCredentials::from_build().is_none() {
+            assert_eq!(
+                st.test_integration("screenscraper").unwrap().verdict,
+                KeyCheck::Unavailable
+            );
+        }
+    }
+
+    #[test]
     fn job_troubles_update_the_health() {
         let (st, _d) = app(full_store(), None);
         enable(&st, "steamgriddb");

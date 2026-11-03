@@ -85,6 +85,12 @@ impl AppState {
         source: &str,
     ) -> Result<(KeyCheck, Option<SsQuota>), IpcError> {
         let cfg = self.fill_config();
+        // A keychain that could not be read is not «no key»: say why
+        // (spec D6/D16), unless this build cannot use the source anyway.
+        let built = source != "screenscraper" || cfg.keys.screenscraper_dev.is_some();
+        if built && integrations::for_source(source).is_some_and(|e| !e.fields.is_empty()) {
+            self.key_presence()?;
+        }
         let net = key_check_net(&cfg.net);
         let http = PoliteHttp::new(UreqHttp::new(&net), &net);
         let check = match source {
