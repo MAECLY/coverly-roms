@@ -231,3 +231,15 @@ export function catalogCardState(s: CatalogStatus | null): CardState {
       return { state: 'error', reason: s.state };
   }
 }
+
+/** The name shown for an entry: its catalogue copy when it has one
+ * (`integrations.service.<id>.name`: «Catálogo de Switch»), else the
+ * registry's name (a service name is the same in every language). */
+export function integrationName(
+  entry: Integration,
+  t: (key: string) => string,
+): string {
+  const key = `integrations.service.${entry.id}.name`;
+  const text = t(key);
+  return text === key ? entry.name : text;
+}

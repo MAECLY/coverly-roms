@@ -20,6 +20,9 @@ import { DupGroup } from '@/components/dedupe/DupGroup';
 import { SetAsideScene } from '@/components/dedupe/SetAsideScene';
 import { SystemSection } from '@/components/dedupe/SystemSection';
 import { UnchangedList } from '@/components/dedupe/UnchangedList';
+import { IntegrationNotice } from '@/components/settings/IntegrationNotice';
+import { IntegrationStatusTag } from '@/components/settings/IntegrationStatusTag';
+import { SecretField } from '@/components/settings/SecretField';
 
 import {
   AlertDialog,
@@ -892,6 +895,43 @@ export function UiGallery() {
                 <Spinner />
                 <Spinner size="lg" className="text-primary" />
               </Row>
+            </Specimen>
+
+            <Specimen name="Integration status · notice · secret field">
+              <Row>
+                {(
+                  [
+                    'off',
+                    'unavailable',
+                    'not-configured',
+                    'saved',
+                    'connected',
+                    'error',
+                    'quota',
+                  ] as const
+                ).map((s) => (
+                  <IntegrationStatusTag key={s} state={s} />
+                ))}
+                <IntegrationStatusTag
+                  state={{ state: 'saved', label: 'downloading' }}
+                />
+                <IntegrationStatusTag
+                  state={{ state: 'connected', label: 'ready' }}
+                />
+              </Row>
+              <IntegrationNotice
+                notice={{ integration: 'steamgriddb', problem: 'missing' }}
+              />
+              <IntegrationNotice
+                notice={{ integration: 'screenscraper', problem: 'quota' }}
+              />
+              <SecretField
+                k="steamgriddb-api-key"
+                input="api-key"
+                set
+                disabled={false}
+                onSave={() => new Promise((r) => setTimeout(r, 800))}
+              />
             </Specimen>
 
             <Specimen name="Badge · Kbd · SlotMark">
