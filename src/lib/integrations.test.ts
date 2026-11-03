@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import es from '../../locales/es/ui.json';
+import { translate } from '@/i18n/core';
+import { KEY_CHECKS } from '@/ipc/types';
+
 import { CREDITS } from './credits';
 import {
   INTEGRATIONS,
@@ -93,15 +97,111 @@ describe('integrations registry', () => {
       }),
     ).toThrow(/entry x/);
   });
+});
 
-  // The copy keys land with the locale work (plan Task 7), which turns these on.
-  it.todo(
-    'Task 7: every working entry has use, privacy and keywords in both locales',
-  );
-  it.todo('Task 7: entries with a help_url have steps in both locales');
-  it.todo(
-    'Task 7: every working entry but updates has unlocks in both locales',
-  );
+describe('integrations copy (both locales)', () => {
+  const LOCALES = ['es', 'en'] as const;
+  /** Fails naming the locale and key when a string is missing or empty. */
+  const expectCopy = (key: string) => {
+    for (const l of LOCALES) {
+      const v = translate(l, key);
+      expect(v !== key && v.trim() !== '', `${l}: ${key}`).toBe(true);
+    }
+  };
+
+  it('every working entry has use, privacy and keywords', () => {
+    for (const e of WORKING)
+      for (const part of ['use', 'privacy', 'keywords'])
+        expectCopy(`integrations.service.${e.id}.${part}`);
+  });
+
+  it('entries with a help_url have steps', () => {
+    const withHelp = WORKING.filter((e) => e.help_url !== null);
+    expect(withHelp.length).toBeGreaterThan(0);
+    for (const e of withHelp) expectCopy(`integrations.service.${e.id}.steps`);
+  });
+
+  it('every working entry but updates has unlocks', () => {
+    for (const e of WORKING.filter((e) => e.id !== 'updates'))
+      expectCopy(`integrations.service.${e.id}.unlocks`);
+  });
+
+  it('the catalogue and updates cards have a translated name', () => {
+    for (const id of ['switch-catalog', 'updates'])
+      expectCopy(`integrations.service.${id}.name`);
+  });
+
+  it('every planned entry says what it is for and what it will need', () => {
+    for (const e of PLANNED) {
+      expectCopy(`integrations.service.${e.id}.use`);
+      for (const n of e.needs) expectCopy(`integrations.needs.${n}`);
+    }
+    expectCopy('integrations.needs.none');
+  });
+
+  it('every field input has a label, and stored ones a saved line', () => {
+    for (const input of ['user', 'password', 'api-key', 'client-id', 'secret'])
+      expectCopy(`integrations.field.${input}.label`);
+    for (const e of WORKING)
+      for (const f of e.fields)
+        expectCopy(`integrations.field.${f.input}.saved`);
+  });
+
+  it('every group, state tag and test outcome has copy', () => {
+    for (const e of INTEGRATIONS) expectCopy(`integrations.group.${e.group}`);
+    expectCopy('integrations.group.planned');
+    for (const s of [
+      'off',
+      'unavailable',
+      'not-configured',
+      'saved',
+      'connected',
+      'error',
+      'quota',
+      'pending',
+      'downloading',
+      'ready',
+    ])
+      expectCopy(`integrations.state.${s}`);
+    for (const k of KEY_CHECKS) expectCopy(`integrations.check.${k}`);
+  });
+
+  it('has an off line for every feature a working entry powers', () => {
+    const lines: Record<string, string> = {
+      fill: 'fill',
+      'organize-identify': 'fill',
+      'organize-names': 'organize',
+    };
+    for (const e of WORKING.filter((e) => e.id !== 'updates'))
+      expectCopy(`integrations.stateLine.off.${lines[e.powers[0] ?? '']}`);
+  });
+
+  it('keeps the same placeholders in the quota and connected lines', () => {
+    expect(
+      translate('es', 'integrations.stateLine.quota', { used: 1, max: 2 }),
+    ).toMatch(/1 de 2/);
+    expect(
+      translate('en', 'integrations.stateLine.quota', { used: 1, max: 2 }),
+    ).toMatch(/1 of 2/);
+    expect(
+      translate('es', 'integrations.stateLine.connected', {
+        time: 'hace 1 minuto',
+      }),
+    ).toBe('Comprobado hace 1 minuto.');
+  });
+
+  it('writes Spanish without exclamation marks', () => {
+    const walk = (node: unknown, path: string): void => {
+      if (typeof node === 'string') {
+        expect(node.includes('!') || node.includes('¡'), path).toBe(false);
+        return;
+      }
+      for (const [k, v] of Object.entries(node as object))
+        walk(v, `${path}.${k}`);
+    };
+    walk(es.integrations, 'integrations');
+    walk(es.errors.keychainOs, 'errors.keychainOs');
+  });
 });
 
 describe('catalogCardState (D23)', () => {

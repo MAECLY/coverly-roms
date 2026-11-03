@@ -83,6 +83,7 @@
       "art": "Art",
       "matching": "Matching",
       "sources": "Sources",
+      "integrations": "Integrations",
       "network": "Network",
       "safety": "Safety",
       "advanced": "Advanced",
@@ -498,6 +499,22 @@
     "keychain-locked": "The keychain is locked. Unlock it and try again.",
     "keychain-denied": "The system did not allow access to the keychain.",
     "keychain-failed": "The keychain refused the request: {detail}",
+    "keychainOs": {
+      "locked": {
+        "macos": "The macOS keychain is locked. Unlock it in Keychain Access and try again; over SSH, run `security unlock-keychain` first.",
+        "linux": "The keyring is locked. Unlock it in Passwords and Keys or KWalletManager and try again."
+      },
+      "denied": {
+        "macos": "macOS did not allow access to the keychain. Try again and choose \"Allow\" in the prompt.",
+        "windows": "Windows denied access to Credential Manager. Check that your account has no policy restrictions.",
+        "linux": "The secret service denied access. Accept the unlock prompt; on Flatpak, allow `org.freedesktop.secrets`."
+      },
+      "unavailable": {
+        "macos": "The login keychain cannot be found. Check it in Keychain Access.",
+        "windows": "Credential Manager is not available in this session. Open Coverly ROMs from your own Windows session (not as a service or scheduled task), or sign out and back in.",
+        "linux": "No secret service is running, or it has no default keyring. Install or start GNOME Keyring or KWallet, create a \"Login\" keyring and reopen Coverly ROMs."
+      }
+    },
     "update-offline": "Could not reach the update server. Check your connection and try again.",
     "update-signature": "The downloaded update failed its signature check and was NOT installed. Nothing was changed.",
     "update-unavailable": "No update was found for this channel and system: none is published yet, or the update server could not provide it.",
@@ -1093,7 +1110,7 @@
       "priority": "Prefers the first source, then the order below.",
       "popularity": "Prefers the image with the most SteamGridDB votes; without votes, the variant most sources and art types agree on; then source priority."
     },
-    "popularityNoKey": "SteamGridDB is not ready, so votes are not used: add a key in Settings → Sources.",
+    "popularityNoKey": "SteamGridDB is not ready, so votes are not used.",
     "regions": "Region order",
     "regionRom": "The ROM's own region",
     "moveUp": "Move {region} up",
@@ -1662,5 +1679,188 @@
   },
   "progress": {
     "perMinute": "{n} per minute"
+  },
+  "integrations": {
+    "intro": "Accounts, keys and services Coverly ROMs uses on your behalf. Keys are kept in the system keychain and are never shown again.",
+    "group": {
+      "art": "Covers and art",
+      "names": "Names and metadata",
+      "achievements": "Achievements",
+      "catalogs": "Catalogues",
+      "updates": "Updates",
+      "planned": "Coming later"
+    },
+    "enabled": "On",
+    "show": "Show {what}",
+    "save": "Save",
+    "saving": "Saving…",
+    "field": {
+      "user": {
+        "label": "User name",
+        "saved": "Saved in the keychain"
+      },
+      "password": {
+        "label": "Password",
+        "saved": "Saved in the keychain"
+      },
+      "api-key": {
+        "label": "API key",
+        "saved": "Saved in the keychain"
+      },
+      "client-id": {
+        "label": "Client ID",
+        "saved": "Saved in the keychain"
+      },
+      "secret": {
+        "label": "Secret",
+        "saved": "Saved in the keychain"
+      }
+    },
+    "needs": {
+      "user": "user name",
+      "password": "password",
+      "api-key": "API key",
+      "client-id": "client ID",
+      "secret": "secret",
+      "none": "no account"
+    },
+    "test": "Test connection",
+    "testing": "Testing…",
+    "forget": "Forget credentials",
+    "forgetConfirm": "Forget the {name} credentials? They are deleted from this computer's keychain.",
+    "forgetYes": "Forget",
+    "cancel": "Cancel",
+    "howTo": "How to get the key",
+    "howToAccount": "How to get an account",
+    "privacy": "What is sent",
+    "credit": "Credit in Acknowledgements",
+    "order": "Sources: position {n} of {total}",
+    "configure": "Set up",
+    "configureIn": "Set up in Integrations",
+    "configureService": "Set up {name}",
+    "quotaToday": "Today: {used} of {max} requests",
+    "threads": "Threads: {n}",
+    "seen": "seen {time}",
+    "links": {
+      "network": "Proxy and limits in Network",
+      "sources": "Source order in Sources",
+      "credits": "Credits in Acknowledgements"
+    },
+    "planned": {
+      "plan": "See the plan"
+    },
+    "releases": "See releases",
+    "empty": "To start, get a free SteamGridDB key: it adds covers for games libretro does not have.",
+    "emptyScreenscraper": "ScreenScraper, with an account, identifies ROMs by their hash.",
+    "ssUnavailable": "This version does not include ScreenScraper access yet. You can save your account for when it does.",
+    "state": {
+      "off": "Off",
+      "unavailable": "Not available",
+      "not-configured": "Not set up",
+      "saved": "Saved",
+      "connected": "Connected",
+      "error": "Error",
+      "quota": "Quota used up",
+      "pending": "Pending",
+      "downloading": "Downloading",
+      "ready": "Ready"
+    },
+    "stateLine": {
+      "off": {
+        "fill": "Turn it on to use it when filling covers.",
+        "organize": "Turn it on to use its names when organising."
+      },
+      "missing": {
+        "api-key": "The API key is missing.",
+        "account": "The account is missing.",
+        "user": "The user name is missing.",
+        "password": "The password is missing."
+      },
+      "saved": "Not checked in this session.",
+      "connected": "Checked {time}.",
+      "quota": "You have used {used} of {max} requests today. Come back tomorrow; meanwhile, filling carries on with the other sources."
+    },
+    "check": {
+      "ok": "It works.",
+      "invalid": "Wrong credentials. Check the key or create a new one on the service's site.",
+      "missing": "No key yet. Save it above and test again.",
+      "offline": "No network. Check the connection or the proxy in Network.",
+      "rate-limited": "Quota used up, too many requests or the API is closed for now. Try again later.",
+      "unavailable": "The service is not answering. It may be down; try again later."
+    },
+    "catalog": {
+      "offHint": "Turning it off deletes the downloaded catalogue and turns off the icons and the fallback; it can be downloaded again."
+    },
+    "badValue": "The key is not valid: it has control characters or is too long.",
+    "missingAccount": "No account",
+    "missingKey": "No key",
+    "updates": {
+      "channel": "Channel: {channel}",
+      "change": "Change in General",
+      "checkOnLaunch": "Check on launch, in General"
+    },
+    "notice": {
+      "missing": "{name} has no key",
+      "missingAccount": "{name} has no account",
+      "rejected": "{name} rejected the credentials",
+      "quota": "{name} quota used up for today",
+      "off": "{name} is off"
+    },
+    "organize": {
+      "switchOff": "Switch names come from the file; turn on the Switch catalogue to use the official ones."
+    },
+    "keywords": {
+      "planned": "coming later, igdb, retroachievements, thegamesdb, rawg, microsoft store, gametdb, wikidata, twitch"
+    },
+    "service": {
+      "steamgriddb": {
+        "use": "Community-made covers for games libretro does not have.",
+        "unlocks": "Vertical covers; later, wide covers, backgrounds, logos and icons.",
+        "steps": "Sign in with Steam, open Preferences › API and generate a key.",
+        "privacy": "The name of the game being looked up and your key are sent. Never paths, hashes or the rest of your library.",
+        "keywords": "api key, key, token, steam"
+      },
+      "screenscraper": {
+        "use": "Media and hash identification in Organise, with your account.",
+        "unlocks": "Screenshots, title screens and exact ROM identification.",
+        "steps": "Create a free account and use its user name and password here.",
+        "privacy": "The file name, its size, its CRC, MD5 and SHA-1 hashes and the system (or the title when there is no hash) are sent, with your user name and password, over HTTPS. Never the full path or the file contents.",
+        "keywords": "user, password, account, login, quota, threads"
+      },
+      "switch-catalog": {
+        "name": "Switch catalogue",
+        "use": "Switch game names, publisher and date by title ID when organising.",
+        "unlocks": "Switch names in Organise and eShop icons.",
+        "privacy": "A public file is downloaded; nothing from your library is sent. Icons, if you turn them on, are requested from the Nintendo eShop, one game at a time. The online fallback, if you turn it on, receives the missing title ID.",
+        "keywords": "titledb, nlib, title id, eshop, icons"
+      },
+      "updates": {
+        "name": "Coverly updates",
+        "use": "Checks GitHub for a new version of Coverly ROMs.",
+        "privacy": "A public file (`latest.json`) is downloaded from Coverly ROMs' GitHub releases; nothing from your library is sent. GitHub sees your IP address, like any download.",
+        "keywords": "updates, version, channel, github, latest.json"
+      },
+      "igdb": {
+        "use": "Art, metadata and external ids"
+      },
+      "retroachievements": {
+        "use": "Achievements per game"
+      },
+      "thegamesdb": {
+        "use": "Fanart, logos and game details"
+      },
+      "rawg": {
+        "use": "Backgrounds and details, view only"
+      },
+      "microsoft-store": {
+        "use": "Art and names by id"
+      },
+      "gametdb": {
+        "use": "Art and names by id"
+      },
+      "wikidata": {
+        "use": "Art and names by id"
+      }
+    }
   }
 }
