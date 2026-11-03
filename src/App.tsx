@@ -38,11 +38,13 @@ export default function App() {
   // whichever screen that was. A screen can have several openers (the
   // organise options and a «Configurar» notice), so the one clicked is
   // remembered by its place among them; the screen mounts again in the
-  // same order.
+  // same order. Links inside Settings (to another tab or card) are
+  // openers too, but they never replace the one that left the screen.
   const shown = useRef(screen);
   const opener = useRef(0);
   useEffect(() => {
     const note = (ev: Event) => {
+      if (useNavStore.getState().screen === 'settings') return;
       const el =
         ev.target instanceof Element
           ? ev.target.closest('[data-settings-opener]')

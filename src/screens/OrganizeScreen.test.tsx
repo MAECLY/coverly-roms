@@ -1353,5 +1353,32 @@ describe('OrganizeScreen', () => {
         ).toHaveFocus(),
       );
     });
+
+    it('still returns to the link after moving between tabs in Settings', async () => {
+      useNavStore.getState().openOrganize(MOCK_MODERN);
+      render(
+        <I18nProvider locale="en">
+          <App />
+        </I18nProvider>,
+      );
+      await ready();
+      const note = await screen.findByRole('note');
+      await userEvent.click(
+        within(note).getByRole('button', { name: 'Set up' }),
+      );
+      expect(useNavStore.getState().screen).toBe('settings');
+      // A link inside Settings is an opener too; it must not replace the
+      // one that left the plan.
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Source order in Sources' }),
+      );
+      act(() => useNavStore.getState().closeSettings());
+      const back = await screen.findByRole('note');
+      await waitFor(() =>
+        expect(
+          within(back).getByRole('button', { name: 'Set up' }),
+        ).toHaveFocus(),
+      );
+    });
   });
 });
