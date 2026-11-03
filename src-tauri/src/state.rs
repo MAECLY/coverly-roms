@@ -447,6 +447,11 @@ impl AppState {
         lock(&self.integrations)
     }
 
+    /// Bumped whenever a credential is saved or removed.
+    pub(crate) fn key_generation(&self) -> u64 {
+        lock(&self.keys).generation
+    }
+
     pub(crate) fn forget_keys(&self) {
         let mut cache = lock(&self.keys);
         cache.generation += 1;
@@ -1195,6 +1200,7 @@ impl AppState {
         let key = credential_key(key)?;
         let stored = store_secret(self.credentials.as_ref(), key, value);
         self.forget_keys();
+        self.forget_health_of(key);
         stored?;
         log::info!("credential set: {}", key.account());
         Ok(self.credential_status())
@@ -1207,6 +1213,7 @@ impl AppState {
         }
         let cleared = self.credentials.clear(key);
         self.forget_keys();
+        self.forget_health_of(key);
         cleared?;
         log::info!("credential cleared: {}", key.account());
         Ok(self.credential_status())

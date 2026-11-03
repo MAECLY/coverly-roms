@@ -149,6 +149,18 @@ fn used_up_at(at: i64) -> SeenQuota {
     }
 }
 
+/// The quota the state is computed from: the last numbers, unless a job
+/// said «used up» at the same time or later (organise notes both in the
+/// same second, and the numbers it kept came from an earlier answer).
+fn merged_quota(numbers: Option<SeenQuota>, exhausted: Option<i64>) -> Option<SeenQuota> {
+    match (numbers, exhausted) {
+        (Some(q), Some(at)) if at >= q.at => Some(used_up_at(at)),
+        (Some(q), _) => Some(q),
+        (None, Some(at)) => Some(used_up_at(at)),
+        (None, None) => None,
+    }
+}
+
 fn view_of(
     entry: &Integration,
     settings: &Settings,
@@ -177,13 +189,7 @@ fn view_of(
     let numbers = (entry.id == "screenscraper")
         .then_some(book.quota)
         .flatten();
-    // Numbers that say «used up» win; else a job's «exhausted» without numbers.
-    let quota = match (numbers, exhausted) {
-        (Some(q), Some(at)) if at > q.at => Some(used_up_at(at)),
-        (Some(q), _) => Some(q),
-        (None, Some(at)) => Some(used_up_at(at)),
-        (None, None) => None,
-    };
+    let quota = merged_quota(numbers, exhausted);
     let (state, reason) = integrations::state(&StateInput {
         entry,
         // A build that cannot use it cannot turn it on either: «not in
@@ -236,19 +242,43 @@ impl AppState {
                 )))
             }
         };
+        let started = self.key_generation();
         let (verdict, quota) = self.check_source(source)?;
-        let now = now_unix();
-        {
-            let mut book = self.integration_book();
-            book.health
-                .insert(id.to_string(), Health { verdict, at: now });
-            if let Some(q) = quota {
-                book.note_quota(q, now);
-                book.exhausted.remove(id);
-            }
-        }
+        self.record_check(id, started, verdict, quota);
         log::info!("{}", checked_line(id, verdict));
         Ok(TestResult { verdict, quota })
+    }
+
+    /// Stores what a connection test begun at key generation `started`
+    /// found, unless a credential was saved or cleared since: that answer
+    /// is about keys that are no longer there (spec §9, stale answers).
+    pub(crate) fn record_check(
+        &self,
+        id: &str,
+        started: u64,
+        verdict: KeyCheck,
+        quota: Option<SsQuota>,
+    ) {
+        let now = now_unix();
+        let mut book = self.integration_book();
+        if self.key_generation() != started {
+            return;
+        }
+        book.health
+            .insert(id.to_string(), Health { verdict, at: now });
+        if let Some(q) = quota {
+            book.note_quota(q, now);
+            book.exhausted.remove(id);
+        }
+    }
+
+    /// A credential of `key` was saved or cleared: the card it belongs to
+    /// goes back to what presence says (its health and quota described
+    /// the old value).
+    pub(crate) fn forget_health_of(&self, key: CredentialKey) {
+        if let Some(e) = integrations::working().find(|e| e.fields.iter().any(|f| f.key == key)) {
+            self.integration_book().forget(&e.id);
+        }
     }
 
     /// «Olvidar credenciales»: clears every field of `id` (all attempted,
@@ -654,6 +684,78 @@ mod tests {
             assert_eq!(v.state, State::Unavailable);
         }
         assert_eq!(v.quota_at, Some(100));
+    }
+
+    #[test]
+    fn a_used_up_quota_seen_in_the_same_second_as_the_numbers_wins() {
+        // Organise notes the last numbers and then «exhausted» in the same
+        // second; the earlier numbers must not hide the used-up quota.
+        let numbers = SeenQuota {
+            quota: SsQuota {
+                requests_today: 19_999,
+                max_requests_per_day: 20_000,
+                max_threads: 1,
+            },
+            at: 100,
+        };
+        assert_eq!(
+            merged_quota(Some(numbers), Some(100)),
+            Some(used_up_at(100))
+        );
+        assert_eq!(merged_quota(Some(numbers), Some(99)), Some(numbers));
+        assert_eq!(merged_quota(None, Some(7)), Some(used_up_at(7)));
+        assert_eq!(merged_quota(Some(numbers), None), Some(numbers));
+        assert_eq!(merged_quota(None, None), None);
+    }
+
+    #[test]
+    fn saving_or_clearing_a_key_drops_the_health_of_its_card_only() {
+        let (st, _d) = app(full_store(), None);
+        enable(&st, "steamgriddb");
+        let both = BTreeSet::from(["steamgriddb".to_string(), "screenscraper".to_string()]);
+        st.note_troubles(&[], &both);
+        assert_eq!(
+            card(&st.integrations_view(), "steamgriddb").state,
+            State::Connected
+        );
+        st.set_credential("steamgriddb-api-key", "sk-NEW").unwrap();
+        let view = st.integrations_view();
+        assert_eq!(card(&view, "steamgriddb").state, State::Saved);
+        assert_eq!(card(&view, "steamgriddb").checked_at, None);
+        assert!(
+            card(&view, "screenscraper").checked_at.is_some(),
+            "another card keeps its health"
+        );
+
+        st.note_troubles(
+            &[SourceTrouble {
+                source: "screenscraper".into(),
+                kind: TroubleKind::Exhausted,
+            }],
+            &BTreeSet::new(),
+        );
+        st.clear_credential("screenscraper-password").unwrap();
+        let ss = card(&st.integrations_view(), "screenscraper").clone();
+        assert_eq!((ss.checked_at, ss.quota_at), (None, None));
+    }
+
+    #[test]
+    fn a_test_answer_older_than_a_save_is_dropped() {
+        let (st, _d) = app(full_store(), None);
+        enable(&st, "steamgriddb");
+        let started = st.key_generation();
+        st.set_credential("steamgriddb-api-key", "sk-NEW").unwrap();
+        st.record_check("steamgriddb", started, KeyCheck::Invalid, None);
+        assert_eq!(
+            card(&st.integrations_view(), "steamgriddb").state,
+            State::Saved,
+            "the old key's verdict does not describe the new one"
+        );
+        st.record_check("steamgriddb", st.key_generation(), KeyCheck::Ok, None);
+        assert_eq!(
+            card(&st.integrations_view(), "steamgriddb").state,
+            State::Connected
+        );
     }
 
     #[test]
