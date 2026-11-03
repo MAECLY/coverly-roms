@@ -312,6 +312,47 @@ describe('IntegrationCard', () => {
     ).toHaveTextContent('Today: 1,234 of 20,000 requests');
   });
 
+  it('a used-up quota a job saw without numbers still says why and what to do', async () => {
+    // A fill that hit «quota exhausted» (HTTP 430) carries no numbers, or
+    // only older ones from before it ran out: the line must not be blank
+    // nor claim a count that is not used up.
+    for (const quota of [
+      undefined,
+      { requests_today: 100, max_requests_per_day: 20_000, max_threads: 1 },
+    ]) {
+      const { view } = await setup('screenscraper', {
+        backend: { integrations: 'dev' },
+        over: { state: 'quota', quota, quota_at: 1_800_000_000 },
+      });
+      await openCard('screenscraper');
+      const line = document.getElementById('integration-screenscraper-state');
+      expect(line).toHaveTextContent(
+        'Cuota diaria agotada. Vuelve mañana; mientras, el relleno sigue con las demás fuentes.',
+      );
+      expect(line).not.toHaveTextContent('Has usado');
+      view.unmount();
+      resetNavStore();
+    }
+  });
+
+  it('a used-up quota with its numbers names them', async () => {
+    await setup('screenscraper', {
+      backend: { integrations: 'dev' },
+      over: {
+        state: 'quota',
+        quota: {
+          requests_today: 20_000,
+          max_requests_per_day: 20_000,
+          max_threads: 1,
+        },
+      },
+    });
+    await openCard('screenscraper');
+    expect(
+      document.getElementById('integration-screenscraper-state'),
+    ).toHaveTextContent('Has usado 20.000 de 20.000 peticiones hoy.');
+  });
+
   it('no quota line without numbers', async () => {
     await setup('screenscraper', { backend: { integrations: 'dev' } });
     await openCard('screenscraper');

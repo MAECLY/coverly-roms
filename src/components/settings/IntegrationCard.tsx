@@ -685,7 +685,15 @@ function stateLine({
     }
     case 'quota': {
       const q = view.quota;
-      if (!q) return null;
+      // A job can see the quota used up with no numbers, or only with
+      // older ones from before it ran out: never leave the line blank nor
+      // name a count that is not used up.
+      if (
+        !q ||
+        q.max_requests_per_day === 0 ||
+        q.requests_today < q.max_requests_per_day
+      )
+        return t('integrations.stateLine.quotaUsedUp');
       const n = new Intl.NumberFormat(locale);
       return tr(
         'integrations.stateLine.quota',
