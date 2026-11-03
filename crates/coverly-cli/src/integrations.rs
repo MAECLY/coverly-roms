@@ -60,6 +60,8 @@ pub enum IntegrationsCommand {
         steamgriddb_url: Option<String>,
         #[arg(long, hide = true)]
         screenscraper_url: Option<String>,
+        #[arg(hide = true)]
+        stray: Vec<String>,
     },
     /// Save a credential in the system keychain, read from stdin (no echo
     /// on a terminal) or from the variable --from-env names.
@@ -71,6 +73,10 @@ pub enum IntegrationsCommand {
         /// Read the value from this environment variable instead of stdin.
         #[arg(long, value_name = "VAR")]
         from_env: Option<String>,
+        /// Caught here so a secret typed after the id is refused without
+        /// clap repeating it on stderr.
+        #[arg(hide = true)]
+        stray: Vec<String>,
     },
     /// Delete the integration's credentials from the keychain.
     Forget {
@@ -78,6 +84,8 @@ pub enum IntegrationsCommand {
         /// Do not ask (needed without a terminal).
         #[arg(long)]
         yes: bool,
+        #[arg(hide = true)]
+        stray: Vec<String>,
     },
 }
 
@@ -99,6 +107,18 @@ impl FieldArg {
     }
 }
 
+/// Bad usage for anything after the id, without repeating it: it may be
+/// a secret typed in the wrong place.
+fn no_stray(stray: &[String]) -> Result<(), Failure> {
+    if stray.is_empty() {
+        return Ok(());
+    }
+    Err(Failure::usage(
+        "unexpected argument after the integration id (not shown); a value is read from stdin \
+         or --from-env, never as an argument",
+    ))
+}
+
 pub fn run(args: &IntegrationsArgs) -> Result<(), Failure> {
     match &args.command {
         IntegrationsCommand::List { json } => {
@@ -117,18 +137,24 @@ pub fn run(args: &IntegrationsArgs) -> Result<(), Failure> {
             json,
             steamgriddb_url,
             screenscraper_url,
-        } => run_test(
-            id,
-            *json,
-            steamgriddb_url.as_deref(),
-            screenscraper_url.as_deref(),
-        ),
+            stray,
+        } => no_stray(stray).and_then(|()| {
+            run_test(
+                id,
+                *json,
+                steamgriddb_url.as_deref(),
+                screenscraper_url.as_deref(),
+            )
+        }),
         IntegrationsCommand::Set {
             id,
             field,
             from_env,
-        } => run_set(id, *field, from_env.as_deref()),
-        IntegrationsCommand::Forget { id, yes } => run_forget(id, *yes),
+            stray,
+        } => no_stray(stray).and_then(|()| run_set(id, *field, from_env.as_deref())),
+        IntegrationsCommand::Forget { id, yes, stray } => {
+            no_stray(stray).and_then(|()| run_forget(id, *yes))
+        }
     }
 }
 
@@ -349,13 +375,15 @@ pub fn forget_keys(store: &dyn CredentialStore, id: &str) -> Result<(), Failure>
 
 fn run_forget(id: &str, yes: bool) -> Result<(), Failure> {
     with_credentials(id)?;
+    let stdin = io::stdin();
+    if !yes && !stdin.is_terminal() {
+        return Err(Failure::usage(
+            "forget asks before deleting; pass --yes to forget without a terminal",
+        ));
+    }
+    // Before the question: no point asking when nothing can be deleted.
+    let store = cli_store().ok_or_else(keychain_off)?;
     if !yes {
-        let stdin = io::stdin();
-        if !stdin.is_terminal() {
-            return Err(Failure::usage(
-                "forget asks before deleting; pass --yes to forget without a terminal",
-            ));
-        }
         eprint!("Forget the {id} credentials? [y/N] ");
         let _ = io::stderr().flush();
         let mut answer = String::new();
@@ -364,7 +392,6 @@ fn run_forget(id: &str, yes: bool) -> Result<(), Failure> {
             return print_stdout("nothing was forgotten\n");
         }
     }
-    let store = cli_store().ok_or_else(keychain_off)?;
     forget_keys(store.as_ref(), id)?;
     print_stdout(&format!(
         "{id}: credentials deleted from the system keychain\n"
