@@ -104,6 +104,24 @@ describe('sources: the order only', () => {
       ).not.toBeInTheDocument();
   });
 
+  it('tells the two «Set up in Integrations» buttons apart by their source', async () => {
+    const panel = await open();
+    const [first, second] = within(panel).getAllByRole('button', {
+      name: 'Set up in Integrations',
+    });
+    const names = [first, second].map((b) =>
+      within(b!.closest('li') as HTMLElement)
+        .getByRole('switch')
+        .getAttribute('id'),
+    );
+    expect(first).toHaveAccessibleDescription(
+      names[0] === 'source-steamgriddb' ? 'SteamGridDB' : 'ScreenScraper',
+    );
+    expect(second).toHaveAccessibleDescription(
+      names[1] === 'source-steamgriddb' ? 'SteamGridDB' : 'ScreenScraper',
+    );
+  });
+
   it('«Set up in Integrations» opens the card and focuses its header', async () => {
     const panel = await open();
     await userEvent.click(

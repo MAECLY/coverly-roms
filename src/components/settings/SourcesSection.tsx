@@ -109,7 +109,7 @@ export function SourcesSection() {
                     )
                   }
                 />
-                <Label htmlFor={sid} className="font-normal">
+                <Label id={`${sid}-name`} htmlFor={sid} className="font-normal">
                   {name(e.id)}
                 </Label>
                 {hint && (
@@ -118,7 +118,8 @@ export function SourcesSection() {
                   </span>
                 )}
                 {configurable && account && (
-                  <IntegrationLink id={account.id}>
+                  // Two rows share the text: the source names each one.
+                  <IntegrationLink id={account.id} describedBy={`${sid}-name`}>
                     {t('integrations.configureIn')}
                   </IntegrationLink>
                 )}
