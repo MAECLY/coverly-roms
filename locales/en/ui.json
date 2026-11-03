@@ -1726,6 +1726,7 @@
     "forgetConfirm": "Forget the {name} credentials? They are deleted from this computer's keychain.",
     "forgetYes": "Forget",
     "cancel": "Cancel",
+    "savedAnnounce": "{field}: saved in the keychain.",
     "howTo": "How to get the key",
     "howToAccount": "How to get an account",
     "privacy": "What is sent",

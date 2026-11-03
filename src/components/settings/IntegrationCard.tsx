@@ -20,6 +20,7 @@ import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
 import type {
   CredentialKey,
+  FieldInput,
   IntegrationView,
   KeyCheck,
   KeychainKind,
@@ -73,7 +74,9 @@ function errorMessage(t: TFunction, e: BackendError, platform: string) {
 }
 
 type Result =
-  { kind: 'check'; verdict: KeyCheck } | { kind: 'error'; error: BackendError };
+  | { kind: 'check'; verdict: KeyCheck }
+  | { kind: 'error'; error: BackendError }
+  | { kind: 'saved'; input: FieldInput };
 
 /**
  * One service of «Integraciones» (spec §5.2, §6.1–§6.4, D8–D14, D22,
@@ -179,10 +182,14 @@ export function IntegrationCard({
     }
   }
 
-  async function save(key: CredentialKey, value: string) {
+  async function save(key: CredentialKey, input: FieldInput, value: string) {
     fresh();
+    const mine = generation.current;
     // A failure is shown by the field itself.
     await (await getBackend()).setCredential(key, value);
+    // Announced in the card's one live region (§6.4); a later save, test
+    // or forget owns the region from then on.
+    if (generation.current === mine) setResult({ kind: 'saved', input });
     await refresh();
   }
 
@@ -212,6 +219,8 @@ export function IntegrationCard({
       headerRef.current?.focus();
     } catch (e) {
       setForgetError(toBackendError(e));
+      // The confirm row goes away: focus goes back to where it came from.
+      refocusForget.current = true;
       setConfirming(false);
     }
   }
@@ -243,8 +252,7 @@ export function IntegrationCard({
       entry={entry}
       domId={domId}
       enabled={view.enabled}
-      // An enabled source can always be turned off (D12).
-      usable={view.enabled || (view.built && allSet)}
+      ready={view.built && allSet}
       describedBy={line ? stateId : undefined}
       order={order}
       onOrder={() =>
@@ -341,7 +349,7 @@ export function IntegrationCard({
               // A keychain that is not there cannot store anything; a
               // locked or refusing one may work on the next try.
               disabled={keychainKind === 'unavailable'}
-              onSave={(value) => save(f.key, value)}
+              onSave={(value) => save(f.key, f.input, value)}
             />
           ))}
           {(entry.test || (entry.fields.length > 0 && anySet)) &&
@@ -417,15 +425,17 @@ export function IntegrationCard({
               {errorMessage(t, forgetError, platform)}
             </p>
           )}
-          {entry.test && (
+          {(entry.test || entry.fields.length > 0) && (
             // Mounted empty with the card: a region inserted together with
-            // its text is not announced (§6.4).
+            // its text is not announced (§6.4), and neither is one under
+            // `display: none` — so it is only visually hidden while empty.
             <p
               role="status"
               aria-live="polite"
               className={cn(
-                'm-0 text-caption font-medium empty:hidden',
-                result?.kind === 'check' && result.verdict === 'ok'
+                'm-0 text-caption font-medium empty:sr-only',
+                result?.kind === 'saved' ||
+                  (result?.kind === 'check' && result.verdict === 'ok')
                   ? 'text-cr-success'
                   : 'text-cr-danger',
               )}
@@ -434,7 +444,11 @@ export function IntegrationCard({
                 ? t(`integrations.check.${result.verdict}`)
                 : result?.kind === 'error'
                   ? errorMessage(t, result.error, platform)
-                  : null}
+                  : result?.kind === 'saved'
+                    ? t('integrations.savedAnnounce', {
+                        field: t(`integrations.field.${result.input}.label`),
+                      })
+                    : null}
             </p>
           )}
           {quota && (
@@ -475,7 +489,9 @@ export function IntegrationCard({
                 variant="link"
                 size="sm"
                 className="h-auto justify-self-start p-0"
-                aria-describedby={`${domId}-steps`}
+                aria-describedby={
+                  t(steps) !== steps ? `${domId}-steps` : undefined
+                }
                 onClick={() =>
                   void getBackend().then((b) => b.openIntegrationHelp(id))
                 }
@@ -525,7 +541,7 @@ function SourceToggle({
   entry,
   domId,
   enabled,
-  usable,
+  ready,
   describedBy,
   order,
   onOrder,
@@ -533,7 +549,8 @@ function SourceToggle({
   entry: Integration;
   domId: string;
   enabled: boolean;
-  usable: boolean;
+  /** Built and every required field stored. */
+  ready: boolean;
   describedBy?: string | undefined;
   order?: { n: number; total: number } | undefined;
   onOrder(): void;
@@ -547,6 +564,9 @@ function SourceToggle({
   const errorId = `${domId}-order-error`;
   const checked =
     sources?.find((e) => e.id === entry.source)?.enabled ?? enabled;
+  // An enabled source can always be turned off (D12); the live setting
+  // decides, not the view the card was given, like Fuentes does.
+  const usable = checked || ready;
   const description =
     [describedBy, orderError && errorId].filter(Boolean).join(' ') || undefined;
   return (

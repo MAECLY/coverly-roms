@@ -250,7 +250,11 @@ describe('IntegrationCard', () => {
       screen.getByRole('button', { name: 'Guardar Clave de API' }),
     );
     await act(async () => answer({ verdict: 'invalid' }));
-    expect(live('steamgriddb')).toBeEmptyDOMElement();
+    // The region says the new save, never the old key's verdict.
+    expect(live('steamgriddb')).toHaveTextContent(
+      'Clave de API: se ha guardado en el llavero.',
+    );
+    expect(live('steamgriddb')).not.toHaveTextContent('Credenciales');
     expect(
       screen.getByRole('button', { name: 'Probar conexión' }),
     ).toHaveTextContent('Probar conexión');
@@ -442,6 +446,66 @@ describe('IntegrationCard', () => {
     view.unmount();
     remount();
     expect(body('steamgriddb')).toHaveAttribute('hidden');
+  });
+
+  it('the live region stays in the accessibility tree while empty', async () => {
+    await setup('steamgriddb', { enable: ['steamgriddb'] });
+    await openCard('steamgriddb');
+    // display:none would take it out of the tree: a region that appears
+    // with its text is not announced (§6.4). Visually hidden is fine.
+    expect(live('steamgriddb').className).not.toMatch(/(^|\s)empty:hidden/);
+  });
+
+  it("a save is announced in the card's live region", async () => {
+    await setup('steamgriddb', { enable: ['steamgriddb'] });
+    await openCard('steamgriddb');
+    await userEvent.type(screen.getByLabelText('Clave de API'), 'k-1');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Guardar Clave de API' }),
+    );
+    await waitFor(() =>
+      expect(live('steamgriddb')).toHaveTextContent(
+        'Clave de API: se ha guardado en el llavero.',
+      ),
+    );
+  });
+
+  it('a source turned off without a key cannot be turned back on', async () => {
+    // The key was forgotten while the source was on (spec §9): the switch
+    // follows the live setting, not the view it was first given.
+    await setup('steamgriddb', {
+      enable: ['steamgriddb', 'libretro'],
+      over: { enabled: true },
+    });
+    await openCard('steamgriddb');
+    const toggle = screen.getByRole('switch', { name: 'Activado' });
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeEnabled();
+    await userEvent.click(toggle);
+    await waitFor(() => expect(toggle).not.toBeChecked());
+    expect(toggle).toBeDisabled();
+  });
+
+  it('a failed forget says why and gives focus back to «Olvidar credenciales»', async () => {
+    await setup('steamgriddb', { enable: ['steamgriddb'] });
+    await openCard('steamgriddb');
+    await userEvent.type(screen.getByLabelText('Clave de API'), 'k-1');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Guardar Clave de API' }),
+    );
+    vi.spyOn(backend, 'forgetIntegration').mockRejectedValueOnce({
+      code: 'keychain-locked',
+    });
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Olvidar credenciales' }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Olvidar' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /El llavero de macOS está bloqueado/,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Olvidar credenciales' }),
+    ).toHaveFocus();
   });
 
   it('help opens the official page by id, never a URL from the webview', async () => {

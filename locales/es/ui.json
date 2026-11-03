@@ -1726,6 +1726,7 @@
     "forgetConfirm": "¿Olvidar las credenciales de {name}? Se borran del llavero de este equipo.",
     "forgetYes": "Olvidar",
     "cancel": "Cancelar",
+    "savedAnnounce": "{field}: se ha guardado en el llavero.",
     "howTo": "Cómo conseguir la clave",
     "howToAccount": "Cómo conseguir la cuenta",
     "privacy": "Qué se envía",
