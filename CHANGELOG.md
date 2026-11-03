@@ -8,6 +8,8 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-03
+
 ### Added
 
 - Settings → Integrations: one card per service Coverly talks to on your
@@ -25,7 +27,9 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 - ScreenScraper quota on its card: requests used today of the daily maximum
   and the threads allowed, when the service reports them.
 - Keychain messages per system: a keychain that is locked, unavailable or
-  refuses access says what to do on macOS, Windows or Linux.
+  refuses access (permission denied) says what to do on macOS, Windows or
+  Linux. A connection test on a keychain that cannot be read reports the
+  keychain error instead of «not set up».
 - Fill, Organise and their summaries point to the right card when an
   account is missing, a key is refused, a quota is used up or the Switch
   catalogue is off.
@@ -37,6 +41,10 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   `COVERLY_NO_KEYCHAIN=1` turns that off. `fill` names
   `coverly integrations set steamgriddb` when the key is missing, and
   `catalog switch` names the Integrations tab when the catalogue is off.
+- One list of integrations, shared by the app and the CLI, feeds the tab,
+  the settings search, the notices and `coverly integrations`. Tests fail
+  when a service has no credit, asks for a key the list does not know, or
+  links its help anywhere but its own site.
 
 ### Changed
 
@@ -46,6 +54,23 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   from Sources to Integrations. Your setting is kept.
 - Keys and accounts saved before keep working: they are read from the same
   keychain entries.
+- Settings, their export and their import never carry a key or a password,
+  only whether one is saved; a test fills every key and checks.
+- «See the plan» under «Coming later» opens the public roadmap page
+  (coverly-roms.maecly.com/roadmap/) instead of the repository's TODO.md.
+- The README, in English and Spanish, documents Integrations, the
+  `coverly integrations` command and how the keychain is used, names the
+  Switch catalogue in the data FAQ, and links the English features and
+  roadmap pages under /en/.
+
+### Fixed
+
+- Typing a secret at the CLI's hidden prompt always gives the terminal its
+  echo back, even when a signal ends the prompt; a value typed after the
+  id is refused without being echoed.
+- A link from another screen to a settings tab moves the focus to that tab,
+  and Back from Settings or from a card returns to where you left (the
+  fill wizard reopens on its step).
 
 ## [0.3.0] - 2026-11-02
 
