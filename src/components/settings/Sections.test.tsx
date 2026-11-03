@@ -266,7 +266,7 @@ describe('settings sections', () => {
       within(panel).getByRole('button', { name: 'Save SteamGridDB API key' }),
     );
     expect(
-      await within(panel).findByText('Saved in the system keychain.'),
+      await within(panel).findByText('Saved in the keychain'),
     ).toBeInTheDocument();
     expect(key).toHaveValue('');
     expect(sgdb).toBeEnabled();
@@ -301,7 +301,7 @@ describe('settings sections', () => {
     await userEvent.click(
       within(panel).getByRole('button', { name: 'Save SteamGridDB API key' }),
     );
-    await within(panel).findByText('Saved in the system keychain.');
+    await within(panel).findByText('Saved in the keychain');
     expect(key).toHaveAttribute('type', 'password');
     expect(show).toHaveAttribute('aria-pressed', 'false');
     expect(document.body.innerHTML).not.toContain('sk-PEEK');
@@ -333,7 +333,7 @@ describe('settings sections', () => {
     await userEvent.click(
       within(panel).getByRole('button', { name: 'Save SteamGridDB API key' }),
     );
-    await within(panel).findByText('Saved in the system keychain.');
+    await within(panel).findByText('Saved in the keychain');
     await userEvent.click(test);
     expect(await findKeyVerdict(panel)).toHaveTextContent(
       'The key was refused.',

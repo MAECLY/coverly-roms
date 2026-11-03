@@ -1,15 +1,8 @@
-import { ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import {
-  FieldControl,
-  FieldDescription,
-  FieldError,
-  FieldLabel,
-  Field as UiField,
-} from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
@@ -25,6 +18,7 @@ import {
   type CatalogStatus,
   type CredentialKey,
   type CredentialStatus,
+  type FieldInput,
   type KeyCheck,
   type SourceId,
   type SourceInfo,
@@ -45,7 +39,15 @@ import {
 } from './Field';
 import { foldCount } from './registry';
 import { ReorderAnnouncer, useReorderAnnouncer } from './ReorderAnnouncer';
+import { SecretField } from './SecretField';
 import { SwitchCatalogStatusLine } from './SwitchCatalogStatus';
+
+/** The input a credential key takes (its gender picks «Guardado/Guardada»). */
+const CREDENTIAL_INPUT: Record<CredentialKey, FieldInput> = {
+  'steamgriddb-api-key': 'api-key',
+  'screenscraper-user': 'user',
+  'screenscraper-password': 'password',
+};
 
 function CredentialRow({
   k,
@@ -62,12 +64,9 @@ function CredentialRow({
   onStatus(s: CredentialStatus): void;
 }) {
   const t = useT();
-  const [value, setValue] = useState('');
   const [error, setError] = useState<BackendError | null>(null);
   const [testing, setTesting] = useState(false);
   const [check, setCheck] = useState<KeyCheck | null>(null);
-  /** The typed key shown as text (until it is saved or cleared). */
-  const [shown, setShown] = useState(false);
   /**
    * Bumped by every save, remove and test: a test answer whose number is
    * no longer current is about a key that has changed since, so it is
@@ -75,26 +74,25 @@ function CredentialRow({
    */
   const generation = useRef(0);
   const what = t(`settings.sources.credential.${k}`);
-  const id = `credential-${k}`;
-  async function run(
-    op: (
-      b: Awaited<ReturnType<typeof getBackend>>,
-    ) => Promise<CredentialStatus>,
-  ) {
+  /** A result about the previous key would be stale, and so would a test
+   * still running for it. */
+  function forgetCheck() {
     setError(null);
-    // A result about the previous key would be stale, and so would a test
-    // still running for it.
     generation.current += 1;
     setCheck(null);
     setTesting(false);
+  }
+  async function save(value: string) {
+    forgetCheck();
+    // A failure is shown by the field itself.
+    onStatus(await (await getBackend()).setCredential(k, value));
+  }
+  async function remove() {
+    forgetCheck();
     try {
-      onStatus(await op(await getBackend()));
+      onStatus(await (await getBackend()).clearCredential(k));
     } catch (e) {
       setError(toBackendError(e));
-    } finally {
-      // Never keep a secret in the DOM longer than needed, even on error.
-      setValue('');
-      setShown(false);
     }
   }
   async function test(source: SourceId) {
@@ -113,51 +111,22 @@ function CredentialRow({
       if (current()) setTesting(false);
     }
   }
-  const show = t('settings.sources.show', { what });
   return (
-    <UiField id={id} className="gap-2">
-      <FieldLabel>{what}</FieldLabel>
-      <div className="flex max-w-md items-center gap-1">
-        <FieldControl>
-          <Input
-            name={id}
-            type={shown ? 'text' : 'password'}
-            mono
-            autoComplete="off"
-            spellCheck={false}
-            value={value}
-            disabled={disabled}
-            onChange={(e) => setValue(e.target.value)}
-          />
-        </FieldControl>
-        <SimpleTooltip content={show}>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={show}
-            aria-pressed={shown}
-            aria-controls={id}
-            disabled={disabled || !value}
-            onClick={() => setShown((v) => !v)}
-          >
-            {shown ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
-          </Button>
-        </SimpleTooltip>
-      </div>
+    <div className="grid gap-2">
+      <SecretField
+        k={k}
+        input={CREDENTIAL_INPUT[k]}
+        set={set}
+        disabled={disabled}
+        label={what}
+        onSave={save}
+      />
       <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          disabled={disabled || !value.trim()}
-          aria-label={t('settings.sources.save', { what })}
-          onClick={() => void run((b) => b.setCredential(k, value))}
-        >
-          {t('settings.sources.saveShort')}
-        </Button>
         <Button
           size="sm"
           disabled={disabled || !set}
           aria-label={t('settings.sources.remove', { what })}
-          onClick={() => void run((b) => b.clearCredential(k))}
+          onClick={() => void remove()}
         >
           {t('settings.sources.removeShort')}
         </Button>
@@ -174,9 +143,6 @@ function CredentialRow({
           </Button>
         )}
       </div>
-      <FieldDescription>
-        {set ? t('settings.sources.stored') : t('settings.sources.notStored')}
-      </FieldDescription>
       {check && (
         <p
           role="status"
@@ -189,10 +155,12 @@ function CredentialRow({
           {t(`settings.sources.check.${check}`)}
         </p>
       )}
-      <FieldError>
-        {error && t(errorKey(error.code), { detail: error.detail ?? '' })}
-      </FieldError>
-    </UiField>
+      {error && (
+        <p role="alert" className={errorText}>
+          {t(errorKey(error.code), { detail: error.detail ?? '' })}
+        </p>
+      )}
+    </div>
   );
 }
 

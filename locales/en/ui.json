@@ -1693,6 +1693,7 @@
     "enabled": "On",
     "show": "Show {what}",
     "save": "Save",
+    "saveWhat": "Save {what}",
     "saving": "Saving…",
     "field": {
       "user": {
