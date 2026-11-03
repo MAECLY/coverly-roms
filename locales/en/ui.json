@@ -501,13 +501,13 @@
     "keychain-failed": "The keychain refused the request: {detail}",
     "keychainOs": {
       "locked": {
-        "macos": "The macOS keychain is locked. Unlock it in Keychain Access and try again; over SSH, run `security unlock-keychain` first.",
+        "macos": "The macOS keychain is locked. Unlock it in Keychain Access and try again; over SSH, run \"security unlock-keychain\" first.",
         "linux": "The keyring is locked. Unlock it in Passwords and Keys or KWalletManager and try again."
       },
       "denied": {
         "macos": "macOS did not allow access to the keychain. Try again and choose \"Allow\" in the prompt.",
         "windows": "Windows denied access to Credential Manager. Check that your account has no policy restrictions.",
-        "linux": "The secret service denied access. Accept the unlock prompt; on Flatpak, allow `org.freedesktop.secrets`."
+        "linux": "The secret service denied access. Accept the unlock prompt; on Flatpak, allow \"org.freedesktop.secrets\"."
       },
       "unavailable": {
         "macos": "The login keychain cannot be found. Check it in Keychain Access.",
@@ -1837,7 +1837,7 @@
       "updates": {
         "name": "Coverly updates",
         "use": "Checks GitHub for a new version of Coverly ROMs.",
-        "privacy": "A public file (`latest.json`) is downloaded from Coverly ROMs' GitHub releases; nothing from your library is sent. GitHub sees your IP address, like any download.",
+        "privacy": "A public file (\"latest.json\") is downloaded from Coverly ROMs' GitHub releases; nothing from your library is sent. GitHub sees your IP address, like any download.",
         "keywords": "updates, version, channel, github, latest.json"
       },
       "igdb": {

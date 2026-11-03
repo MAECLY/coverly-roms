@@ -501,13 +501,13 @@
     "keychain-failed": "El llavero rechazó la petición: {detail}",
     "keychainOs": {
       "locked": {
-        "macos": "El llavero de macOS está bloqueado. Desbloquéalo en Acceso a Llaveros y vuelve a intentarlo; desde una sesión SSH, ejecuta antes `security unlock-keychain`.",
+        "macos": "El llavero de macOS está bloqueado. Desbloquéalo en Acceso a Llaveros y vuelve a intentarlo; desde una sesión SSH, ejecuta antes «security unlock-keychain».",
         "linux": "El depósito de claves está bloqueado. Desbloquéalo en Contraseñas y claves o en KWalletManager y vuelve a intentarlo."
       },
       "denied": {
         "macos": "macOS no dio permiso para usar el llavero. Vuelve a intentarlo y elige «Permitir» en el aviso.",
         "windows": "Windows denegó el acceso al Administrador de credenciales. Comprueba que tu cuenta no tiene restricciones de directiva.",
-        "linux": "El servicio de secretos denegó el acceso. Acepta el aviso de desbloqueo; en Flatpak, permite `org.freedesktop.secrets`."
+        "linux": "El servicio de secretos denegó el acceso. Acepta el aviso de desbloqueo; en Flatpak, permite «org.freedesktop.secrets»."
       },
       "unavailable": {
         "macos": "No se encuentra el llavero de inicio de sesión. Revísalo en Acceso a Llaveros.",
@@ -1837,7 +1837,7 @@
       "updates": {
         "name": "Actualizaciones de Coverly",
         "use": "Comprueba si hay una versión nueva de Coverly ROMs en GitHub.",
-        "privacy": "Se descarga un archivo público (`latest.json`) de las versiones de Coverly ROMs en GitHub; no se envía nada de tu biblioteca. GitHub ve tu dirección IP, como en cualquier descarga.",
+        "privacy": "Se descarga un archivo público («latest.json») de las versiones de Coverly ROMs en GitHub; no se envía nada de tu biblioteca. GitHub ve tu dirección IP, como en cualquier descarga.",
         "keywords": "actualizaciones, versión, canal, github, latest.json"
       },
       "igdb": {
