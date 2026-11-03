@@ -1692,7 +1692,7 @@
     "configureService": "Set up {name}",
     "quotaToday": "Today: {used} of {max} requests",
     "threads": "Threads: {n}",
-    "seen": "seen {time}",
+    "seen": "Seen {time}",
     "links": {
       "network": "Proxy and limits in Network",
       "sources": "Source order in Sources",

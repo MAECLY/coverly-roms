@@ -288,7 +288,8 @@ describe('IntegrationCard', () => {
     const line = screen.getByTestId('integration-screenscraper-quota');
     expect(line).toHaveTextContent('Hoy: 1234 de 20.000 peticiones');
     expect(line).toHaveTextContent('Hilos: 1');
-    expect(line).toHaveTextContent('visto hace 2 minutos');
+    // Its own item that wraps to a line of its own: sentence case.
+    expect(within(line).getByText('Visto hace 2 minutos')).toBeInTheDocument();
     expect(within(line).getByText('20.000').closest('.mono')).not.toBeNull();
     expect(within(line).getByText('1234').closest('.mono')).not.toBeNull();
     expect(within(line).getByText('1').closest('.mono')).not.toBeNull();

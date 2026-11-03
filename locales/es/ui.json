@@ -1692,7 +1692,7 @@
     "configureService": "Configurar {name}",
     "quotaToday": "Hoy: {used} de {max} peticiones",
     "threads": "Hilos: {n}",
-    "seen": "visto {time}",
+    "seen": "Visto {time}",
     "links": {
       "network": "Proxy y límites en Red",
       "sources": "Orden de fuentes en Fuentes",
