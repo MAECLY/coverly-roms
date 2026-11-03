@@ -169,9 +169,9 @@ choices kept. Custom layout profiles have a live path preview.
 talks to on your behalf: SteamGridDB (API key), ScreenScraper (account), the
 Switch name catalogue and a link to Updates. Each card says what the service
 is for, shows its status (not set up, saved, connected, error with what to do,
-daily quota used up, off), and has «Test connection», «How to get the key»
-(the service's own account page), turn off without deleting, and «Forget
-credentials». Keys are kept in the OS keychain and never shown again; a
+daily quota used up, off), and has "Test connection", "How to get the key"
+(the service's own account page), turn off without deleting, and "Forget
+credentials". Keys are kept in the OS keychain and never shown again; a
 keychain that is locked or refuses access says what to do on your system.
 ScreenScraper's daily quota is shown when the service reports it. Fill,
 Organise and the command line point to the card when an account is missing
@@ -592,8 +592,8 @@ turns the keychain off.
 - **Your keys stay in the OS keychain.** The SteamGridDB key is sent only to
   SteamGridDB, as an `Authorization: Bearer` header, and the ScreenScraper
   account only to ScreenScraper. Nothing shows a saved key again, and logs
-  only say whether one is set. Opening Settings sends nothing; «Test
-  connection» makes one request when you press it.
+  only say whether one is set. Opening Settings sends nothing; "Test
+  connection" makes one request when you press it.
 - **The audit only reads.** Fill, organise and duplicates write nothing until
   you apply, never outside the library root, and every job can be undone.
   Duplicates are moved aside or to the Trash, never deleted.
