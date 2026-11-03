@@ -323,7 +323,11 @@ describe('IntegrationCard', () => {
     ]) {
       const { view } = await setup('screenscraper', {
         backend: { integrations: 'dev' },
-        over: { state: 'quota', quota, quota_at: 1_800_000_000 },
+        over: {
+          state: 'quota',
+          ...(quota && { quota }),
+          quota_at: 1_800_000_000,
+        },
       });
       await openCard('screenscraper');
       const line = document.getElementById('integration-screenscraper-state');
