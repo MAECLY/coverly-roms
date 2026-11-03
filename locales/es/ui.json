@@ -1821,7 +1821,7 @@
         "keywords": "actualizaciones, versión, canal, github, latest.json"
       },
       "igdb": {
-        "use": "Arte, metadatos e ids externos"
+        "use": "Arte, metadatos e IDs externos"
       },
       "retroachievements": {
         "use": "Logros por juego"
@@ -1833,13 +1833,13 @@
         "use": "Fondos y fichas, solo para ver"
       },
       "microsoft-store": {
-        "use": "Arte y nombres por id"
+        "use": "Arte y nombres por ID de la tienda"
       },
       "gametdb": {
-        "use": "Arte y nombres por id"
+        "use": "Cajas, discos y nombres por ID de juego"
       },
       "wikidata": {
-        "use": "Arte y nombres por id"
+        "use": "Puente entre los IDs de cada servicio"
       }
     }
   }

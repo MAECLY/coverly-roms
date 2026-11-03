@@ -1821,7 +1821,7 @@
         "keywords": "updates, version, channel, github, latest.json"
       },
       "igdb": {
-        "use": "Art, metadata and external ids"
+        "use": "Art, metadata and external IDs"
       },
       "retroachievements": {
         "use": "Achievements per game"
@@ -1833,13 +1833,13 @@
         "use": "Backgrounds and details, view only"
       },
       "microsoft-store": {
-        "use": "Art and names by id"
+        "use": "Art and names by store ID"
       },
       "gametdb": {
-        "use": "Art and names by id"
+        "use": "Boxes, discs and names by game ID"
       },
       "wikidata": {
-        "use": "Art and names by id"
+        "use": "A bridge between each service's IDs"
       }
     }
   }

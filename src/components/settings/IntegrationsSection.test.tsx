@@ -141,7 +141,10 @@ describe('integrations tab', () => {
       PLANNED.map((p) => p.name),
     );
     expect(items[0]).toHaveTextContent('client ID and secret');
-    expect(items[0]).toHaveTextContent('Art, metadata and external ids');
+    expect(items[0]).toHaveTextContent('Art, metadata and external IDs');
+    // Each row says what that service adds: no two read the same.
+    const uses = items.map((li) => li.querySelector('span span')?.textContent);
+    expect(new Set(uses).size).toBe(PLANNED.length);
     expect(
       items.find((li) => li.textContent?.startsWith('Wikidata')),
     ).toHaveTextContent('no account');
