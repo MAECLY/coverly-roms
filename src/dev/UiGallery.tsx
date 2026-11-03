@@ -20,6 +20,7 @@ import { DupGroup } from '@/components/dedupe/DupGroup';
 import { SetAsideScene } from '@/components/dedupe/SetAsideScene';
 import { SystemSection } from '@/components/dedupe/SystemSection';
 import { UnchangedList } from '@/components/dedupe/UnchangedList';
+import { IntegrationCard } from '@/components/settings/IntegrationCard';
 import { IntegrationNotice } from '@/components/settings/IntegrationNotice';
 import { IntegrationStatusTag } from '@/components/settings/IntegrationStatusTag';
 import { SecretField } from '@/components/settings/SecretField';
@@ -129,6 +130,8 @@ import type {
   DupGroupView,
 } from '@/ipc/dedupeTypes';
 import { dedupeFixture } from '@/ipc/mock/dedupeFixture';
+import type { IntegrationView } from '@/ipc/types';
+import { integration } from '@/lib/integrations';
 import { applyTheme } from '@/lib/theme';
 
 function Specimen({
@@ -233,6 +236,53 @@ const DEDUPE_REPORT: DedupeReportView = (() => {
 })();
 
 const noop = () => undefined;
+
+/** One card per look the tab can show (spec §6.3). */
+const GALLERY_CARDS: IntegrationView[] = [
+  {
+    id: 'steamgriddb',
+    enabled: true,
+    built: true,
+    fields: [{ key: 'steamgriddb-api-key', set: false }],
+    state: 'not-configured',
+    reason: { kind: 'missing', detail: 'api-key' },
+  },
+  {
+    id: 'steamgriddb',
+    enabled: true,
+    built: true,
+    fields: [{ key: 'steamgriddb-api-key', set: true }],
+    state: 'error',
+    reason: { kind: 'check', detail: 'invalid' },
+    checked_at: Math.floor(Date.now() / 1000) - 120,
+  },
+  {
+    id: 'screenscraper',
+    enabled: true,
+    built: true,
+    fields: [
+      { key: 'screenscraper-user', set: true },
+      { key: 'screenscraper-password', set: true },
+    ],
+    state: 'quota',
+    quota: {
+      requests_today: 20_000,
+      max_requests_per_day: 20_000,
+      max_threads: 1,
+    },
+    quota_at: Math.floor(Date.now() / 1000) - 120,
+  },
+  {
+    id: 'screenscraper',
+    enabled: false,
+    built: false,
+    fields: [
+      { key: 'screenscraper-user', set: false },
+      { key: 'screenscraper-password', set: false },
+    ],
+    state: 'off',
+  },
+];
 
 /** Each state of a duplicate group (spec §7.1), on a plan the mock keeps,
  * so covers load (or show the missing slot) as on the real screen. */
@@ -932,6 +982,21 @@ export function UiGallery() {
                 disabled={false}
                 onSave={() => new Promise((r) => setTimeout(r, 800))}
               />
+            </Specimen>
+
+            <Specimen name="Integration card">
+              <div className="grid max-w-[40rem] gap-2">
+                {GALLERY_CARDS.map((v) => (
+                  <IntegrationCard
+                    key={`${v.id}-${v.state}`}
+                    entry={integration(v.id)!}
+                    view={v}
+                    order={{ n: v.id === 'steamgriddb' ? 2 : 3, total: 4 }}
+                    platform="macos"
+                    onView={() => undefined}
+                  />
+                ))}
+              </div>
             </Specimen>
 
             <Specimen name="Badge · Kbd · SlotMark">
