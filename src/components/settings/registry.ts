@@ -1,6 +1,7 @@
 import { DEDUPE_LEVELS } from '@/ipc/types';
 import { CREDITS, type LocalText } from '@/lib/credits';
-import { WORKING } from '@/lib/integrations';
+import { translate } from '@/i18n/core';
+import { integrationDomId, WORKING } from '@/lib/integrations';
 import type { SettingsSection } from '@/stores/navStore';
 
 export type SettingsFold =
@@ -10,6 +11,9 @@ export type SettingsFold =
   | 'integrations-switch-advanced'
   /** An integration card's body (D14): its controls are folded inside. */
   | `integration-${string}`;
+
+/** The catalogue has this key (the registry's optional texts). */
+const hasText = (key: string) => translate('en', key) !== key;
 
 export interface SettingEntry {
   /** DOM id to focus: settingId(path) of the control, or a list anchor (SP-1). */
@@ -299,8 +303,21 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     section: 'matching',
     label: 'settings.matching.maxHash',
   },
-  // Integraciones: each card's «Activado» switch, generated from the
-  // registry (a new source card needs no hand edit here)…
+  // Integraciones, generated from the registry (a new working entry is
+  // indexed with no hand edit here): each card, found by its service and
+  // its fields (D15)…
+  ...WORKING.map((e): SettingEntry => {
+    const name = `integrations.service.${e.id}.name`;
+    const keywords = `integrations.service.${e.id}.keywords`;
+    return {
+      id: integrationDomId(e.id),
+      section: 'integrations',
+      label: hasText(name) ? name : { es: e.name, en: e.name },
+      hint: `integrations.service.${e.id}.use`,
+      ...(hasText(keywords) && { keywords }),
+    };
+  }),
+  // …each card's «Activado» switch…
   ...WORKING.filter((e) => e.source && e.setting).map((e): SettingEntry => ({
     id: `setting-${e.setting!.replace(/[^a-zA-Z0-9]+/g, '-')}`,
     section: 'integrations',
@@ -335,6 +352,15 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     section: 'integrations',
     fold: 'integrations-switch-advanced',
     label: 'integrations.switchCatalog.fallbackUrl',
+    keywords: 'integrations.keywords.fallback',
+  },
+  // …and «Próximamente»: the planned names lead to the list (and its
+  // roadmap link) without pretending they work.
+  {
+    id: 'integrations-planned',
+    section: 'integrations',
+    label: 'integrations.group.planned',
+    keywords: 'integrations.keywords.planned',
   },
   // Red
   {

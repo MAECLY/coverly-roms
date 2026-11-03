@@ -1788,7 +1788,8 @@
       "switchOff": "Switch names come from the file; turn on the Switch catalogue to use the official ones."
     },
     "keywords": {
-      "planned": "coming later, igdb, retroachievements, thegamesdb, rawg, microsoft store, gametdb, wikidata, twitch"
+      "planned": "coming later, igdb, retroachievements, thegamesdb, rawg, microsoft store, gametdb, wikidata, twitch",
+      "fallback": "nlib, api.nlib.cc, title ID, fallback"
     },
     "service": {
       "steamgriddb": {

@@ -1788,7 +1788,8 @@
       "switchOff": "Los nombres de Switch salen del archivo; activa el catálogo de Switch para usar los oficiales."
     },
     "keywords": {
-      "planned": "próximamente, igdb, retroachievements, thegamesdb, rawg, microsoft store, gametdb, wikidata, twitch"
+      "planned": "próximamente, igdb, retroachievements, thegamesdb, rawg, microsoft store, gametdb, wikidata, twitch",
+      "fallback": "nlib, api.nlib.cc, title ID, respaldo"
     },
     "service": {
       "steamgriddb": {

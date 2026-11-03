@@ -638,6 +638,36 @@ describe('Settings screen', () => {
       ).toContain('Switch iconsIntegrations › Switch catalogue');
     });
 
+    it('lands on the SteamGridDB card from «api key», opening it', async () => {
+      await backend.setCredential('steamgriddb-api-key', 'sk');
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'api key');
+      const results = screen.getByRole('listbox');
+      expect(within(results).getAllByRole('option')[0]).toHaveTextContent(
+        /^SteamGridDBIntegrations$/,
+      );
+      await userEvent.keyboard('{Enter}');
+      const header = await waitFor(() => {
+        const el = document.getElementById('integration-steamgriddb');
+        if (!el) throw new Error('no card yet');
+        return el;
+      });
+      await waitFor(() => expect(header).toHaveFocus());
+      expect(useNavStore.getState().section).toBe('integrations');
+      expect(header).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('names the fold of the nlib fallback address inside Integrations', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'nlib');
+      const results = screen.getByRole('listbox');
+      expect(
+        within(results)
+          .getAllByRole('option', { name: /Fallback address/ })
+          .map((o) => o.textContent),
+      ).toContain('Fallback addressIntegrations › Advanced options');
+    });
+
     it('clears with Escape and then returns to the selected tab', async () => {
       const search = await openOn('MacIntel');
       await userEvent.type(search, 'rar');

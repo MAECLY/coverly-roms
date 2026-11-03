@@ -19,6 +19,7 @@ import { MemoryStorage } from '@/test/storage';
 import en from '../../../locales/en/ui.json';
 import es from '../../../locales/es/ui.json';
 import { CREDITS } from '@/lib/credits';
+import { integrationDomId, PLANNED, WORKING } from '@/lib/integrations';
 
 import { foldCount, SETTINGS_INDEX, type SettingsFold } from './registry';
 
@@ -101,11 +102,46 @@ describe('settings registry', () => {
   it('every search keyword group is used by an entry', () => {
     const used = new Set(SETTINGS_INDEX.map((e) => e.keywords));
     const orphans = [en, es].flatMap((catalog) =>
-      Object.keys(catalog.settings.keywords)
-        .map((k) => `settings.keywords.${k}`)
-        .filter((k) => !used.has(k)),
+      [
+        ...Object.keys(catalog.settings.keywords).map(
+          (k) => `settings.keywords.${k}`,
+        ),
+        ...Object.keys(catalog.integrations.keywords).map(
+          (k) => `integrations.keywords.${k}`,
+        ),
+      ].filter((k) => !used.has(k)),
     );
     expect(orphans).toEqual([]);
+  });
+
+  it('has one integration- entry per working service, in the Integrations tab', () => {
+    const cards = SETTINGS_INDEX.filter((e) => e.id.startsWith('integration-'));
+    expect(cards.map((e) => e.id)).toEqual(
+      WORKING.map((e) => integrationDomId(e.id)),
+    );
+    expect(cards.every((e) => e.section === 'integrations')).toBe(true);
+    // The card is the landing spot: no fold, the focus effect opens it.
+    expect(cards.every((e) => e.fold === undefined)).toBe(true);
+  });
+
+  it('finds the coming-later list, with no entry per planned service', () => {
+    expect(
+      SETTINGS_INDEX.filter((e) => e.id === 'integrations-planned'),
+    ).toHaveLength(1);
+    for (const p of PLANNED)
+      expect(
+        SETTINGS_INDEX.some((e) => e.id === integrationDomId(p.id)),
+        p.id,
+      ).toBe(false);
+  });
+
+  it('no longer has the Switch catalogue ids of the Sources tab', () => {
+    expect(
+      SETTINGS_INDEX.filter(
+        (e) =>
+          e.id.startsWith('setting-sources-switch') || e.section === 'sources',
+      ),
+    ).toEqual([]);
   });
 
   it('counts the entries of each fold', () => {
@@ -146,9 +182,16 @@ describe('settings registry', () => {
           if (!document.getElementById(e.id)) throw new Error(e.id);
       }).catch(() => undefined);
 
-      const controls = [...panel.querySelectorAll('[id^="setting-"]')].filter(
-        (el) => !NOT_A_CONTROL.test(el.id),
-      );
+      const controls = [
+        ...panel.querySelectorAll('[id^="setting-"]'),
+        // An integration card's header: the card it opens is its own.
+        ...[...panel.querySelectorAll('[id^="integration-"]')].filter(
+          (el) =>
+            el
+              .closest('[data-advanced-fold]')
+              ?.getAttribute('data-advanced-fold') === el.id,
+        ),
+      ].filter((el) => !NOT_A_CONTROL.test(el.id));
       for (const el of controls) {
         const entry =
           entries.find((e) => e.id === el.id) ??
@@ -157,10 +200,11 @@ describe('settings registry', () => {
           unindexed.push(`${s}: ${el.id}`);
           continue;
         }
-        const fold =
+        const closest =
           el
             .closest('[data-advanced-fold]')
             ?.getAttribute('data-advanced-fold') ?? undefined;
+        const fold = closest === el.id ? undefined : closest;
         if (entry.fold !== fold)
           wrongFold.push(`${el.id}: entry ${entry.fold} vs DOM ${fold}`);
       }
