@@ -1741,7 +1741,8 @@
     "links": {
       "network": "Proxy y límites en Red",
       "sources": "Orden de fuentes en Fuentes",
-      "credits": "Créditos en Agradecimientos"
+      "credits": "Créditos en Agradecimientos",
+      "label": "Pestañas relacionadas"
     },
     "planned": {
       "plan": "Ver el plan"

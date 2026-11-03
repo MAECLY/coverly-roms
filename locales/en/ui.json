@@ -1741,7 +1741,8 @@
     "links": {
       "network": "Proxy and limits in Network",
       "sources": "Source order in Sources",
-      "credits": "Credits in Acknowledgements"
+      "credits": "Credits in Acknowledgements",
+      "label": "Related tabs"
     },
     "planned": {
       "plan": "See the plan"

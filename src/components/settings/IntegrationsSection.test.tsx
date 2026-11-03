@@ -14,7 +14,7 @@ import type { CatalogStatus } from '@/ipc/types';
 import { PLANNED } from '@/lib/integrations';
 import { resetLibraryStore } from '@/stores/libraryStore';
 import { resetNavStore, useNavStore } from '@/stores/navStore';
-import { resetSettingsStore } from '@/stores/settingsStore';
+import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
 import { stubLayout } from '@/test/layout';
 import { MemoryStorage } from '@/test/storage';
 
@@ -99,6 +99,29 @@ describe('integrations tab', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('a view that failed to load gives way to the next one', async () => {
+    const view = backend.integrationsView.bind(backend);
+    vi.spyOn(backend, 'integrationsView')
+      .mockRejectedValueOnce({ code: 'io', detail: 'boom' })
+      .mockImplementation(view);
+    render(<Root />);
+    await screen.findByRole('button', { name: 'Settings' });
+    act(() => useNavStore.getState().openSettings('integrations'));
+    const panel = await screen.findByRole('tabpanel');
+    await within(panel).findByRole('alert');
+    // A setting the cards show changes: the view is read again.
+    await act(() =>
+      useSettingsStore
+        .getState()
+        .update({ catalogs: { switch: { enabled: true } } }),
+    );
+    await within(panel).findByRole('heading', {
+      level: 3,
+      name: /SteamGridDB/,
+    });
+    expect(within(panel).queryByText(/boom/)).not.toBeInTheDocument();
+  });
+
   it('opening the tab sends nothing: no connection test', async () => {
     const test = vi.spyOn(backend, 'testIntegration');
     const legacy = vi.spyOn(backend, 'testSourceKey');
@@ -132,7 +155,11 @@ describe('integrations tab', () => {
   });
 
   it('links to Network, Sources and Acknowledgements', async () => {
-    await open();
+    const panel = await open();
+    // Its own landmark name: the tab panel is already «Integrations».
+    expect(
+      within(panel).getByRole('navigation', { name: 'Related tabs' }),
+    ).toBeInTheDocument();
     await userEvent.click(
       screen.getByRole('button', { name: 'Proxy and limits in Network' }),
     );
@@ -290,10 +317,10 @@ describe('integrations tab', () => {
         within(updates).getByRole('button', { name: 'Change in General' }),
       );
       expect(useNavStore.getState().section).toBe('general');
-      await waitFor(
-        () =>
-          expect(document.getElementById('setting-general-update-channel'))
-            .toHaveFocus,
+      await waitFor(() =>
+        expect(
+          document.getElementById('setting-general-update-channel'),
+        ).toHaveFocus(),
       );
     });
 
@@ -302,6 +329,16 @@ describe('integrations tab', () => {
       expect(
         within(card(/Coverly updates/)).getAllByRole('button')[0],
       ).toHaveAccessibleName('Coverly updates, On launch');
+    });
+
+    it('its tag says Manual once checking on launch is off', async () => {
+      await backend.updateSettings({
+        general: { check_updates_on_launch: false },
+      });
+      await open();
+      expect(
+        within(card(/Coverly updates/)).getAllByRole('button')[0],
+      ).toHaveAccessibleName('Coverly updates, Manual');
     });
   });
 });

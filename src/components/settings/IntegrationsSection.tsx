@@ -72,7 +72,11 @@ export function IntegrationsSection() {
     void getBackend()
       .then((b) => b.integrationsView())
       .then(
-        (v) => alive && setViews(v),
+        (v) => {
+          if (!alive) return;
+          setViews(v);
+          setError(null);
+        },
         (e: unknown) => alive && setError(toBackendError(e)),
       );
     return () => {
@@ -331,7 +335,7 @@ export function IntegrationsSection() {
         </Button>
       </section>
       <nav
-        aria-label={t('settings.section.integrations')}
+        aria-label={t('integrations.links.label')}
         className="flex flex-wrap gap-x-4 gap-y-1 border-t border-cr-border pt-3"
       >
         <Button
