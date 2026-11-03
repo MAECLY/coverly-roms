@@ -621,3 +621,38 @@ Spec: [`2026-10-18-duplicates-design.md`](superpowers/specs/2026-10-18-duplicate
 - **App:** PR #40 (README de 0.3.0 y registro de la release) y PR #41 (enlaces en inglés y la pregunta sobre datos enviados), los dos con CI verde y mergeados.
 - **Actualización desde la app 0.2.0 con interfaz:** Miguel la probó el 2026-11-02. La app vio la 0.3.0 y se actualizó sin problemas.
 
+
+### 2026-11-03 — Integraciones: pestaña nueva de cuentas, claves y servicios (TODO 8)
+
+- **PR #42** (`feat/integrations-tab`) mergeado en `main` (merge `cdd5bdb`):
+  - un registro único `integrations/integrations.json`, leído por Rust y TS, alimenta la pestaña, el buscador, los avisos y la CLI;
+  - tests que fallan si una integración no tiene crédito en `credits.json`, si un proveedor de red con credenciales no está en el registro o si cambian los nombres del llavero;
+  - la pestaña «Integraciones» tiene una tarjeta para SteamGridDB, otra para ScreenScraper (con cuota de hoy, máximo e hilos, y «No disponible» sin credenciales de desarrollador), el catálogo de Switch (movido desde Fuentes) y un enlace a Actualizaciones;
+  - cada tarjeta tiene estado visible, campos ocultos que nunca se rellenan, «Probar conexión», «Cómo conseguir la clave» con la página oficial, activar o desactivar, «Olvidar credenciales» con confirmación en la página, nota «Qué se envía» y enlaces a Agradecimientos y Fuentes;
+  - «Próximamente» lista IGDB, RetroAchievements, TheGamesDB, RAWG, Microsoft Store, GameTDB y Wikidata, sin campos ni claves nuevas;
+  - Fuentes queda solo con el orden y «Configurar en Integraciones»;
+  - los avisos del relleno, la simulación y Organizar enlazan a la tarjeta, y «Volver» regresa al punto de partida;
+  - el buscador encuentra cada integración por servicio y por campo;
+  - el llavero pasa al núcleo, con errores por sistema operativo (bloqueado, no disponible, denegado);
+  - nueva CLI `coverly integrations list|test|set|forget`: `set` lee por stdin sin eco o con `--from-env`, y nunca imprime valores;
+  - la CLI lee primero las variables `COVERLY_*` y luego el llavero, solo para los endpoints por defecto; `COVERLY_NO_KEYCHAIN=1` lo apaga;
+  - las cuentas guardadas aparecen solas, porque los nombres del llavero no cambian.
+- **Evidencia:**
+  - CI verde (run 41579906036): macOS (11m28s), Ubuntu (16m10s), Windows (32m43s) y Frontend (5m23s);
+  - gates locales sobre el último commit: 2027 tests de Vitest, 3166 tests de Rust (19 ignorados) y clippy de Windows;
+  - barrido de secretos limpio: un valor pasado como argumento sale con código 2 sin mostrarlo, y por stdin con el llavero apagado sale con código 1 sin imprimirlo;
+  - simulación de `organize` sobre una copia en `target/` (borrada después);
+  - E2E en Chrome DevTools (`isolatedContext` «integrations», puerto 1469): estado vacío, clave guardada que no aparece en el DOM, «Funciona» y «Conectado», olvidar con confirmación en la página, cuota agotada, «No disponible», mensajes del llavero por sistema, buscador, idas y vueltas desde Fuentes, Rellenar y Organizar, claro y oscuro a 1280 y 900 px, zoom al 200 %, colores forzados y Lighthouse con 100 en accesibilidad;
+  - la consola no muestra errores.
+- **Para Miguel (en el PR):** las decisiones con valor por defecto:
+  - la CLI lee el llavero; en macOS sale un aviso tras cada actualización por la firma ad hoc;
+  - qué páginas de ayuda se enlazan;
+  - la posición de la pestaña;
+  - la cuota se guarda solo en memoria;
+  - las credenciales del proxy siguen en `settings.json`;
+  - no hay avisos en Duplicados;
+  - «Ver el plan» enlaza a `TODO.md`;
+  - ScreenScraper se ve como «No disponible» en las builds sin credenciales de desarrollador.
+- **Falta:** el aviso en la ficha del juego cuando falta una cuenta (lo demás de los enlaces cruzados está hecho).
+- **Pendiente de comprobar a mano:** el aviso real del llavero de macOS, Credential Manager desde una tarea programada, Linux sin Secret Service y los nombres en español de las herramientas del sistema.
+- **Sin hacer a propósito:** ampliar `CredentialKey` con las claves de los servicios previstos (YAGNI); se hará cuando llegue cada servicio, con 3 y 3.1.

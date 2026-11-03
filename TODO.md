@@ -825,7 +825,7 @@ Petición de Miguel (2026-11-02): mejorar la parte de «Cuentas» de Fuentes y c
 
 ### Qué tiene que ser la pestaña
 
-- [ ] **Una tarjeta por servicio**, agrupadas en portadas y arte, nombres y metadatos, logros, catálogos y actualizaciones. Cada tarjeta muestra:
+- [x] **Una tarjeta por servicio**, agrupadas en portadas y arte, nombres y metadatos, logros, catálogos y actualizaciones. Cada tarjeta muestra:
   - el nombre del servicio, para qué lo usa Coverly en una línea y qué desbloquea (por ejemplo, «fondos y logos» o «nombres de Switch»);
   - un **estado visible**: sin configurar, conectado, error (con el motivo y cómo arreglarlo), cuota agotada o desactivado;
   - los **campos que pida**: usuario, contraseña, clave de API, client ID y secret. Van ocultos, con «Mostrar», y nunca se rellenan de vuelta con el valor guardado (solo «guardado ✓»);
@@ -840,8 +840,9 @@ Petición de Miguel (2026-11-02): mejorar la parte de «Cuentas» de Fuentes y c
   - Desde el relleno, Organizar, Duplicados, la ficha del juego y la CLI, cuando falta una cuenta o una cuota se agota, un aviso enlaza directamente a la tarjeta del servicio. Por ejemplo, «SteamGridDB sin clave: configurar».
   - Desde Integraciones se enlaza a Red (proxy), a Fuentes (orden) y a Agradecimientos.
   - Cada tarjeta tiene un enlace profundo propio, como ya hace `SettingsLink`.
-- [ ] **El buscador de Ajustes** encuentra cada integración por su nombre y por sus campos («api key», «contraseña», «token»).
-- [ ] **Diseño** con el skill frontend-design y los tokens de la app.
+  - Hecho en PR #42: Fuentes, Rellenar (asistente y simulación), Organizar, CLI e Integraciones → Red, Fuentes y Agradecimientos, con un enlace profundo por tarjeta. Pendiente: el aviso en la ficha del juego. Duplicados no tiene aviso porque ninguna integración alimenta la búsqueda de duplicados (queda para que Miguel lo decida en el PR).
+- [x] **El buscador de Ajustes** encuentra cada integración por su nombre y por sus campos («api key», «contraseña», «token»).
+- [x] **Diseño** con el skill frontend-design y los tokens de la app.
   - Antes, ver cómo resuelven esta pantalla Playnite (complementos), LaunchBox, RomM, Raycast, Linear, VS Code (Cuentas) y GitHub (aplicaciones conectadas).
   - Estado vacío útil: qué conviene configurar primero y por qué.
   - No usar logos oficiales de los servicios si sus normas no lo permiten; usar el nombre y un icono propio.
@@ -862,9 +863,10 @@ Petición de Miguel (2026-11-02): mejorar la parte de «Cuentas» de Fuentes y c
 
 ### Detrás de la pantalla
 
-- [ ] **Un registro único de integraciones** (id, tipo, campos, prueba, enlaces de ayuda, id de crédito, qué funciones usa y enlaces a ajustes). De él salen la pestaña, el buscador, los avisos enlazados y la CLI. Un test falla si una integración no tiene su crédito en `credits.json` o si un proveedor de red pide credenciales que no están en el registro.
+- [x] **Un registro único de integraciones** (id, tipo, campos, prueba, enlaces de ayuda, id de crédito, qué funciones usa y enlaces a ajustes). De él salen la pestaña, el buscador, los avisos enlazados y la CLI. Un test falla si una integración no tiene su crédito en `credits.json` o si un proveedor de red pide credenciales que no están en el registro.
 - [ ] Ampliar `CredentialKey` con las claves nuevas sin romper las guardadas (mismos nombres en el llavero).
-- [ ] Mensajes del llavero por sistema operativo (bloqueado, no disponible, permiso denegado) con qué hacer en cada caso.
-- [ ] **CLI:** `coverly integrations list|test|set|forget`. `set` lee el secreto por stdin o una variable de entorno y nunca como argumento visible en el historial.
-- [ ] Exportar o importar ajustes nunca incluye secretos. Los registros y los informes de fallo nunca muestran valores, solo «guardado» o «no guardado».
-- [ ] Migración: las cuentas de hoy aparecen solas en Integraciones. En Fuentes queda solo el orden y el enlace «Configurar».
+  - Pendiente: hoy no se añade ninguna clave nueva (YAGNI). Las de IGDB y RetroAchievements llegarán con 3.1 y 3; los nombres de las tres claves actuales se mantienen fijos por test.
+- [x] Mensajes del llavero por sistema operativo (bloqueado, no disponible, permiso denegado) con qué hacer en cada caso.
+- [x] **CLI:** `coverly integrations list|test|set|forget`. `set` lee el secreto por stdin o una variable de entorno y nunca como argumento visible en el historial.
+- [x] Exportar o importar ajustes nunca incluye secretos. Los registros y los informes de fallo nunca muestran valores, solo «guardado» o «no guardado».
+- [x] Migración: las cuentas de hoy aparecen solas en Integraciones. En Fuentes queda solo el orden y el enlace «Configurar».
