@@ -677,7 +677,8 @@ export interface IntegrationView {
   /** When the last test or job said what `state` shows (unix seconds). */
   checked_at?: number;
   quota?: SsQuota;
-  /** When the quota was last seen, or seen used up (unix seconds). */
+  /** When `quota` was read or, without numbers, when the quota was seen
+   * used up (unix seconds). */
   quota_at?: number;
 }
 

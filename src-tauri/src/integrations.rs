@@ -47,7 +47,8 @@ pub struct IntegrationView {
     pub checked_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota: Option<SsQuota>,
-    /// When the quota was last seen, or seen used up (unix seconds).
+    /// When `quota` was read or, without numbers, when the quota was
+    /// seen used up (unix seconds).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_at: Option<i64>,
 }
@@ -225,10 +226,9 @@ fn view_of(
         reason,
         checked_at: health.map(|h| h.at),
         quota: numbers.map(|q| q.quota),
-        quota_at: match (numbers.map(|q| q.at), exhausted) {
-            (Some(a), Some(b)) => Some(a.max(b)),
-            (a, b) => a.or(b),
-        },
+        // The numbers keep the time they were read: a later «used up»
+        // without numbers does not make them fresh.
+        quota_at: numbers.map(|q| q.at).or(exhausted),
     }
 }
 
@@ -731,6 +731,39 @@ mod tests {
             assert_eq!(v.state, State::Unavailable);
         }
         assert_eq!(v.quota_at, Some(100));
+    }
+
+    #[test]
+    fn older_numbers_keep_their_own_time_when_a_job_later_saw_the_quota_used_up() {
+        // A test at 100 saw 500 of 20 000; a fill at 900 hit «exhausted»
+        // with no numbers. The card shows those numbers «seen» at 100, not
+        // as if they were read at 900.
+        let book = HealthBook {
+            quota: Some(SeenQuota {
+                quota: SsQuota {
+                    requests_today: 500,
+                    max_requests_per_day: 20_000,
+                    max_threads: 1,
+                },
+                at: 100,
+            }),
+            exhausted: BTreeMap::from([("screenscraper".to_string(), 900)]),
+            ..HealthBook::default()
+        };
+        let entry = integrations::get("screenscraper").unwrap();
+        let presence = Ok(vec![
+            (CredentialKey::ScreenscraperUser, true),
+            (CredentialKey::ScreenscraperPassword, true),
+        ]);
+        let mut s = Settings::default();
+        for e in &mut s.sources.order {
+            e.enabled = true;
+        }
+        let v = view_of(entry, &s, &presence, &book, 1000);
+        assert_eq!(v.quota_at, Some(100));
+        if entry.built() {
+            assert_eq!(v.state, State::Quota);
+        }
     }
 
     #[test]
