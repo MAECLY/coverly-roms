@@ -363,6 +363,12 @@ const openFold = async () =>
       name: `Advanced options (${foldCount('integrations-switch-advanced')})`,
     }),
   );
+/** Opens the catalogue card when it is folded (a configured page). */
+const openCatalog = async () => {
+  const header = within(catalogCard()).getAllByRole('button')[0]!;
+  if (header.getAttribute('aria-expanded') !== 'true')
+    await userEvent.click(header);
+};
 
 describe('integrations: Switch catalogue card', () => {
   it('off: says so, the tag is Off, and icons, fallback and the buttons wait for it', async () => {
@@ -540,5 +546,179 @@ describe('integrations: Switch catalogue card', () => {
     expect(
       (await backend.getSettings()).settings.catalogs.switch.fallback_url,
     ).toBe('https://api.nlib.cc');
+  });
+  it('downloading: bytes done of total in mono, with a progress bar, updated by events', async () => {
+    await backend.updateSettings(ON);
+    let push: ((s: CatalogStatus) => void) | null = null;
+    vi.spyOn(backend, 'onCatalogProgress').mockImplementation((cb) => {
+      push = cb;
+      return Promise.resolve(() => undefined);
+    });
+    await open({
+      status: { state: 'downloading', done: 45_200_000, total: 92_400_000 },
+    });
+    await openCatalog();
+    const line = await statusLine();
+    await waitFor(() =>
+      expect(line).toHaveTextContent('Downloading 45.2 MB of 92.4 MB'),
+    );
+    expect(within(line).getByText('45.2 MB').closest('.mono')).not.toBeNull();
+    expect(within(line).getByText('92.4 MB').closest('.mono')).not.toBeNull();
+    expect(
+      screen.getByRole('progressbar', { name: 'Switch name catalogue' }),
+    ).toBeInTheDocument();
+    // No second download while one runs.
+    expect(screen.getByRole('button', { name: 'Download now' })).toBeDisabled();
+    await waitFor(() => expect(push).not.toBeNull());
+    act(() => push!({ state: 'downloading', done: 80_000_000, total: null }));
+    expect(line).toHaveTextContent('Downloading 80 MB');
+  });
+
+  it('a running download keeps the live line quiet until it ends', async () => {
+    // Progress arrives up to four times a second: a polite region that
+    // spoke each byte count would queue them all for a screen reader.
+    await backend.updateSettings(ON);
+    let push: ((s: CatalogStatus) => void) | null = null;
+    vi.spyOn(backend, 'onCatalogProgress').mockImplementation((cb) => {
+      push = cb;
+      return Promise.resolve(() => undefined);
+    });
+    await open({
+      status: { state: 'downloading', done: 45_200_000, total: 92_400_000 },
+    });
+    const line = await statusLine();
+    await waitFor(() => expect(line).toHaveAttribute('aria-busy', 'true'));
+    await waitFor(() => expect(push).not.toBeNull());
+    act(() =>
+      push!({
+        state: 'ready',
+        count: 17_342,
+        updated: '2026-10-30',
+        fallback: false,
+      }),
+    );
+    expect(line).toHaveTextContent('17,342 titles');
+    expect(line).not.toHaveAttribute('aria-busy');
+  });
+
+  it('a download left running while on another tab still ends on return', async () => {
+    await backend.updateSettings(ON);
+    let push: ((s: CatalogStatus) => void) | null = null;
+    vi.spyOn(backend, 'onCatalogProgress').mockImplementation((cb) => {
+      push = cb;
+      return Promise.resolve(() => undefined);
+    });
+    let finish: ((s: CatalogStatus) => void) | null = null;
+    vi.spyOn(backend, 'catalogUpdate').mockImplementation(
+      () => new Promise<CatalogStatus>((r) => (finish = r)),
+    );
+    await open({ status: { state: 'pending' } });
+    await openCatalog();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Download now' }),
+    );
+    await waitFor(() => expect(finish).not.toBeNull());
+    const now: CatalogStatus = {
+      state: 'downloading',
+      done: 10_000_000,
+      total: 92_400_000,
+    };
+    act(() => push!(now));
+    // The back end reports the running download to a status read.
+    vi.mocked(backend.catalogStatus).mockResolvedValue(now);
+    act(() => useNavStore.getState().openSettings('about'));
+    act(() => useNavStore.getState().openSettings('integrations'));
+    await waitFor(async () =>
+      expect(await statusLine()).toHaveTextContent(
+        'Downloading 10 MB of 92.4 MB',
+      ),
+    );
+    act(() =>
+      finish!({
+        state: 'ready',
+        count: 17_342,
+        updated: '2026-10-30',
+        fallback: false,
+      }),
+    );
+    await waitFor(async () =>
+      expect(await statusLine()).toHaveTextContent(
+        '17,342 titles, updated Oct 30, 2026',
+      ),
+    );
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    await openCatalog();
+    expect(
+      screen.getByRole('button', { name: 'Check for update' }),
+    ).toBeEnabled();
+  });
+
+  it('a download this window did not start is read until it ends', async () => {
+    await backend.updateSettings(ON);
+    const read = vi.spyOn(backend, 'catalogStatus').mockResolvedValue({
+      state: 'downloading',
+      done: 30_000_000,
+      total: 92_400_000,
+    });
+    await open();
+    await waitFor(async () =>
+      expect(await statusLine()).toHaveTextContent(
+        'Downloading 30 MB of 92.4 MB',
+      ),
+    );
+    read.mockResolvedValue({
+      state: 'ready',
+      count: 17_342,
+      updated: '2026-10-30',
+      fallback: false,
+    });
+    await waitFor(
+      async () =>
+        expect(await statusLine()).toHaveTextContent(
+          '17,342 titles, updated Oct 30, 2026',
+        ),
+      { timeout: 3000 },
+    );
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('a progress event that arrives after the download answered is ignored', async () => {
+    await backend.updateSettings(ON);
+    let push: ((s: CatalogStatus) => void) | null = null;
+    vi.spyOn(backend, 'onCatalogProgress').mockImplementation((cb) => {
+      push = cb;
+      return Promise.resolve(() => undefined);
+    });
+    await open({ status: { state: 'pending' } });
+    await openCatalog();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Download now' }),
+    );
+    const done = await screen.findByRole('button', {
+      name: 'Check for update',
+    });
+    await waitFor(() => expect(done).toBeEnabled());
+    act(() =>
+      push!({ state: 'downloading', done: 92_400_000, total: 92_400_000 }),
+    );
+    expect(await statusLine()).toHaveTextContent(
+      '17,342 titles, updated Oct 30, 2026',
+    );
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(done).toBeEnabled();
+  });
+
+  it.each<[CatalogStatus, string]>([
+    [{ state: 'failed-none' }, 'Could not download; using file names.'],
+    [
+      { state: 'remove-failed' },
+      'Could not delete it; close other Coverly windows.',
+    ],
+  ])('status %j', async (status, text) => {
+    await backend.updateSettings(ON);
+    await open({ status });
+    await waitFor(async () =>
+      expect(await statusLine()).toHaveTextContent(text),
+    );
   });
 });

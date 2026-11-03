@@ -205,10 +205,7 @@ export function IntegrationsSection() {
                       catalogOn ? catalog : { state: 'off' },
                     )}
                   >
-                    <SwitchCatalogGroup
-                      place="integrations"
-                      onStatus={onCatalog}
-                    />
+                    <SwitchCatalogGroup onStatus={onCatalog} />
                   </IntegrationCard>
                 );
               if (e.kind === 'link')

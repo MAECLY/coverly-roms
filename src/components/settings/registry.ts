@@ -7,7 +7,6 @@ export type SettingsFold =
   | 'library-advanced'
   | 'organize-advanced'
   | 'duplicates-advanced'
-  | 'sources-advanced'
   | 'integrations-switch-advanced'
   /** An integration card's body (D14): its controls are folded inside. */
   | `integration-${string}`;
@@ -300,32 +299,6 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     section: 'matching',
     label: 'settings.matching.maxHash',
   },
-  // Fuentes: the optional Switch name catalogue (adjustments §9.2)
-  {
-    id: 'setting-sources-switch-catalog',
-    section: 'sources',
-    label: 'settings.sources.switchCatalog.label',
-    keywords: 'settings.keywords.switchCatalog',
-  },
-  {
-    id: 'setting-sources-switch-catalog-icons',
-    section: 'sources',
-    label: 'settings.sources.switchCatalog.icons',
-    hint: 'settings.sources.switchCatalog.iconsHint',
-  },
-  {
-    id: 'setting-sources-switch-catalog-fallback',
-    section: 'sources',
-    fold: 'sources-advanced',
-    label: 'settings.sources.switchCatalog.fallback',
-    hint: 'settings.sources.switchCatalog.fallbackHint',
-  },
-  {
-    id: 'setting-sources-switch-catalog-fallback-url',
-    section: 'sources',
-    fold: 'sources-advanced',
-    label: 'settings.sources.switchCatalog.fallbackUrl',
-  },
   // Integraciones: each card's «Activado» switch, generated from the
   // registry (a new source card needs no hand edit here)…
   ...WORKING.filter((e) => e.source && e.setting).map((e): SettingEntry => ({
@@ -340,28 +313,28 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     id: 'setting-integrations-switch-catalog',
     section: 'integrations',
     fold: 'integration-switch-catalog',
-    label: 'settings.sources.switchCatalog.label',
+    label: 'integrations.switchCatalog.label',
     keywords: 'settings.keywords.switchCatalog',
   },
   {
     id: 'setting-integrations-switch-catalog-icons',
     section: 'integrations',
     fold: 'integration-switch-catalog',
-    label: 'settings.sources.switchCatalog.icons',
-    hint: 'settings.sources.switchCatalog.iconsHint',
+    label: 'integrations.switchCatalog.icons',
+    hint: 'integrations.switchCatalog.iconsHint',
   },
   {
     id: 'setting-integrations-switch-catalog-fallback',
     section: 'integrations',
     fold: 'integrations-switch-advanced',
-    label: 'settings.sources.switchCatalog.fallback',
-    hint: 'settings.sources.switchCatalog.fallbackHint',
+    label: 'integrations.switchCatalog.fallback',
+    hint: 'integrations.switchCatalog.fallbackHint',
   },
   {
     id: 'setting-integrations-switch-catalog-fallback-url',
     section: 'integrations',
     fold: 'integrations-switch-advanced',
-    label: 'settings.sources.switchCatalog.fallbackUrl',
+    label: 'integrations.switchCatalog.fallbackUrl',
   },
   // Red
   {

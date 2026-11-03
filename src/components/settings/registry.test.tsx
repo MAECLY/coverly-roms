@@ -26,7 +26,6 @@ const FOLDS: readonly SettingsFold[] = [
   'library-advanced',
   'organize-advanced',
   'duplicates-advanced',
-  'sources-advanced',
   'integrations-switch-advanced',
 ];
 
@@ -112,7 +111,6 @@ describe('settings registry', () => {
   it('counts the entries of each fold', () => {
     expect(foldCount('library-advanced')).toBe(2);
     expect(foldCount('organize-advanced')).toBe(1);
-    expect(foldCount('sources-advanced')).toBe(2);
     expect(foldCount('integrations-switch-advanced')).toBe(2);
     expect(
       FOLDS.every((f) => foldCount(f) > 0),

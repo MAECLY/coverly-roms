@@ -24,7 +24,6 @@ import {
   errorText,
   Field,
   fieldErrorText,
-  sectionTitle,
   settingId,
   SwitchSetting,
 } from './Field';
@@ -66,30 +65,20 @@ function track(p: Promise<CatalogStatus>): Promise<CatalogStatus> {
 /** What an off catalogue shows (one object: `onStatus` sees no change). */
 const OFF: CatalogStatus = { state: 'off' };
 
-/** Where the group is drawn: its own group in Fuentes (until the move is
- * done), or the body of the «Catálogo de Switch» card in Integraciones. */
-export type CatalogPlace = 'sources' | 'integrations';
-
-const PLACES: Record<CatalogPlace, { prefix: string; fold: SettingsFold }> = {
-  sources: { prefix: 'sources', fold: 'sources-advanced' },
-  integrations: {
-    prefix: 'integrations',
-    fold: 'integrations-switch-advanced',
-  },
-};
+/** The fold of the online fallback inside the card. */
+const FOLD: SettingsFold = 'integrations-switch-advanced';
 
 /**
- * «Catálogo de Switch» (adjustments §9.2, integrations D23): the optional
- * blawar/titledb name catalogue, its status, download and removal, eShop
- * icons and, folded, the online fallback. Turning it off deletes it (the
- * back end does). In a card, the card's header is its title and the
- * status it shows comes back through `onStatus` (IP-1).
+ * The body of the «Catálogo de Switch» card in Integraciones (adjustments
+ * §9.2, integrations D7, D23): the optional blawar/titledb name catalogue,
+ * its status, download and removal, eShop icons and, folded, the online
+ * fallback. Turning it off deletes it (the back end does). The card's
+ * header is its title; the status it shows comes back through `onStatus`
+ * (IP-1).
  */
 export function SwitchCatalogGroup({
-  place = 'sources',
   onStatus,
 }: {
-  place?: CatalogPlace;
   /** The status as shown (off while the setting is off). */
   onStatus?: (s: CatalogStatus | null) => void;
 } = {}) {
@@ -104,8 +93,6 @@ export function SwitchCatalogGroup({
   const [error, setError] = useState<BackendError | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const alive = useRef(true);
-  const { prefix, fold } = PLACES[place];
-  const inCard = place === 'integrations';
 
   /** Shows the answer of `p` (a download or removal answers last: a
    * status read meanwhile is older). */
@@ -196,32 +183,24 @@ export function SwitchCatalogGroup({
   const urlMessage = !urlError
     ? null
     : urlError.code === 'invalid' && !/^https:\/\//i.test(typed.trim())
-      ? t('settings.sources.switchCatalog.fallbackHttps', {
+      ? t('integrations.switchCatalog.fallbackHttps', {
           scheme: 'https://',
         })
       : fieldErrorText(t, urlError);
-  const urlId = settingId(`${prefix}.switch_catalog.fallback_url`);
-  const sizeHint = tr('settings.sources.switchCatalog.hint', {
+  const urlId = settingId(`integrations.switch_catalog.fallback_url`);
+  const sizeHint = tr('integrations.switchCatalog.hint', {
     size: formatDecimalSize(CATALOG_DOWNLOAD_BYTES, locale),
   });
   const body = (
     <>
       <SwitchSetting
-        id={settingId(`${prefix}.switch_catalog`)}
+        id={settingId(`integrations.switch_catalog`)}
         name="switch-catalog"
-        label={
-          inCard
-            ? t('integrations.enabled')
-            : t('settings.sources.switchCatalog.label')
-        }
+        label={t('integrations.enabled')}
         hint={
-          inCard ? (
-            <>
-              {sizeHint} {t('integrations.catalog.offHint')}
-            </>
-          ) : (
-            sizeHint
-          )
+          <>
+            {sizeHint} {t('integrations.catalog.offHint')}
+          </>
         }
         checked={c.enabled}
         onCheckedChange={(on) => void toggle(on)}
@@ -233,7 +212,7 @@ export function SwitchCatalogGroup({
             size="sm"
             value={downloading.total === null ? null : downloading.done}
             max={downloading.total ?? 100}
-            aria-label={t('settings.sources.switchCatalog.label')}
+            aria-label={t('integrations.switchCatalog.label')}
           />
         )}
         <div className="flex flex-wrap gap-2">
@@ -243,15 +222,15 @@ export function SwitchCatalogGroup({
             onClick={() => void run((b) => b.catalogUpdate(locale))}
           >
             {rows
-              ? t('settings.sources.switchCatalog.check')
-              : t('settings.sources.switchCatalog.download')}
+              ? t('integrations.switchCatalog.check')
+              : t('integrations.switchCatalog.download')}
           </Button>
           <Button
             size="sm"
             disabled={!c.enabled || running || !rows}
             onClick={() => void run((b) => b.catalogRemove())}
           >
-            {t('settings.sources.switchCatalog.remove')}
+            {t('integrations.switchCatalog.remove')}
           </Button>
         </div>
         {error && (
@@ -261,10 +240,10 @@ export function SwitchCatalogGroup({
         )}
       </div>
       <SwitchSetting
-        id={settingId(`${prefix}.switch_catalog.icons`)}
+        id={settingId(`integrations.switch_catalog.icons`)}
         name="switch-catalog-icons"
-        label={t('settings.sources.switchCatalog.icons')}
-        hint={t('settings.sources.switchCatalog.iconsHint')}
+        label={t('integrations.switchCatalog.icons')}
+        hint={t('integrations.switchCatalog.iconsHint')}
         checked={c.icons}
         disabled={!c.enabled}
         onCheckedChange={(on) =>
@@ -272,15 +251,15 @@ export function SwitchCatalogGroup({
         }
       />
       <AdvancedFold
-        id={fold}
-        count={foldCount(fold)}
+        id={FOLD}
+        count={foldCount(FOLD)}
         errorPaths={['catalogs.switch']}
       >
         <SwitchSetting
-          id={settingId(`${prefix}.switch_catalog.fallback`)}
+          id={settingId(`integrations.switch_catalog.fallback`)}
           name="switch-catalog-fallback"
-          label={t('settings.sources.switchCatalog.fallback')}
-          hint={t('settings.sources.switchCatalog.fallbackHint')}
+          label={t('integrations.switchCatalog.fallback')}
+          hint={t('integrations.switchCatalog.fallbackHint')}
           checked={c.fallback}
           disabled={!c.enabled}
           onCheckedChange={(on) =>
@@ -289,7 +268,7 @@ export function SwitchCatalogGroup({
         />
         <Field
           id={urlId}
-          label={t('settings.sources.switchCatalog.fallbackUrl')}
+          label={t('integrations.switchCatalog.fallbackUrl')}
           error={urlMessage}
         >
           <Input
@@ -313,17 +292,5 @@ export function SwitchCatalogGroup({
       </AdvancedFold>
     </>
   );
-  if (inCard) return <div className="grid gap-4">{body}</div>;
-  return (
-    <section
-      role="group"
-      aria-labelledby="switch-catalog-title"
-      className="grid gap-4"
-    >
-      <h2 id="switch-catalog-title" className={sectionTitle}>
-        {t('settings.sources.switchCatalog.title')}
-      </h2>
-      {body}
-    </section>
-  );
+  return <div className="grid gap-4">{body}</div>;
 }

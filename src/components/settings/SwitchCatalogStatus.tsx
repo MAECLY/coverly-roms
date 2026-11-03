@@ -7,7 +7,7 @@ import { formatDecimalSize } from '@/lib/format';
 
 import { errorText, hintText } from './Field';
 
-const KEY = 'settings.sources.switchCatalog';
+const KEY = 'integrations.switchCatalog';
 
 /** `2026-10-30` as the UI language writes a date (`Oct 30, 2026`), read
  * as a calendar day so no time zone moves it. */

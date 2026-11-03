@@ -476,37 +476,6 @@ describe('Settings screen', () => {
     );
   });
 
-  it('ignores a key test that ends after the key was saved or removed', async () => {
-    await start();
-    act(() => useNavStore.getState().openSettings('sources'));
-    await backend.setCredential('steamgriddb-api-key', 'sk-old');
-    const pending: ((v: 'ok' | 'invalid') => void)[] = [];
-    backend.testSourceKey = () =>
-      new Promise((resolve) => pending.push(resolve));
-    const field = await screen.findByLabelText('SteamGridDB API key');
-    const testButton = await screen.findByRole('button', {
-      name: 'Test the SteamGridDB API key',
-    });
-    await waitFor(() => expect(testButton).toBeEnabled());
-    // Test the old key, then save a new one before the answer comes.
-    await userEvent.click(testButton);
-    await userEvent.type(field, 'sk-new');
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Save SteamGridDB API key' }),
-    );
-    await act(async () => pending.shift()!('invalid'));
-    expect(screen.queryByText('The key was refused.')).not.toBeInTheDocument();
-    // Test again, then remove the key before the answer comes.
-    await waitFor(() => expect(testButton).toBeEnabled());
-    await userEvent.click(testButton);
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Remove SteamGridDB API key' }),
-    );
-    await act(async () => pending.shift()!('ok'));
-    expect(screen.queryByText('The key works.')).not.toBeInTheDocument();
-    expect(testButton).not.toHaveTextContent('Testing…');
-  });
-
   it('shows Integrations through its section, waiting for the settings like other tabs', async () => {
     expect(SECTION_COMPONENTS.integrations).toBeTypeOf('function');
     await start();
@@ -542,8 +511,11 @@ describe('Settings screen', () => {
       act(() => useNavStore.getState().openSettings(section));
       await screen.findByRole('tabpanel', {
         name:
-          { duplicates: 'Duplicates', sources: 'Sources' }[section as string] ??
-          'General',
+          {
+            duplicates: 'Duplicates',
+            sources: 'Sources',
+            integrations: 'Integrations',
+          }[section as string] ?? 'General',
       });
       return screen.getByRole('combobox', { name: 'Search settings' });
     }
@@ -618,10 +590,9 @@ describe('Settings screen', () => {
     });
 
     it('types a slash inside a hidden API key instead of searching', async () => {
-      const search = await openOn('MacIntel', 'sources');
-      const key = (await screen.findByLabelText(
-        'SteamGridDB API key',
-      )) as HTMLInputElement;
+      const search = await openOn('MacIntel', 'integrations');
+      // Only SteamGridDB asks for an API key.
+      const key = (await screen.findByLabelText('API key')) as HTMLInputElement;
       expect(key).toHaveAttribute('type', 'password');
       await userEvent.click(key);
       await userEvent.keyboard('ab/cd');

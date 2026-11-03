@@ -5,373 +5,202 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Root } from '@/Root';
 import { setBackend } from '@/ipc/backend';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
-import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
-import type { CatalogStatus } from '@/ipc/types';
+import {
+  createMockBackend,
+  type MockBackend,
+  type MockOptions,
+} from '@/ipc/mock/mockBackend';
 import { resetLibraryStore } from '@/stores/libraryStore';
 import { resetNavStore, useNavStore } from '@/stores/navStore';
 import { resetSettingsStore } from '@/stores/settingsStore';
 import { stubLayout } from '@/test/layout';
 import { MemoryStorage } from '@/test/storage';
 
-import { foldCount } from './registry';
-
 let backend: MockBackend;
 let restore: () => void;
 
-const ON = { catalogs: { switch: { enabled: true } } } as const;
+function make(opts: Partial<MockOptions> = {}) {
+  backend = createMockBackend({
+    delayMs: 0,
+    now: FIXTURE_NOW,
+    storage: new MemoryStorage(),
+    integrations: null,
+    keychain: null,
+    platform: 'macos',
+    ...opts,
+  });
+  setBackend(backend);
+}
 
-async function open(status?: CatalogStatus, settingsButton = 'Settings') {
-  if (status) vi.spyOn(backend, 'catalogStatus').mockResolvedValue(status);
+async function open(settingsButton = 'Settings') {
   render(<Root />);
   await screen.findByRole('button', { name: settingsButton });
   act(() => useNavStore.getState().openSettings('sources'));
-  return screen.findByRole('tabpanel');
+  const panel = await screen.findByRole('tabpanel');
+  // The hints come with the sources info.
+  await within(panel).findAllByText(
+    /^(Not available in this build|No key|No account|No disponible en esta versión|Sin clave|Sin cuenta)$/,
+  );
+  return panel;
 }
 
-/** The catalogue's status line (a live region). */
-const statusLine = () =>
-  screen.findByTestId('switch-catalog-status', {}, { timeout: 2000 });
+/** A source's row in the order list, by its switch's name. */
+const row = (panel: HTMLElement, name: RegExp | string) =>
+  within(panel).getByRole('switch', { name }).closest('li') as HTMLElement;
 
-const catalogSwitch = () =>
-  screen.getByRole('switch', { name: 'Switch name catalogue' });
-const iconsSwitch = () => screen.getByRole('switch', { name: 'Switch icons' });
-const fallbackSwitch = () =>
-  screen.getByRole('switch', { name: 'Online fallback' });
-const openFold = async () =>
-  userEvent.click(
-    screen.getByRole('button', {
-      name: `Advanced options (${foldCount('sources-advanced')})`,
-    }),
-  );
+const saved = async () => (await backend.getSettings()).settings;
 
-describe('sources: Switch name catalogue', () => {
-  beforeEach(() => {
-    backend = createMockBackend({
-      delayMs: 0,
-      now: FIXTURE_NOW,
-      storage: new MemoryStorage(),
-    });
-    setBackend(backend);
-    resetSettingsStore();
-    resetLibraryStore();
-    resetNavStore();
-    restore = stubLayout(1280, 800);
-  });
-  afterEach(() => {
-    restore();
-    vi.restoreAllMocks();
-    setBackend(null);
-  });
+beforeEach(() => {
+  make();
+  resetSettingsStore();
+  resetLibraryStore();
+  resetNavStore();
+  restore = stubLayout(1280, 800);
+});
+afterEach(() => {
+  restore();
+  vi.restoreAllMocks();
+  setBackend(null);
+});
 
-  it('off: says so, and icons, fallback and the buttons wait for it', async () => {
+describe('sources: the order only', () => {
+  it('has no key fields, no Accounts block and no Switch catalogue', async () => {
     const panel = await open();
-    const group = within(panel).getByRole('group', {
-      name: 'Switch catalogue',
-    });
-    await waitFor(async () =>
-      expect(await statusLine()).toHaveTextContent('Off'),
-    );
-    expect(catalogSwitch()).not.toBeChecked();
-    // The size it downloads is a number: data face.
-    expect(within(group).getByText('90 MB').closest('.mono')).not.toBeNull();
-    expect(iconsSwitch()).toBeDisabled();
-    await openFold();
-    expect(fallbackSwitch()).toBeDisabled();
+    expect(panel.querySelector('input[type="password"]')).toBeNull();
     expect(
-      screen.getByRole('textbox', { name: 'Fallback address' }),
-    ).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Download now' })).toBeDisabled();
+      within(panel).queryByRole('heading', { name: 'Accounts' }),
+    ).not.toBeInTheDocument();
+    expect(within(panel).queryByLabelText(/API key/)).toBeNull();
     expect(
-      screen.getByRole('button', { name: 'Delete catalogue' }),
-    ).toBeDisabled();
+      within(panel).queryByRole('switch', { name: /catalogue/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(panel).queryByTestId('switch-catalog-status'),
+    ).not.toBeInTheDocument();
+    expect(panel.querySelector('[id^="setting-sources-switch"]')).toBeNull();
   });
 
-  it('turning it on saves the setting and downloads the catalogue', async () => {
-    const update = vi.spyOn(backend, 'catalogUpdate');
-    await open();
-    await userEvent.click(catalogSwitch());
-    await waitFor(() => expect(update).toHaveBeenCalledWith('en'));
-    expect((await backend.getSettings()).settings.catalogs.switch.enabled).toBe(
-      true,
-    );
-    await waitFor(async () =>
-      expect(await statusLine()).toHaveTextContent(
-        '17,342 titles, updated Oct 30, 2026',
-      ),
-    );
-    const line = await statusLine();
-    expect(within(line).getByText('17,342').closest('.mono')).not.toBeNull();
-    expect(
-      within(line).getByText('Oct 30, 2026').closest('.mono'),
-    ).not.toBeNull();
-    expect(iconsSwitch()).toBeEnabled();
-    expect(
-      screen.getByRole('button', { name: 'Check for update' }),
-    ).toBeEnabled();
-  });
-
-  it('downloading: bytes done of total in mono, with a progress bar, updated by events', async () => {
-    await backend.updateSettings(ON);
-    let push: ((s: CatalogStatus) => void) | null = null;
-    vi.spyOn(backend, 'onCatalogProgress').mockImplementation((cb) => {
-      push = cb;
-      return Promise.resolve(() => undefined);
+  it('only SteamGridDB and ScreenScraper link to their card in Integrations', async () => {
+    const panel = await open();
+    const links = within(panel).getAllByRole('button', {
+      name: 'Set up in Integrations',
     });
-    await open({ state: 'downloading', done: 45_200_000, total: 92_400_000 });
-    const line = await statusLine();
-    await waitFor(() =>
-      expect(line).toHaveTextContent('Downloading 45.2 MB of 92.4 MB'),
-    );
-    expect(within(line).getByText('45.2 MB').closest('.mono')).not.toBeNull();
-    expect(within(line).getByText('92.4 MB').closest('.mono')).not.toBeNull();
+    expect(links).toHaveLength(2);
     expect(
-      screen.getByRole('progressbar', { name: 'Switch name catalogue' }),
+      within(row(panel, /SteamGridDB/)).getByRole('button', {
+        name: 'Set up in Integrations',
+      }),
     ).toBeInTheDocument();
-    // No second download while one runs.
-    expect(screen.getByRole('button', { name: 'Download now' })).toBeDisabled();
-    await waitFor(() => expect(push).not.toBeNull());
-    act(() => push!({ state: 'downloading', done: 80_000_000, total: null }));
-    expect(line).toHaveTextContent('Downloading 80 MB');
+    expect(
+      within(row(panel, /ScreenScraper/)).getByRole('button', {
+        name: 'Set up in Integrations',
+      }),
+    ).toBeInTheDocument();
+    for (const name of [/libretro/, /Image from the game files/])
+      expect(
+        within(row(panel, name)).queryByRole('button', {
+          name: 'Set up in Integrations',
+        }),
+      ).not.toBeInTheDocument();
   });
 
-  it('a running download keeps the live line quiet until it ends', async () => {
-    // Progress arrives up to four times a second: a polite region that
-    // spoke each byte count would queue them all for a screen reader.
-    await backend.updateSettings(ON);
-    let push: ((s: CatalogStatus) => void) | null = null;
-    vi.spyOn(backend, 'onCatalogProgress').mockImplementation((cb) => {
-      push = cb;
-      return Promise.resolve(() => undefined);
-    });
-    await open({ state: 'downloading', done: 45_200_000, total: 92_400_000 });
-    const line = await statusLine();
-    await waitFor(() => expect(line).toHaveAttribute('aria-busy', 'true'));
-    await waitFor(() => expect(push).not.toBeNull());
-    act(() =>
-      push!({
-        state: 'ready',
-        count: 17_342,
-        updated: '2026-10-30',
-        fallback: false,
+  it('«Set up in Integrations» opens the card and focuses its header', async () => {
+    const panel = await open();
+    await userEvent.click(
+      within(row(panel, /SteamGridDB/)).getByRole('button', {
+        name: 'Set up in Integrations',
       }),
     );
-    expect(line).toHaveTextContent('17,342 titles');
-    expect(line).not.toHaveAttribute('aria-busy');
+    expect(useNavStore.getState().section).toBe('integrations');
+    await waitFor(() =>
+      expect(document.getElementById('integration-steamgriddb')).toHaveFocus(),
+    );
   });
 
-  it('a download left running while on another tab still ends on return', async () => {
-    await backend.updateSettings(ON);
-    let push: ((s: CatalogStatus) => void) | null = null;
-    vi.spyOn(backend, 'onCatalogProgress').mockImplementation((cb) => {
-      push = cb;
-      return Promise.resolve(() => undefined);
+  it('says «No key» for SteamGridDB, with its switch off until a key is stored', async () => {
+    const panel = await open();
+    const sgdb = within(panel).getByRole('switch', { name: /SteamGridDB/ });
+    expect(sgdb).toBeDisabled();
+    expect(sgdb).toHaveAccessibleDescription('No key');
+    expect(
+      within(panel).queryByText('Store an API key below to turn it on'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('SteamGridDB turns on once a key is stored', async () => {
+    await backend.setCredential('steamgriddb-api-key', 'sk-SECRET');
+    const panel = await open();
+    const sgdb = within(panel).getByRole('switch', { name: /SteamGridDB/ });
+    await waitFor(() => expect(sgdb).toBeEnabled());
+    expect(within(panel).queryByText('No key')).not.toBeInTheDocument();
+    await userEvent.click(sgdb);
+    expect(
+      (await saved()).sources.order.find((e) => e.id === 'steamgriddb')!
+        .enabled,
+    ).toBe(true);
+    expect(document.body.innerHTML).not.toContain('sk-SECRET');
+  });
+
+  it('an enabled source without its key can still be turned off', async () => {
+    await backend.updateSettings({
+      sources: {
+        order: [
+          { id: 'libretro', enabled: true },
+          { id: 'steamgriddb', enabled: true },
+          { id: 'screenscraper', enabled: false },
+        ],
+      },
     });
-    let finish: ((s: CatalogStatus) => void) | null = null;
-    vi.spyOn(backend, 'catalogUpdate').mockImplementation(
-      () => new Promise<CatalogStatus>((r) => (finish = r)),
-    );
-    await open({ state: 'pending' });
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Download now' }),
-    );
-    await waitFor(() => expect(finish).not.toBeNull());
-    const now: CatalogStatus = {
-      state: 'downloading',
-      done: 10_000_000,
-      total: 92_400_000,
-    };
-    act(() => push!(now));
-    // The back end reports the running download to a status read.
-    vi.mocked(backend.catalogStatus).mockResolvedValue(now);
-    act(() => useNavStore.getState().openSettings('about'));
-    act(() => useNavStore.getState().openSettings('sources'));
-    await waitFor(async () =>
-      expect(await statusLine()).toHaveTextContent(
-        'Downloading 10 MB of 92.4 MB',
-      ),
-    );
-    act(() =>
-      finish!({
-        state: 'ready',
-        count: 17_342,
-        updated: '2026-10-30',
-        fallback: false,
+    const panel = await open();
+    const sgdb = within(panel).getByRole('switch', { name: /SteamGridDB/ });
+    expect(sgdb).toBeChecked();
+    expect(sgdb).toBeEnabled();
+    await userEvent.click(sgdb);
+    expect(
+      (await saved()).sources.order.find((e) => e.id === 'steamgriddb')!
+        .enabled,
+    ).toBe(false);
+    await waitFor(() => expect(sgdb).toBeDisabled());
+  });
+
+  it('ScreenScraper says not available in an official build', async () => {
+    const panel = await open();
+    const ss = within(panel).getByRole('switch', { name: /ScreenScraper/ });
+    expect(ss).toBeDisabled();
+    expect(ss).toHaveAccessibleDescription('Not available in this build');
+  });
+
+  it('ScreenScraper says «No account» in a build that can use it', async () => {
+    make({ integrations: 'dev' });
+    await backend.forgetIntegration('screenscraper');
+    await backend.updateSettings({
+      sources: {
+        order: [
+          { id: 'libretro', enabled: true },
+          { id: 'steamgriddb', enabled: false },
+          { id: 'screenscraper', enabled: false },
+        ],
+      },
+    });
+    const panel = await open();
+    const ss = within(panel).getByRole('switch', { name: /ScreenScraper/ });
+    await waitFor(() => expect(ss).toHaveAccessibleDescription('No account'));
+    expect(ss).toBeDisabled();
+  });
+
+  it('speaks Spanish', async () => {
+    await backend.updateSettings({ general: { language: 'es' } });
+    const panel = await open('Configuración');
+    expect(
+      within(panel).getByRole('switch', { name: /SteamGridDB/ }),
+    ).toHaveAccessibleDescription('Sin clave');
+    expect(
+      within(panel).getAllByRole('button', {
+        name: 'Configurar en Integraciones',
       }),
-    );
-    await waitFor(async () =>
-      expect(await statusLine()).toHaveTextContent(
-        '17,342 titles, updated Oct 30, 2026',
-      ),
-    );
-    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    ).toHaveLength(2);
     expect(
-      screen.getByRole('button', { name: 'Check for update' }),
-    ).toBeEnabled();
-  });
-
-  it('a download this window did not start is read until it ends', async () => {
-    await backend.updateSettings(ON);
-    const read = vi.spyOn(backend, 'catalogStatus').mockResolvedValue({
-      state: 'downloading',
-      done: 30_000_000,
-      total: 92_400_000,
-    });
-    await open();
-    await waitFor(async () =>
-      expect(await statusLine()).toHaveTextContent(
-        'Downloading 30 MB of 92.4 MB',
-      ),
-    );
-    read.mockResolvedValue({
-      state: 'ready',
-      count: 17_342,
-      updated: '2026-10-30',
-      fallback: false,
-    });
-    await waitFor(
-      async () =>
-        expect(await statusLine()).toHaveTextContent(
-          '17,342 titles, updated Oct 30, 2026',
-        ),
-      { timeout: 3000 },
-    );
-    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-  });
-
-  it('a progress event that arrives after the download answered is ignored', async () => {
-    await backend.updateSettings(ON);
-    let push: ((s: CatalogStatus) => void) | null = null;
-    vi.spyOn(backend, 'onCatalogProgress').mockImplementation((cb) => {
-      push = cb;
-      return Promise.resolve(() => undefined);
-    });
-    await open({ state: 'pending' });
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Download now' }),
-    );
-    const done = await screen.findByRole('button', {
-      name: 'Check for update',
-    });
-    await waitFor(() => expect(done).toBeEnabled());
-    act(() =>
-      push!({ state: 'downloading', done: 92_400_000, total: 92_400_000 }),
-    );
-    expect(await statusLine()).toHaveTextContent(
-      '17,342 titles, updated Oct 30, 2026',
-    );
-    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-    expect(done).toBeEnabled();
-  });
-
-  it.each<[CatalogStatus, string]>([
-    [{ state: 'pending' }, 'Catalogue download pending'],
-    [
-      { state: 'ready', count: 9_876, updated: '2026-10-01', fallback: true },
-      '9,876 titles from the United States list, updated Oct 1, 2026',
-    ],
-    [
-      { state: 'failed-old', updated: '2026-09-14' },
-      'Could not update; using the data from Sep 14, 2026.',
-    ],
-    [{ state: 'failed-none' }, 'Could not download; using file names.'],
-    [
-      { state: 'rejected' },
-      'The catalogue holds data Coverly does not accept; the previous one is kept.',
-    ],
-    [
-      { state: 'remove-failed' },
-      'Could not delete it; close other Coverly windows.',
-    ],
-  ])('status %j', async (status, text) => {
-    await backend.updateSettings(ON);
-    await open(status);
-    await waitFor(async () =>
-      expect(await statusLine()).toHaveTextContent(text),
-    );
-  });
-
-  it('speaks Spanish, with the date and the counts in the data face', async () => {
-    await backend.updateSettings({ ...ON, general: { language: 'es' } });
-    await open(
-      { state: 'ready', count: 17_342, updated: '2026-10-30', fallback: false },
-      'Configuración',
-    );
-    const line = await statusLine();
-    await waitFor(() =>
-      expect(line.textContent).toMatch(
-        /^17\.342 títulos, actualizado el 30 oct 2026$/,
-      ),
-    );
-    expect(
-      screen.getByRole('switch', { name: 'Catálogo de nombres de Switch' }),
-    ).toBeChecked();
-    expect(
-      screen.getByRole('button', { name: 'Buscar actualización' }),
-    ).toBeEnabled();
-  });
-
-  it('«Delete catalogue» deletes it and shows what is left', async () => {
-    await backend.updateSettings(ON);
-    await backend.catalogUpdate();
-    const remove = vi.spyOn(backend, 'catalogRemove');
-    await open();
-    const button = await screen.findByRole('button', {
-      name: 'Delete catalogue',
-    });
-    await waitFor(() => expect(button).toBeEnabled());
-    await userEvent.click(button);
-    expect(remove).toHaveBeenCalledOnce();
-    await waitFor(async () =>
-      expect(await statusLine()).toHaveTextContent(
-        'Catalogue download pending',
-      ),
-    );
-    expect(screen.getByRole('button', { name: 'Download now' })).toBeEnabled();
-  });
-
-  it('icons and the fallback save once the catalogue is on', async () => {
-    await backend.updateSettings(ON);
-    await open();
-    await userEvent.click(iconsSwitch());
-    await openFold();
-    await userEvent.click(fallbackSwitch());
-    await waitFor(async () =>
-      expect(
-        (await backend.getSettings()).settings.catalogs.switch,
-      ).toMatchObject({ icons: true, fallback: true }),
-    );
-  });
-
-  it('a fallback address that is not https:// says it has to be', async () => {
-    await backend.updateSettings(ON);
-    await open();
-    await openFold();
-    const url = screen.getByRole('textbox', { name: 'Fallback address' });
-    expect(url).toHaveValue('https://api.nlib.cc');
-    await userEvent.clear(url);
-    await userEvent.type(url, 'http://api.nlib.cc');
-    await userEvent.tab();
-    await waitFor(() =>
-      expect(url).toHaveAccessibleDescription(
-        expect.stringContaining('It has to start with https://'),
-      ),
-    );
-    // The typed text stays; the saved one does not change.
-    expect(url).toHaveValue('http://api.nlib.cc');
-    expect(
-      (await backend.getSettings()).settings.catalogs.switch.fallback_url,
-    ).toBe('https://api.nlib.cc');
-
-    await userEvent.clear(url);
-    await userEvent.type(url, 'https://mirror.example.org');
-    await userEvent.tab();
-    await waitFor(async () =>
-      expect(
-        (await backend.getSettings()).settings.catalogs.switch.fallback_url,
-      ).toBe('https://mirror.example.org'),
-    );
-    expect(url).not.toHaveAccessibleDescription(
-      expect.stringContaining('https://'),
-    );
+      within(panel).getByText('No disponible en esta versión'),
+    ).toBeInTheDocument();
   });
 });
