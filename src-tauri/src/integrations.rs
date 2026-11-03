@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use coverly_core::credentials::{CredentialError, CredentialKey, DevCredentials};
+use coverly_core::credentials::{CredentialError, CredentialKey};
 use coverly_core::integrations::{
     self, Health, Integration, KeychainKind, Notice, Problem, Reason, SeenQuota, SsQuota, State,
     StateInput,
@@ -93,23 +93,6 @@ pub fn keychain_kind(e: &CredentialError) -> KeychainKind {
         CredentialError::Denied => KeychainKind::Denied,
         CredentialError::Failed(_) | CredentialError::BadValue => KeychainKind::Failed,
     }
-}
-
-/// Whether the user has `entry` turned on: its source in the Fuentes
-/// order, the Switch catalogue switch, or always (a link card).
-fn enabled(entry: &Integration, s: &Settings) -> bool {
-    if let Some(source) = &entry.source {
-        return s.sources.order.iter().any(|e| &e.id == source && e.enabled);
-    }
-    match entry.id.as_str() {
-        "switch-catalog" => s.catalogs.switch.enabled,
-        _ => true,
-    }
-}
-
-/// Whether this build can use `entry`.
-fn built(entry: &Integration) -> bool {
-    entry.id != "screenscraper" || DevCredentials::from_build().is_some()
 }
 
 /// The working entry `id`, or a bad request.
@@ -200,8 +183,8 @@ fn view_of(
     book: &HealthBook,
     now: i64,
 ) -> IntegrationView {
-    let enabled = enabled(entry, settings);
-    let built = built(entry);
+    let enabled = entry.enabled(settings);
+    let built = entry.built();
     // An entry without fields never reads the keychain, so it never fails on it.
     let presence: Result<&[(CredentialKey, bool)], KeychainKind> = if entry.fields.is_empty() {
         Ok(&[])
@@ -425,7 +408,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use coverly_core::credentials::{CredentialStore, MemoryStore};
+    use coverly_core::credentials::{CredentialStore, DevCredentials, MemoryStore};
     use coverly_core::net::testing::{MockResponse, MockServer};
     use coverly_core::sources::steamgriddb::search_path;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -742,7 +725,7 @@ mod tests {
             e.enabled = true;
         }
         let v = view_of(entry, &s, &presence, &book, 200);
-        if built(entry) {
+        if entry.built() {
             assert_eq!(v.state, State::Quota);
         } else {
             assert_eq!(v.state, State::Unavailable);

@@ -123,6 +123,26 @@ struct IntegrationsFile {
     entries: Vec<Integration>,
 }
 
+impl Integration {
+    /// Whether the user has it turned on: its source in the Fuentes
+    /// order, the Switch catalogue switch, or always (a link card).
+    pub fn enabled(&self, s: &crate::settings::Settings) -> bool {
+        if let Some(source) = &self.source {
+            return s.sources.order.iter().any(|e| &e.id == source && e.enabled);
+        }
+        match self.id.as_str() {
+            "switch-catalog" => s.catalogs.switch.enabled,
+            _ => true,
+        }
+    }
+
+    /// Whether this build can use it (ScreenScraper needs the developer
+    /// credentials compiled in).
+    pub fn built(&self) -> bool {
+        self.id != "screenscraper" || crate::credentials::DevCredentials::from_build().is_some()
+    }
+}
+
 /// Parses a registry file.
 pub fn parse(text: &str) -> Result<Vec<Integration>, serde_json::Error> {
     serde_json::from_str::<IntegrationsFile>(text).map(|f| f.entries)

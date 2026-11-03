@@ -3,9 +3,8 @@
 
 use coverly_core::credentials::{CredentialKey, DevCredentials};
 use coverly_core::integrations::{self, SsQuota};
-use std::time::Duration;
 
-use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
+use coverly_core::net::{key_check_net, PoliteHttp, UreqHttp};
 use coverly_core::settings::KNOWN_SOURCES;
 use coverly_core::sources::screenscraper::{check_account, SsConfig};
 use coverly_core::sources::{steamgriddb, KeyCheck};
@@ -13,19 +12,6 @@ use serde::Serialize;
 
 use crate::error::IpcError;
 use crate::state::AppState;
-
-/// The longest a "Test key" request waits: the settings timeout is for
-/// slow downloads, not for a button the user is watching.
-pub const KEY_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// The network settings of a key check: one try, a short timeout.
-pub fn key_check_net(net: &NetConfig) -> NetConfig {
-    NetConfig {
-        retries: 0,
-        timeout: net.timeout.min(KEY_CHECK_TIMEOUT),
-        ..net.clone()
-    }
-}
 
 /// One source as the Sources settings show it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

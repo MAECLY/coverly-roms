@@ -153,6 +153,20 @@ pub struct NetConfig {
     pub proxy: ProxyMode,
 }
 
+/// The longest a connection test («Probar conexión», `coverly integrations
+/// test`) waits: the settings timeout is for slow downloads, not for a
+/// button the user is watching.
+pub const KEY_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The network settings of a key check: one try, a short timeout.
+pub fn key_check_net(net: &NetConfig) -> NetConfig {
+    NetConfig {
+        retries: 0,
+        timeout: net.timeout.min(KEY_CHECK_TIMEOUT),
+        ..net.clone()
+    }
+}
+
 impl HttpRequest {
     pub fn get(url: impl Into<String>) -> HttpRequest {
         HttpRequest {

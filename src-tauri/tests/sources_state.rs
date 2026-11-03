@@ -178,8 +178,8 @@ fn a_failing_keychain_read_is_not_remembered() {
 
 #[test]
 fn test_key_uses_a_short_timeout() {
+    use coverly_core::net::key_check_net;
     use coverly_core::net::NetConfig;
-    use coverly_roms_lib::sources::key_check_net;
     use std::time::Duration;
     let long = NetConfig {
         timeout: Duration::from_secs(120),
