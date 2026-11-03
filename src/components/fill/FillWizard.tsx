@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from 'react';
 
+import { IntegrationLink } from '@/components/settings/IntegrationLink';
+import { IntegrationNotice } from '@/components/settings/IntegrationNotice';
 import { SystemLabel } from '@/components/system/SystemLabel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -49,6 +51,7 @@ import {
   wizardDefaults,
   type FillScope,
 } from '@/lib/fill';
+import { noticesFromTroubles } from '@/lib/integrations';
 import { systemByFolder } from '@/lib/systemLookup';
 import { cn } from '@/lib/utils';
 import { useJobStore } from '@/stores/jobStore';
@@ -353,8 +356,19 @@ export function FillWizard({
           )}
         </ChoiceGroup>
         {strategy === 'popularity' && sources !== null && !sgdbVotes && (
-          <Alert variant="warning" role="note">
-            <AlertDescription>{t('fill.popularityNoKey')}</AlertDescription>
+          <Alert
+            variant="warning"
+            role="note"
+            action={
+              <IntegrationLink
+                id="steamgriddb"
+                describedBy={`${uid}-no-votes`}
+              />
+            }
+          >
+            <AlertDescription id={`${uid}-no-votes`}>
+              {t('fill.popularityNoKey')}
+            </AlertDescription>
           </Alert>
         )}
         <section className="grid gap-2" aria-labelledby={`${uid}-regions`}>
@@ -495,11 +509,24 @@ export function FillWizard({
     }
     if (!job.plan) return null;
     const { totals, per_system } = job.plan;
+    // Sources that refused the gather change what it found (D28).
+    const notices = noticesFromTroubles(job.plan.troubles).map((notice) => (
+      <IntegrationNotice
+        key={`${notice.integration}-${notice.problem}`}
+        notice={notice}
+      />
+    ));
     if (totals.auto + totals.review + totals.none === 0) {
-      return <p>{t('fill.nothingToDo')}</p>;
+      return (
+        <>
+          {notices}
+          <p>{t('fill.nothingToDo')}</p>
+        </>
+      );
     }
     return (
       <>
+        {notices}
         <p className="hint">{t('fill.summaryHint')}</p>
         <table className="summary-table">
           <caption className="sr-only">{t('fill.summary')}</caption>

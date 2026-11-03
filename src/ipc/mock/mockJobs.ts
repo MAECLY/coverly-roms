@@ -247,6 +247,9 @@ export interface MockJobsHost {
   sgdbReady(): boolean;
   /** SteamGridDB is enabled but its stored key is refused. */
   sgdbRefused(): boolean;
+  /** SteamGridDB is enabled but has no key (forgotten after it was
+   * turned on): the gather reports `missing-key`, like Rust's. */
+  sgdbMissing?(): boolean;
   /** What a gather found about its sources (Rust's `note_troubles`): the
    * integration cards follow it. */
   noteTroubles?(
@@ -709,7 +712,9 @@ export function createMockJobs(
       const warnings = refused ? [MOCK_SGDB_REFUSED_WARNING] : [];
       const troubles: SourceTrouble[] = refused
         ? [{ source: 'steamgriddb', kind: 'auth' }]
-        : [];
+        : host.sgdbMissing?.()
+          ? [{ source: 'steamgriddb', kind: 'missing-key' }]
+          : [];
       for (const id of ids) {
         const e = view.entries[id];
         if (!e) continue;

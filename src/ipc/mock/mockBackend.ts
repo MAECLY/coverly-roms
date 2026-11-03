@@ -557,6 +557,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       now,
       sgdbReady: () => settings.isSourceReady('steamgriddb'),
       sgdbRefused: () => settings.isSourceRefused('steamgriddb'),
+      sgdbMissing: () => settings.isSourceMissingKey('steamgriddb'),
       noteTroubles: (troubles, answered) =>
         settings.noteTroubles(troubles, answered),
       organizing: () => organize.isApplying() || dedupe.isDedupeApplying(),

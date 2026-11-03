@@ -11,8 +11,11 @@ import {
   type CatalogStatus,
   type CredentialKey,
   type FieldInput,
+  type IntegrationNotice,
+  type IntegrationProblem,
   type IntegrationState,
   type SourceId,
+  type SourceTrouble,
 } from '@/ipc/types';
 
 export type { FieldInput, IntegrationState };
@@ -190,6 +193,30 @@ export function integrationForSource(
   source: SourceId,
 ): Integration | undefined {
   return WORKING.find((e) => e.source === source);
+}
+
+const TROUBLE_PROBLEM: Record<SourceTrouble['kind'], IntegrationProblem> = {
+  'missing-key': 'missing',
+  auth: 'rejected',
+  exhausted: 'quota',
+};
+
+/** The notices of a fill summary (D27): each source that refused the
+ * gather, as the integration that unlocks it; repeats and sources that
+ * are not an integration are dropped. */
+export function noticesFromTroubles(
+  troubles: readonly SourceTrouble[] | undefined,
+): IntegrationNotice[] {
+  const out: IntegrationNotice[] = [];
+  for (const t of troubles ?? []) {
+    const entry = integrationForSource(t.source);
+    if (!entry) continue;
+    const problem = TROUBLE_PROBLEM[t.kind];
+    if (out.some((n) => n.integration === entry.id && n.problem === problem))
+      continue;
+    out.push({ integration: entry.id, problem });
+  }
+  return out;
 }
 
 /** The DOM id of a card: deep links and the search land on it. */

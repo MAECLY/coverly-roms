@@ -14,6 +14,7 @@ import {
   integration,
   integrationDomId,
   integrationForSource,
+  noticesFromTroubles,
   toIntegrations,
 } from './integrations';
 
@@ -264,5 +265,36 @@ describe('catalogCardState (D23)', () => {
 
   it('reads an unknown status (not loaded yet) as saved', () => {
     expect(catalogCardState(null)).toEqual({ state: 'saved' });
+  });
+});
+
+describe('noticesFromTroubles', () => {
+  it('maps each refusal to its integration and problem', () => {
+    expect(
+      noticesFromTroubles([
+        { source: 'steamgriddb', kind: 'missing-key' },
+        { source: 'screenscraper', kind: 'auth' },
+        { source: 'screenscraper', kind: 'exhausted' },
+      ]),
+    ).toEqual([
+      { integration: 'steamgriddb', problem: 'missing' },
+      { integration: 'screenscraper', problem: 'rejected' },
+      { integration: 'screenscraper', problem: 'quota' },
+    ]);
+  });
+
+  it('drops repeats and sources that are not an integration', () => {
+    expect(
+      noticesFromTroubles([
+        { source: 'steamgriddb', kind: 'auth' },
+        { source: 'libretro', kind: 'auth' },
+        { source: 'steamgriddb', kind: 'auth' },
+      ]),
+    ).toEqual([{ integration: 'steamgriddb', problem: 'rejected' }]);
+  });
+
+  it('is empty without troubles', () => {
+    expect(noticesFromTroubles(undefined)).toEqual([]);
+    expect(noticesFromTroubles([])).toEqual([]);
   });
 });

@@ -136,6 +136,9 @@ export type MockSettingsApi = Pick<
   isSourceReady(id: SourceId): boolean;
   /** Enabled, but a stored key the fake API refuses (`bad…`). */
   isSourceRefused(id: SourceId): boolean;
+  /** Enabled, but a needed credential is not stored (it was forgotten
+   * after the source was turned on): a gather reports `missing-key`. */
+  isSourceMissingKey(id: SourceId): boolean;
   /** Rust's `note_troubles`: a source that answered a run is `connected`,
    * a refused one `error`/`invalid`; a missing key changes nothing
    * (presence already says it). */
@@ -600,6 +603,9 @@ export function createMockSettings(opts: {
           health.set(e.id, { verdict: 'invalid', at });
       }
     },
+    isSourceMissingKey: (id) =>
+      settings.sources.order.some((e) => e.id === id && e.enabled) &&
+      NEEDS(id).some((k) => !present(k)),
     isSourceRefused: (id) =>
       settings.sources.order.some((e) => e.id === id && e.enabled) &&
       NEEDS(id).some((k) => present(k) && verdicts.get(k) === 'invalid'),
