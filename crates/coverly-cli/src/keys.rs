@@ -1,7 +1,8 @@
 //! Source keys for the CLI (integrations spec D18, D19): the environment
 //! first (`COVERLY_SGDB_KEY`, `COVERLY_SS_USER`, `COVERLY_SS_PASSWORD`),
 //! then the keys the app saved in the OS keychain (same entries), read
-//! lazily: only for an enabled source whose variable is empty, and only
+//! lazily: only for an enabled source whose variable is empty (both
+//! ScreenScraper variables, as the account is one pair), and only
 //! when the run talks to the default endpoints, so a saved key never
 //! reaches a host the user did not choose for it. Every keychain call has
 //! a 5 s cap; a keychain that fails, times out or is off counts as empty
@@ -123,11 +124,13 @@ pub fn resolve_keys(
     if plan.steamgriddb {
         wanted.push((SGDB_KEY_ENV, CredentialKey::SteamgriddbApiKey));
     }
-    if plan.screenscraper {
+    wanted.retain(|(var, _)| is_empty(&env(var)));
+    // The account is one pair: the saved password only ever goes with the
+    // saved user, so either variable set keeps the keychain out of it.
+    if plan.screenscraper && is_empty(&env(SS_USER_ENV)) && is_empty(&env(SS_PASSWORD_ENV)) {
         wanted.push((SS_USER_ENV, CredentialKey::ScreenscraperUser));
         wanted.push((SS_PASSWORD_ENV, CredentialKey::ScreenscraperPassword));
     }
-    wanted.retain(|(var, _)| is_empty(&env(var)));
 
     let mut saved: BTreeMap<&str, String> = BTreeMap::new();
     if !wanted.is_empty() {
@@ -240,6 +243,22 @@ mod tests {
         assert_eq!(user.user.expose(), "me");
         assert_eq!(user.password.expose(), "pw-saved");
         assert!(notes.is_empty(), "{notes:?}");
+    }
+
+    #[test]
+    fn a_half_set_account_in_the_environment_is_not_mixed_with_the_saved_one() {
+        // The saved password belongs to the saved user: it is never sent
+        // with another user name (and the saved user never with another
+        // password). Half an account in the environment means no account.
+        let store = saved();
+        for var in [SS_USER_ENV, SS_PASSWORD_ENV] {
+            let env = move |n: &str| (n == var).then(|| "from-env".to_string());
+            let (keys, _) = resolve(env, Some(&store), ALL);
+            assert_eq!(keys.screenscraper_user, None, "{var}");
+            // SteamGridDB still comes from the keychain.
+            assert_eq!(sgdb(&keys), Some("sk-saved"), "{var}");
+        }
+        assert_eq!(store.reads(), 2);
     }
 
     #[test]
