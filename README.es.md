@@ -440,19 +440,26 @@ las opcionales y activas o desactivas los servicios en línea:
 | Catálogo de nombres de Switch | Nombres, editora y fecha de los juegos de Switch por title ID    | Nada; está apagado hasta que lo activas                                                                              |
 | Actualizaciones de Coverly    | Comprueba si hay una versión nueva de Coverly ROMs en GitHub     | Nada; se desactiva en Configuración → General                                                                        |
 
+ScreenScraper necesita además unas credenciales de desarrollador incluidas en
+la app, y las versiones publicadas aún no las llevan: su tarjeta sale como «No
+disponible», y puedes guardar tu cuenta para cuando llegue.
+
 **Cómo conseguir una clave.** «Cómo conseguir la clave», en cada tarjeta, abre
 la página de cuenta del propio servicio, nunca una web de terceros.
 SteamGridDB: inicia sesión con Steam, abre Preferencias › API, genera una clave
 y pégala en la tarjeta. ScreenScraper: crea una cuenta gratuita y escribe su
 usuario y contraseña. Después pulsa **Probar conexión**: la tarjeta dice si
 funciona, si la clave es incorrecta, si no hay conexión o el servicio está
-caído y, en ScreenScraper, cuánto de la cuota diaria se ha usado.
+caído y, en ScreenScraper (en las versiones que lo incluyen), cuánto de la
+cuota diaria se ha usado.
 
 **Qué se envía.** Cada tarjeta lo dice. A SteamGridDB, el nombre del juego que
 buscas y tu clave; a ScreenScraper, el nombre del archivo, su tamaño, sus
 hashes y el sistema, con tu cuenta, por HTTPS (nunca la ruta completa ni el
 contenido de los archivos); el catálogo de Switch y la comprobación de
-actualizaciones descargan archivos públicos y no envían nada de tu biblioteca.
+actualizaciones descargan archivos públicos y no envían nada de tu biblioteca,
+salvo los iconos de la eShop (se piden juego a juego) y el respaldo en línea
+(el title ID que falta) si los activas.
 
 **Dónde se guardan las claves.** En el llavero del sistema: Llavero en macOS,
 Administrador de credenciales en Windows y el Secret Service (GNOME Keyring o
