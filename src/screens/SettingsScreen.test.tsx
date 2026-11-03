@@ -647,6 +647,18 @@ describe('Settings screen', () => {
       expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     });
 
+    it('moves focus to the tab a related-tab link opens', async () => {
+      await openOn('MacIntel', 'integrations');
+      await userEvent.click(
+        await screen.findByRole('button', {
+          name: 'Proxy and limits in Network',
+        }),
+      );
+      const tab = screen.getByRole('tab', { name: /^Network/ });
+      await waitFor(() => expect(tab).toHaveFocus());
+      expect(useNavStore.getState().section).toBe('network');
+    });
+
     it('names the integration card a setting sits in', async () => {
       const search = await openOn('MacIntel');
       await userEvent.type(search, 'switch icons');

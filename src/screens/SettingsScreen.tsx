@@ -197,6 +197,20 @@ export function SettingsScreen() {
   useEffect(() => {
     if (useNavStore.getState().focusSetting === null) heading.current?.focus();
   }, []);
+  // A link to another tab (Integraciones' «Proxy y límites en Red») goes
+  // with its panel: focus would fall to the page, so it moves to the tab
+  // it opened instead.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const el = document.activeElement;
+      if (useNavStore.getState().focusSetting !== null) return;
+      if (el && el !== document.body && el.isConnected) return;
+      tabList.current
+        ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+        ?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [section]);
   useEffect(() => {
     // Root loads them at start; this covers a screen shown without it.
     if (useSettingsStore.getState().status === 'idle')
