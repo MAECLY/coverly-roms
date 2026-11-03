@@ -10,8 +10,12 @@ import {
   CREDENTIAL_KEYS,
   type CatalogStatus,
   type CredentialKey,
+  type FieldInput,
+  type IntegrationState,
   type SourceId,
 } from '@/ipc/types';
+
+export type { FieldInput, IntegrationState };
 
 export type IntegrationId =
   | 'steamgriddb'
@@ -25,20 +29,7 @@ export type IntegrationKind = 'api-key' | 'account' | 'dataset' | 'link';
 export type IntegrationGroup =
   'art' | 'names' | 'achievements' | 'catalogs' | 'updates';
 export type IntegrationStatus = 'working' | 'planned';
-/** The kind of input a field (or a planned service's need) is. */
-export type FieldInput =
-  'user' | 'password' | 'api-key' | 'client-id' | 'secret';
 export type IntegrationTest = 'steamgriddb' | 'screenscraper';
-
-/** A card's state (spec D6), as `coverly_core::integrations::State`. */
-export type IntegrationState =
-  | 'off'
-  | 'unavailable'
-  | 'not-configured'
-  | 'saved'
-  | 'connected'
-  | 'error'
-  | 'quota';
 
 export interface IntegrationField {
   key: CredentialKey;

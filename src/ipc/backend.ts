@@ -21,6 +21,8 @@ import type {
   FillRequest,
   FolderProbe,
   IdentityView,
+  IntegrationTestResult,
+  IntegrationView,
   ItemFilter,
   JobHistoryItem,
   JobItemView,
@@ -277,6 +279,19 @@ export interface Backend {
   /* Sources (M6): which are built/ready, and a cheap key check; keys never come back. */
   sourcesInfo(): Promise<SourceInfo[]>;
   testSourceKey(source: SourceId): Promise<KeyCheck>;
+
+  /* «Integraciones» (integrations spec): one view per working integration
+   * of the registry, with presence flags and a state, never a value.
+   * Opening the tab sends nothing over the network (D9). */
+  integrationsView(): Promise<IntegrationView[]>;
+  /** «Probar conexión»: one cheap request with the stored keys; the
+   * verdict and any quota become the card's state for the session. */
+  testIntegration(id: string): Promise<IntegrationTestResult>;
+  /** «Olvidar credenciales»: clears every field of `id`; the fresh view. */
+  forgetIntegration(id: string): Promise<IntegrationView[]>;
+  /** Opens the service's official account or API page (the URL comes from
+   * the registry in Rust, never from the webview). */
+  openIntegrationHelp(id: string): Promise<void>;
 
   /* Drawer "Search by title" (manual identity, D32). */
   searchEntryArt(

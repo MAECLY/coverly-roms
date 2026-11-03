@@ -90,6 +90,12 @@ import {
   type UpdateOffer,
   type UpdateProgress,
   type Volume,
+  type IntegrationState,
+  type IntegrationTestResult,
+  type IntegrationView,
+  type KeychainKind,
+  type SourceTrouble,
+  type LinkId,
 } from './types';
 
 /** Compiles only when `K` lists every key of `T`. */
@@ -600,7 +606,12 @@ const checks: [string, readonly string[], object][] = [
   ],
   [
     'OrganizePlan',
-    PLAN_KEYS satisfies AllKeys<OrganizePlan, typeof PLAN_KEYS>,
+    // `integration_notices` is optional and left out when empty; Rust
+    // fills it once organise computes its notices (integrations plan IP-2).
+    PLAN_KEYS satisfies AllKeys<
+      Omit<OrganizePlan, 'integration_notices'>,
+      typeof PLAN_KEYS
+    >,
     {
       ...sample.organize_plan_view.plan,
       duplicates: [],
@@ -1436,3 +1447,106 @@ const _allSources: Exclude<IdSource, (typeof ID_SOURCES)[number]> extends never
   ? true
   : never = true;
 void _allSources;
+
+const INTEGRATION_STATES = [
+  'off',
+  'unavailable',
+  'not-configured',
+  'saved',
+  'connected',
+  'error',
+  'quota',
+] as const;
+const KEYCHAIN_KINDS = ['unavailable', 'locked', 'denied', 'failed'] as const;
+const INTEGRATION_VIEW_KEYS = [
+  'id',
+  'enabled',
+  'built',
+  'fields',
+  'state',
+  'reason',
+  'checked_at',
+  'quota',
+  'quota_at',
+] as const;
+
+describe('integrations contract', () => {
+  const views = sample.integration_views as IntegrationView[];
+
+  it('integration views, states and keychain kinds use the Rust spellings', () => {
+    expect(sample.integration_states).toEqual([
+      ...(INTEGRATION_STATES satisfies AllMembers<
+        IntegrationState,
+        typeof INTEGRATION_STATES
+      >),
+    ]);
+    expect(sample.keychain_kinds).toEqual([
+      ...(KEYCHAIN_KINDS satisfies AllMembers<
+        KeychainKind,
+        typeof KEYCHAIN_KINDS
+      >),
+    ]);
+    // The fullest view names every key; Rust leaves absent optionals out.
+    const keys = INTEGRATION_VIEW_KEYS satisfies AllKeys<
+      IntegrationView,
+      typeof INTEGRATION_VIEW_KEYS
+    >;
+    const seen = new Set(views.flatMap((v) => Object.keys(v)));
+    expect([...seen].sort()).toEqual([...keys].sort());
+    expect(views.map((v) => v.reason?.kind ?? null)).toEqual([
+      'check',
+      null,
+      null,
+      'missing',
+      'keychain',
+      null,
+    ]);
+    for (const v of views)
+      for (const f of v.fields) expect(CREDENTIAL_KEYS).toContain(f.key);
+  });
+
+  it('test results and source troubles use the Rust keys', () => {
+    const full = sample.integration_test_result as IntegrationTestResult;
+    expect(Object.keys(full).sort()).toEqual(['quota', 'verdict']);
+    expect(Object.keys(full.quota!).sort()).toEqual([
+      'max_requests_per_day',
+      'max_threads',
+      'requests_today',
+    ]);
+    const bare = sample.integration_test_result_bare as IntegrationTestResult;
+    expect(bare).toEqual({ verdict: 'invalid' });
+    const troubles = sample.source_troubles as SourceTrouble[];
+    expect(troubles.map((t) => t.kind)).toEqual([
+      'missing-key',
+      'auth',
+      'exhausted',
+    ] satisfies SourceTrouble['kind'][]);
+  });
+
+  it('the mock answers the integration calls with the Rust shapes', async () => {
+    const { createMockBackend } = await import('./mock/mockBackend');
+    const m = createMockBackend({ delayMs: 0, storage: null });
+    const mine = await m.integrationsView();
+    expect(mine.map((v) => v.id)).toEqual([
+      'steamgriddb',
+      'screenscraper',
+      'switch-catalog',
+      'updates',
+    ]);
+    for (const v of mine) {
+      for (const k of Object.keys(v))
+        expect(INTEGRATION_VIEW_KEYS).toContain(k);
+      expect(INTEGRATION_STATES).toContain(v.state);
+      for (const f of v.fields)
+        expect(Object.keys(f).sort()).toEqual(['key', 'set']);
+    }
+    const test = await m.testIntegration('steamgriddb');
+    expect(Object.keys(test)).toEqual(['verdict']);
+    expect(KEY_CHECKS).toContain(test.verdict);
+    await m.setCredential('steamgriddb-api-key', 'sk-x');
+    expect(await m.forgetIntegration('steamgriddb')).toHaveLength(mine.length);
+    await expect(m.openIntegrationHelp('steamgriddb')).resolves.toBeUndefined();
+    const link: LinkId = 'roadmap';
+    await expect(m.openLink(link)).resolves.toBeUndefined();
+  });
+});

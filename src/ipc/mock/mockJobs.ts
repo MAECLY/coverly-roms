@@ -46,6 +46,7 @@ import {
   type Phase,
   type PickReason,
   type PlanSummary,
+  type SourceTrouble,
   type Region,
   type StrategyKind,
 } from '../types';
@@ -325,6 +326,8 @@ interface Job {
   journal: Journal | null;
   /** Said once per job, like Rust's source-wide errors. */
   warnings: string[];
+  /** The same refusals as data (Rust's `PlanSummary.troubles`). */
+  troubles: SourceTrouble[];
 }
 
 export function createMockJobs(
@@ -469,7 +472,11 @@ export function createMockJobs(
     for (const u of updates) if (u) byId.set(u.id, u);
     return [...byId.values()];
   }
-  function summary(items: JobItemView[], warnings: string[]): PlanSummary {
+  function summary(
+    items: JobItemView[],
+    warnings: string[],
+    troubles: SourceTrouble[],
+  ): PlanSummary {
     const totals = { auto: 0, review: 0, none: 0 };
     const bySystem = new Map<
       string,
@@ -484,7 +491,13 @@ export function createMockJobs(
     const per_system = [...bySystem.entries()]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([folder, c]) => ({ folder, ...c }));
-    return { totals, per_system, warnings: [...warnings] };
+    return {
+      totals,
+      per_system,
+      warnings: [...warnings],
+      // Rust leaves the field out when no source refused.
+      ...(troubles.length > 0 && { troubles: troubles.map((t) => ({ ...t })) }),
+    };
   }
   function totals(items: JobItemView[]): JobTotals {
     const t = { filled: 0, replaced: 0, skipped: 0, no_art: 0, failed: 0 };
@@ -512,7 +525,7 @@ export function createMockJobs(
     }
     await host.tick();
     j.view.progress = null;
-    j.view.plan = summary(j.items, j.warnings);
+    j.view.plan = summary(j.items, j.warnings, j.troubles);
     j.view.state = j.cancel ? 'cancelled' : 'planned';
     emitChanged(j);
   }
@@ -682,7 +695,11 @@ export function createMockJobs(
       const marks = new Map<number, ArtMarks>();
       // Like Rust's per-job snapshot of settings and keys.
       const sgdb = host.sgdbReady();
-      const warnings = host.sgdbRefused() ? [MOCK_SGDB_REFUSED_WARNING] : [];
+      const refused = host.sgdbRefused();
+      const warnings = refused ? [MOCK_SGDB_REFUSED_WARNING] : [];
+      const troubles: SourceTrouble[] = refused
+        ? [{ source: 'steamgriddb', kind: 'auth' }]
+        : [];
       for (const id of ids) {
         const e = view.entries[id];
         if (!e) continue;
@@ -731,6 +748,7 @@ export function createMockJobs(
         pausedOnce: false,
         journal: null,
         warnings,
+        troubles,
       };
       job = j;
       void gather(j);

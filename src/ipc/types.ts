@@ -212,6 +212,9 @@ export interface PlanSummary {
   totals: PlanCounts;
   per_system: SystemCounts[];
   warnings: string[];
+  /** The sources that refused the gather and why (Rust leaves the field
+   * out when none did): notices link them to their integration card. */
+  troubles?: SourceTrouble[];
 }
 
 export interface JobTotals {
@@ -565,7 +568,14 @@ export interface SettingsUpdate {
 }
 
 export type LinkId =
-  'repo' | 'license' | 'notices' | 'trademarks' | 'releases' | 'issues';
+  | 'repo'
+  | 'license'
+  | 'notices'
+  | 'trademarks'
+  | 'releases'
+  | 'issues'
+  /** The roadmap the «Próximamente» list of Integraciones links to. */
+  | 'roadmap';
 
 /** Which link of a credit entry `open_credit` opens (adjustments D27). */
 export type CreditLink = 'site' | 'license';
@@ -618,6 +628,76 @@ export interface SourceInfo {
 export interface CredentialStatus {
   available: boolean;
   set: Record<CredentialKey, boolean>;
+}
+
+/** A card's state (integrations spec D6), as
+ * `coverly_core::integrations::State`. Precedence, strongest first: `off` >
+ * `unavailable` > `not-configured` > `quota` > `error` > `connected` >
+ * `saved`. */
+export type IntegrationState =
+  | 'off'
+  | 'unavailable'
+  | 'not-configured'
+  | 'saved'
+  | 'connected'
+  | 'error'
+  | 'quota';
+
+/** Why the keychain could not be read (D16), without its message. */
+export type KeychainKind = 'unavailable' | 'locked' | 'denied' | 'failed';
+
+/** The kind of input a credential field (or a planned service's need) is. */
+export type FieldInput =
+  'user' | 'password' | 'api-key' | 'client-id' | 'secret';
+
+/** Why a card is in `error` or `not-configured`. */
+export type IntegrationReason =
+  | { kind: 'check'; detail: KeyCheck }
+  | { kind: 'keychain'; detail: KeychainKind }
+  | { kind: 'missing'; detail: FieldInput };
+
+/** ScreenScraper's quota as its account answer gives it. */
+export interface SsQuota {
+  requests_today: number;
+  max_requests_per_day: number;
+  max_threads: number;
+}
+
+/** One card of the «Integraciones» tab (Rust `IntegrationView`). Values
+ * never come back: each field says only whether it is stored. Optional
+ * keys are left out by Rust when absent. */
+export interface IntegrationView {
+  id: string;
+  enabled: boolean;
+  /** This build can use it (ScreenScraper needs developer credentials). */
+  built: boolean;
+  fields: { key: CredentialKey; set: boolean }[];
+  state: IntegrationState;
+  reason?: IntegrationReason;
+  /** When the last test or job said what `state` shows (unix seconds). */
+  checked_at?: number;
+  quota?: SsQuota;
+  /** When the quota was last seen, or seen used up (unix seconds). */
+  quota_at?: number;
+}
+
+/** What «Probar conexión» found. */
+export interface IntegrationTestResult {
+  verdict: KeyCheck;
+  quota?: SsQuota;
+}
+
+/** What a notice on another screen says about an integration (D28). */
+export type IntegrationProblem = 'missing' | 'rejected' | 'quota' | 'off';
+export interface IntegrationNotice {
+  integration: string;
+  problem: IntegrationProblem;
+}
+
+/** A source that refused a run, and why (Rust `SourceTrouble`). */
+export interface SourceTrouble {
+  source: SourceId;
+  kind: 'missing-key' | 'auth' | 'exhausted';
 }
 
 export interface SlotFile {
@@ -1172,6 +1252,9 @@ export interface OrganizePlan {
   set_aside_trash: boolean;
   /** Rows that are an update or DLC of a game (Rust leaves it out when 0). */
   updates?: number;
+  /** Services whose absence or used-up quota changes this plan (D28,
+   * plan IP-2); Rust leaves it out when none. */
+  integration_notices?: IntegrationNotice[];
 }
 
 /** What to plan; missing fields take `settings.organize`. */
