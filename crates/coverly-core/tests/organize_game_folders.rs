@@ -1889,3 +1889,25 @@ fn apply_follows_the_plan_when_the_option_changes_after_it() {
     assert!(report.paused.is_none(), "{report:?}");
     assert_eq!(files_below(&lib), pokemon_in_lib());
 }
+
+#[cfg(unix)]
+#[test]
+fn undo_after_a_pause_reverses_only_what_moved() {
+    let (_tmp, pile, lib, data) = pokemon_world();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    set_copy_fault(Some(disk_full_on_bare_dlc));
+    let report = apply_in(&plan, &data);
+    set_copy_fault(None);
+    assert!(report.paused.is_some(), "{report:?}");
+    let job = report.job.clone().unwrap();
+    // The bare DLC never left the pile; the other three are in the game
+    // folder.
+    assert!(pile.join("Pokemon Y [DLC2].cia").is_file());
+    assert_eq!(files_below(&lib).len(), 3, "{:?}", files_below(&lib));
+
+    let undo = undo_job(&data, &job).unwrap();
+    assert_eq!(undo.restored.len(), 3, "{undo:?}");
+    assert_eq!(files_below(&pile), pokemon_in_pile());
+    assert_eq!(fs::read_dir(&lib).unwrap().count(), 0, "every folder gone");
+    assert!(undo.dirs_kept.is_empty(), "{undo:?}");
+}
