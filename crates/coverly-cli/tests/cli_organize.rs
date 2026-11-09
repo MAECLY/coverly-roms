@@ -1847,3 +1847,24 @@ fn apply_into_a_folder_that_does_not_exist_yet_creates_it_and_undo_removes_it() 
     assert!(!out.path().join("new").exists());
     assert!(p.path().join("Game A.gba").is_file());
 }
+
+#[test]
+fn an_emulator_data_folder_inside_the_pile_is_refused_before_planning() {
+    // D16 at the CLI: the core refuses a data folder it may not write
+    // into; the CLI reports it as a usage error and writes nothing.
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    let inside = p.path().join("duckstation");
+    fs::create_dir_all(&inside).unwrap();
+    let lib = TempDir::new().unwrap();
+    coverly(data.path(), cache.path(), &["organize", "--offline"])
+        .arg("--emulator-data")
+        .arg(format!("duckstation={}", inside.display()))
+        .arg("--target")
+        .arg(lib.path())
+        .arg(p.path())
+        .assert()
+        .code(2)
+        .stderr(contains("emulator data folder for duckstation refused"))
+        .stderr(contains("inside the source folder"));
+    assert_eq!(fs::read_dir(lib.path()).unwrap().count(), 0);
+}
