@@ -609,7 +609,11 @@ candidates and indexes), `--report table|json`, `--output FILE`.
 `--yes-large` (confirm an apply that writes 10 GB or more), `--skip-large`
 (leave those items where they are), `--game-folders`/`--no-game-folders`
 (for this run, give each modern game its own folder with `Updates/` and
-`DLC/`, or keep everything loose; default: the layout's setting).
+`DLC/`, or keep everything loose; default: the layout's setting),
+`--emulator SYSTEM=EMULATOR|none` (repeatable; lay a system out the way that
+emulator expects it, e.g. `ps4=shadps4`), `--emulator-data EMULATOR=DIR`
+(repeatable, absolute; where that emulator keeps its cheats, patches and
+mods).
 
 **`catalog switch`:** `status`, `update`, `remove`, `--data-dir DIR`.
 
