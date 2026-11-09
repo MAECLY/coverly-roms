@@ -5422,5 +5422,18 @@ mod tests {
             demo_folder_stem("Game", Some(Region::Usa)),
             ("Game (USA) (Demo)".to_string(), None)
         );
+        // A name that has its demo tag keeps the region for the folder,
+        // which must not double a bare region word either.
+        let (wanted, region) = demo_folder_stem("Game USA (Demo)", Some(Region::Usa));
+        let tmp = tempfile::tempdir().unwrap();
+        let folder = crate::organize::target::game_folder_name(
+            &wanted,
+            region,
+            tmp.path(),
+            &mut crate::organize::target::DirIndex::new(),
+        )
+        .unwrap()
+        .0;
+        assert_eq!(folder, "Game USA (Demo)");
     }
 }

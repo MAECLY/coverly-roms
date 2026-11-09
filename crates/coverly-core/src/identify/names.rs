@@ -602,9 +602,18 @@ pub fn parse_tags(name: &str) -> NameTags {
 /// The region a stem already ends with as a bare word (D21): the last
 /// whitespace-separated word, trimmed of `-_.,`, when it is a one-word
 /// No-Intro region other than `World`, or `EU EUR JP JPN JAP KOR CHN`;
-/// never `US` (`Among Us`), and never when it is the only word.
+/// never `US` (`Among Us`), and never when it is the only word. Trailing
+/// `(…)` and `[…]` tags (`Game USA (Demo)`) are not words of the title.
 pub fn bare_region(stem: &str) -> Option<Region> {
-    let words: Vec<&str> = stem.split_whitespace().collect();
+    let mut title = stem.trim_end();
+    while let Some(close) = title.chars().last().filter(|c| matches!(c, ')' | ']')) {
+        let open = if close == ')' { '(' } else { '[' };
+        match title.rfind(open) {
+            Some(at) => title = title[..at].trim_end(),
+            None => break,
+        }
+    }
+    let words: Vec<&str> = title.split_whitespace().collect();
     let last = words
         .last()?
         .trim_matches(|c| matches!(c, '-' | '_' | '.' | ','));
@@ -876,6 +885,11 @@ mod tests {
             ("Super Mario World", None), // `World` is a title word
             ("USA", None),               // the title itself
             ("Game", None),
+            // Trailing tags are not words of the title.
+            ("Game USA (Demo)", Some(Usa)),
+            ("Game Europe (Rev 1) [!]", Some(Europe)),
+            ("Game (Demo)", None),
+            ("USA (Demo)", None),
         ] {
             assert_eq!(bare_region(stem), want, "{stem}");
         }

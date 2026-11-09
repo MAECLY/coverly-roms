@@ -3030,5 +3030,9 @@ mod tests {
             name("Super Mario World", Some(Region::Usa)),
             "Super Mario World (USA)"
         );
+        assert_eq!(
+            name("Game USA (Demo)", Some(Region::Usa)),
+            "Game USA (Demo)"
+        );
     }
 }
