@@ -110,6 +110,10 @@ pub enum DedupeError {
     /// that stays (hard rule 4): nothing is written.
     #[error("duplicates group {0} would keep no copy")]
     EveryMemberMoves(u64),
+    /// Applying would set aside a game whose folder holds updates, DLC or
+    /// another fixed folder (game folders spec D9): nothing is written.
+    #[error("duplicates group {0} would remove a game with updates or DLC in its folder")]
+    RemovesGameFolder(u64),
 }
 
 impl From<CacheError> for DedupeError {
@@ -899,6 +903,20 @@ impl Base {
             Some(saves) => GroupAction::Conflict { saves },
             None => raw.action.clone(),
         };
+        // A game whose folder holds its updates, DLC or saves stays (game
+        // folders spec D9, Q13): it may be the keeper, but when the rules
+        // pick another copy the group is only reported.
+        if action == GroupAction::Act
+            && raw
+                .members
+                .iter()
+                .enumerate()
+                .any(|(m, (u, _))| m != keeper && self.units[*u].holds_children)
+        {
+            action = GroupAction::ReportOnly {
+                why: ReportWhy::HasChildren,
+            };
+        }
         if action == GroupAction::Act && lock(&self.skipped).contains(&id) {
             action = GroupAction::ReportOnly {
                 why: ReportWhy::UserSkipped,

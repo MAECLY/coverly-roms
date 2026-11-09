@@ -18,9 +18,10 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::archive::ContainerKind;
+use crate::settings::OrganizeSettings;
 use crate::systems::System;
 
-pub use builtin::builtin_profiles;
+pub use builtin::{builtin_profiles, LIBRARY_PROFILE_ID};
 pub use detect::{detect, detect_with_fallback, Detection};
 pub use fit::fit_to_root;
 pub use template::{render, TemplateVars};
@@ -220,9 +221,27 @@ pub struct Profile {
     /// `{title_id}`, the base game's id): Batocera `ps4 → DLC/{title_id}`
     /// (systems batch 3 D16). Empty elsewhere: DLC sits beside its game.
     pub dlc_folder: BTreeMap<String, String>,
+    /// Organise puts a modern game's base, updates and DLC in one folder
+    /// (`<System>/<Game>/`, `Updates/`, `DLC/`; game folders spec D1).
+    /// On for the `coverly-library` profile only; the user's per-profile
+    /// override in `organize.game_folders` wins (see
+    /// [`Profile::uses_game_folders`]). It governs only what Organizar
+    /// creates: existing game folders are respected whatever it says.
+    pub game_folders: bool,
 }
 
 impl Profile {
+    /// Whether Organizar builds game folders under this layout: the
+    /// user's override for this profile id, else the profile's own value
+    /// (game folders spec D1).
+    pub fn uses_game_folders(&self, settings: &OrganizeSettings) -> bool {
+        settings
+            .game_folders
+            .get(&self.id)
+            .copied()
+            .unwrap_or(self.game_folders)
+    }
+
     /// The system id whose `Named` folder is `name` (case-insensitive).
     pub fn folder_owner(&self, name: &str) -> Option<&str> {
         let key = name.trim().to_lowercase();

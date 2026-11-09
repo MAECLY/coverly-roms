@@ -40,6 +40,8 @@ import {
   type ExtractEntry,
   type FoundTool,
   type ItemNote,
+  type FixedFolder,
+  type GameRole,
   type IdSource,
   type NotARom,
   type OrganizeItemKind,
@@ -466,6 +468,7 @@ const UNDO_REPORT_KEYS = [
   'skipped_modified',
   'skipped_occupied',
   'dirs_removed',
+  'dirs_kept',
   'archive_lost',
 ] as const;
 const ORGANIZE_REQUEST_KEYS = [
@@ -478,6 +481,7 @@ const ORGANIZE_REQUEST_KEYS = [
   'offline',
   'rescan',
   'duplicates',
+  'game_folders',
 ] as const;
 
 /** Compiles only when `K` lists every member of the union `T`. */
@@ -626,7 +630,7 @@ const checks: [string, readonly string[], object][] = [
     ORGANIZE_ITEM_KEYS satisfies AllKeys<
       Omit<
         OrganizeItem,
-        'title_id' | 'content_id' | 'playlist' | 'title_source'
+        'title_id' | 'content_id' | 'playlist' | 'title_source' | 'game'
       >,
       typeof ORGANIZE_ITEM_KEYS
     >,
@@ -635,7 +639,7 @@ const checks: [string, readonly string[], object][] = [
   [
     'OrganizeItem (game folder)',
     CONSOLE_ITEM_KEYS satisfies AllKeys<
-      Omit<OrganizeItem, 'content_id' | 'playlist' | 'title_source'>,
+      Omit<OrganizeItem, 'content_id' | 'playlist' | 'title_source' | 'game'>,
       typeof CONSOLE_ITEM_KEYS
     >,
     sample.organize_folder_item,
@@ -643,7 +647,7 @@ const checks: [string, readonly string[], object][] = [
   [
     'OrganizeItem (content id)',
     CONTENT_ITEM_KEYS satisfies AllKeys<
-      Omit<OrganizeItem, 'playlist' | 'title_source'>,
+      Omit<OrganizeItem, 'playlist' | 'title_source' | 'game'>,
       typeof CONTENT_ITEM_KEYS
     >,
     sample.organize_batch3_item,
@@ -765,9 +769,10 @@ const checks: [string, readonly string[], object][] = [
   ],
   [
     'UnitRefView',
-    // `mtimes_ns` is left out for a unit of one file.
+    // `mtimes_ns` is left out for a unit of one file, `holds_children`
+    // when false (game folders D9).
     UNIT_KEYS satisfies AllKeys<
-      Omit<UnitRefView, 'mtimes_ns'>,
+      Omit<UnitRefView, 'mtimes_ns' | 'holds_children'>,
       typeof UNIT_KEYS
     >,
     sample.dedupe_plan_view.groups[0]!.members[0]!.unit,
@@ -942,6 +947,10 @@ describe('settings contract', () => {
   it('requests use the Rust spellings', () => {
     const patch: SettingsPatch = requests.settings_patch as SettingsPatch;
     expect(patch.safety?.backup_dir).toBeNull();
+    expect(patch.organize?.game_folders).toEqual({
+      'coverly-library': false,
+      'anbernic-stock': null,
+    });
     expect(requests.credential_keys).toEqual([...CREDENTIAL_KEYS]);
   });
 });
@@ -994,7 +1003,7 @@ describe('organise contract', () => {
       omitted(ORGANIZE_REPORT_KEYS, 'extracted', 'set_aside'),
     );
     expect(Object.keys(sample.organize_undo.report[0]!).sort()).toEqual(
-      omitted(UNDO_REPORT_KEYS, 'archive_lost'),
+      omitted(UNDO_REPORT_KEYS, 'archive_lost', 'dirs_kept'),
     );
     expect(Object.keys(sample.organize_plan_view.plan).sort()).toEqual(
       omitted(PLAN_KEYS, ...PLAN_OMITTED),
@@ -1305,6 +1314,60 @@ describe('duplicates contract', () => {
   });
 });
 
+describe('game folders contract', () => {
+  it('the game link, fixed folders, licences and the new values use the Rust spellings', () => {
+    // game_folder_values_match_the_shared_sample
+    const item = sample.game_folder_item as OrganizeItem;
+    expect(item.game).toEqual({
+      role: 'update',
+      version: '1.5',
+      region: 'europe',
+      of: 1,
+      folder: '3DS/Pokemon Y',
+      newest_here: true,
+    });
+    // `folder_exists` and `demo_of` are left out when false or absent.
+    expect('folder_exists' in item.game!).toBe(false);
+    expect('demo_of' in item.game!).toBe(false);
+    expect(item.rename).toEqual({
+      kind: 'game-folder',
+      from: 'pky-update.cia',
+    });
+    expect(item.companions).toEqual([
+      {
+        source: 'pky-update.tik',
+        target: '3DS/Pokemon Y/Updates/Pokemon Y (v1.5).tik',
+        licence: true,
+      },
+    ]);
+    expect(Object.keys(item).sort()).toEqual(
+      [...CONSOLE_ITEM_KEYS, 'game'].sort(),
+    );
+    // An item outside a game folder leaves `game` out, as Rust does, and
+    // a companion that is no licence leaves `licence` out.
+    expect('game' in (sample.organize_batch3_item as object)).toBe(false);
+    for (const c of (
+      sample.organize_plan_view.plan.items as OrganizeItem[]
+    ).flatMap((i) => i.companions))
+      expect('licence' in c).toBe(false);
+    const reasons = sample.game_folder_reasons as LeftReason[];
+    expect(reasons).toEqual([
+      { kind: 'game-folder-content', folder: 'mods', of: 'Pokemon Y' },
+      { kind: 'not-a-rom', what: 'emulator-cache' },
+      { kind: 'not-a-rom', what: 'emulator-config' },
+      { kind: 'licence-of', of: 'Resistance.pkg' },
+    ]);
+    const notes = sample.game_folder_notes as ItemNote[];
+    expect(notes).toEqual([
+      { kind: 'demo-of', of: 'Pokemon Y' },
+      { kind: 'base-missing' },
+    ]);
+    expect(sample.game_folder_fixed_folders).toEqual(FIXED_FOLDERS);
+    expect(sample.game_folder_roles).toEqual(GAME_ROLES);
+    expect(JSON.parse(JSON.stringify(item))).toEqual(sample.game_folder_item);
+  });
+});
+
 describe('adjustments contract', () => {
   it('game parts, declined items, the new notes and kinds use the Rust spellings', () => {
     const reasons = sample.adjustments_reasons as LeftReason[];
@@ -1397,8 +1460,36 @@ const TITLE_KINDS = [
   'dlc',
   'demo',
   'homebrew',
+  'system',
   'unknown',
 ] as const satisfies readonly TitleKind[];
+/** Every `FixedFolder` and `GameRole`, in Rust's order. */
+const FIXED_FOLDERS = [
+  'updates',
+  'dlc',
+  'mods',
+  'cheats',
+  'extras',
+  'saves',
+] as const satisfies readonly FixedFolder[];
+const GAME_ROLES = [
+  'base',
+  'update',
+  'dlc',
+  'demo',
+] as const satisfies readonly GameRole[];
+const _allFixedFolders: Exclude<
+  FixedFolder,
+  (typeof FIXED_FOLDERS)[number]
+> extends never
+  ? true
+  : never = true;
+const _allGameRoles: Exclude<
+  GameRole,
+  (typeof GAME_ROLES)[number]
+> extends never
+  ? true
+  : never = true;
 const TITLE_SOURCES = [
   'header',
   'titledb',
@@ -1421,6 +1512,8 @@ const _allTitleSources: Exclude<
 void _allParts;
 void _allKinds;
 void _allTitleSources;
+void _allFixedFolders;
+void _allGameRoles;
 
 /** Every `IdSource`, in Rust's declaration order. */
 const ID_SOURCES = [

@@ -120,10 +120,11 @@ const APP_TYPE_DEMO: u32 = 3;
 /// A [`ConsoleId`] from a parsed `PARAM.SFO` (spec §8.4): `TITLE_ID` as
 /// the title id and (in the DAT's form) the serial, `TITLE` with its line
 /// breaks folded, `APP_VER` else `VERSION`, and the kind by `CATEGORY`
-/// (PS3 `DG`/`HG` base, `GD` update; Vita `gd` base, `gp` update; PS4
-/// `gd` base, `gp*` update, `ac` DLC, `APP_TYPE` 3 demo, D7). A PS4 PSF
-/// also gives the content id and the region (D8); PS4 has no DAT, so no
-/// serial.
+/// (PS3 `DG`/`HG` base, `GD` update; Vita `gd` base, `gp` update, `ac`
+/// DLC, game folders spec D14 f; PS4
+/// `gd` base, `gp*` update, `ac` DLC, `APP_TYPE` 3 demo, D7), and the
+/// region where the ids carry one (game folders D10). A PS4 PSF also
+/// gives the content id (D8); PS4 has no DAT, so no serial.
 pub fn from_psf(psf: &Psf, system: &str, detail: &str) -> ConsoleId {
     let mut id = ConsoleId::proven(system, detail);
     id.id_source = Some(IdSource::ParamSfo);
@@ -144,19 +145,29 @@ pub fn from_psf(psf: &Psf, system: &str, detail: &str) -> ConsoleId {
         ("ps3", Some("GD")) | ("psvita", Some("gp")) => TitleKind::Update,
         ("ps4", Some("gd")) => TitleKind::Base,
         ("ps4", Some("gp" | "gpc" | "gpd" | "gpe" | "gpk" | "gpl")) => TitleKind::Update,
-        ("ps4", Some("ac")) => TitleKind::Dlc,
+        ("ps4" | "psvita", Some("ac")) => TitleKind::Dlc,
         _ => TitleKind::Unknown,
     };
+    // The content id's first letter wherever the PSF carries one, else a
+    // PS3/PSP serial's third letter; a Vita title without a content id
+    // has none (game folders spec D10).
+    id.region = psf
+        .text("CONTENT_ID")
+        .and_then(content_id)
+        .and_then(|c| super::region_from_content_id(&c))
+        .or_else(|| match system {
+            "ps3" | "psp" => id
+                .title_id
+                .as_deref()
+                .and_then(super::region_from_sony_serial),
+            _ => None,
+        });
     if system == "ps4" {
         id.serial = None;
         if id.kind == TitleKind::Base && psf.int("APP_TYPE") == Some(APP_TYPE_DEMO) {
             id.kind = TitleKind::Demo;
         }
         id.content_id = psf.text("CONTENT_ID").and_then(content_id);
-        id.region = id
-            .content_id
-            .as_deref()
-            .and_then(super::region_from_content_id);
     }
     id
 }
@@ -441,6 +452,11 @@ fn pkg(b: &mut Budgeted) -> Option<ConsoleId> {
     id.serial = crate::disc::serial::normalise_console_serial(system, &tid);
     id.title_id = Some(tid);
     id.id_source = Some(IdSource::Header);
+    // The header's content id at 0x30 (game folders spec D10).
+    id.region = std::str::from_utf8(content)
+        .ok()
+        .and_then(content_id)
+        .and_then(|c| super::region_from_content_id(&c));
     Some(id)
 }
 
@@ -745,11 +761,22 @@ mod tests {
         // APP_TYPE 3 only turns a base into a demo.
         assert_eq!(kind("gp", 3), TitleKind::Update);
         assert_eq!(kind("", 1), TitleKind::Unknown);
-        // A PS4 category means nothing on the Vita and the PS3.
-        let raw = testing::ps4_sfo("CUSA00900", "ac", "UP9000-CUSA00900_00-BLOODBORNE000000", 1);
+        // A PS4-only category means nothing on the Vita and the PS3.
+        let raw = testing::ps4_sfo(
+            "CUSA00900",
+            "gpc",
+            "UP9000-CUSA00900_00-BLOODBORNE000000",
+            1,
+        );
         let p = psf::parse(&raw).unwrap();
         assert_eq!(from_psf(&p, "psvita", "x").kind, TitleKind::Unknown);
         assert_eq!(from_psf(&p, "psvita", "x").content_id, None);
+        // `ac` is add-on content on the Vita too (game folders spec D14
+        // f), never on the PS3.
+        let raw = testing::ps4_sfo("CUSA00900", "ac", "UP9000-CUSA00900_00-BLOODBORNE000000", 1);
+        let p = psf::parse(&raw).unwrap();
+        assert_eq!(from_psf(&p, "psvita", "x").kind, TitleKind::Dlc);
+        assert_eq!(from_psf(&p, "ps3", "x").kind, TitleKind::Unknown);
     }
 
     #[test]
@@ -766,7 +793,8 @@ mod tests {
             ("JP", Some(Region::Japan)),
             ("HP", Some(Region::Asia)),
             ("IP", Some(Region::World)),
-            ("KP", None),
+            ("KP", Some(Region::Korea)),
+            ("XP", None),
         ] {
             let cid = format!("{prefix}9000-CUSA00900_00-BLOODBORNE000000");
             assert_eq!(region(&cid), (true, want), "{prefix}");

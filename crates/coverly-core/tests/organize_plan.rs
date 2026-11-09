@@ -2904,9 +2904,10 @@ fn stored_facts(world: &World, path: &Path) -> Option<serde_json::Value> {
 }
 
 #[test]
-fn facts_of_version_8_are_read_again() {
-    // Adjustments D33: version 8 facts carry no game part, title source,
-    // homebrew kind, NCA ids or disc count on `Sniff.console`.
+fn facts_of_version_9_are_read_again() {
+    // Game folders D11, D14, D18: version 9 facts carry no system title
+    // kind, emulator cache or config verdict, nor the versions and regions
+    // game folders read (version 8 lacked the adjustments D33 facts).
     let dir = TempDir::new().unwrap();
     let rom = dir.path().join("Game.gba");
     put(&rom, &fx::gba());
@@ -2918,10 +2919,10 @@ fn facts_of_version_8_are_read_again() {
     };
     plan(&world, dir.path(), opts.clone());
     let mut stored = stored_facts(&world, &rom).expect("facts memoised");
-    assert_eq!(stored["v"], 9);
+    assert_eq!(stored["v"], 10);
 
-    // A version 8 row with a stale verdict is not trusted.
-    stored["v"] = 8.into();
+    // A version 9 row with a stale verdict is not trusted.
+    stored["v"] = 9.into();
     stored["inspection"]["payloads"][0]["sniff"]["hits"] = serde_json::json!([]);
     let meta = fs::metadata(&rom).unwrap();
     let mtime = FileTime::from_last_modification_time(&meta);
@@ -2937,7 +2938,7 @@ fn facts_of_version_8_are_read_again() {
         .find(|i| i.system_id.as_deref() == Some("gba"));
     assert!(item.is_some(), "the header is read again");
     let stored = stored_facts(&world, &rom).unwrap();
-    assert_eq!(stored["v"], 9);
+    assert_eq!(stored["v"], 10);
     assert_eq!(
         stored["inspection"]["payloads"][0]["sniff"]["hits"][0]["system"],
         "gba"
@@ -4108,4 +4109,65 @@ fn under_source_root(value: &mut serde_json::Value, root: &Path) {
         roots.push(slashed(&canonical));
     }
     walk(value, &roots);
+}
+
+/// Game folders spec D14 (d): a Wii WAD DLC is listed right after the
+/// disc game it belongs to (its code with the first letter lower-cased),
+/// and a system channel WAD is no ROM.
+#[test]
+fn wii_wad_dlc_follows_its_disc() {
+    use coverly_core::consoles::testing as ct;
+    use coverly_core::organize::ItemNote;
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let dir = s.path();
+    put(
+        &dir.join("A DJ Hero DLC.wad"),
+        &ct::wii_wad(0x0001_0005_7358_4245).head_bytes(),
+    );
+    put(
+        &dir.join("B Other (USA).wbfs"),
+        &ct::wbfs(&ct::gc_header("RMGE01", true)).head_bytes(),
+    );
+    put(
+        &dir.join("DJ Hero (USA).wbfs"),
+        &ct::wbfs(&ct::gc_header("SXBE52", true)).head_bytes(),
+    );
+    put(
+        &dir.join("System Menu Channel.wad"),
+        &ct::wii_wad(0x0001_0002_4841_4241).head_bytes(),
+    );
+    for path in files_below(dir) {
+        pin_mtime(&path, 1);
+    }
+    let p = plan(
+        &world,
+        dir,
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    let names: Vec<String> = p.items.iter().map(|i| file_name(&i.sources[0])).collect();
+    let at = |n: &str| names.iter().position(|x| x == n).unwrap();
+    assert_eq!(
+        at("A DJ Hero DLC.wad"),
+        at("DJ Hero (USA).wbfs") + 1,
+        "{names:?}"
+    );
+    let notes = &by_name(&p, "A DJ Hero DLC.wad").notes;
+    assert!(
+        notes
+            .iter()
+            .any(|n| matches!(n, ItemNote::Dlc { of } if !of.is_empty() && of != "SXBE")),
+        "the DLC names its disc game: {notes:?}"
+    );
+    assert!(by_name(&p, "B Other (USA).wbfs").notes.is_empty());
+    assert_eq!(
+        left_reason(&p, "System Menu Channel.wad"),
+        Some(LeftReason::NotARom {
+            what: NotARom::ConsoleSystem
+        })
+    );
 }

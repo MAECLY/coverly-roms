@@ -23,17 +23,20 @@ import { formatDecimalSize } from '@/lib/format';
 import {
   ROWS_PER_GROUP,
   actionOf,
+  childTarget,
   confidenceKey,
   extractDetail,
+  licenceLine,
   playlistKey,
   rowNotes,
-  targetDir,
+  systemDir,
   whyKey,
   type SystemGroup,
 } from '@/lib/organize';
 import { systemOptionGroups } from '@/lib/systems';
 
 import { ExtractDetail } from './ExtractDetail';
+import { GameFolderPreview } from './GameFolderPreview';
 import { ItemName, TitleIdLine } from './ItemName';
 import { NewBadge, NewCount, newRow, type IsNew } from './NewMarks';
 import type { OrganizeChoice } from './ReviewBuckets';
@@ -64,6 +67,9 @@ interface Props {
   mode?: TransferMode;
   /** The target layout, for where a disc's tracks go. */
   profile?: Pick<ProfileFile, 'disc_layout'> | null;
+  /** Moving items whose licence the core left in place
+   * (`licencesStaying`). */
+  licenceStays?: ReadonlySet<number>;
 }
 
 interface RowProps {
@@ -75,7 +81,10 @@ interface RowProps {
   disabled?: boolean;
   onDecide?(itemIds: number[], choice: OrganizeChoice): void;
   isNew?: IsNew;
+  licenceStays?: ReadonlySet<number>;
 }
+
+const NONE: ReadonlySet<number> = new Set();
 
 /** The items that move, one collapsible per system folder (spec §4.2.3). */
 export function SystemGroups({ groups, ...row }: Props) {
@@ -105,7 +114,7 @@ function Group({
   const [visible, setVisible] = useState(ROWS_PER_GROUP);
   const rows = group.items.slice(0, visible);
   const rest = group.items.length - rows.length;
-  const dir = targetDir(group.items[0]!);
+  const dir = systemDir(group.items[0]!);
   const isNew = row.isNew;
   const fresh = isNew ? group.items.filter(isNew).length : 0;
   const noEmulator =
@@ -152,7 +161,7 @@ function Group({
         <ScrollArea aria-label={`${dir}/`} viewportClassName={listViewport}>
           <ul className={fileList}>
             {rows.map((item) => (
-              <Row key={item.id} item={item} {...row} />
+              <Row key={item.id} item={item} group={group.items} {...row} />
             ))}
           </ul>
           {rest > 0 && (
@@ -182,7 +191,9 @@ function Row({
   isNew,
   mode = 'move',
   profile,
-}: RowProps & { item: OrganizeItem }) {
+  licenceStays = NONE,
+  group,
+}: RowProps & { item: OrganizeItem; group: readonly OrganizeItem[] }) {
   const t = useT();
   // A manual choice is the user's decision, not a detection level.
   const confidence =
@@ -204,11 +215,19 @@ function Row({
   const notes = rowNotes(t, item, layoutName, systemName);
   // A loose multi-disc set's new playlist (D24), under its notes.
   const playlist = playlistKey(item);
+  const licence = licenceLine(item, licenceStays);
+  // A linked update or DLC shows only its fixed folder and name (§9.1).
+  const short = childTarget(item);
   return (
     <li className={fresh ? `${fileRow} ${newRow}` : fileRow}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="grid min-w-0 flex-[1_1_16rem] gap-0.5">
-          <ItemName item={item} target={item.target} />
+          <ItemName
+            item={item}
+            target={short}
+            {...(short !== item.target && { fullTarget: item.target })}
+          />
+          <VersionLine item={item} />
           {serials && (
             <span className="font-mono text-caption tabular-nums text-cr-text-secondary">
               {serials}
@@ -263,6 +282,10 @@ function Row({
         </p>
       ))}
       {playlist && <p className={hintText}>{t(playlist.key, playlist.vars)}</p>}
+      {licence && <p className={hintText}>{t(licence.key, licence.vars)}</p>}
+      {item.game?.role === 'base' && (
+        <GameFolderPreview base={item} items={group} />
+      )}
       {/* An extract row folds the archive's own facts into its detail. */}
       <ExtractDetail
         item={item}
@@ -271,6 +294,33 @@ function Row({
         notes={notes.detail}
       />
     </li>
+  );
+}
+
+/**
+ * An update's or DLC's version (game folders D11, D24): `v1.1.0` in mono,
+ * read as «versión 1.1.0», then «la más nueva aquí» as text, never colour.
+ */
+function VersionLine({ item }: { item: OrganizeItem }) {
+  const t = useT();
+  const game = item.game;
+  if (!game?.version || (game.role !== 'update' && game.role !== 'dlc'))
+    return null;
+  return (
+    <span className="text-caption text-cr-text-secondary">
+      <span aria-hidden className="font-mono tabular-nums text-cr-text">
+        {`v${game.version}`}
+      </span>
+      <span className="sr-only">
+        {t('organize.version', { version: game.version })}
+      </span>
+      {game.newest_here && (
+        <>
+          {' '}
+          <span aria-hidden>·</span> <span>{t('organize.newestHere')}</span>
+        </>
+      )}
+    </span>
   );
 }
 

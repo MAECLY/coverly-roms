@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::naming::validate_folder_override;
 use super::{
     builtin_profiles, render, DiscLayout, FolderNaming, ImageFormat, Media, MediaSlot, Profile,
-    ProfileFolder, TemplateVars,
+    ProfileFolder, TemplateVars, LIBRARY_PROFILE_ID,
 };
 pub use super::{default_accepts_containers, default_container_overrides};
 use crate::archive::ContainerKind;
@@ -106,6 +106,11 @@ pub struct ProfileFile {
     /// load with none: their DLC stays beside its game.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub dlc_folder: BTreeMap<String, String>,
+    /// Organise puts a modern game's base, updates and DLC in one folder
+    /// (game folders spec D1). Written only when on, so older builds read
+    /// the file unchanged; files from before it load with `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub game_folders: bool,
 }
 
 fn is_default_layout(l: &DiscLayout) -> bool {
@@ -178,6 +183,7 @@ impl ProfileFile {
             folder_game_suffix: p.folder_game_suffix.clone(),
             folder_stem_keeps_suffix: p.folder_stem_keeps_suffix,
             dlc_folder: p.dlc_folder.clone(),
+            game_folders: p.game_folders,
         }
     }
 
@@ -232,6 +238,7 @@ impl ProfileFile {
             folder_game_suffix: self.folder_game_suffix.clone(),
             folder_stem_keeps_suffix: self.folder_stem_keeps_suffix,
             dlc_folder: self.dlc_folder.clone(),
+            game_folders: self.game_folders,
         }
     }
 
@@ -562,6 +569,30 @@ pub struct PreviewExample {
     pub file_name: String,
 }
 
+/// The id a custom profile that already used [`LIBRARY_PROFILE_ID`] is
+/// kept under (game folders spec D2): the built-in took its id.
+pub const LIBRARY_CUSTOM_ID: &str = "coverly-library-custom";
+
+/// A custom profile kept under a new id because a built-in took its old
+/// one (game folders spec D2). Settings that named `from` follow it to
+/// `to` in the same load ([`crate::settings::read_settings_with_renames`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProfileRename {
+    pub from: String,
+    pub to: String,
+}
+
+/// What [`ProfileStore::load_all`] found.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileLoad {
+    /// Every valid profile file, sorted by id.
+    pub files: Vec<ProfileFile>,
+    /// Problems, one line per skipped or renamed file.
+    pub warnings: Vec<String>,
+    /// Profiles renamed in this load (still under their old file name).
+    pub renamed: Vec<ProfileRename>,
+}
+
 /// The custom profiles folder.
 pub struct ProfileStore {
     dir: PathBuf,
@@ -588,10 +619,21 @@ impl ProfileStore {
 
     /// Every valid profile file, sorted by id; problems as warnings.
     pub fn load(&self) -> (Vec<ProfileFile>, Vec<String>) {
-        let mut found = Vec::new();
+        let loaded = self.load_all();
+        (loaded.files, loaded.warnings)
+    }
+
+    /// [`Self::load`] plus the profiles kept under a new id. Never writes:
+    /// a custom file whose id is [`LIBRARY_PROFILE_ID`] (made before the
+    /// built-in existed) is loaded as [`LIBRARY_CUSTOM_ID`], name
+    /// unchanged, with one warning, unless a file with that id exists
+    /// (then it is skipped). Other built-in ids are still dropped.
+    pub fn load_all(&self) -> ProfileLoad {
+        let mut found: Vec<ProfileFile> = Vec::new();
         let mut warnings = Vec::new();
+        let mut renamed = Vec::new();
         let Ok(read) = fs::read_dir(&self.dir) else {
-            return (found, warnings);
+            return ProfileLoad::default();
         };
         let builtin_ids: Vec<String> = builtin_profiles().into_iter().map(|p| p.id).collect();
         let mut entries: Vec<PathBuf> = read.flatten().map(|e| e.path()).collect();
@@ -634,6 +676,27 @@ impl ProfileStore {
                 ));
                 continue;
             }
+            let mut file = file;
+            if file.id == LIBRARY_PROFILE_ID {
+                if self.dir.join(format!("{LIBRARY_CUSTOM_ID}.toml")).exists() {
+                    warnings.push(format!(
+                        "{shown}: `{LIBRARY_PROFILE_ID}` is now a built-in profile and \
+                         `{LIBRARY_CUSTOM_ID}` already exists; skipped"
+                    ));
+                    continue;
+                }
+                file.id = LIBRARY_CUSTOM_ID.to_string();
+                if validate_profile(&file, &builtin_ids).is_empty() {
+                    warnings.push(format!(
+                        "{shown}: `{LIBRARY_PROFILE_ID}` is now a built-in profile; \
+                         kept as `{LIBRARY_CUSTOM_ID}`"
+                    ));
+                    renamed.push(ProfileRename {
+                        from: LIBRARY_PROFILE_ID.to_string(),
+                        to: LIBRARY_CUSTOM_ID.to_string(),
+                    });
+                }
+            }
             let problems = validate_profile(&file, &builtin_ids);
             if !problems.is_empty() {
                 let fields: Vec<String> = problems.into_iter().map(|e| e.field).collect();
@@ -642,7 +705,28 @@ impl ProfileStore {
             }
             found.push(file);
         }
-        (found, warnings)
+        found.sort_by(|a, b| a.id.cmp(&b.id));
+        ProfileLoad {
+            files: found,
+            warnings,
+            renamed,
+        }
+    }
+
+    /// Makes the renames of `loaded` stick: each renamed profile is
+    /// written under its new id and its old file removed. Call after the
+    /// settings that followed the rename are saved.
+    pub fn persist_renames(&self, loaded: &ProfileLoad) -> io::Result<()> {
+        for r in &loaded.renamed {
+            if let Some(file) = loaded.files.iter().find(|f| f.id == r.to) {
+                self.save(file, None)?;
+                match fs::remove_file(self.path_of(&r.from)?) {
+                    Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Writes `p` (validated by the caller) atomically; with `replaces`,

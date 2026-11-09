@@ -134,6 +134,7 @@ fn ncch_at(b: &mut Budgeted, at: u64, detail: &str) -> Option<ConsoleId> {
     id.title_id = Some(format!("{program:016X}"));
     id.id_source = Some(IdSource::Header);
     id.kind = kind_3ds(program);
+    base_region(&mut id);
     // 0x112 is the NCCH format version (0 or 2), not the title version;
     // only a CIA's TMD carries that in clear.
     let no_crypto = h[0x188 + 7] & NO_CRYPTO != 0;
@@ -172,6 +173,18 @@ fn exefs_icon(b: &mut Budgeted, at: u64, h: &[u8]) -> Option<u64> {
     let (off, size) = (u64::from(le32(entry, 8)?), u64::from(le32(entry, 12)?));
     let icon = exefs.checked_add(0x200)?.checked_add(off)?;
     (size >= SMDH_LEN as u64 && fits(b, icon, SMDH_LEN as u64)).then_some(icon)
+}
+
+/// The region of a base title from its product code; never a child's
+/// own product code (game folders spec D10, medium confidence).
+fn base_region(id: &mut ConsoleId) {
+    id.region = match id.kind {
+        TitleKind::Base => id
+            .serial
+            .as_deref()
+            .and_then(super::region_from_product_code),
+        _ => None,
+    };
 }
 
 /// NCSD: partition 0's NCCH, else a magic-only verdict.
@@ -236,6 +249,7 @@ fn cia(b: &mut Budgeted, head: &[u8]) -> Option<ConsoleId> {
     };
     id.title_id = Some(format!("{tid:016X}"));
     id.kind = kind_3ds(tid);
+    base_region(&mut id);
     id.version = be16(&t, TMD_VERSION).map(|v| v.to_string());
     id.id_source = Some(IdSource::Header);
     // Offsets inside a clear content 0 are not offsets of the CIA file

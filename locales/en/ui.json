@@ -109,6 +109,9 @@
     "library": {
       "defaultProfile": "Default layout profile",
       "defaultProfileAuto": "Detect automatically",
+      "gameFolders": "One folder per game with DLC and updates",
+      "gameFoldersHint": "Each game in its own folder, with its updates and DLC inside. Applies to {profile} when organising.",
+      "gameFoldersDetails": "On disk the folders are named Updates and DLC so emulators and tools recognise them. They are only created when something goes in them.",
       "ignoredDirs": "Ignored folders",
       "ignoredDirsHint": "One folder name per line. They are skipped at any depth.",
       "ignoredExts": "Ignored extensions",
@@ -306,6 +309,7 @@
     "keywords": {
       "credits": "credits, licences, licenses, attribution, notices, agradecimientos",
       "duplicates": "copies, duplicates",
+      "gameFolders": "DLC, updates, folder, actualizaciones, carpeta",
       "hidden": "dotfiles, dot",
       "quarantine": "quarantine, set aside, cuarentena",
       "rar": "unrar, 7-Zip, 7z, rar",
@@ -638,7 +642,8 @@
       "userSkipped": "You asked to leave it alone",
       "chdMetadataDiffers": "Same content, different CHD metadata",
       "titleId": "Same title id; the contents were not compared",
-      "folderGame": "Game folder: reported only, never set aside"
+      "folderGame": "Game folder: reported only, never set aside",
+      "hasChildren": "Has updates or DLC in its folder: not removed"
     },
     "notRom": "Not a ROM",
     "skip": {
@@ -1309,7 +1314,9 @@
       "dlcFolder": "Goes to the DLC folder, where {layout} looks for downloadable content",
       "homebrew": "Homebrew",
       "vita7z": "Vita3K only installs .zip, .vpk or .vci",
-      "missingDisc": "Disc {n} is missing"
+      "missingDisc": "Disc {n} is missing",
+      "demoOf": "Demo of {title}",
+      "baseMissing": "Its game is not here or in the library; check where it goes"
     },
     "pause": {
       "diskFull": "Disk full: {needed} more needed; the half-extracted game was undone"
@@ -1371,6 +1378,8 @@
       "patch": "a patch; apply it to the original ROM",
       "pcGameData": "PC game data",
       "consoleSystem": "console system file",
+      "emulatorCache": "emulator cache",
+      "emulatorConfig": "emulator settings",
       "installer": "software installer",
       "model3d": "3D model",
       "bios": "BIOS: belongs in the device's BIOS folder",
@@ -1390,10 +1399,12 @@
       "tooBigForFat": "Too big for FAT32 (exFAT needed)",
       "unreadable": "Can't be read",
       "collisionSet": "Another game already uses those names in the target",
-      "keyMaterial": "Key or licence file: Coverly never reads or moves it",
+      "keyMaterial": "Key or licence file: Coverly never reads it and leaves it here",
+      "licenceOf": "Licence of {title}: goes with its game; Coverly does not open it",
       "emulatorData": "Inside an emulator's data ({folder}); left as it is",
       "gameOverlay": "Mods or patch folder of {title}: left where it is",
       "notConfirmed": "Not confirmed; stays where it is",
+      "gameFolderContent": "The {folder} folder of {title} stays where it is for now",
       "title": "Staying where they are",
       "inLibrary": "Already in your library as {path}",
       "gamePart": "Part of a game; not moved on its own",
@@ -1406,6 +1417,15 @@
     "summaryUpdatesOne": "Includes 1 update or DLC",
     "item": {
       "folder": "Game folder"
+    },
+    "gameFolder": {
+      "show": "Show how the folder will look",
+      "hide": "Hide the folder",
+      "label": "Folder of {title}",
+      "count": "{folder} ({count})",
+      "exists": "already there",
+      "onDisk": "on disk: {name}",
+      "more": "and {count} more"
     },
     "empty": {
       "title": "Nothing to file away",
@@ -1457,6 +1477,9 @@
     },
     "renamed": "Will be saved as {name} because a different file already exists",
     "renamedFrom": "Renamed; it was {name}",
+    "renamedForFolder": "Renamed for its folder; it was {name}",
+    "version": "version {version}",
+    "newestHere": "newest here",
     "renamedShort": "Name shortened to fit the path length limit",
     "multiRomZip": "Holds {count} ROMs; the console will load only the first.",
     "noFolderOnDevice": "{layout} has no folder for {system}; {folder} will be created.",
@@ -1517,6 +1540,11 @@
     },
     "copiedNotRemoved": "Copied; the original couldn't be removed",
     "copiedNotRemovedCount": "Copied without removing the original: {count}",
+    "licenceLeft": "The licence stayed where it was: it could not be moved with its game",
+    "licenceStays": "Its licence stays where it was; Coverly does not open it",
+    "companion": {
+      "licence": "Its licence goes with it; Coverly does not open it"
+    },
     "stopped": "Stopped. What was already organised stays; Undo puts it back.",
     "details": "What happened to each file",
     "outcome": {
@@ -1541,6 +1569,7 @@
       "action": "Undo",
       "actionCount": "Undo {count} files",
       "archiveLost": "The archive couldn't be recovered from the Trash; the extracted files stay",
+      "dirsKept": "These folders stay because they aren't empty",
       "confirmTitle": "Undo this organisation?",
       "laterJobs": "These must be undone first: {jobs}",
       "laterJob": "{kind} {date}",
@@ -1609,6 +1638,14 @@
     },
     "encryptedLabel": "Encrypted",
     "encryptedUnresolved": "The name cannot be read without decrypting it"
+  },
+  "gameFolder": {
+    "updates": "Updates",
+    "dlc": "Downloadable content",
+    "mods": "Mods",
+    "cheats": "Cheats",
+    "extras": "Extras",
+    "saves": "Saves"
   },
   "ui": {
     "close": "Close",

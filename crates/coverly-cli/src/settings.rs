@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use coverly_core::paths::{config_dir, AppDirs};
 use coverly_core::profiles::builtin_profiles;
 use coverly_core::profiles::custom::{ProfileFile, ProfileStore, PROFILES_DIR};
-use coverly_core::settings::{read_settings_checked, ReadProblem, Settings, SETTINGS_FILE};
+use coverly_core::settings::{
+    read_settings_checked_with_renames, ReadProblem, Settings, SETTINGS_FILE,
+};
 
 /// Settings file override: unset = the app's, empty = built-in defaults,
 /// else the path of a settings file.
@@ -50,14 +52,19 @@ pub fn load_cli_settings() -> CliSettings {
         .parent()
         .map(|p| p.join(PROFILES_DIR))
         .unwrap_or_default();
-    let (mut custom, mut warnings) = ProfileStore::new(base).load();
-    let (mut settings, mut problem) = read_settings_checked(&path, &ids(&custom));
+    // A custom profile kept under a new id (game folders spec D2) is
+    // renamed in memory only: references follow it on every read.
+    let mut loaded = ProfileStore::new(base).load_all();
+    let (mut settings, mut problem) =
+        read_settings_checked_with_renames(&path, &ids(&loaded.files), &loaded.renamed);
     // The custom folder is itself a setting: read the file again with the
     // ids of the folder it names.
     if let Some(dir) = settings.advanced.custom_dir.clone() {
-        (custom, warnings) = ProfileStore::new(dir).load();
-        (settings, problem) = read_settings_checked(&path, &ids(&custom));
+        loaded = ProfileStore::new(dir).load_all();
+        (settings, problem) =
+            read_settings_checked_with_renames(&path, &ids(&loaded.files), &loaded.renamed);
     }
+    let (custom, warnings) = (loaded.files, loaded.warnings);
     for w in warnings {
         eprintln!(
             "{}",

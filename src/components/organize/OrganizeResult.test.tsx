@@ -119,6 +119,34 @@ describe('OrganizeResult', () => {
     expect(screen.getByText('#3 · Error: Write denied')).toBeInTheDocument();
   });
 
+  it('names a licence that stayed behind its moved game, in sight', () => {
+    const base = view();
+    show(
+      view({
+        report: {
+          ...base.report!,
+          items: [
+            {
+              item: 0,
+              status: 'moved',
+              targets: ['/Volumes/SD/PS3/Resistance/Resistance.pkg'],
+              licences_left: ['/Users/me/pile/BLUS30001.rap'],
+            },
+          ],
+        },
+      }),
+    );
+    const line = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'LI' &&
+        el.textContent ===
+          'BLUS30001.rap · The licence stayed where it was: it could not be moved with its game',
+    );
+    // A file name is a path: in mono, the sentence in the body face.
+    expect(within(line).getByText('BLUS30001.rap')).toHaveClass('font-mono');
+    expect(line).not.toHaveClass('font-mono');
+  });
+
   it('a stopped job says what stays and still offers open and undo', async () => {
     const h = show(view({ state: 'cancelled' }));
     expect(
@@ -353,6 +381,40 @@ describe('OrganizeResult', () => {
       .closest('[role]')!;
     expect(alert).toHaveTextContent('Next Tetris, The.zip');
   });
+  it('names the created folders an undo keeps for the user files in them', () => {
+    const report: OrganizeUndoReport = {
+      job: 'organize-0001',
+      removed: [],
+      restored: ['/pile/Pokemon Y.cia'],
+      skipped_modified: [],
+      skipped_occupied: [],
+      dirs_removed: ['/Volumes/SD/3DS/Pokemon Y (World)/Updates'],
+      dirs_kept: ['/Volumes/SD/3DS/Pokemon Y (World)', '/Volumes/SD/3DS'],
+      archive_lost: [],
+    };
+    render(
+      <I18nProvider locale="es">
+        <OrganizeResult
+          job={view()}
+          plan={null}
+          undo={{ report: [report], later_jobs: [] }}
+          error={null}
+          onOpen={vi.fn()}
+          onUndo={vi.fn()}
+          onResume={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+    const alert = screen
+      .getByText('Estas carpetas se quedan porque no están vacías')
+      .closest('[role]')!;
+    const items = within(alert as HTMLElement).getAllByRole('listitem');
+    expect(items.map((li) => li.textContent)).toEqual([
+      '/Volumes/SD/3DS/Pokemon Y (World)',
+      '/Volumes/SD/3DS',
+    ]);
+  });
+
   it('a_duplicate_the_trash_lost_is_not_called_an_archive', () => {
     // A copy set aside to the Trash and an extracted archive sent there
     // too: neither is in the Trash any more when the job is undone.

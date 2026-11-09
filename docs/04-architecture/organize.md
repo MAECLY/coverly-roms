@@ -341,7 +341,7 @@ The screen, commands and events are described in [desktop-app.md](./desktop-app.
 ```text
 coverly organize <SOURCE> [--layout PROFILE_ID] [--target DIR] [--flat] [--copy | --move]
                  [--names keep|catalogue] [--assign FILE=SYSTEM_ID]… [--include-review]
-                 [--duplicates set-aside|report|off]
+                 [--duplicates set-aside|report|off] [--game-folders | --no-game-folders]
                  [--offline] [--no-external-tools] [--dry-run | --apply] [--resume JOB_ID]
                  [--report table|json] [--output FILE] [--data-dir DIR] [--cache-dir DIR]
 coverly undo [--job ID [--include-later]] [--list] [--data-dir DIR]
@@ -351,8 +351,9 @@ coverly systems                     # system ids for --assign
 - Dry run by default; the table groups items by system with target folder, confidence and why, then *To review* and *Left in place*, and ends with "Dry run: nothing was written. Re-run with --apply to organise {n} files."
 - An Extract item reads `extract 12 files 405.7 MB → ROMS/PS/`; the summary adds `Extracting: N games (bytes)` and the result `Extracted: N`. `--no-external-tools` plans, applies and resumes without unrar/7-Zip/bsdtar. `coverly undo` lists `archive restored:` and `archive lost:` lines.
 - `--duplicates` overrides the duplicates step setting; the table adds a *Duplicates set aside (n), to _Duplicados/* section (each row with the copy that stays and why) and the summary `Duplicates set aside: n · Already in your library: m`. `--resume` refuses it like the other plan options.
+- `--game-folders` / `--no-game-folders` (mutually exclusive) override, for one run, whether the layout builds game folders (`<System>/<Game>/` with `Updates/` and `DLC/`); without them the run follows the user's `organize.game_folders` setting for the layout, else the layout's own value. Update and DLC rows print their version (`v1.1.0`) after the confidence.
 - Review items are applied only with `--assign` (split on the last `=`, `FILE` relative to the source) or `--include-review` (best candidate). An `--assign` on an item that stays in place is reported, not dropped silently.
-- `--resume` continues an interrupted job from its saved plan and refuses the plan options (`--layout`, `--target`, `--flat`, `--copy`/`--move`, `--names`, `--assign`, `--include-review`, `--apply`, `--dry-run`).
+- `--resume` continues an interrupted job from its saved plan and refuses the plan options (`--layout`, `--target`, `--flat`, `--copy`/`--move`, `--names`, `--assign`, `--include-review`, `--duplicates`, `--game-folders`/`--no-game-folders`, `--apply`, `--dry-run`).
 - Exit codes: 0 ok (also with items left in place), 1 I/O or job error (including not enough space), 2 usage (unknown layout or system id), 3 source not found or not a folder, 5 paused (prints the `--resume` and `coverly undo --job` commands). Exit 4 never applies: organise needs no detection.
 
 ## Hostile archives (S1–S8)

@@ -222,3 +222,180 @@ fn a_library_sheet_naming_a_key_file_is_refused_not_a_panic() {
     assert!(!opened(&log, "work.bin"), "work.bin opened");
     assert!(!matches!(got, Ok(Some(_))), "{got:?}");
 }
+
+/// Every licence or key name the game folders spec D17 lists.
+const LICENCE_NAMES: [&str; 22] = [
+    "prod.keys",
+    "title.keys",
+    "dev.keys",
+    "aes_keys.txt",
+    "seeddb.bin",
+    "act.dat",
+    "work.bin",
+    "keys.txt",
+    "otp.bin",
+    "ticket.db",
+    "eeprom.bin",
+    "title.tik",
+    "UP9000-BLUS30001_00-0000000000000001.rap",
+    "UP9000-NPUH10001_00-0000000000000001.rif",
+    "Game.zrif",
+    "Game.dkey",
+    "0100ABCD12340000.tik",
+    "Game.cetk",
+    "Game.cik",
+    "UP9000-BLUS30001_00-0000000000000001.edat",
+    "KEYS.TXT",
+    "Eeprom.BIN",
+];
+
+#[test]
+fn is_key_material_new_names() {
+    use coverly_core::consoles::is_key_material;
+    for name in [
+        "KEYS.TXT",
+        "keys.txt",
+        "otp.bin",
+        "ticket.db",
+        "eeprom.bin",
+        "Game.edat",
+    ] {
+        assert!(is_key_material(name), "{name}");
+    }
+    for name in ["keys.txt.bak", "eeprom.bin.sav", "Game.edat.txt", ".edat"] {
+        assert!(!is_key_material(name), "{name}");
+    }
+}
+
+#[test]
+fn licence_matches_by_name_only() {
+    use coverly_core::consoles::{licence_matches, LicenceKeys};
+    let ps3 = LicenceKeys {
+        content_id: Some("UP9000-BLUS30001_00-0000000000000001"),
+        title_id: Some("BLUS30001"),
+        stem: "Some Game",
+    };
+    assert!(licence_matches("BLUS30001.rap", &ps3), "by title id");
+    assert!(licence_matches("blus30001.RAP", &ps3), "any case");
+    assert!(
+        licence_matches("UP9000-BLUS30001_00-0000000000000001.rap", &ps3),
+        "by content id"
+    );
+    assert!(
+        licence_matches("UP9000-BLUS30001_00-0000000000000001.edat", &ps3),
+        "an edat by content id"
+    );
+    assert!(licence_matches("Some Game.rap", &ps3), "by the item's stem");
+    assert!(!licence_matches("BLUS30002.rap", &ps3));
+    assert!(!licence_matches("Game.iso", &ps3), "not a licence");
+
+    let own = LicenceKeys {
+        content_id: None,
+        title_id: None,
+        stem: "Game",
+    };
+    assert!(licence_matches("Game.rap", &own));
+    assert!(!licence_matches("Game2.rap", &own));
+    for global in [
+        "prod.keys",
+        "title.keys",
+        "dev.keys",
+        "aes_keys.txt",
+        "seeddb.bin",
+        "ticket.db",
+        "keys.txt",
+        "otp.bin",
+        "act.dat",
+        "eeprom.bin",
+        "work.bin",
+    ] {
+        let named = LicenceKeys {
+            content_id: None,
+            title_id: None,
+            stem: global.rsplit_once('.').unwrap().0,
+        };
+        assert!(!licence_matches(global, &named), "{global} never matches");
+        assert!(!licence_matches(global, &ps3), "{global} never matches");
+    }
+
+    let switch = LicenceKeys {
+        content_id: None,
+        title_id: Some("0100ABCD12340000"),
+        stem: "Game [0100ABCD12340000][v0]",
+    };
+    assert!(licence_matches("0100ABCD12340000.tik", &switch));
+    assert!(
+        licence_matches("0100abcd123400000000000000000004.tik", &switch),
+        "the first 16 hex characters of a rights id"
+    );
+    assert!(!licence_matches("0100ABCD12350000.tik", &switch));
+    assert!(
+        !licence_matches("0100ABCD12340000ZZZZZZZZZZZZZZZZ.tik", &switch),
+        "a rights id is 32 hex characters"
+    );
+
+    let empty = LicenceKeys {
+        content_id: Some(""),
+        title_id: Some(""),
+        stem: "",
+    };
+    assert!(!licence_matches(".rap", &empty));
+}
+
+#[test]
+fn licence_names_are_never_opened() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let pile = TempDir::new().unwrap();
+    for (n, name) in LICENCE_NAMES.iter().enumerate() {
+        // Each in its own folder: `KEYS.TXT` and `keys.txt` share a name on
+        // a case-insensitive volume.
+        put(
+            &pile.path().join(format!("k{n}")).join(name),
+            &[7u8; 2048],
+            n as u64,
+        );
+    }
+    put(&pile.path().join("Game.gba"), &fx::gba(), 99);
+
+    let db = SystemDb::builtin();
+    let profiles = builtin_profiles();
+    let cache = Cache::in_memory().unwrap();
+    let env = OrganizeEnv {
+        db: &db,
+        profiles: &profiles,
+        cache: &cache,
+        dats: None,
+        probe: &NoCloud,
+        online: None,
+        titles: None,
+        now: SystemTime::now(),
+    };
+    let opts = OrganizeOptions {
+        layout: "esde".to_string(),
+        offline: true,
+        ..OrganizeOptions::default()
+    };
+    start_open_log();
+    let plan = plan_organize(pile.path(), &opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap();
+    let log = take_open_log();
+
+    for name in LICENCE_NAMES {
+        assert!(!opened(&log, name), "{name} opened");
+        let item = plan
+            .items
+            .iter()
+            .find(|i| i.sources[0].file_name().unwrap() == name)
+            .unwrap_or_else(|| panic!("{name} has no item"));
+        assert!(
+            matches!(
+                &item.action,
+                OrganizeAction::Left {
+                    reason: LeftReason::KeyMaterial
+                }
+            ),
+            "{name}: {:?}",
+            item.action
+        );
+    }
+    assert!(opened(&log, "Game.gba"), "the hook records opens");
+}

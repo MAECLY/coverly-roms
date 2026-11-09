@@ -12,8 +12,10 @@ mod patch;
 mod validate;
 
 pub use load::{
-    backup_settings, load_settings, read_settings, read_settings_checked, save_settings,
-    LoadNotice, LoadReport, ReadProblem, LEGACY_LIBRARY_FILE, MAX_SETTINGS_BYTES, SETTINGS_FILE,
+    backup_settings, load_settings, load_settings_with_renames, read_settings,
+    read_settings_checked, read_settings_checked_with_renames, read_settings_with_renames,
+    save_settings, LoadNotice, LoadReport, ReadProblem, LEGACY_LIBRARY_FILE, MAX_SETTINGS_BYTES,
+    SETTINGS_FILE,
 };
 pub use model::*;
 pub use validate::{FieldError, FieldErrorCode, Range, RANGES};

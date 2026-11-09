@@ -37,6 +37,8 @@ fn unit(id: usize, system: &str, file: &str, kind: UnitKind, mtime_ns: i64) -> U
         in_library: true,
         tree_digest: None,
         tree_title: None,
+        role: None,
+        holds_children: false,
     }
 }
 

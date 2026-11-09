@@ -37,6 +37,7 @@ pub mod wiiu;
 pub mod xbox;
 pub mod zarchive;
 
+pub use crate::game_folder::FixedFolder;
 pub(crate) use listing::MAX_CHILD_ENTRIES;
 pub use listing::{identify_dir_on_disk, on_disk, DirListing, DiskFs, EntryMeta, ListingFs};
 
@@ -60,6 +61,9 @@ pub enum TitleKind {
     /// Made outside the console maker's programme (NRO, `.3dsx`, a loose
     /// `.rpx`, a Vita homebrew SELF; spec D12).
     Homebrew,
+    /// The console's own title (a system update, firmware module or
+    /// system application; game folders plan P-1): never a game.
+    System,
     #[default]
     Unknown,
 }
@@ -215,7 +219,9 @@ pub struct ConsoleId {
     /// batch 3 §8.0).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_id: Option<String>,
-    /// From the first letter of the content id (systems batch 3 D8).
+    /// From the first letter of the content id (systems batch 3 D8), a
+    /// base's 3DS/Wii U product code, a GameCube/Wii game id or a PS3/PSP
+    /// serial (game folders spec D10).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<Region>,
     /// GDK StoreId, ERA Identity Name, XVC ProductId GUID (systems
@@ -225,6 +231,10 @@ pub struct ConsoleId {
     /// GDK DLC: its single AllowedProduct (systems batch 3 D15).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
+    /// Xbox 360 STFS media id (0x354) as `{:08X}`: keeps the title
+    /// updates of different disc builds apart (game folders spec D11).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_id: Option<String>,
     /// A piece that cannot play alone (spec D12).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub part: Option<PartKind>,
@@ -261,6 +271,7 @@ impl ConsoleId {
             region: None,
             product_id: None,
             parent_id: None,
+            media_id: None,
             part: None,
             title_source: None,
             nca_ids: Vec::new(),
@@ -403,7 +414,9 @@ impl ReadAt for Budgeted<'_> {
     }
 }
 
-/// Exact file names (lower-case) of key and licence files.
+/// Exact file names (lower-case) of key and licence files. Every one is a
+/// global key file (game folders spec D17): it never belongs to one game,
+/// so [`licence_matches`] never matches it and it always stays.
 const KEY_NAMES: &[&str] = &[
     "prod.keys",
     "title.keys",
@@ -412,16 +425,21 @@ const KEY_NAMES: &[&str] = &[
     "seeddb.bin",
     "act.dat",
     "work.bin",
+    "keys.txt",
+    "otp.bin",
+    "ticket.db",
+    "eeprom.bin",
 ];
 
 /// Extensions (lower-case) of licence and ticket files.
-const KEY_EXTS: &[&str] = &["rap", "rif", "dkey", "zrif", "tik", "cetk", "cik"];
+const KEY_EXTS: &[&str] = &["rap", "rif", "dkey", "zrif", "tik", "cetk", "cik", "edat"];
 
-/// Key or licence files: never opened, hashed, uploaded or moved (D4).
+/// Key or licence files: never opened, hashed or uploaded (systems batch 2
+/// D4), recognised by name or extension only (game folders spec D17).
 ///
-/// `keys.txt` is deliberately absent: the name is far too common (notes,
-/// readmes, game configs) to treat as key material, and the emulators
-/// that read console keys use the exact names listed here.
+/// `keys.txt` is listed since the owner's brief for game folders names it:
+/// a readme with that name is left in place with the key-material reason,
+/// which only makes Coverly stricter (it is never opened).
 pub fn is_key_material(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     if KEY_NAMES.contains(&lower.as_str()) {
@@ -431,6 +449,46 @@ pub fn is_key_material(name: &str) -> bool {
         Some((stem, ext)) => !stem.is_empty() && KEY_EXTS.contains(&ext),
         None => false,
     }
+}
+
+/// Keys an item offers for licence matching (game folders spec D17): its
+/// content id, its title id and its file stem.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LicenceKeys<'a> {
+    /// A PS3/PSP/Vita content id (`UP9000-BLUS30001_00-…`).
+    pub content_id: Option<&'a str>,
+    /// The item's title id (`BLUS30001`, `0100ABCD12340000`).
+    pub title_id: Option<&'a str>,
+    /// The item's own file stem (`Game` for `Game.pkg`).
+    pub stem: &'a str,
+}
+
+/// Whether the licence file `name` belongs to the item `item`: its stem
+/// equals, ignoring ASCII case, the item's content id, its title id, its
+/// own stem, or (a 32-hex-character Switch rights id) the title id in its
+/// first 16 characters. Only per-title licences (by extension) can match;
+/// global key files never do. Works on the name alone, never on the file
+/// system, so the licence is never opened.
+pub fn licence_matches(name: &str, item: &LicenceKeys) -> bool {
+    if !is_key_material(name) || KEY_NAMES.contains(&name.to_ascii_lowercase().as_str()) {
+        return false;
+    }
+    let Some((stem, _)) = name.rsplit_once('.') else {
+        return false;
+    };
+    if stem.is_empty() {
+        return false;
+    }
+    let same =
+        |want: Option<&str>| want.is_some_and(|w| !w.is_empty() && stem.eq_ignore_ascii_case(w));
+    if same(item.content_id) || same(item.title_id) || same(Some(item.stem)) {
+        return true;
+    }
+    stem.len() == 32
+        && stem.bytes().all(|b| b.is_ascii_hexdigit())
+        && item
+            .title_id
+            .is_some_and(|t| t.len() == 16 && stem[..16].eq_ignore_ascii_case(t))
 }
 
 /// Opens a ROM candidate for reading. Key material is refused by name
@@ -674,9 +732,36 @@ fn high(title_id: u64) -> u32 {
     (title_id >> 32) as u32
 }
 
+/// Whether `title_id` is the console's own title, never a game (game
+/// folders spec D14 a, b, d; plan P-1). Plaintext ids only:
+/// - 3DS: platform `0004` with the System category bit (`high & 0x10`;
+///   3dbrew «Titles»: `00040010` applets and system applications,
+///   `0004001B` system data archives, `00040030` applets, `0004009B` and
+///   `000400DB` system data, `00040130` system modules, `00040138`
+///   firmware);
+/// - Switch: every id below the first application,
+///   `0100000000010000` (switchbrew «Title list»: system modules, system
+///   data, applets, system updates);
+/// - Wii: `00000001` essential titles (IOS, boot2, System Menu),
+///   `00010002` system channels and `00010008` hidden channels
+///   (wiibrew «Title database»). `00010000` is disc data, not system.
+pub fn is_console_system_title(system: &str, title_id: u64) -> bool {
+    let high = high(title_id);
+    match system {
+        "3ds" => high >> 16 == 0x0004 && high & 0x10 != 0,
+        "switch" => title_id < 0x0100_0000_0001_0000,
+        "wii" => matches!(high, 0x0000_0001 | 0x0001_0002 | 0x0001_0008),
+        _ => false,
+    }
+}
+
 /// 3DS title kind by the high word (3dbrew «Titles»: platform 4, content
-/// category `0x0` normal, `0x2` demo, `0xE` patch, `0x8C` add-on content).
+/// category `0x0` normal, `0x2` demo, `0xE` patch, `0x8C` add-on content;
+/// the System category bit first, [`is_console_system_title`]).
 pub fn kind_3ds(title_id: u64) -> TitleKind {
+    if is_console_system_title("3ds", title_id) {
+        return TitleKind::System;
+    }
     match high(title_id) {
         0x0004_0000 => TitleKind::Base,
         0x0004_000E => TitleKind::Update,
@@ -699,9 +784,14 @@ pub fn kind_wiiu(title_id: u64) -> TitleKind {
     }
 }
 
-/// Wii title kind by the high word: `00010001` downloaded channels
-/// (WiiWare, Virtual Console), `00010005` DLC.
+/// Wii title kind by the high word: system titles first
+/// ([`is_console_system_title`]), `00010001` downloaded channels
+/// (WiiWare, Virtual Console), `00010005` DLC. `00010004` game channels
+/// (a disc's channel) stay unknown and are placed as today (spec D14 d).
 pub fn kind_wii(title_id: u64) -> TitleKind {
+    if is_console_system_title("wii", title_id) {
+        return TitleKind::System;
+    }
     match high(title_id) {
         0x0001_0001 => TitleKind::Base,
         0x0001_0005 => TitleKind::Dlc,
@@ -710,13 +800,20 @@ pub fn kind_wii(title_id: u64) -> TitleKind {
 }
 
 /// Switch title kind by the low bits: an application ends in `000` with
-/// bit 12 clear, its patch is the application id + `0x800`, and its
-/// add-on content is `(id & !0xFFF) + 0x1000 + index` (nxdumptool
-/// `TITLE_PATCH_ID_OFFSET`, `TITLE_ADDONCONTENT_ID_OFFSET`).
+/// bit 12 clear, its patch is the application id + `0x800`, its delta
+/// fragment the application id + `0xC00`, and its add-on content is
+/// `(id & !0xFFF) + 0x1000 + index`; a DataPatch (an add-on's patch,
+/// `0x1801..=0x1FD0`) has bit 12 set too and is DLC of the same base
+/// (nxdumptool `TITLE_PATCH_ID_OFFSET`, `TITLE_ADDONCONTENT_ID_OFFSET`;
+/// game folders spec D14 b). Ids below the first application are the
+/// console's own ([`is_console_system_title`]).
 pub fn kind_switch(title_id: u64) -> TitleKind {
+    if is_console_system_title("switch", title_id) {
+        return TitleKind::System;
+    }
     match title_id & 0x1FFF {
         0 => TitleKind::Base,
-        0x800 => TitleKind::Update,
+        0x800 | 0xC00 => TitleKind::Update,
         x if x & 0x1000 != 0 => TitleKind::Dlc,
         _ => TitleKind::Unknown,
     }
@@ -731,7 +828,8 @@ pub fn switch_base(title_id: u64) -> u64 {
 /// grouping updates and DLC with their base: Switch `id & !0x1FFF`, 3DS
 /// and Wii U the base high word with the same low 32 bits, Sony (PS3,
 /// Vita, PS4, PS5: systems batch 3 D15) and Xbox 360 the title id
-/// itself; Xbox One and Series GDK folders (systems batch 3 D15) the
+/// itself; Wii the 4-character game code ([`wii_game_code`]); Xbox One
+/// and Series GDK folders (systems batch 3 D15) the
 /// `StoreId` of a base and the one `AllowedProduct` of a DLC (ERA and
 /// XVC identities give no key). `None` for other systems or without a
 /// title id.
@@ -757,10 +855,47 @@ pub fn base_title_id(id: &ConsoleId) -> Option<String> {
         "switch" => Some(format!("{:016X}", switch_base(hex()?))),
         "3ds" => Some(format!("00040000{:08X}", hex()? as u32)),
         "wiiu" => Some(format!("00050000{:08X}", hex()? as u32)),
-        "ps3" | "psvita" | "xbox360" | "ps4" | "ps5" if !tid.is_empty() => {
+        "wii" => wii_game_code(tid),
+        // PSP: the `DISC_ID` an update's SFO shares with its game (game
+        // folders spec D14 g).
+        "ps3" | "psvita" | "psp" | "xbox360" | "ps4" | "ps5" if !tid.is_empty() => {
             Some(tid.to_ascii_uppercase())
         }
         _ => None,
+    }
+}
+
+/// The 4-character game code a Wii title belongs to (game folders spec
+/// D14 d): a WAD's low 32 bits as ASCII, a disc's first four ID6
+/// characters, upper-cased. A DLC's code is its base's with the first
+/// letter lower-cased (wiibrew «Title database»: `00010005-wF4E`), so
+/// upper-casing it meets both a `00010001` channel and a disc game.
+fn wii_game_code(tid: &str) -> Option<String> {
+    let code = match tid.len() {
+        16 => {
+            let low = u64::from_str_radix(tid, 16).ok()? as u32;
+            String::from_utf8(low.to_be_bytes().to_vec()).ok()?
+        }
+        6 => tid.get(..4)?.to_owned(),
+        _ => return None,
+    };
+    code.bytes()
+        .all(|b| b.is_ascii_alphanumeric())
+        .then(|| code.to_ascii_uppercase())
+}
+
+/// The kind a title links as when updates and DLC are grouped with
+/// their base: its own kind, except that a Wii disc (an ID6 title id,
+/// no kind in its header) is the base its WAD DLC belongs to (game
+/// folders spec D14 d: DJ Hero and Rock Band DLC belong to discs).
+pub fn link_kind(id: &ConsoleId) -> TitleKind {
+    let disc = id.system == "wii"
+        && id.kind == TitleKind::Unknown
+        && id.title_id.as_deref().is_some_and(|t| t.trim().len() == 6);
+    if disc {
+        TitleKind::Base
+    } else {
+        id.kind
     }
 }
 
@@ -774,8 +909,180 @@ pub fn region_from_content_id(content_id: &str) -> Option<Region> {
         b'J' => Some(Region::Japan),
         b'H' => Some(Region::Asia),
         b'I' => Some(Region::World),
+        // Korea, as PSN store content ids write it (`KP…`; game folders
+        // spec D10).
+        b'K' => Some(Region::Korea),
         _ => None,
     }
+}
+
+/// The region of a Nintendo game code letter (game folders spec D10):
+/// the letter after the 3-character game code of a 3DS or Wii U product
+/// code and of a GameCube/Wii disc id or WAD game code. Sources:
+/// `docs/02-research/updates-dlc-per-system.md` verifies `E`, `J`, `P`,
+/// `U`, `C`, `K` on DS game codes (dsibrew) and `E`/`P`/`J` on Wii U
+/// (wiiubrew `AMKJ`/`AMKE`/`AMKP`); `W`, `A`, `D`, `F`, `S`, `I`, `H` are
+/// the GameTDB region letters spec D10 lists. The 3DS uses the same
+/// game-code family, but the research does not verify its letters: medium
+/// confidence, base titles only.
+fn nintendo_region_letter(letter: u8) -> Option<Region> {
+    Some(match letter.to_ascii_uppercase() {
+        b'E' => Region::Usa,
+        b'P' => Region::Europe,
+        b'J' => Region::Japan,
+        b'K' => Region::Korea,
+        b'W' => Region::Taiwan,
+        b'C' => Region::China,
+        b'A' => Region::World,
+        b'D' => Region::Germany,
+        b'F' => Region::France,
+        b'S' => Region::Spain,
+        b'I' => Region::Italy,
+        b'U' => Region::Australia,
+        b'H' => Region::Netherlands,
+        _ => return None,
+    })
+}
+
+/// The region of a 3DS (`CTR-P-AXXE`, `KTR-…`) or Wii U (`WUP-P-AXXP`,
+/// or its ID4/ID6 `AXXP01`) product code: the last letter of the
+/// 4-character game code (game folders spec D10). Read for base titles
+/// only: the 3DS product-code letters are community knowledge (medium
+/// confidence) and the update/DLC product codes are unverified.
+pub fn region_from_product_code(code: &str) -> Option<Region> {
+    let code = code.trim();
+    let game = match code.as_bytes() {
+        [a, b, c, b'-', _, b'-', ..] if [a, b, c].iter().all(|x| x.is_ascii_uppercase()) => {
+            &code[6..]
+        }
+        _ => code,
+    };
+    region_from_game_id(game)
+}
+
+/// The region of a GameCube/Wii disc id (`RMCE01`) or a WAD game code
+/// (`WAAE`, a DLC's `wF4P`): its 4th character (game folders spec D10).
+/// `None` unless the id is 4 or 6 ASCII letters and digits.
+pub fn region_from_game_id(id: &str) -> Option<Region> {
+    let b = id.trim().as_bytes();
+    if !matches!(b.len(), 4 | 6) || !b.iter().all(u8::is_ascii_alphanumeric) {
+        return None;
+    }
+    nintendo_region_letter(b[3])
+}
+
+/// The region of a PS3 or PSP serial, disc or PSN (`BLUS30001`,
+/// `NPEB00001`, `ULJM05000`, `UCES-00001`): the third letter of a
+/// `[BN][LCP]xx` or `U[LC]xx` prefix (game folders spec D10). Vita
+/// `PCSx`, PS4 `CUSA` and every other shape give `None`: the research has
+/// no letter rule for them.
+pub fn region_from_sony_serial(serial: &str) -> Option<Region> {
+    let b = serial.trim().as_bytes();
+    let prefix = b.get(..4)?;
+    if !prefix.iter().all(u8::is_ascii_alphabetic) {
+        return None;
+    }
+    let p: Vec<u8> = prefix.iter().map(u8::to_ascii_uppercase).collect();
+    let shaped = matches!(
+        (p[0], p[1]),
+        (b'B' | b'N', b'L' | b'C' | b'P') | (b'U', b'L' | b'C')
+    );
+    if !shaped {
+        return None;
+    }
+    Some(match p[2] {
+        b'U' => Region::Usa,
+        b'E' => Region::Europe,
+        b'J' => Region::Japan,
+        b'A' => Region::Asia,
+        b'K' => Region::Korea,
+        b'H' => Region::HongKong,
+        _ => return None,
+    })
+}
+
+/// Human form of a raw `ConsoleId.version` for names and the UI (game
+/// folders spec D11). The raw value stays what is stored and compared
+/// (`dedupe::keeper::version_order`); this is display only. Empty,
+/// unparsable or unknown-system values give `None`.
+///
+/// - `3ds`: TMD u16 as `major.minor.micro` from 6/6/4 bits (`1040` →
+///   `1.1.0`). Medium confidence: the split is the community convention
+///   recorded in `docs/02-research/updates-dlc-per-system.md` (3DS
+///   «Version»), since 3dbrew's TMD page gives no bit layout.
+/// - `wiiu`, `switch`: the raw decimal (`32`, `131072`, the scene form);
+///   no documented split is used.
+/// - `ps3`, `psvita`, `ps4`, `psp`, `ps5`: `APP_VER`/`VERSION`/
+///   `contentVersion` as written (`01.05`, `01.000.000`).
+/// - `xbox360`: the hex u32 as `major.minor.build.qfe` from 4/4/16/8 bits
+///   (`20000C00` → `2.0.12.0`).
+/// - `xboxone`, `xboxseries`: four dot-separated u16, high to low, in
+///   canonical decimal (`01.02.0.0` → `1.2.0.0`).
+/// - `gamecube`, `wii` disc: `Rev N` when N > 0, `None` for 0. A Wii WAD
+///   carries a TMD version instead: see [`display_version_of`].
+pub fn display_version(system: &str, raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    // Rust's integer parsing takes a leading `+`; header text is untrusted,
+    // so only plain digits count.
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let dec = |s: &str| digits(s).then(|| s.parse::<u32>().ok()).flatten();
+    let dotted = |max_parts: usize| -> Option<String> {
+        let parts: Vec<&str> = raw.split('.').collect();
+        (parts.len() <= max_parts
+            && parts
+                .iter()
+                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())))
+        .then(|| raw.to_owned())
+    };
+    match system {
+        "3ds" => {
+            let v = u16::try_from(dec(raw)?).ok()?;
+            Some(format!("{}.{}.{}", v >> 10, (v >> 4) & 0x3F, v & 0xF))
+        }
+        "wiiu" | "switch" => dec(raw).map(|v| v.to_string()),
+        "ps3" | "psvita" | "ps4" | "psp" | "ps5" => dotted(4),
+        "xbox360" => {
+            if raw.is_empty() || raw.len() > 8 || !raw.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return None;
+            }
+            let v = u32::from_str_radix(raw, 16).ok()?;
+            Some(format!(
+                "{}.{}.{}.{}",
+                v >> 28,
+                (v >> 24) & 0xF,
+                (v >> 8) & 0xFFFF,
+                v & 0xFF
+            ))
+        }
+        "xboxone" | "xboxseries" => {
+            let parts: Vec<String> = raw
+                .split('.')
+                .map(|p| {
+                    dec(p)
+                        .and_then(|v| u16::try_from(v).ok())
+                        .map(|v| v.to_string())
+                })
+                .collect::<Option<_>>()?;
+            (parts.len() == 4).then(|| parts.join("."))
+        }
+        "gamecube" | "wii" => match u8::try_from(dec(raw)?).ok()? {
+            0 => None,
+            n => Some(format!("Rev {n}")),
+        },
+        _ => None,
+    }
+}
+
+/// [`display_version`] for a read identity. A Wii WAD (a 16-digit TMD
+/// title id) shows its TMD version as the raw decimal, like the Wii U
+/// TMD, instead of a disc's `Rev N` (game folders spec D11, D14 d).
+pub fn display_version_of(id: &ConsoleId) -> Option<String> {
+    let raw = id.version.as_deref()?;
+    let wad = id.system == "wii" && id.title_id.as_deref().is_some_and(|t| t.len() == 16);
+    if wad {
+        return display_version("wiiu", raw);
+    }
+    display_version(&id.system, raw)
 }
 
 /// A plaintext title from a header field: NULs and padding trimmed,
@@ -793,6 +1100,18 @@ mod tests {
     use crate::identify::sniff::NotARom;
 
     #[test]
+    fn system_kind_serialises_as_system() {
+        assert_eq!(
+            serde_json::to_string(&TitleKind::System).unwrap(),
+            "\"system\""
+        );
+        assert_eq!(
+            serde_json::from_str::<TitleKind>("\"system\"").unwrap(),
+            TitleKind::System
+        );
+    }
+
+    #[test]
     fn is_key_material_list() {
         for name in [
             "prod.keys",
@@ -802,6 +1121,11 @@ mod tests {
             "seeddb.bin",
             "act.dat",
             "work.bin",
+            "keys.txt",
+            "otp.bin",
+            "ticket.db",
+            "eeprom.bin",
+            "x.edat",
             "NPUB30024.rap",
             "x.rif",
             "game.dkey",
@@ -812,7 +1136,6 @@ mod tests {
             assert!(is_key_material(name), "{name}");
         }
         for name in [
-            "keys.txt",
             "prod.keys.txt",
             "game.iso",
             "title.tmd",
@@ -899,20 +1222,137 @@ mod tests {
         assert_eq!(kind_3ds(0x0004_000E_0003_0800), TitleKind::Update);
         assert_eq!(kind_3ds(0x0004_008C_0003_0800), TitleKind::Dlc);
         assert_eq!(kind_3ds(0x0004_0002_0003_0800), TitleKind::Demo);
-        assert_eq!(kind_3ds(0x0004_0010_0003_0800), TitleKind::Unknown);
+        assert_eq!(kind_3ds(0x0004_0010_0003_0800), TitleKind::System);
         assert_eq!(kind_wiiu(0x0005_000E_1010_ED00), TitleKind::Update);
         assert_eq!(kind_wiiu(0x0005_0000_1010_ED00), TitleKind::Base);
         assert_eq!(kind_wiiu(0x0005_000C_1010_ED00), TitleKind::Dlc);
         assert_eq!(kind_wiiu(0x0005_0002_1010_ED00), TitleKind::Demo);
         assert_eq!(kind_wii(0x0001_0001_5741_4145), TitleKind::Base);
         assert_eq!(kind_wii(0x0001_0005_5741_4145), TitleKind::Dlc);
-        assert_eq!(kind_wii(0x0001_0002_4841_4141), TitleKind::Unknown);
+        assert_eq!(kind_wii(0x0001_0002_4841_4141), TitleKind::System);
+        assert_eq!(kind_wii(0x0001_0004_5241_4141), TitleKind::Unknown);
         assert_eq!(kind_switch(0x0100_0000_0001_0000), TitleKind::Base);
         assert_eq!(kind_switch(0x0100_0000_0001_0800), TitleKind::Update);
         assert_eq!(kind_switch(0x0100_0000_0001_1001), TitleKind::Dlc);
         assert_eq!(kind_switch(0x0100_0000_0001_0001), TitleKind::Unknown);
         assert_eq!(switch_base(0x0100_0000_0001_1001), 0x0100_0000_0001_0000);
         assert_eq!(switch_base(0x0100_0000_0001_0800), 0x0100_0000_0001_0000);
+    }
+
+    /// Game folders spec D14 (a): the System category bit of a 3DS title
+    /// id is the console's own title, whatever else the high word says.
+    #[test]
+    fn kind_3ds_system_titles_are_system() {
+        for high in [
+            0x0004_0010u64,
+            0x0004_001B,
+            0x0004_0030,
+            0x0004_009B,
+            0x0004_00DB,
+            0x0004_0130,
+            0x0004_0138,
+        ] {
+            let tid = (high << 32) | 0x0002_0300;
+            assert_eq!(kind_3ds(tid), TitleKind::System, "{high:08X}");
+            assert!(is_console_system_title("3ds", tid), "{high:08X}");
+        }
+        for high in [0x0004_0000u64, 0x0004_000E, 0x0004_008C, 0x0004_0002] {
+            assert!(!is_console_system_title("3ds", (high << 32) | 0x0003_0800));
+        }
+        // Another platform's high word is never a 3DS system title.
+        assert!(!is_console_system_title("3ds", 0x0005_0010_1010_ED00));
+        assert_eq!(kind_3ds(0x0005_0010_1010_ED00), TitleKind::Unknown);
+    }
+
+    /// Game folders spec D14 (b): a DataPatch is DLC of the base its
+    /// `switch_base` gives, a Delta is an update.
+    #[test]
+    fn kind_switch_datapatch_and_delta() {
+        for tid in [0x0100_0000_0001_1801u64, 0x0100_0000_0001_1FD0] {
+            assert_eq!(kind_switch(tid), TitleKind::Dlc, "{tid:016X}");
+            assert_eq!(
+                switch_base(tid),
+                ((tid - 0x800) - 0x1000) & !0xFFF,
+                "{tid:016X}"
+            );
+            assert_eq!(switch_base(tid), 0x0100_0000_0001_0000);
+        }
+        assert_eq!(kind_switch(0x0100_0000_0001_0C00), TitleKind::Update);
+        assert_eq!(switch_base(0x0100_0000_0001_0C00), 0x0100_0000_0001_0000);
+    }
+
+    /// Game folders spec D14 (b): ids below the first application are the
+    /// console's own (firmware modules, system applets, system data).
+    #[test]
+    fn switch_system_titles() {
+        for tid in [
+            0x0100_0000_0000_0809u64,
+            0x0100_0000_0000_1000,
+            0x0100_0000_0000_FFFF,
+        ] {
+            assert_eq!(kind_switch(tid), TitleKind::System, "{tid:016X}");
+            assert!(is_console_system_title("switch", tid));
+        }
+        assert!(!is_console_system_title("switch", 0x0100_0000_0001_0000));
+        assert_eq!(kind_switch(0x0100_0000_0001_0000), TitleKind::Base);
+    }
+
+    /// Game folders spec D14 (d): a WAD DLC's code is its base's code
+    /// with the first letter lower-cased; upper-casing it meets both a
+    /// `00010001` channel and a disc game's ID6.
+    #[test]
+    fn base_title_id_wii_wad_dlc_meets_disc_and_channel() {
+        let with = |tid: &str| {
+            let mut id = ConsoleId::proven("wii", "x");
+            id.title_id = Some(tid.into());
+            base_title_id(&id)
+        };
+        // `00010005-wF4E` (DLC) → `WF4E`.
+        assert_eq!(with("0001000577463445").as_deref(), Some("WF4E"));
+        // A channel with that code.
+        assert_eq!(with("0001000157463445").as_deref(), Some("WF4E"));
+        // A disc game: the first four characters of its ID6.
+        assert_eq!(with("SXBE52").as_deref(), Some("SXBE"));
+        let mut disc = ConsoleId::proven("wii", "disc");
+        disc.title_id = Some("sxbe52".into());
+        assert_eq!(base_title_id(&disc).as_deref(), Some("SXBE"));
+        assert_eq!(
+            base_title_id(&{
+                let mut d = ConsoleId::proven("wii", "x");
+                d.title_id = Some("0001000573584245".into()); // `sXBE`
+                d
+            })
+            .as_deref(),
+            Some("SXBE")
+        );
+        // The disc links as the base, the DLC as DLC, a game channel as
+        // nothing.
+        assert_eq!(link_kind(&disc), TitleKind::Base);
+        let mut dlc = ConsoleId::proven("wii", "WAD TMD");
+        dlc.title_id = Some("0001000573584245".into());
+        dlc.kind = TitleKind::Dlc;
+        assert_eq!(link_kind(&dlc), TitleKind::Dlc);
+        let mut channel = ConsoleId::proven("wii", "WAD TMD");
+        channel.title_id = Some("0001000452414141".into());
+        assert_eq!(link_kind(&channel), TitleKind::Unknown);
+        let mut gc = ConsoleId::proven("gamecube", "disc");
+        gc.title_id = Some("GM8E01".into());
+        assert_eq!(link_kind(&gc), TitleKind::Unknown);
+        // A code that is not text, or an id of another shape: no key.
+        assert_eq!(with("0001000500000002"), None);
+        assert_eq!(with("RM"), None);
+        // Wii system ids: essential titles, system and hidden channels.
+        for tid in [
+            0x0000_0001_0000_0002u64,
+            0x0001_0002_4841_4241,
+            0x0001_0008_4841_4B45,
+        ] {
+            assert_eq!(kind_wii(tid), TitleKind::System, "{tid:016X}");
+            assert!(is_console_system_title("wii", tid));
+        }
+        // Disc data titles (`00010000`) are not system titles.
+        assert!(!is_console_system_title("wii", 0x0001_0000_5241_4141));
+        assert!(!is_console_system_title("gamecube", 0x0000_0001_0000_0002));
     }
 
     #[test]
@@ -1237,8 +1677,91 @@ mod tests {
         ] {
             assert_eq!(region_from_content_id(id), Some(region), "{id}");
         }
-        for id in ["KP9000-CUSA00001_00-X", "X", ""] {
+        assert_eq!(
+            region_from_content_id("KP9000-CUSA00001_00-X"),
+            Some(Region::Korea)
+        );
+        for id in ["XP9000-CUSA00001_00-X", "X", ""] {
             assert_eq!(region_from_content_id(id), None, "{id}");
+        }
+    }
+
+    #[test]
+    fn region_from_product_codes_and_game_ids() {
+        for (letter, region) in [
+            ('E', Region::Usa),
+            ('P', Region::Europe),
+            ('J', Region::Japan),
+            ('K', Region::Korea),
+            ('W', Region::Taiwan),
+            ('C', Region::China),
+            ('A', Region::World),
+            ('D', Region::Germany),
+            ('F', Region::France),
+            ('S', Region::Spain),
+            ('I', Region::Italy),
+            ('U', Region::Australia),
+            ('H', Region::Netherlands),
+        ] {
+            let code = format!("CTR-P-AXX{letter}");
+            assert_eq!(region_from_product_code(&code), Some(region), "{code}");
+            let id = format!("RMC{letter}01");
+            assert_eq!(region_from_game_id(&id), Some(region), "{id}");
+        }
+        assert_eq!(region_from_product_code("CTR-P-EK2A"), Some(Region::World));
+        assert_eq!(region_from_product_code("WUP-P-ARDP"), Some(Region::Europe));
+        assert_eq!(region_from_product_code("WUP-N-ARDE"), Some(Region::Usa));
+        assert_eq!(region_from_product_code("KTR-P-BXXJ"), Some(Region::Japan));
+        assert_eq!(region_from_product_code("ARDP01"), Some(Region::Europe));
+        assert_eq!(region_from_game_id("RMCE01"), Some(Region::Usa));
+        assert_eq!(region_from_game_id("WAAE"), Some(Region::Usa));
+        assert_eq!(
+            region_from_game_id("wF4P"),
+            Some(Region::Europe),
+            "Wii DLC code"
+        );
+        for bad in [
+            "CTR-P-AXXZ",
+            "CTR-P-AX",
+            "",
+            "CTR",
+            "RMCQ01",
+            "RM",
+            "RMC-01",
+        ] {
+            assert_eq!(region_from_product_code(bad), None, "{bad}");
+            assert_eq!(region_from_game_id(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn region_from_sony_serials() {
+        for (serial, region) in [
+            ("BLUS30001", Region::Usa),
+            ("BLES00001", Region::Europe),
+            ("BLJM60001", Region::Japan),
+            ("BCAS20001", Region::Asia),
+            ("BLKS20001", Region::Korea),
+            ("BLHS20001", Region::HongKong),
+            ("NPUB30001", Region::Usa),
+            ("NPEB00001", Region::Europe),
+            ("ULJM05000", Region::Japan),
+            ("ULUS10041", Region::Usa),
+            ("UCES00001", Region::Europe),
+            ("BLUS-30001", Region::Usa),
+        ] {
+            assert_eq!(region_from_sony_serial(serial), Some(region), "{serial}");
+        }
+        for serial in [
+            "PCSE00123",
+            "PCSB00001",
+            "CUSA00900",
+            "SLUS00001",
+            "BLXS00001",
+            "UP",
+            "",
+        ] {
+            assert_eq!(region_from_sony_serial(serial), None, "{serial}");
         }
     }
 
@@ -1261,5 +1784,89 @@ mod tests {
         );
         assert_eq!(clean_title("  A\u{202E}B \0").as_deref(), Some("AB"));
         assert_eq!(clean_title("\0\0"), None);
+    }
+
+    /// Game folders spec D11: each system's community form of the raw
+    /// header version; empty or unparsable raw values give `None`.
+    #[test]
+    fn display_version_per_system() {
+        for (system, raw, want) in [
+            // 3DS TMD u16, 6/6/4 bits (research: community convention).
+            ("3ds", "1040", Some("1.1.0")),
+            ("3ds", "1024", Some("1.0.0")),
+            ("3ds", "2069", Some("2.1.5")),
+            ("3ds", "0", Some("0.0.0")),
+            ("3ds", "70000", None),
+            ("3ds", "1.0", None),
+            ("wiiu", "32", Some("32")),
+            ("wiiu", " 080 ", Some("80")),
+            ("wiiu", "x", None),
+            ("switch", "131072", Some("131072")),
+            ("switch", "0", Some("0")),
+            ("switch", "-1", None),
+            ("ps3", "01.05", Some("01.05")),
+            ("psvita", "01.00", Some("01.00")),
+            ("ps4", "01.09", Some("01.09")),
+            ("psp", "1.00", Some("1.00")),
+            ("ps5", "01.000.000", Some("01.000.000")),
+            ("ps3", "01..05", None),
+            ("ps4", "1.0a", None),
+            ("ps4", ".", None),
+            // XEX/STFS u32 as eight hex digits, 4/4/16/8 bits.
+            ("xbox360", "20000C00", Some("2.0.12.0")),
+            ("xbox360", "2000c00", Some("0.2.12.0")),
+            ("xbox360", "FFFFFFFF", Some("15.15.65535.255")),
+            ("xbox360", "123456789", None),
+            ("xbox360", "zz", None),
+            // XVD PackageVersion as stored, four u16 high to low.
+            ("xboxone", "4.3.2.1", Some("4.3.2.1")),
+            ("xboxseries", "1.0.0.0", Some("1.0.0.0")),
+            ("xboxone", "1.0.0", None),
+            ("xboxone", "70000.0.0.0", None),
+            // Manifest text is untrusted: shown in canonical decimal, never
+            // with a sign or padding that would land in a file name.
+            ("xboxone", "01.02.0.0", Some("1.2.0.0")),
+            ("xboxone", "+1.0.0.0", None),
+            ("xboxone", "1.0.-0.0", None),
+            ("3ds", "+1040", None),
+            ("wiiu", "+32", None),
+            ("switch", "+1", None),
+            ("gamecube", "+1", None),
+            ("xbox360", "+2000C00", None),
+            // Disc revision byte: Redump form, none for the first release.
+            ("gamecube", "1", Some("Rev 1")),
+            ("wii", "2", Some("Rev 2")),
+            ("gamecube", "0", None),
+            ("wii", "256", None),
+            // Retro and other systems have no header version form.
+            ("nes", "1", None),
+            ("3ds", "", None),
+            ("ps4", "  ", None),
+        ] {
+            assert_eq!(
+                display_version(system, raw).as_deref(),
+                want,
+                "{system} {raw:?}"
+            );
+        }
+    }
+
+    /// A Wii WAD's TMD version is not a disc revision byte: it shows as
+    /// its raw decimal, like the Wii U TMD (game folders spec D11, D14 d).
+    #[test]
+    fn display_version_of_tells_wii_wads_from_discs() {
+        let mut wad = ConsoleId::proven("wii", "WAD TMD");
+        wad.title_id = Some("0001000157414145".into());
+        wad.version = Some("513".into());
+        assert_eq!(display_version_of(&wad).as_deref(), Some("513"));
+        let mut disc = ConsoleId::proven("wii", "disc header");
+        disc.title_id = Some("RSPE01".into());
+        disc.version = Some("1".into());
+        assert_eq!(display_version_of(&disc).as_deref(), Some("Rev 1"));
+        disc.version = None;
+        assert_eq!(display_version_of(&disc), None);
+        let mut ctr = ConsoleId::proven("3ds", "CIA TMD");
+        ctr.version = Some("1040".into());
+        assert_eq!(display_version_of(&ctr).as_deref(), Some("1.1.0"));
     }
 }

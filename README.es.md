@@ -632,7 +632,9 @@ candidatos e índices en caché), `--report table|json`, `--output ARCHIVO`.
 `--no-external-tools` (no usa unrar, 7-Zip ni bsdtar),
 `--duplicates set-aside|report|off` (copias que ya están en la biblioteca),
 `--yes-large` (confirma un trabajo que escribe 10 GB o más), `--skip-large`
-(deja esos elementos donde están).
+(deja esos elementos donde están), `--game-folders`/`--no-game-folders`
+(en esta ejecución, cada juego moderno en su carpeta con `Updates/` y `DLC/`,
+o todo suelto; por defecto, lo que diga el perfil).
 
 **`catalog switch`:** `status`, `update`, `remove`, `--data-dir CARPETA`.
 

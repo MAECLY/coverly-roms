@@ -70,6 +70,7 @@ import {
   duplicateCounts,
   extractSummary,
   groupBySystem,
+  licencesStaying,
   itemKey,
   leftItems,
   organizeDupGroups,
@@ -631,6 +632,7 @@ function Proposal({
   const tr = useRichT();
   const locale = useContext(LocaleContext);
   const groups = useMemo(() => groupBySystem(plan), [plan]);
+  const licenceStays = useMemo(() => licencesStaying(plan), [plan]);
   const buckets = useMemo(() => reviewBuckets(plan), [plan]);
   const left = useMemo(() => leftItems(plan), [plan]);
   const extracting = useMemo(() => extractSummary(plan), [plan]);
@@ -749,6 +751,7 @@ function Proposal({
           systems={systems}
           disabled={busy}
           onDecide={onDecide}
+          licenceStays={licenceStays}
           {...(isNew ? { isNew } : {})}
         />
       )}

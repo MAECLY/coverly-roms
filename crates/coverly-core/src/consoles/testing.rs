@@ -301,8 +301,14 @@ pub const WAD_TMD: u64 = 0xD00;
 /// An installable Wii WAD (wiibrew «WAD files»): header `0x20`/`Is`,
 /// certificate chain 0xA00, ticket 0x2A4, TMD 0x208 with title id `tid`,
 /// sections 64-byte aligned from 0x40. The ticket is filled with `0xEE`
-/// so a test can see it was never read.
+/// so a test can see it was never read. TMD title version 0.
 pub fn wii_wad(tid: u64) -> SparseAt {
+    wad_head(tid, 0)
+}
+
+/// [`wii_wad`] with TMD title version `version` (u16 at TMD 0x1DC,
+/// wiibrew «Title metadata»).
+pub fn wad_head(tid: u64, version: u16) -> SparseAt {
     let mut head = Vec::new();
     head.extend(be32(0x20));
     head.extend(*b"Is\0\0");
@@ -316,6 +322,7 @@ pub fn wii_wad(tid: u64) -> SparseAt {
     tmd[..4].copy_from_slice(&be32(0x0001_0001));
     tmd[0x140..0x14A].copy_from_slice(b"Root-CA000");
     tmd[0x18C..0x194].copy_from_slice(&tid.to_be_bytes());
+    tmd[0x1DC..0x1DE].copy_from_slice(&version.to_be_bytes());
     let mut s = SparseAt::new(0xF40 + 0x10_0000);
     s.put(0, &head)
         .put(WAD_TICKET.0, &vec![0xEE; WAD_TICKET.1 as usize])
@@ -424,6 +431,12 @@ pub const CIA_CONTENT: u64 = 0x3900;
 /// bytes when encrypted), and a meta section with [`smdh`]`("Test Game")`
 /// when `with_meta`.
 pub fn cia(tid: u64, encrypted: bool, with_meta: bool) -> SparseAt {
+    cia_with_code(tid, "CTR-P-EKJA", encrypted, with_meta)
+}
+
+/// A [`cia`] whose clear content 0 carries the product code `code`
+/// (region letter variants: `CTR-P-AXXE`, `CTR-P-AXXP`…).
+pub fn cia_with_code(tid: u64, code: &str, encrypted: bool, with_meta: bool) -> SparseAt {
     const CONTENT: u64 = 0x10_0000;
     let meta_len: u32 = if with_meta { 0x400 + 0x36C0 } else { 0 };
     let mut head = Vec::new();
@@ -449,7 +462,7 @@ pub fn cia(tid: u64, encrypted: bool, with_meta: bool) -> SparseAt {
     if encrypted {
         s.put(CIA_CONTENT, &[0xCD; 0x200]);
     } else {
-        for (o, p) in ncch_parts("CTR-P-EKJA", tid, false) {
+        for (o, p) in ncch_parts(code, tid, false) {
             s.put(CIA_CONTENT + o, &p);
         }
     }
@@ -1505,6 +1518,18 @@ pub fn stfs(magic: &[u8; 4], tid: u32, ctype: u32, thumb: &[u8]) -> Vec<u8> {
     h
 }
 
+/// An [`stfs`] `LIVE` package of `ctype` for `title_id` (no
+/// thumbnail) with the embedded execution info's `media_id` at 0x354 and
+/// `version` at 0x358 (free60 «STFS» metadata, game folders spec D14 i).
+pub fn stfs_head(ctype: u32, title_id: u32, media_id: u32, version: u32) -> SparseAt {
+    let mut h = stfs(b"LIVE", title_id, ctype, &[]);
+    h[0x354..0x358].copy_from_slice(&be32(media_id));
+    h[0x358..0x35C].copy_from_slice(&be32(version));
+    let mut s = SparseAt::new(h.len() as u64);
+    s.put(0, &h);
+    s
+}
+
 /// A 40-hex STFS file name of the fixtures.
 pub const STFS_HASH: &str = "0123456789ABCDEF0123456789ABCDEF01234567";
 
@@ -1916,11 +1941,34 @@ pub fn ps3_npdrm_self(content_id: &str) -> Vec<u8> {
 /// with `CATEGORY`, `DISC_ID` and a title, then a PSAR opening with
 /// `psar_magic` (none when empty).
 pub fn pbp(category: &str, disc_id: &str, psar_magic: &[u8]) -> Vec<u8> {
-    let sfo = param_sfo(&[
-        ("CATEGORY", category),
-        ("DISC_ID", disc_id),
-        ("TITLE", "Test Game"),
-    ]);
+    pbp_with_sfo(
+        param_sfo(&[
+            ("CATEGORY", category),
+            ("DISC_ID", disc_id),
+            ("TITLE", "Test Game"),
+        ]),
+        psar_magic,
+    )
+}
+
+/// A PSP PBP of `category` for `disc_id` whose `PARAM.SFO` also carries
+/// `APP_VER` = `version` and `DISC_VERSION` `1.00` (game folders spec
+/// D14 g: `PG` is an update, `UG`/`EG` a game).
+pub fn psp_pbp(category: &str, disc_id: &str, version: &str) -> Vec<u8> {
+    pbp_with_sfo(
+        param_sfo(&[
+            ("APP_VER", version),
+            ("CATEGORY", category),
+            ("DISC_ID", disc_id),
+            ("DISC_VERSION", "1.00"),
+            ("TITLE", "Test Game"),
+        ]),
+        b"",
+    )
+}
+
+/// A PBP holding `sfo`, then a PSAR opening with `psar_magic`.
+fn pbp_with_sfo(sfo: Vec<u8>, psar_magic: &[u8]) -> Vec<u8> {
     let sfo_at = 0x28u32;
     let after = sfo_at + sfo.len() as u32;
     let mut out = vec![0u8; 0x28];

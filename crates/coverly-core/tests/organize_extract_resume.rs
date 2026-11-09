@@ -155,6 +155,7 @@ fn extract_item(
         content_id: None,
         playlist: None,
         title_source: None,
+        game: None,
     }
 }
 

@@ -23,6 +23,8 @@ const MAX_TMD: u64 = 0x2000;
 /// Title id offset in the TMD (after the RSA-2048 signature block and
 /// the issuer, version, CRL versions and system version).
 const TMD_TITLE_ID: usize = 0x18C;
+/// Title version (u16) offset in the TMD.
+const TMD_VERSION: usize = 0x1DC;
 /// RSA-2048 with SHA-1, the TMD signature type.
 const TMD_SIG_RSA2048: u32 = 0x0001_0001;
 
@@ -42,7 +44,9 @@ fn be32(h: &[u8], o: usize) -> Option<u64> {
     )))
 }
 
-/// A Wii WAD: the TMD's title id, its ID4 as the serial and the kind.
+/// A Wii WAD: the TMD's title id, its ID4 as the serial, the kind and
+/// the TMD title version (raw u16 in decimal: two WADs of one title id
+/// are versions of one title, game folders spec D14 d).
 pub fn identify(b: &mut Budgeted) -> Option<ConsoleId> {
     if b.len() < SECTIONS {
         return None;
@@ -56,7 +60,7 @@ pub fn identify(b: &mut Budgeted) -> Option<ConsoleId> {
     let tmd_off = align64(ticket_off.checked_add(ticket)?)?;
     let magic = ConsoleId::magic("wii", "WAD header");
     let fits = tmd_off.checked_add(tmd).is_some_and(|end| end <= b.len());
-    if !fits || tmd > MAX_TMD || (tmd as usize) < TMD_TITLE_ID + 8 {
+    if !fits || tmd > MAX_TMD || (tmd as usize) < TMD_VERSION + 2 {
         return Some(magic);
     }
     let Ok(t) = b.read(tmd_off, tmd as usize) else {
@@ -70,11 +74,18 @@ pub fn identify(b: &mut Budgeted) -> Option<ConsoleId> {
     id.title_id = Some(format!("{tid:016X}"));
     let id4 = &t[TMD_TITLE_ID + 4..TMD_TITLE_ID + 8];
     if id4.iter().all(u8::is_ascii_alphanumeric) {
+        // The 4th character keeps the region on every WAD, a DLC's
+        // lower-case code included (game folders spec D10).
+        id.region = std::str::from_utf8(id4)
+            .ok()
+            .and_then(super::region_from_game_id);
         id.serial = std::str::from_utf8(id4)
             .ok()
             .and_then(|s| crate::disc::serial::normalise_console_serial("wii", s));
     }
     id.kind = kind_wii(tid);
+    id.version =
+        Some(u16::from_be_bytes(t[TMD_VERSION..TMD_VERSION + 2].try_into().ok()?).to_string());
     id.id_source = Some(IdSource::Header);
     Some(id)
 }

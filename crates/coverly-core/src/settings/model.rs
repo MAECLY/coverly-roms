@@ -372,6 +372,11 @@ pub struct OrganizeSettings {
     pub folder_names: BTreeMap<String, BTreeMap<String, String>>,
     /// Profile id → arcade system order (missing = the profile's own).
     pub arcade_order: BTreeMap<String, Vec<String>>,
+    /// Profile id → «carpeta por juego con `DLC/` y `Updates/`» (missing =
+    /// the profile's own value; game folders spec D1). Not written while
+    /// empty, so older builds read the file unchanged.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub game_folders: BTreeMap<String, bool>,
     /// Files modified more recently than this are left in place.
     pub recent_seconds: u32,
     /// How long organise journals are kept for undo.
@@ -393,6 +398,7 @@ impl Default for OrganizeSettings {
             companion_exts: default_companion_exts(),
             folder_names: BTreeMap::new(),
             arcade_order: BTreeMap::new(),
+            game_folders: BTreeMap::new(),
             recent_seconds: 60,
             keep_organize_journals_days: 90,
             external_tools: ExternalTools::Auto,
@@ -720,6 +726,28 @@ impl Settings {
     /// Drops the library at `path` from the recent list.
     pub fn forget(&mut self, path: &Path) {
         self.library.recent.retain(|r| r.path != path);
+    }
+
+    /// Points every reference to profile `from` at `to` (a custom profile
+    /// kept under a new id, game folders spec D2): the default layout and
+    /// profile, and the per-profile art sizes, folder names, arcade orders
+    /// and game folder overrides. An entry already under `to` is kept.
+    pub fn rename_profile(&mut self, from: &str, to: &str) {
+        fn rekey<V>(map: &mut BTreeMap<String, V>, from: &str, to: &str) {
+            if let Some(v) = map.remove(from) {
+                map.entry(to.to_string()).or_insert(v);
+            }
+        }
+        if self.organize.default_layout.trim() == from {
+            self.organize.default_layout = to.to_string();
+        }
+        if self.library.default_profile.as_deref() == Some(from) {
+            self.library.default_profile = Some(to.to_string());
+        }
+        rekey(&mut self.art.max_size, from, to);
+        rekey(&mut self.organize.folder_names, from, to);
+        rekey(&mut self.organize.arcade_order, from, to);
+        rekey(&mut self.organize.game_folders, from, to);
     }
 
     /// Cleans what can be cleaned without asking: list spelling and

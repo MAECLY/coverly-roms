@@ -18,6 +18,9 @@ use walkdir::WalkDir;
 use super::plan::LeftReason;
 use crate::archive::detect::multi_volume_part;
 use crate::consoles::{identify_dir_on_disk, is_key_material, ConsoleId, FolderLeave};
+use crate::game_folder::{
+    classify_listing, is_system_level_fixed, ChildRole, DirShape, FixedFolder, GameBase,
+};
 use crate::identify::sniff::is_doom_wad;
 use crate::organize::inspect::names_an_archive;
 use crate::profiles::naming::system_folder;
@@ -116,6 +119,33 @@ pub struct Walked {
     /// Folders two probes claimed for different systems (review), with
     /// those systems in probe order and the folder's tree.
     pub folder_conflicts: Vec<(PathBuf, Vec<String>, TreeSummary)>,
+    /// `Updates/` and `DLC/` folders of pile directories (game folders
+    /// D7): everything found below one is a child of a game by its folder,
+    /// sorted by folder.
+    pub child_dirs: Vec<ChildDir>,
+}
+
+/// An `Updates/` or `DLC/` folder the walk met in a pile directory (game
+/// folders spec D7, §8.1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChildDir {
+    /// The fixed folder itself, as walked.
+    pub dir: PathBuf,
+    /// The role its folder gives an item whose header says nothing (D14).
+    pub role: ChildRole,
+    /// The game folder holding it when that folder has exactly one base at
+    /// its root (D3); `None` for a folder of several games.
+    pub game_dir: Option<PathBuf>,
+}
+
+/// What a fixed folder of a pile directory is to the walk (D7).
+#[derive(Clone, Debug)]
+enum FixedSeen {
+    /// `Updates/` or `DLC/`: walked, its items carry the role.
+    Child(ChildDir),
+    /// `Mods/`, `Cheats/`, `Extras/` or `Saves/` of a game folder: not
+    /// descended, one left row.
+    Content { folder: FixedFolder, of: String },
 }
 
 /// A folder game the walk found (spec D12, plan P-3).
@@ -173,9 +203,16 @@ pub struct TreeSummary {
 /// only (never a file's content), without following links, within
 /// [`TREE_MAX_ENTRIES`] and [`TREE_MAX_DEPTH`] (spec D27).
 pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
+    tree_summary_excluding(dir, opts, &[])
+}
+
+/// [`tree_summary`] that never enters the folders in `exclude` (a game
+/// folder's fixed folders, game folders spec D5): they count neither in
+/// the size nor in the digest.
+pub fn tree_summary_excluding(dir: &Path, opts: &WalkOptions, exclude: &[PathBuf]) -> TreeSummary {
     let mut listed: Vec<(String, u64)> = Vec::new();
     let mut unreadable = false;
-    let mut out = tree_walk(dir, opts, &mut listed, &mut unreadable);
+    let mut out = tree_walk(dir, opts, exclude, &mut listed, &mut unreadable);
     // A folder or entry that could not be read hides files: the digest of
     // what was seen could match a copy without them (spec D19).
     if !out.truncated && !out.symlink && !unreadable && !listed.is_empty() {
@@ -188,6 +225,40 @@ pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
 /// as [`tree_summary`] does.
 pub fn tree_digest(dir: &Path) -> Option<String> {
     tree_now(dir).digest
+}
+
+/// [`tree_now`] without the fixed folders (`Updates/`, `DLC/`, `Mods/`,
+/// `Cheats/`, `Extras/`, `Saves/`) directly inside `dir` (game folders
+/// spec D5): what a library scan measures a folder game as.
+pub fn tree_now_without_fixed(dir: &Path) -> TreeSummary {
+    let fixed: Vec<PathBuf> = fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|e| {
+                    crate::game_folder::FixedFolder::from_dir_name(&e.file_name().to_string_lossy())
+                        .is_some()
+                        && fs::symlink_metadata(e.path()).is_ok_and(|m| m.is_dir())
+                })
+                .map(|e| e.path())
+                .collect()
+        })
+        .unwrap_or_default();
+    if fixed.is_empty() {
+        return tree_now(dir);
+    }
+    let opts = WalkOptions {
+        skip_dirs: Vec::new(),
+        roms_root: None,
+        art_dirs: &[],
+        ignored_dirs: &[],
+        now: UNIX_EPOCH,
+        recent: Duration::ZERO,
+        probe: &OsMetaProbe,
+        max_depth: MAX_DEPTH,
+        profile: None,
+    };
+    tree_summary_excluding(dir, &opts, &fixed)
 }
 
 /// [`tree_summary`] of the folder game `dir` with the defaults a scan
@@ -210,6 +281,7 @@ pub fn tree_now(dir: &Path) -> TreeSummary {
 fn tree_walk(
     dir: &Path,
     opts: &WalkOptions,
+    exclude: &[PathBuf],
     listed: &mut Vec<(String, u64)>,
     unreadable: &mut bool,
 ) -> TreeSummary {
@@ -255,6 +327,9 @@ fn tree_walk(
                 out.longest_rel_utf16 = out.longest_rel_utf16.max(units);
             }
             if meta.is_dir() {
+                if exclude.contains(&path) {
+                    continue;
+                }
                 if depth + 1 > TREE_MAX_DEPTH {
                     out.truncated = true;
                 } else {
@@ -329,6 +404,19 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     // Folders a probe or the overlay rule leaves whole (plan P-2, D11 d).
     let mut left_dirs: Vec<(PathBuf, LeftReason)> = Vec::new();
     let mut refused_links: Vec<PathBuf> = Vec::new();
+    // Fixed folders of the pile directories met so far, by path key (D7).
+    let mut fixed_seen: HashMap<String, FixedSeen> = HashMap::new();
+    let mut game_content: Vec<(PathBuf, LeftReason)> = Vec::new();
+    if let Some(listed) = list_dir(source) {
+        // A pile picked at a system folder (Batocera `ps4/`): its fixed
+        // folders are never a game's (D3). Deeper system folders are
+        // `sorted` and never descended.
+        let is_system = source.file_name().is_some_and(|n| {
+            db.resolve_folder_in(opts.profile, &n.to_string_lossy())
+                .is_some()
+        });
+        note_fixed_folders(source, &listed, is_system, db, &mut fixed_seen);
+    }
     let skip_keys: Vec<String> = opts.skip_dirs.iter().map(|p| dir_key(p)).collect();
     let roms_root_key = opts.roms_root.as_deref().map(dir_key);
     let mut partial_dirs: Vec<PathBuf> = Vec::new();
@@ -354,7 +442,27 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 return false;
             }
             let name = entry.file_name().to_string_lossy();
-            if is_hidden(&name) || ignored.contains(&name.to_lowercase()) {
+            if is_hidden(&name) {
+                return false;
+            }
+            // A game folder's `Mods/`, `Cheats/`, `Extras/` and `Saves/`
+            // stay with their game, unread (game folders D7), even when the
+            // name is an ignored one (`saves`).
+            if !fixed_seen.is_empty() {
+                if let Some(FixedSeen::Content { folder, of }) =
+                    fixed_seen.get(&path_key(entry.path()))
+                {
+                    game_content.push((
+                        entry.path().to_path_buf(),
+                        LeftReason::GameFolderContent {
+                            folder: *folder,
+                            of: of.clone(),
+                        },
+                    ));
+                    return false;
+                }
+            }
+            if ignored.contains(&name.to_lowercase()) {
                 return false;
             }
             // Safari keeps an unfinished download inside `<name>.download/`.
@@ -407,7 +515,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 ));
                 return false;
             }
-            let names: Vec<String> = listed.iter().map(|(n, _, _)| n.clone()).collect();
+            let names = probe_names(&listed);
             match identify_dir_on_disk(entry.path(), &names) {
                 Ok(Some(found)) => {
                     if let Some(leave) = found.leave {
@@ -449,7 +557,10 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                     folder_games.push((entry.path().to_path_buf(), reason));
                     false
                 }
-                None => true,
+                None => {
+                    note_fixed_folders(entry.path(), &listed, false, db, &mut fixed_seen);
+                    true
+                }
             }
         });
 
@@ -486,6 +597,13 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
         // By name, before the size, the siblings or a byte (D4).
         if is_key_material(&name) {
             out.left.push((path.to_path_buf(), LeftReason::KeyMaterial));
+            continue;
+        }
+        // Firmware, shader caches and emulator configs: by name and the
+        // folders below the source, before the size (game folders D18).
+        if let Some(what) = crate::scan::not_a_game(path.strip_prefix(source).unwrap_or(path)) {
+            out.left
+                .push((path.to_path_buf(), LeftReason::NotARom { what }));
             continue;
         }
         if is_partial_download(&name)
@@ -558,6 +676,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     out.left.extend(folder_games);
     out.left.extend(emulator_data);
     out.left.extend(left_dirs);
+    out.left.extend(game_content);
     out.left.extend(
         partial_dirs
             .into_iter()
@@ -575,7 +694,111 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     out.deep_folders.sort();
     out.companions.sort();
     out.other_files.sort();
+    out.child_dirs = fixed_seen
+        .into_values()
+        .filter_map(|seen| match seen {
+            FixedSeen::Child(child) => Some(child),
+            FixedSeen::Content { .. } => None,
+        })
+        .collect();
+    out.child_dirs.sort_by(|a, b| a.dir.cmp(&b.dir));
     Ok(out)
+}
+
+/// Extensions a sheet's tracks use: with a sheet at a folder's root they
+/// are its tracks, not further games (§8.1).
+pub(crate) const TRACK_EXTS: [&str; 10] = [
+    "bin", "img", "raw", "sub", "wav", "iso", "flac", "ape", "ogg", "mp3",
+];
+
+/// Sheets of a disc set or a playlist (§8.1).
+pub(crate) const SHEET_EXTS: [&str; 4] = ["cue", "gdi", "ccd", "m3u"];
+
+/// Records the fixed folders of the pile directory `dir` lists (game
+/// folders D3, D7): `Updates/` and `DLC/` always give their items a role;
+/// `Mods/`, `Cheats/`, `Extras/` and `Saves/` are left whole only when
+/// `dir` has exactly one base at its root, so a folder of several games
+/// (`SNES/Hacks/` with a `Mods/`) is walked as today. Names only, from
+/// the listing the walk already took; one `symlink_metadata` per entry
+/// named like a fixed folder. `is_system`: `dir` is a system folder, whose
+/// fixed folders keep today's behaviour (D3, [`is_system_level_fixed`]).
+fn note_fixed_folders(
+    dir: &Path,
+    listed: &[(String, PathBuf, bool)],
+    is_system: bool,
+    db: &SystemDb,
+    seen: &mut HashMap<String, FixedSeen>,
+) {
+    if !listed.iter().any(|(name, _, is_file)| {
+        !is_file
+            && FixedFolder::from_dir_name(name).is_some()
+            && !is_system_level_fixed(name, is_system)
+    }) {
+        return;
+    }
+    let entries: Vec<(String, bool)> = listed
+        .iter()
+        .filter(|(name, _, _)| !is_hidden(name))
+        .map(|(name, path, is_file)| {
+            let is_dir = !is_file
+                && (FixedFolder::from_dir_name(name).is_none()
+                    || fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()));
+            (name.clone(), is_dir)
+        })
+        .collect();
+    let ext_of = |name: &str| extension(Path::new(name));
+    let has_sheet = entries
+        .iter()
+        .any(|(name, is_dir)| !is_dir && SHEET_EXTS.contains(&ext_of(name).as_str()));
+    let rom_like = |name: &str| {
+        let ext = ext_of(name);
+        !is_key_material(name)
+            && !is_companion(name, &ext)
+            && !(has_sheet && TRACK_EXTS.contains(&ext.as_str()))
+            && (db.is_rom_like_extension(&ext) || names_an_archive(&ext))
+    };
+    let sheet = |name: &str| SHEET_EXTS.contains(&ext_of(name).as_str());
+    let (base, fixed) = match classify_listing(&entries, &rom_like, &sheet, false) {
+        DirShape::GameFolder { base, fixed } => (Some(base), fixed),
+        DirShape::Loose { fixed } => (None, fixed),
+        DirShape::Plain => return,
+    };
+    let of = base.as_ref().map(|base| match base {
+        GameBase::File(name) | GameBase::Sheet(name) => Path::new(name)
+            .file_stem()
+            .map_or_else(|| name.clone(), |s| s.to_string_lossy().into_owned()),
+        GameBase::SelfIsFolderGame => dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    });
+    for (folder, spelling) in fixed {
+        let path = dir.join(&spelling);
+        let entry = match (folder.child_role(), &of) {
+            (Some(role), _) => FixedSeen::Child(ChildDir {
+                dir: path.clone(),
+                role,
+                game_dir: of.as_ref().map(|_| dir.to_path_buf()),
+            }),
+            (None, Some(of)) => FixedSeen::Content {
+                folder,
+                of: of.clone(),
+            },
+            (None, None) => continue,
+        };
+        seen.insert(path_key(&path), entry);
+    }
+}
+
+/// The names a console probe sees in a folder listing: key and licence
+/// files left out by name (game folders spec D17), so no probe depends
+/// on them.
+fn probe_names(listed: &[(String, PathBuf, bool)]) -> Vec<String> {
+    listed
+        .iter()
+        .filter(|(name, _, _)| !is_key_material(name))
+        .map(|(name, _, _)| name.clone())
+        .collect()
 }
 
 /// One `read_dir` of `dir`: each entry's name, path and whether it is a
@@ -1096,6 +1319,24 @@ mod tests {
         assert!(!t.truncated);
         assert_eq!(t.files, 1);
         assert_eq!(t.longest_rel_utf16, "a.bin".len());
+    }
+
+    #[test]
+    fn probes_never_see_key_names() {
+        let listed: Vec<(String, PathBuf, bool)> = [
+            "EBOOT.BIN",
+            "keys.txt",
+            "otp.bin",
+            "ticket.db",
+            "eeprom.bin",
+            "Game.edat",
+            "x.rap",
+            "sce_sys",
+        ]
+        .iter()
+        .map(|n| (n.to_string(), PathBuf::from(n), true))
+        .collect();
+        assert_eq!(probe_names(&listed), vec!["EBOOT.BIN", "sce_sys"]);
     }
 
     #[test]

@@ -347,6 +347,15 @@ fn check_plan(plan: &DedupePlan) -> Result<(), DedupeError> {
         if every {
             return Err(DedupeError::EveryMemberMoves(g.id));
         }
+        // A game whose folder holds updates, DLC or a fixed folder is never
+        // set aside (game folders spec D9, Q13): the planner reports such
+        // a group; a plan that says otherwise is refused whole.
+        if g.members
+            .iter()
+            .any(|m| m.id != g.keeper && m.unit.holds_children)
+        {
+            return Err(DedupeError::RemovesGameFolder(g.id));
+        }
     }
     // No extra may carry away a file a copy that stays uses: a keeper's
     // files and companions, a shared companion, or any file of a group that
@@ -618,7 +627,19 @@ fn check_unit(m: &Member) -> Check {
         // rewritten since keeps it where it is (spec D19).
         return match fs::symlink_metadata(&m.unit.primary) {
             Ok(meta) if meta.is_dir() => {
-                let now = crate::organize::walk::tree_now(&m.unit.primary);
+                // A fixed folder that appeared since the plan (Organizar
+                // filled `Updates/`) is left out of the measure below, yet
+                // would leave with the folder: the copy changed (D9).
+                if !m.unit.holds_children && holds_fixed_folder(&m.unit.primary) {
+                    return Check::Changed;
+                }
+                // A library folder game was measured without its fixed
+                // folders (game folders spec D5), a pile one whole.
+                let now = if m.unit.in_library {
+                    crate::organize::walk::tree_now_without_fixed(&m.unit.primary)
+                } else {
+                    crate::organize::walk::tree_now(&m.unit.primary)
+                };
                 let same_time = now.files == 0 || now.newest_mtime_ns == m.unit.mtime_ns;
                 if now.bytes == m.size && same_time {
                     Check::Same
@@ -652,6 +673,19 @@ fn check_unit(m: &Member) -> Check {
     } else {
         Check::Changed
     }
+}
+
+/// Whether the folder `dir` holds a real folder named like a fixed
+/// folder (`Updates/`, `DLC/`, `Mods/`, `Cheats/`, `Extras/`, `Saves/`):
+/// one listing, one `symlink_metadata` per such name.
+fn holds_fixed_folder(dir: &Path) -> bool {
+    fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|e| {
+            crate::game_folder::FixedFolder::from_dir_name(&e.file_name().to_string_lossy())
+                .is_some()
+                && fs::symlink_metadata(e.path()).is_ok_and(|m| m.is_dir())
+        })
+    })
 }
 
 /// The finished journal record of `from` for `item`: a finished move whose

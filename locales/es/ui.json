@@ -109,6 +109,9 @@
     "library": {
       "defaultProfile": "Perfil de estructura por defecto",
       "defaultProfileAuto": "Detectar automáticamente",
+      "gameFolders": "Carpeta por juego con DLC y actualizaciones",
+      "gameFoldersHint": "Cada juego en su carpeta, con sus actualizaciones y DLC dentro. Se aplica a {profile} al organizar.",
+      "gameFoldersDetails": "En disco las carpetas se llaman Updates y DLC, en inglés, para que emuladores y herramientas las reconozcan. Solo se crean cuando tienen algo dentro.",
       "ignoredDirs": "Carpetas ignoradas",
       "ignoredDirsHint": "Un nombre de carpeta por línea. Se saltan a cualquier profundidad.",
       "ignoredExts": "Extensiones ignoradas",
@@ -306,6 +309,7 @@
     "keywords": {
       "credits": "agradecimientos, créditos, licencias, atribución, avisos, credits",
       "duplicates": "copias, repetidos",
+      "gameFolders": "DLC, actualizaciones, updates, carpeta",
       "hidden": "dotfiles, punto",
       "quarantine": "cuarentena, apartados, quarantine",
       "rar": "unrar, 7-Zip, 7z, rar",
@@ -638,7 +642,8 @@
       "userSkipped": "Has pedido no tocarlo",
       "chdMetadataDiffers": "Mismo contenido, metadatos del CHD distintos",
       "titleId": "Mismo id de juego; el contenido no se ha comparado",
-      "folderGame": "Carpeta de juego: solo se informa, no se aparta"
+      "folderGame": "Carpeta de juego: solo se informa, no se aparta",
+      "hasChildren": "Tiene actualizaciones o DLC en su carpeta: no se quita"
     },
     "notRom": "No es una ROM",
     "skip": {
@@ -1309,7 +1314,9 @@
       "dlcFolder": "Va a la carpeta DLC, donde {layout} busca el contenido descargable",
       "homebrew": "Homebrew",
       "vita7z": "Vita3K solo instala .zip, .vpk o .vci",
-      "missingDisc": "Falta el disco {n}"
+      "missingDisc": "Falta el disco {n}",
+      "demoOf": "Demo de {title}",
+      "baseMissing": "Su juego no está aquí ni en la biblioteca; revisa dónde va"
     },
     "pause": {
       "diskFull": "Disco lleno: faltan {needed}; se ha deshecho el juego a medias"
@@ -1371,6 +1378,8 @@
       "patch": "parche; aplícalo a la ROM original",
       "pcGameData": "datos de un juego de PC",
       "consoleSystem": "archivo del sistema de una consola",
+      "emulatorCache": "caché de un emulador",
+      "emulatorConfig": "ajustes de un emulador",
       "installer": "instalador de programas",
       "model3d": "modelo 3D",
       "bios": "BIOS: va en la carpeta de BIOS del dispositivo",
@@ -1390,10 +1399,12 @@
       "tooBigForFat": "Demasiado grande para FAT32 (hace falta exFAT)",
       "unreadable": "No se puede leer",
       "collisionSet": "Otro juego ya usa esos nombres en el destino",
-      "keyMaterial": "Archivo de claves o licencia: Coverly no lo lee ni lo mueve",
+      "keyMaterial": "Archivo de claves o licencia: Coverly no lo lee y lo deja aquí",
+      "licenceOf": "Licencia de {title}: va con su juego; Coverly no la abre",
       "emulatorData": "Está dentro de los datos de un emulador ({folder}); se deja tal cual",
       "gameOverlay": "Carpeta de mods o parches de {title}: se deja donde está",
       "notConfirmed": "No confirmado; se queda donde está",
+      "gameFolderContent": "La carpeta {folder} de {title} se queda donde está por ahora",
       "title": "Se quedan donde están",
       "inLibrary": "Ya está en tu biblioteca como {path}",
       "gamePart": "Parte de un juego; no se mueve suelta",
@@ -1406,6 +1417,15 @@
     "summaryUpdatesOne": "Incluye 1 actualización o contenido descargable",
     "item": {
       "folder": "Carpeta de juego"
+    },
+    "gameFolder": {
+      "show": "Ver cómo queda la carpeta",
+      "hide": "Ocultar la carpeta",
+      "label": "Carpeta de {title}",
+      "count": "{folder} ({count})",
+      "exists": "ya existe",
+      "onDisk": "en disco: {name}",
+      "more": "y {count} más"
     },
     "empty": {
       "title": "Nada que archivar",
@@ -1457,6 +1477,9 @@
     },
     "renamed": "Se guardará como {name} porque ya existe otro distinto",
     "renamedFrom": "Renombrado; antes era {name}",
+    "renamedForFolder": "Renombrado para su carpeta; antes era {name}",
+    "version": "versión {version}",
+    "newestHere": "la más nueva aquí",
     "renamedShort": "Nombre acortado para no superar la longitud máxima de ruta",
     "multiRomZip": "Contiene {count} ROMs; la consola cargará solo la primera.",
     "noFolderOnDevice": "{layout} no tiene carpeta para {system}; se crea {folder}.",
@@ -1517,6 +1540,11 @@
     },
     "copiedNotRemoved": "Copiado; el original no se pudo borrar",
     "copiedNotRemovedCount": "Copiados sin borrar el original: {count}",
+    "licenceLeft": "La licencia se ha quedado donde estaba: no se pudo mover con su juego",
+    "licenceStays": "Su licencia se queda donde estaba; Coverly no la abre",
+    "companion": {
+      "licence": "Su licencia va con él; Coverly no la abre"
+    },
     "stopped": "Detenido. Lo ya organizado se queda; Deshacer lo devuelve a su sitio.",
     "details": "Qué ha pasado con cada archivo",
     "outcome": {
@@ -1541,6 +1569,7 @@
       "action": "Deshacer",
       "actionCount": "Deshacer {count} archivos",
       "archiveLost": "No se pudo recuperar el comprimido de la papelera; los archivos extraídos se quedan",
+      "dirsKept": "Estas carpetas se quedan porque no están vacías",
       "confirmTitle": "¿Deshacer esta organización?",
       "laterJobs": "Primero hay que deshacer: {jobs}",
       "laterJob": "{kind} {date}",
@@ -1609,6 +1638,14 @@
     },
     "encryptedLabel": "Cifrado",
     "encryptedUnresolved": "No se puede leer el nombre sin descifrarlo"
+  },
+  "gameFolder": {
+    "updates": "Actualizaciones",
+    "dlc": "Contenido descargable",
+    "mods": "Mods",
+    "cheats": "Trucos",
+    "extras": "Extras",
+    "saves": "Partidas"
   },
   "ui": {
     "close": "Cerrar",

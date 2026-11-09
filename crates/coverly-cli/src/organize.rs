@@ -14,7 +14,7 @@ use clap::{Args, ValueEnum};
 use coverly_core::archive::{FoundTool, Tool};
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::catalog::{SwitchCatalog, TitleNames};
-use coverly_core::consoles::PartKind;
+use coverly_core::consoles::{FixedFolder, PartKind};
 use coverly_core::credentials::{DevCredentials, SourceKeys};
 use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
 use coverly_core::identify::evidence::{Evidence, IdLevel};
@@ -23,11 +23,11 @@ use coverly_core::net::{PoliteHttp, UreqHttp};
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
     apply_organize, gate, large_transfer, large_transfer_threshold, load_plan, plan_from_survey,
-    resume_organize, survey, ApplyEnv, ApplyError, Choice, Decision, HugeItem, ItemKind, ItemNote,
-    ItemOutcome, ItemStatus, LargeConfirm, LargeTransfer, LeftReason, NameMode, OrganizeAction,
-    OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan,
-    OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason, SkipReason, Survey,
-    Transfer, TransferMode,
+    resume_organize, survey, ApplyEnv, ApplyError, Choice, Decision, GameLink, GameRole, HugeItem,
+    ItemKind, ItemNote, ItemOutcome, ItemStatus, LargeConfirm, LargeTransfer, LeftReason, NameMode,
+    OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase,
+    OrganizePlan, OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason,
+    SkipReason, Survey, Transfer, TransferMode,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
@@ -82,6 +82,7 @@ pub struct OrganizeArgs {
         conflicts_with_all = [
             "apply", "dry_run", "layout", "target", "flat", "copy", "move_",
             "names", "assign", "include_review", "duplicates",
+            "game_folders", "no_game_folders",
         ]
     )]
     resume: Option<String>,
@@ -95,6 +96,15 @@ pub struct OrganizeArgs {
     /// Move the items to review with their best candidate system.
     #[arg(long)]
     include_review: bool,
+    /// Give each modern game its own folder for this run, with its
+    /// updates in `Updates/` and its DLC in `DLC/` (default: the game
+    /// folders setting of the layout, else the layout's own value).
+    #[arg(long, conflicts_with = "no_game_folders")]
+    game_folders: bool,
+    /// Keep bases, updates and DLC loose in the system folder for this
+    /// run, whatever the layout or the game folders setting say.
+    #[arg(long)]
+    no_game_folders: bool,
     /// Cached catalogues only: no download, no online lookup.
     #[arg(long)]
     offline: bool,
@@ -744,13 +754,14 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         .into_iter()
         .map(|(p, _)| p)
         .collect();
-    if !profiles.iter().any(|p| p.id == opts.layout) {
+    let Some(profile) = profiles.iter().find(|p| p.id == opts.layout) else {
         return Err(Failure::usage(format!(
             "unknown layout `{}`; expected one of: {}",
             opts.layout,
             profile_ids(&cli.custom)
         )));
-    }
+    };
+    opts.game_folders = Some(game_folders_for(args, profile, s));
     let db = SystemDb::builtin();
     let mut assigned: Vec<(PathBuf, String)> = Vec::with_capacity(args.assign.len());
     for a in &args.assign {
@@ -1103,6 +1114,31 @@ fn mode_name(mode: TransferMode) -> &'static str {
     }
 }
 
+/// Whether this run builds game folders (game folders spec D23): the
+/// flag, else the user's setting for the layout, else the layout's value.
+fn game_folders_for(args: &OrganizeArgs, profile: &Profile, settings: &Settings) -> bool {
+    if args.game_folders {
+        true
+    } else if args.no_game_folders {
+        false
+    } else {
+        profile.uses_game_folders(&settings.organize)
+    }
+}
+
+/// The version column of an update or DLC row (`v1.1.0`; D11 display
+/// form, D23), empty for every other item.
+fn version_column(item: &OrganizeItem) -> String {
+    match &item.game {
+        Some(GameLink {
+            role: GameRole::Update | GameRole::Dlc,
+            version: Some(v),
+            ..
+        }) if !v.trim().is_empty() => format!("  v{}", v.trim()),
+        _ => String::new(),
+    }
+}
+
 fn confidence_label(item: &OrganizeItem, opts: &OrganizeOptions) -> &'static str {
     if item.method == Some(IdLevel::User) || item.confidence + 1e-4 >= opts.thresholds.auto {
         "High"
@@ -1159,6 +1195,8 @@ fn left_reason_text(reason: &LeftReason) -> String {
             NotARom::Model3d => "not a ROM (3D model)".into(),
             NotARom::PcGameData => "not a ROM (PC game data)".into(),
             NotARom::ConsoleSystem => "not a ROM (console system file)".into(),
+            NotARom::EmulatorCache => "not a ROM (emulator cache)".into(),
+            NotARom::EmulatorConfig => "not a ROM (emulator settings)".into(),
         },
         LeftReason::Bios => "BIOS or firmware".into(),
         LeftReason::DamagedArchive => "damaged archive".into(),
@@ -1217,7 +1255,11 @@ fn left_reason_text(reason: &LeftReason) -> String {
         LeftReason::TooBigForFat => "larger than 4 GiB on a FAT32 target".into(),
         LeftReason::Unreadable => "cannot be read".into(),
         LeftReason::CollisionSet => "a file of the game is taken at the target".into(),
-        LeftReason::KeyMaterial => "key or licence file: never read or moved".into(),
+        LeftReason::KeyMaterial => "key or licence file: never read, left here".into(),
+        LeftReason::LicenceOf { of } => format!(
+            "licence of {}: goes with it, never read",
+            of.file_name().unwrap_or(of.as_os_str()).to_string_lossy()
+        ),
         LeftReason::EmulatorData { folder } => {
             format!("inside an emulator's data folder ({folder}): left as it is")
         }
@@ -1230,6 +1272,22 @@ fn left_reason_text(reason: &LeftReason) -> String {
         } => "encrypted Vita backup; not moved on its own".into(),
         LeftReason::GamePart { .. } => "part of a game; not moved on its own".into(),
         LeftReason::NotConfirmed => "not confirmed; left where it is".into(),
+        LeftReason::GameFolderContent { folder, of } => format!(
+            "kept in place: the {} folder of {of} stays for now",
+            fixed_folder_name(*folder)
+        ),
+    }
+}
+
+/// A fixed folder's name as on disk: English, never translated.
+fn fixed_folder_name(folder: FixedFolder) -> &'static str {
+    match folder {
+        FixedFolder::Updates => "Updates",
+        FixedFolder::Dlc => "DLC",
+        FixedFolder::Mods => "Mods",
+        FixedFolder::Cheats => "Cheats",
+        FixedFolder::Extras => "Extras",
+        FixedFolder::Saves => "Saves",
     }
 }
 
@@ -1250,6 +1308,7 @@ fn rename_text(r: &RenameReason) -> String {
         }
         RenameReason::PathLength => "renamed: the path was too long".into(),
         RenameReason::Catalogue { from } => format!("renamed from {from} to the catalogue name"),
+        RenameReason::GameFolder { from } => format!("renamed for its game folder (was {from})"),
     }
 }
 
@@ -1315,6 +1374,8 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::ArchiveCaseCollision => {
             "two names in the archive differ only in case; extracting them would collide".into()
         }
+        ItemNote::DemoOf { of } => format!("demo of {of}"),
+        ItemNote::BaseMissing => "its game is not here or in the library".into(),
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })
@@ -1544,6 +1605,7 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
         };
         let _ = writeln!(out, "  {}  {line}", label(o));
     }
+    out.push_str(&licences_left_text(report));
     if let Some(j) = &report.job {
         if report.paused.is_some() {
             let _ = writeln!(
@@ -1563,6 +1625,21 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
         );
     }
     table::terminal_safe(&out)
+}
+
+/// One line per licence whose rename failed (game folders spec D17): it
+/// stays beside the pile although the plan said it went with its game.
+fn licences_left_text(report: &OrganizeReport) -> String {
+    let mut out = String::new();
+    for path in report.items.iter().flat_map(|o| &o.licences_left) {
+        let name = path.file_name().unwrap_or(path.as_os_str());
+        let _ = writeln!(
+            out,
+            "  {}  licence stayed where it was: only a rename moves it",
+            name.to_string_lossy()
+        );
+    }
+    out
 }
 
 /// `s` quoted for a POSIX shell when it holds anything but plain path
@@ -1640,9 +1717,10 @@ fn render_table(
             let why = item.why.first().map(why_text).unwrap_or_default();
             let _ = writeln!(
                 out,
-                "  {}  {}  {why}{}",
+                "  {}  {}{}  {why}{}",
                 action_label(item),
                 confidence_label(item, opts),
+                version_column(item),
                 item_extras(item)
             );
         }
@@ -2246,7 +2324,7 @@ mod tests {
         let cases = [
             (
                 LeftReason::KeyMaterial,
-                "key or licence file: never read or moved",
+                "key or licence file: never read, left here",
             ),
             (
                 LeftReason::EmulatorData {
@@ -2390,6 +2468,78 @@ mod tests {
                 items: 2
             }),
             "12.0 GB will be written to the target; you will be asked to confirm"
+        );
+    }
+
+    #[test]
+    fn a_licence_left_behind_is_named_in_the_report() {
+        let report = OrganizeReport {
+            items: vec![ItemOutcome {
+                item: 0,
+                status: ItemStatus::Moved,
+                targets: vec![std::path::Path::new("lib").join("Resistance.pkg")],
+                licences_left: vec![std::path::Path::new("pile").join("BLUS30001.rap")],
+            }],
+            ..OrganizeReport::default()
+        };
+        assert_eq!(
+            licences_left_text(&report),
+            "  BLUS30001.rap  licence stayed where it was: only a rename moves it\n"
+        );
+        assert_eq!(licences_left_text(&OrganizeReport::default()), "");
+    }
+
+    #[test]
+    fn game_folder_texts() {
+        use coverly_core::consoles::FixedFolder;
+        assert_eq!(
+            left_text(&LeftReason::LicenceOf {
+                of: std::path::Path::new("ps3").join("Resistance.pkg"),
+            }),
+            "licence of Resistance.pkg: goes with it, never read"
+        );
+        assert_eq!(
+            left_text(&LeftReason::GameFolderContent {
+                folder: FixedFolder::Mods,
+                of: "Pokemon Y".into(),
+            }),
+            "kept in place: the Mods folder of Pokemon Y stays for now"
+        );
+        assert_eq!(
+            left_text(&LeftReason::GameFolderContent {
+                folder: FixedFolder::Dlc,
+                of: "Pokemon Y".into(),
+            }),
+            "kept in place: the DLC folder of Pokemon Y stays for now"
+        );
+        assert_eq!(
+            left_text(&LeftReason::NotARom {
+                what: NotARom::EmulatorCache
+            }),
+            "not a ROM (emulator cache)"
+        );
+        assert_eq!(
+            left_text(&LeftReason::NotARom {
+                what: NotARom::EmulatorConfig
+            }),
+            "not a ROM (emulator settings)"
+        );
+        assert_eq!(
+            note_text(&ItemNote::DemoOf {
+                of: "Pokemon Y".into()
+            })
+            .as_deref(),
+            Some("demo of Pokemon Y")
+        );
+        assert_eq!(
+            note_text(&ItemNote::BaseMissing).as_deref(),
+            Some("its game is not here or in the library")
+        );
+        assert_eq!(
+            rename_text(&RenameReason::GameFolder {
+                from: "pky.3ds".into()
+            }),
+            "renamed for its game folder (was pky.3ds)"
         );
     }
 }

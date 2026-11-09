@@ -149,7 +149,8 @@ fn trashed_archives(data: &std::path::Path, ids: &[String]) -> BTreeSet<PathBuf>
 }
 
 /// `Undid organise job …: moved back 2, removed 0 copies, kept 0 changed,
-/// 2 folders removed`, then the files left as they are, the archives
+/// 2 folders removed`, then the files left as they are, the folders the
+/// job created and kept because they aren't empty, the archives
 /// brought back from the Trash and the ones that could not be. A
 /// duplicates job (`kind` dedupe) reads the same, with its own name and
 /// its own words for the copies the Trash brought back or no longer holds.
@@ -181,6 +182,13 @@ fn organize_text(report: &UndoReport, trashed: &BTreeSet<PathBuf>, kind: JobKind
         let _ = write!(
             text,
             "\n  kept {}",
+            table::one_line(&p.display().to_string())
+        );
+    }
+    for p in &report.dirs_kept {
+        let _ = write!(
+            text,
+            "\n  kept folder {}; it isn't empty",
             table::one_line(&p.display().to_string())
         );
     }

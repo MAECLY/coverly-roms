@@ -229,7 +229,8 @@ fn parse_cnmt_xml(bytes: &[u8]) -> Option<(u64, Option<u32>, TitleKind)> {
     let kind = match get(&f, "Type") {
         Some("Application") => TitleKind::Base,
         Some("Patch") => TitleKind::Update,
-        Some("AddOnContent") => TitleKind::Dlc,
+        Some("AddOnContent" | "DataPatch") => TitleKind::Dlc,
+        Some("Delta") => TitleKind::Update,
         _ => TitleKind::Unknown,
     };
     Some((tid, version, kind))

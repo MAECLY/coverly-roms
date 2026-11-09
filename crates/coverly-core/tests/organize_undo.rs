@@ -346,6 +346,8 @@ fn a_folder_with_user_files_is_kept() {
         "nothing is cleaned in a kept folder"
     );
     assert!(report.dirs_removed.is_empty());
+    // Reported as kept, innermost first.
+    assert_eq!(report.dirs_kept, [root.join("ROMS/GB"), root.join("ROMS")]);
 }
 
 #[test]

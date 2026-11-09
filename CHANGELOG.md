@@ -8,6 +8,49 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ## [Unreleased]
 
+### Added
+
+- One folder per game for modern consoles: Organise moves a game, its
+  updates and its DLC together into `<System>/<Game>/`, with the updates in
+  `Updates/` and the DLC in `DLC/`. Only the folders that get content are
+  created. The new «Coverly» library layout has it on; every other layout
+  has a switch for it in Settings → Library. The plan shows each game with
+  its updates and DLC beneath it and a preview of the folder it will make,
+  and the whole run can be undone.
+- Demos become games of their own, in a `<Game> (Demo)` folder, and are
+  linked to their game by name.
+- Versions and regions in names: updates are named with the version read
+  from the file (3DS, Wii U, Switch when in clear, PS3, PS4, Vita, PSP,
+  Xbox 360), and the region read from the title or product code is added to
+  the game's name. Two regions of one game get two folders.
+- Updates, DLC, demos and system titles are now recognised on more
+  consoles: 3DS, Switch, Wii U, Wii and WiiWare, PS3, Vita, PSP, PS4, PS5,
+  Xbox 360, Xbox One and Series. Anything unclear stays unknown and is left
+  where it is.
+- Retro revisions such as `(Rev 1)` or `(v1.1)` are grouped as versions of
+  one game in the library and in Duplicates, where the newest is the
+  suggested keeper. On disk they stay as they are.
+- The library scan, Organise and Duplicates respect a game's `Updates/`,
+  `DLC/`, `Mods/`, `Cheats/`, `Extras/` and `Saves/` folders: their files
+  are never moved out as loose games nor reported as copies of the game.
+- `coverly organize --game-folders` and `--no-game-folders` override the
+  layout's setting for one run.
+
+### Changed
+
+- A licence file beside a game (`.rap`, `.rif`, `.tik`, `.edat` and
+  similar) may move with it, by a rename on the same drive only, when its
+  name matches that one game. It is never opened, read or copied; when it
+  is unclear which game it belongs to, it stays where it is.
+- `keys.txt`, `otp.bin`, `ticket.db`, `eeprom.bin` and `.edat` files are now
+  treated as key material and never opened. Files with a fixed key name
+  (`prod.keys`, `seeddb.bin`, `work.bin`, `keys.txt` and the like) belong to
+  no single game and always stay where they are.
+- Firmware packages, shader caches and emulator settings files are shown as
+  «not a game» and left where they are.
+- Duplicates never removes a game whose folder holds updates or DLC; it only
+  reports it.
+
 ## [0.4.0] - 2026-11-03
 
 ### Added

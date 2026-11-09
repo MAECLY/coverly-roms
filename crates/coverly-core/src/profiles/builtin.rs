@@ -9,6 +9,10 @@ use super::{
 };
 use crate::archive::ContainerKind;
 
+/// Id of the built-in library profile (game folders spec D2). Not
+/// `coverly`: a user's custom profile named «Coverly» would slug to it.
+pub const LIBRARY_PROFILE_ID: &str = "coverly-library";
+
 /// Largest cover Onion, GarlicOS and Anbernic stock display well (§16.8).
 const HANDHELD_COVER: Option<(u32, u32)> = Some((250, 360));
 
@@ -680,7 +684,45 @@ pub fn builtin_profiles() -> Vec<Profile> {
                 None,
             )
         },
+        library_profile(),
     ]
+}
+
+/// The library's own master layout (game folders spec D2, §6): Anbernic
+/// folder names (`PS4`, `3DS`, `SFC`, as in the owner's `~/Documents/ROMS`)
+/// without the card's device merges, so every system keeps its own folder;
+/// one folder per disc game; a modern game's updates and DLC in its
+/// folder (`game_folders`); art inside the game's folder under a hidden
+/// `.media/` (provisional until the library's art store is decided, Q5).
+/// Never auto-detected (`detect::rules_for` gives it no marker, Q7): the
+/// user picks it.
+fn library_profile() -> Profile {
+    Profile {
+        system_folder: FolderNaming::FirstAlias,
+        arcade_order: strings(&ANBERNIC_ARCADE),
+        disc_layout: GAME_FOLDER,
+        accepts_containers: vec![ContainerKind::Zip, ContainerKind::SevenZip],
+        game_folders: true,
+        ..profile(
+            LIBRARY_PROFILE_ID,
+            "Coverly",
+            "ROMS",
+            &[".media"],
+            true,
+            &[
+                (Media::Cover, "{system_dir}/{rel_dir}/.media/{stem}.png"),
+                (
+                    Media::Screenshot,
+                    "{system_dir}/{rel_dir}/.media/{stem}-screenshot.png",
+                ),
+                (
+                    Media::Title,
+                    "{system_dir}/{rel_dir}/.media/{stem}-title.png",
+                ),
+            ],
+            None,
+        )
+    }
 }
 
 /// Single-slot handheld layout: `<SYS>/Imgs/<stem>.png`, mirroring
@@ -746,6 +788,7 @@ fn profile(
         folder_game_suffix: BTreeMap::new(),
         folder_stem_keeps_suffix: false,
         dlc_folder: BTreeMap::new(),
+        game_folders: false,
     }
 }
 
@@ -793,7 +836,8 @@ mod tests {
                 "minui",
                 "esde",
                 "batocera",
-                "retroarch"
+                "retroarch",
+                "coverly-library"
             ]
         );
     }

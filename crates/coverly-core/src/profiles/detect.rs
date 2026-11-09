@@ -153,6 +153,9 @@ fn rules_for(profile_id: &str) -> &'static [(Marker, u32, &'static str)] {
             60,
             "thumbnails/<playlist>/Named_* folders",
         )],
+        // Game folders spec D2, Q7: the library profile is picked by the
+        // user, never detected (its `.media/` folders score for MinUI).
+        super::LIBRARY_PROFILE_ID => &[],
         _ => &[],
     }
 }

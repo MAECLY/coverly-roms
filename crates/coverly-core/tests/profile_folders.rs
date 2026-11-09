@@ -486,3 +486,70 @@ fn ps4_folder_suffix_and_dlc_folder_are_on_batocera_only() {
         Some(".ps3")
     );
 }
+
+#[test]
+fn the_library_profile_keeps_every_system_in_its_own_anbernic_folder() {
+    // Game folders spec D2, §6: `coverly-library` names folders like the
+    // Anbernic card (`PS4`, `3DS`, `SFC`) without its device merges.
+    use coverly_core::profiles::{DiscLayout, Media};
+    let db = SystemDb::builtin();
+    let none = BTreeMap::new();
+    let lib = builtin("coverly-library");
+    let anb = builtin("anbernic-stock");
+    assert_eq!(lib.name, "Coverly");
+    assert_eq!(lib.roms_root, "ROMS");
+    assert!(lib.host_folders.is_empty(), "{:?}", lib.host_folders);
+    assert!(lib.folders.is_empty() && lib.known_folders.is_empty());
+    assert_eq!(
+        lib.disc_layout,
+        DiscLayout::GameFolder {
+            m3u_for_multi: true
+        }
+    );
+    assert!(lib.game_folders);
+    assert_eq!(lib.art_dir_names, [".media"]);
+    assert!(lib.mirror_subdirs);
+    for (media, end) in [
+        (Media::Cover, "/.media/{stem}.png"),
+        (Media::Screenshot, "/.media/{stem}-screenshot.png"),
+        (Media::Title, "/.media/{stem}-title.png"),
+    ] {
+        let t = &lib.slot(media).expect("slot").template;
+        assert_eq!(t, &format!("{{system_dir}}/{{rel_dir}}{end}"));
+    }
+    for (id, folder) in [
+        ("ps4", "PS4"),
+        ("3ds", "3DS"),
+        ("snes", "SFC"),
+        ("gba", "GBA"),
+    ] {
+        let system = db.get(id).unwrap();
+        let mine = system_folder(&lib, system, &db, &none);
+        assert_eq!(mine.folder, folder, "{id}");
+        assert_eq!((mine.host, mine.on_device), (None, None), "{id}");
+        assert_eq!(
+            system_folder(&anb, system, &db, &none).folder,
+            folder,
+            "{id}"
+        );
+    }
+    // No device merges: SuperGrafx and the colour handhelds keep their own.
+    for id in ["supergrafx", "ngpc", "wonderswancolor", "msx2"] {
+        let c = system_folder(&lib, db.get(id).unwrap(), &db, &none);
+        assert_eq!(c.host, None, "{id}");
+        assert_eq!(
+            db.resolve_folder_in(Some(&lib), &c.folder)
+                .map(|s| s.id.as_str()),
+            Some(id),
+            "{id} {}",
+            c.folder
+        );
+    }
+}
+
+#[test]
+fn only_the_library_profile_has_game_folders_on() {
+    for p in builtin_profiles() {
+        assert_eq!(p.game_folders, p.id == "coverly-library", "{}", p.id);
+    }
+}

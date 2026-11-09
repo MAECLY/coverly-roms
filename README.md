@@ -607,7 +607,9 @@ candidates and indexes), `--report table|json`, `--output FILE`.
 `--no-external-tools` (do not use unrar, 7-Zip or bsdtar),
 `--duplicates set-aside|report|off` (copies already in the library),
 `--yes-large` (confirm an apply that writes 10 GB or more), `--skip-large`
-(leave those items where they are).
+(leave those items where they are), `--game-folders`/`--no-game-folders`
+(for this run, give each modern game its own folder with `Updates/` and
+`DLC/`, or keep everything loose; default: the layout's setting).
 
 **`catalog switch`:** `status`, `update`, `remove`, `--data-dir DIR`.
 

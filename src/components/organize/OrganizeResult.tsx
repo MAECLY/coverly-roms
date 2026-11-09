@@ -141,10 +141,16 @@ export function OrganizeResult({
     ? report.moved + report.copied + report.extracted + report.set_aside
     : 0;
   const kept = report?.items.filter((o) => o.status === 'extracted-kept') ?? [];
+  // Licences whose rename failed stay beside the pile (game folders D17).
+  const licencesLeft =
+    report?.items.flatMap((o) => o.licences_left ?? []) ?? [];
   const allLost = (undo?.report ?? []).flatMap((r) => r.archive_lost);
   // Duplicates sent to the Trash are not archives with extracted files.
   const lostCopies = lostTrashedCopies(allLost, report, plan);
   const lost = allLost.filter((p) => !lostCopies.has(p));
+  // Folders the job created that undo kept because they are not empty
+  // (a save added to a game folder after the run, game folders spec §8.3).
+  const dirsKept = (undo?.report ?? []).flatMap((r) => r.dirs_kept ?? []);
   // A verb plus the exact count when it is known (brand §7).
   const undoLabel =
     placed > 0
@@ -223,6 +229,17 @@ export function OrganizeResult({
           ))}
         </ul>
       )}
+      {licencesLeft.length > 0 && (
+        // Said in sight, by name: the plan said it would go with its game.
+        <ul className="m-0 grid list-none gap-0.5 p-0">
+          {licencesLeft.map((path) => (
+            <li key={path} className={hintText}>
+              <span className={pathText}>{baseName(path)}</span>
+              {` · ${t('organize.licenceLeft')}`}
+            </li>
+          ))}
+        </ul>
+      )}
       {job.state === 'cancelled' && (
         <p className={hintText}>{t('organize.stopped')}</p>
       )}
@@ -295,6 +312,18 @@ export function OrganizeResult({
             {lost.map((path) => (
               <li key={path} className={pathText}>
                 {baseName(path)}
+              </li>
+            ))}
+          </ul>
+        </Alert>
+      )}
+      {dirsKept.length > 0 && (
+        <Alert variant="info">
+          <p className="m-0">{t('organize.undo.dirsKept')}</p>
+          <ul className="m-0 grid list-none gap-0.5 p-0">
+            {dirsKept.map((path) => (
+              <li key={path} className={pathText}>
+                {path}
               </li>
             ))}
           </ul>

@@ -44,6 +44,7 @@ fn mine(id: &str, template: &str) -> ProfileFile {
         folder_game_suffix: Default::default(),
         folder_stem_keeps_suffix: false,
         dlc_folder: BTreeMap::new(),
+        game_folders: false,
     }
 }
 
@@ -152,4 +153,87 @@ fn preview_and_opening_with_a_custom_default_profile() {
         .unwrap();
     assert_eq!(view.profile.id, "mine");
     assert_eq!(view.entries.len(), 1);
+}
+
+#[test]
+fn a_custom_library_profile_from_before_is_kept_and_settings_follow_it() {
+    // Game folders spec D2: `coverly-library` is now a built-in; a custom
+    // file with that id is kept as `coverly-library-custom`, the settings
+    // that named it follow, and the move sticks on disk.
+    let dir = TempDir::new().unwrap();
+    let config = dir.path().join("config");
+    let pdir = config.join("profiles");
+    std::fs::create_dir_all(&pdir).unwrap();
+    let mut legacy = mine("coverly-library", "{system_dir}/covers/{stem}.png");
+    legacy.name = "My library".into();
+    std::fs::write(pdir.join("coverly-library.toml"), legacy.to_toml()).unwrap();
+    std::fs::write(
+        config.join("settings.json"),
+        r#"{"version":3,"organize":{"default_layout":"coverly-library","game_folders":{"coverly-library":true}}}"#,
+    )
+    .unwrap();
+    let st = state(&dir);
+    let s = st.settings();
+    assert_eq!(s.organize.default_layout, "coverly-library-custom");
+    assert_eq!(
+        s.organize.game_folders,
+        BTreeMap::from([("coverly-library-custom".to_string(), true)])
+    );
+    assert!(!pdir.join("coverly-library.toml").exists());
+    assert!(pdir.join("coverly-library-custom.toml").exists());
+    let list = st.list_profiles();
+    assert!(list
+        .iter()
+        .any(|p| p.profile.id == "coverly-library-custom" && p.profile.name == "My library"));
+    assert!(list
+        .iter()
+        .any(|p| p.profile.id == "coverly-library" && p.builtin));
+    // Started again: nothing left to rename, the references stay.
+    let st = state(&dir);
+    assert_eq!(
+        st.settings().organize.default_layout,
+        "coverly-library-custom"
+    );
+}
+
+#[test]
+fn the_game_folders_override_follows_a_renamed_profile() {
+    let dir = TempDir::new().unwrap();
+    let st = state(&dir);
+    st.save_profile(mine("mine", "{system_dir}/covers/{stem}.png"), None)
+        .unwrap();
+    let set = st
+        .update_settings(&json!({"organize": {"game_folders": {"mine": true}}}))
+        .unwrap();
+    assert!(set.errors.is_empty(), "{:?}", set.errors);
+    let out = st
+        .save_profile(
+            mine("mine-2", "{system_dir}/covers/{stem}.png"),
+            Some("mine".into()),
+        )
+        .unwrap();
+    assert!(out.errors.is_empty(), "{:?}", out.errors);
+    assert_eq!(
+        st.settings().organize.game_folders,
+        BTreeMap::from([("mine-2".to_string(), true)])
+    );
+    st.delete_profile("mine-2").unwrap();
+    assert!(st.settings().organize.game_folders.is_empty());
+}
+
+#[test]
+fn a_game_folders_override_for_an_unknown_profile_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let st = state(&dir);
+    let out = st
+        .update_settings(&json!({"organize": {"game_folders": {"nope": true}}}))
+        .unwrap();
+    assert_eq!(
+        out.errors
+            .iter()
+            .map(|e| e.field.as_str())
+            .collect::<Vec<_>>(),
+        ["organize.game_folders.nope"]
+    );
+    assert!(st.settings().organize.game_folders.is_empty());
 }

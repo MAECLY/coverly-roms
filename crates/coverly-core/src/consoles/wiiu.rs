@@ -185,6 +185,13 @@ pub fn parse_meta_xml(bytes: &[u8]) -> Option<ConsoleId> {
         }
         (code, _) => code,
     };
+    // A base title's own product code only (game folders spec D10).
+    if id.kind == TitleKind::Base {
+        id.region = id
+            .serial
+            .as_deref()
+            .and_then(super::region_from_product_code);
+    }
     id.title = ["longname_en", "shortname_en", "longname_ja"]
         .iter()
         .find_map(|k| get(&f, k).and_then(display_name));
@@ -436,6 +443,7 @@ fn kind_word(kind: TitleKind) -> &'static str {
         TitleKind::Dlc => "dlc",
         TitleKind::Demo => "demo",
         TitleKind::Homebrew => "homebrew",
+        TitleKind::System => "system",
         TitleKind::Unknown => "unknown",
     }
 }
@@ -492,6 +500,7 @@ pub fn wua(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
     if let Some(meta) = meta {
         id.serial = meta.serial;
         id.title = meta.title;
+        id.region = meta.region.filter(|_| id.kind == TitleKind::Base);
     }
     Some(id)
 }

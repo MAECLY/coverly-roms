@@ -35,6 +35,7 @@ pub fn disc_header(h: &[u8], detail: &str) -> Option<ConsoleId> {
     let id6 = std::str::from_utf8(&h[..6]).ok()?;
     let serial = crate::disc::serial::normalise_console_serial(system, id6)?;
     let mut id = ConsoleId::proven(system, detail);
+    id.region = super::region_from_game_id(&serial);
     id.title_id = Some(serial.clone());
     id.serial = Some(serial);
     id.id_source = Some(IdSource::Header);

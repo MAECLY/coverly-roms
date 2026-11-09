@@ -284,3 +284,18 @@ fn a_data_folder_port_lists_no_file_as_a_game() {
     assert!(cave.roms.is_empty(), "{:?}", stems(cave));
     assert_eq!(stems(system(&scan, "snes")), ["Zelda (USA)"]);
 }
+
+#[test]
+fn shader_caches_and_emulator_configs_are_never_library_games() {
+    // Game folders D18: firmware, shader caches and per-game emulator
+    // configs are not games in Organise, so the library (and Duplicates,
+    // which reads it) must not list them either.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    touch(root, "roms/psx/Crash (USA).bin");
+    touch(root, "roms/psx/shadercache/0a1b2c.bin");
+    touch(root, "roms/psx/GLCache/pipeline.bin");
+    touch(root, "roms/psx/Crash (USA).shadercache");
+    let scan = scan(root, "batocera");
+    assert_eq!(stems(system(&scan, "psx")), ["Crash (USA)"]);
+}

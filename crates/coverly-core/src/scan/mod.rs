@@ -10,6 +10,9 @@
 pub(crate) mod classify;
 pub(crate) mod multifile;
 
+pub use classify::not_a_game;
+
+use std::collections::HashMap;
 use std::fs::{self, FileType};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -17,9 +20,13 @@ use std::time::{Duration, SystemTime};
 use serde::Serialize;
 use walkdir::WalkDir;
 
-use crate::consoles::identify_dir_on_disk;
+use crate::consoles::{identify_dir_on_disk, is_key_material};
+use crate::game_folder::{classify_listing, ChildRole, DirShape, FixedFolder, GameBase};
+use crate::identify::names::{parse_tags, ReleaseClass};
 use crate::organize::target::strip_suffix_ignoring_case;
-use crate::organize::walk::{list_dir, tree_summary, OsMetaProbe, WalkOptions, MAX_DEPTH};
+use crate::organize::walk::{
+    list_dir, tree_summary_excluding, OsMetaProbe, WalkOptions, MAX_DEPTH, SHEET_EXTS, TRACK_EXTS,
+};
 use crate::profiles::Profile;
 use crate::systems::{System, SystemDb};
 
@@ -48,6 +55,32 @@ pub struct RomEntry {
     /// (`ps3`) or empty, `size` the sum of the files inside and `modified`
     /// the newest of them (metadata only). It is never opened as a file.
     pub is_dir: bool,
+    /// The updates and DLC in this game's folder (`Updates/`, `DLC/`,
+    /// game folders spec D8), sorted by path. They are not games: fill,
+    /// gamelists, audit and the library views count top-level entries
+    /// only. No header is read for them.
+    pub children: Vec<ChildEntry>,
+    /// Set on an update or DLC whose folder has no base at its root (an
+    /// orphan, D8): it stays a top-level entry so it is still visible,
+    /// counted apart.
+    pub role: Option<ChildRole>,
+    /// Same system + title key with revision tags stripped, region kept
+    /// (D15): the revisions of one game share it. `None` for an orphan
+    /// and when the name leaves no title.
+    pub version_group: Option<String>,
+    /// The revision as written (`Rev 1`, `Rev A`, `v1.1`), if any (D15).
+    pub revision: Option<String>,
+}
+
+/// An update or DLC inside a game's folder (game folders spec D8): a file,
+/// or a folder a console probe recognises (a PS3 update folder in
+/// `Updates/`), measured from metadata only.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChildEntry {
+    pub path: PathBuf,
+    pub role: ChildRole,
+    pub size: u64,
+    pub modified: SystemTime,
 }
 
 impl RomEntry {
@@ -306,6 +339,14 @@ fn scan_filtered(
 }
 
 /// Walks one known system dir for ROMs.
+///
+/// Game folders (spec D3, D8, §8.1) are respected whatever the profile:
+/// a directory with exactly one base at its root keeps its `Updates/`
+/// and `DLC/` files as `children` of that base and its `Mods/`,
+/// `Cheats/`, `Extras/` and `Saves/` unscanned; a directory with fixed
+/// folders but no single base keeps its `Updates/`/`DLC/` files as
+/// top-level entries with a `role`. A fixed folder directly under the
+/// system folder (Batocera `ps4/DLC/`) is scanned as today.
 fn scan_system(
     dir: &Path,
     system: &System,
@@ -317,7 +358,13 @@ fn scan_system(
         .folder_game_suffix
         .get(&system.id)
         .filter(|s| !s.is_empty());
-    let mut folder_games: Vec<(PathBuf, Option<&String>)> = Vec::new();
+    let mut folder_games: Vec<FolderGame> = Vec::new();
+    // Game folders found, by path, with their base.
+    let mut game_dirs: HashMap<PathBuf, GameBase> = HashMap::new();
+    // `Updates/`/`DLC/` of a game folder: (fixed dir, role, game dir).
+    let mut child_dirs: Vec<(PathBuf, ChildRole, PathBuf)> = Vec::new();
+    // `Updates/`/`DLC/` of a folder with no single base.
+    let mut orphan_dirs: Vec<(PathBuf, ChildRole)> = Vec::new();
     let walker = WalkDir::new(dir)
         .min_depth(1)
         .follow_links(opts.follow_symlinks)
@@ -339,9 +386,40 @@ fn scan_system(
             if e.depth() == 0 {
                 return true;
             }
+            if e.depth() >= 2 {
+                if let Some(fixed) = FixedFolder::from_dir_name(&name) {
+                    let parent = e.path().parent().unwrap_or(dir);
+                    if game_dirs.contains_key(parent) {
+                        // Taken by the game folder itself: its children
+                        // are listed below, the rest is never scanned.
+                        return false;
+                    }
+                    if let Some(role) = fixed.child_role() {
+                        orphan_dirs.push((e.path().to_path_buf(), role));
+                    }
+                }
+            }
+            let listed = list_dir(e.path()).unwrap_or_default();
             let suffixed = suffix.filter(|s| strip_suffix_ignoring_case(&name, s).is_some());
-            if suffixed.is_some() || is_console_folder(e.path()) {
-                folder_games.push((e.path().to_path_buf(), suffixed));
+            let folder_game = suffixed.is_some() || is_console_folder(e.path(), &listed);
+            let shape = game_folder_shape(&listed, system, opts, folder_game);
+            let mut fixed_dirs = Vec::new();
+            if let DirShape::GameFolder { base, fixed } = shape {
+                for (folder, spelling) in fixed {
+                    let path = e.path().join(&spelling);
+                    if let Some(role) = folder.child_role() {
+                        child_dirs.push((path.clone(), role, e.path().to_path_buf()));
+                    }
+                    fixed_dirs.push(path);
+                }
+                game_dirs.insert(e.path().to_path_buf(), base);
+            }
+            if folder_game {
+                folder_games.push(FolderGame {
+                    path: e.path().to_path_buf(),
+                    suffix: suffixed,
+                    fixed: fixed_dirs,
+                });
                 return false;
             }
             true
@@ -367,12 +445,7 @@ fn scan_system(
         ) {
             continue;
         }
-        // Key and licence files are never library entries, so fill and
-        // dedupe never read them (systems batch 2 D4).
-        if crate::consoles::is_key_material(&entry.file_name().to_string_lossy()) {
-            continue;
-        }
-        if is_rom_extension(&extension(entry.path()), system, opts) {
+        if is_candidate(dir, entry.path(), system, opts) {
             candidates.push(entry.into_path());
         }
     }
@@ -384,8 +457,25 @@ fn scan_system(
     roms.extend(
         folder_games
             .into_iter()
-            .map(|(path, suffix)| folder_entry(dir, path, suffix, profile)),
+            .map(|game| folder_entry(dir, game.path, game.suffix, &game.fixed, profile)),
     );
+    for rom in &mut roms {
+        if let Some((_, role)) = orphan_dirs
+            .iter()
+            .filter(|(d, _)| rom.path.starts_with(d))
+            .max_by_key(|(d, _)| d.components().count())
+        {
+            rom.role = Some(*role);
+        }
+    }
+    attach_children(
+        dir, system, profile, opts, &game_dirs, child_dirs, &mut roms, warnings,
+    );
+    for rom in &mut roms {
+        if rom.role.is_none() {
+            set_version_group(rom, &system.id);
+        }
+    }
     roms.sort_by(|a, b| {
         a.rel_dir
             .cmp(&b.rel_dir)
@@ -395,18 +485,241 @@ fn scan_system(
     roms
 }
 
-/// Whether a console probe proves `dir` to be one game (spec D12; the
+/// A folder game found by the walk, with the fixed folders its size leaves
+/// out (D5).
+struct FolderGame<'a> {
+    path: PathBuf,
+    suffix: Option<&'a String>,
+    fixed: Vec<PathBuf>,
+}
+
+/// Whether the file `path` below the system folder `dir` is a ROM
+/// candidate of `system`.
+fn is_candidate(dir: &Path, path: &Path, system: &System, opts: &ScanOptions) -> bool {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    // Key and licence files are never library entries, so fill and
+    // dedupe never read them (systems batch 2 D4).
+    if is_key_material(&name) {
+        return false;
+    }
+    // Firmware, shader caches and emulator configs are not games
+    // (game folders D18): by name and the folders below the system
+    // folder only, as the organise walk does.
+    if classify::not_a_game(path.strip_prefix(dir).unwrap_or(path)).is_some() {
+        return false;
+    }
+    is_rom_extension(&extension(path), system, opts)
+}
+
+/// The shape of one directory from its listing (§8.1): a ROM-like file
+/// is one with an extension of `system`; with a sheet at the root its
+/// track extensions are not further games. Nothing is opened.
+fn game_folder_shape(
+    listed: &[(String, PathBuf, bool)],
+    system: &System,
+    opts: &ScanOptions,
+    folder_game: bool,
+) -> DirShape {
+    if !listed
+        .iter()
+        .any(|(name, _, is_file)| !is_file && FixedFolder::from_dir_name(name).is_some())
+    {
+        return DirShape::Plain;
+    }
+    let entries: Vec<(String, bool)> = listed
+        .iter()
+        .filter(|(name, _, _)| !is_skipped_entry(name, opts))
+        .map(|(name, path, is_file)| {
+            let is_dir = !is_file
+                && (FixedFolder::from_dir_name(name).is_none()
+                    || fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()));
+            (name.clone(), is_dir)
+        })
+        .collect();
+    let ext_of = |name: &str| extension(Path::new(name));
+    let has_sheet = entries
+        .iter()
+        .any(|(name, is_dir)| !is_dir && SHEET_EXTS.contains(&ext_of(name).as_str()));
+    let rom_like = |name: &str| {
+        let ext = ext_of(name);
+        !is_key_material(name)
+            && !(has_sheet && TRACK_EXTS.contains(&ext.as_str()))
+            && is_rom_extension(&ext, system, opts)
+    };
+    let sheet = |name: &str| SHEET_EXTS.contains(&ext_of(name).as_str());
+    classify_listing(&entries, &rom_like, &sheet, folder_game)
+}
+
+/// Lists each game folder's `Updates/`/`DLC/` and attaches what it holds
+/// to the base entry at the folder's root (D8). When that base produced
+/// no entry (unreadable), the children stay top-level with their role,
+/// so nothing disappears.
+#[allow(clippy::too_many_arguments)]
+fn attach_children(
+    dir: &Path,
+    system: &System,
+    profile: &Profile,
+    opts: &ScanOptions,
+    game_dirs: &HashMap<PathBuf, GameBase>,
+    child_dirs: Vec<(PathBuf, ChildRole, PathBuf)>,
+    roms: &mut Vec<RomEntry>,
+    warnings: &mut Vec<ScanWarning>,
+) {
+    if child_dirs.is_empty() {
+        return;
+    }
+    // One index of the entries by (path, is_dir): a library of many game
+    // folders looks each base up once, not by a walk over every entry.
+    let index: HashMap<(PathBuf, bool), usize> = roms
+        .iter()
+        .enumerate()
+        .map(|(i, r)| ((r.path.clone(), r.is_dir), i))
+        .collect();
+    let mut orphans: Vec<RomEntry> = Vec::new();
+    for (fixed_dir, role, game_dir) in child_dirs {
+        let children = list_children(dir, &fixed_dir, role, system, opts);
+        let base = game_dirs.get(&game_dir).and_then(|base| {
+            let key = match base {
+                GameBase::SelfIsFolderGame => (game_dir.clone(), true),
+                GameBase::File(name) | GameBase::Sheet(name) => (game_dir.join(name), false),
+            };
+            index.get(&key).copied()
+        });
+        match base {
+            Some(i) => roms[i].children.extend(children),
+            None => orphans.extend(children.into_iter().filter_map(|child| {
+                let mut entry = if child.path.is_dir() {
+                    folder_entry(dir, child.path, None, &[], profile)
+                } else {
+                    rom_entry(dir, child.path, Vec::new(), warnings)?
+                };
+                entry.role = Some(child.role);
+                Some(entry)
+            })),
+        }
+    }
+    for rom in roms.iter_mut() {
+        rom.children.sort_by(|a, b| a.path.cmp(&b.path));
+    }
+    roms.extend(orphans);
+}
+
+/// The updates or DLC below one fixed folder: each ROM candidate file,
+/// and each folder a console probe recognises as one entry (not entered).
+/// Metadata only.
+fn list_children(
+    system_dir: &Path,
+    fixed_dir: &Path,
+    role: ChildRole,
+    system: &System,
+    opts: &ScanOptions,
+) -> Vec<ChildEntry> {
+    let mut out = Vec::new();
+    let mut folders: Vec<PathBuf> = Vec::new();
+    let walker = WalkDir::new(fixed_dir)
+        .min_depth(1)
+        .max_depth(MAX_DEPTH)
+        .follow_links(opts.follow_symlinks)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            if is_skipped_entry(&name, opts) {
+                return false;
+            }
+            if !e.file_type().is_dir() || e.depth() == 0 {
+                return true;
+            }
+            if is_quarantine(&name, opts) {
+                return false;
+            }
+            let listed = list_dir(e.path()).unwrap_or_default();
+            if is_console_folder(e.path(), &listed) {
+                folders.push(e.path().to_path_buf());
+                return false;
+            }
+            true
+        });
+    for entry in walker.flatten() {
+        if !entry.file_type().is_file() && !entry.path_is_symlink() {
+            continue;
+        }
+        let Ok(meta) = fs::metadata(entry.path()) else {
+            continue;
+        };
+        if !meta.is_file() || !is_candidate(system_dir, entry.path(), system, opts) {
+            continue;
+        }
+        out.push(ChildEntry {
+            path: entry.into_path(),
+            role,
+            size: meta.len(),
+            modified: meta.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+        });
+    }
+    for path in folders {
+        let tree = tree_summary_excluding(&path, &tree_options(None), &[]);
+        out.push(ChildEntry {
+            modified: tree_modified(&path, &tree),
+            size: tree.bytes,
+            path,
+            role,
+        });
+    }
+    out
+}
+
+/// Fills [`RomEntry::version_group`] and [`RomEntry::revision`] from the
+/// title stem's tags (D15): system, title key (revision tags stripped),
+/// the regions as written in order, and the release class when it is not
+/// retail.
+fn set_version_group(rom: &mut RomEntry, system_id: &str) {
+    let tags = parse_tags(rom.title_stem());
+    rom.revision = tags.revision_text.clone();
+    if tags.title_key.is_empty() {
+        return;
+    }
+    let regions: Vec<&str> = tags.regions.iter().map(|r| r.no_intro_word()).collect();
+    let mut group = format!("{system_id}:{}", tags.title_key);
+    if !regions.is_empty() {
+        group.push_str(&format!(" ({})", regions.join(", ").to_lowercase()));
+    }
+    // `parse_tags` drops the release class from the title key, but a demo
+    // is its own game (D12) and a beta or prototype is not a revision of
+    // the release: the class stays part of the group.
+    if let Some(class) = release_class_word(tags.class) {
+        group.push_str(&format!(" [{class}]"));
+    }
+    rom.version_group = Some(group);
+}
+
+/// The word a non-retail release class adds to a version group.
+fn release_class_word(class: ReleaseClass) -> Option<&'static str> {
+    match class {
+        ReleaseClass::Retail => None,
+        ReleaseClass::Beta => Some("beta"),
+        ReleaseClass::Proto => Some("proto"),
+        ReleaseClass::Demo => Some("demo"),
+        ReleaseClass::Sample => Some("sample"),
+    }
+}
+
+/// Whether a console probe proves `dir`, listed once as `listed` (the
+/// listing the game folder test reuses, D8), to be one game (spec D12; the
 /// same pure probes the organise walk runs). Two probes naming different
 /// systems are not one game here either: Organise sends those to review,
 /// and the scan keeps walking them as plain folders. So does a folder a
 /// probe recognises but leaves in place (a GDK `PC` build, an unreadable
 /// config: systems batch 3 plan P-2), which Organise never takes for a
 /// console game.
-fn is_console_folder(dir: &Path) -> bool {
-    let Some(listed) = list_dir(dir) else {
+fn is_console_folder(dir: &Path, listed: &[(String, PathBuf, bool)]) -> bool {
+    if listed.is_empty() {
         return false;
-    };
-    let names: Vec<String> = listed.into_iter().map(|(n, _, _)| n).collect();
+    }
+    let names: Vec<String> = listed.iter().map(|(n, _, _)| n.clone()).collect();
     matches!(
         identify_dir_on_disk(dir, &names),
         Ok(Some(found)) if found.leave.is_none()
@@ -415,25 +728,16 @@ fn is_console_folder(dir: &Path) -> bool {
 
 /// The entry of a folder game (spec D26): measured from metadata only
 /// (the D27 tree summary), never opened. `suffix` is the layout's suffix
-/// the folder name ends in, if any.
+/// the folder name ends in, if any; `fixed` the game folder's fixed
+/// folders, left out of the size (game folders spec D5).
 fn folder_entry(
     system_dir: &Path,
     path: PathBuf,
     suffix: Option<&String>,
+    fixed: &[PathBuf],
     profile: &Profile,
 ) -> RomEntry {
-    let walk_opts = WalkOptions {
-        skip_dirs: Vec::new(),
-        roms_root: None,
-        art_dirs: &[],
-        ignored_dirs: &[],
-        now: SystemTime::UNIX_EPOCH,
-        recent: Duration::ZERO,
-        probe: &OsMetaProbe,
-        max_depth: MAX_DEPTH,
-        profile: Some(profile),
-    };
-    let tree = tree_summary(&path, &walk_opts);
+    let tree = tree_summary_excluding(&path, &tree_options(Some(profile)), fixed);
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -450,15 +754,7 @@ fn folder_entry(
         }
         None => (name, String::new()),
     };
-    let modified = if tree.files > 0 {
-        u64::try_from(tree.newest_mtime_ns)
-            .map(|ns| SystemTime::UNIX_EPOCH + Duration::from_nanos(ns))
-            .unwrap_or(SystemTime::UNIX_EPOCH)
-    } else {
-        fs::metadata(&path)
-            .and_then(|m| m.modified())
-            .unwrap_or(SystemTime::UNIX_EPOCH)
-    };
+    let modified = tree_modified(&path, &tree);
     let rel_dir = path
         .parent()
         .and_then(|p| p.strip_prefix(system_dir).ok())
@@ -473,6 +769,39 @@ fn folder_entry(
         modified,
         companions: Vec::new(),
         is_dir: true,
+        children: Vec::new(),
+        role: None,
+        version_group: None,
+        revision: None,
+    }
+}
+
+/// The options a scan measures a folder tree with (no recent window).
+fn tree_options(profile: Option<&Profile>) -> WalkOptions<'_> {
+    WalkOptions {
+        skip_dirs: Vec::new(),
+        roms_root: None,
+        art_dirs: &[],
+        ignored_dirs: &[],
+        now: SystemTime::UNIX_EPOCH,
+        recent: Duration::ZERO,
+        probe: &OsMetaProbe,
+        max_depth: MAX_DEPTH,
+        profile,
+    }
+}
+
+/// The newest file of a measured tree, or the folder's own mtime when it
+/// holds no file.
+fn tree_modified(path: &Path, tree: &crate::organize::walk::TreeSummary) -> SystemTime {
+    if tree.files > 0 {
+        u64::try_from(tree.newest_mtime_ns)
+            .map(|ns| SystemTime::UNIX_EPOCH + Duration::from_nanos(ns))
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+    } else {
+        fs::metadata(path)
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH)
     }
 }
 
@@ -512,6 +841,10 @@ fn rom_entry(
         path,
         companions,
         is_dir: false,
+        children: Vec::new(),
+        role: None,
+        version_group: None,
+        revision: None,
     })
 }
 
