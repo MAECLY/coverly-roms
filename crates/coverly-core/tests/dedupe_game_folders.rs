@@ -504,3 +504,23 @@ fn apply_refuses_a_plan_removing_every_revision() {
     );
     assert!(first.is_file() && rev.is_file());
 }
+
+#[test]
+fn another_base_version_never_makes_proven_copies_report_only() {
+    // Only updates keep their title key beside a byte proof (D9): two
+    // byte-identical copies of a base still act when another version of
+    // that base, with other bytes, sits in the library.
+    let card = Card::new("coverly-library");
+    let first = card.put("ROMS/3DS/Pokemon Y (World).cia", &cia(BASE));
+    let copy = card.put("ROMS/3DS/Pokemon Y (World) (copy).cia", &cia(BASE));
+    let other = card.put(
+        "ROMS/3DS/Pokemon Y (World) (Rev 1).cia",
+        &cia_version(BASE, 2080),
+    );
+    let plan = card.plan(&card.opts());
+    let grp = group_with(&plan, &first).expect("the two copies group");
+    assert_eq!(grp.action, GroupAction::Act, "{grp:#?}");
+    assert_eq!(grp.members.len(), 2, "{grp:#?}");
+    assert!(grp.members.iter().any(|m| m.unit.primary == copy));
+    assert!(grp.members.iter().all(|m| m.unit.primary != other));
+}

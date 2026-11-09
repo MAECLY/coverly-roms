@@ -245,10 +245,11 @@ pub struct KeyedUnit {
     /// when another unit of its system may have one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree: Option<ExactKey>,
-    /// The console title key of a unit whose bytes a key in `exact`
+    /// The console title key of an update whose bytes a key in `exact`
     /// proves, for level 2 only: two updates of one game with other bytes
     /// of one size are still versions of each other (game folders spec
-    /// D9). `None` when `exact` is the title key itself.
+    /// D9). `None` when `exact` is the title key itself, and for a base
+    /// or DLC.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<ExactKey>,
 }
@@ -475,7 +476,19 @@ pub fn level_one(
             other => (other.clone(), None),
         };
         let exact = exact.map(|e| kind_from_role(e, u));
-        let title = title.map(|e| kind_from_role(e, u));
+        // Only an update keeps its title key beside a byte proof (D9): two
+        // updates of one base are versions. A proven base or DLC keeps
+        // none, so another version of it never turns its acting copies
+        // into a report-only title id group.
+        let title = title.map(|e| kind_from_role(e, u)).filter(|e| {
+            matches!(
+                e,
+                ExactKey::Title {
+                    kind: TitleKind::Update,
+                    ..
+                }
+            )
+        });
         let patch_set = match &exact {
             Some(_) if !u.patches.is_empty() => patch_set(&u.patches),
             _ => Vec::new(),
