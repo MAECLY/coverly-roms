@@ -413,6 +413,7 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         playlist: None,
         title_source: None,
         action,
+        game: None,
     };
     let auto = OrganizeItem {
         target: Some("/Users/me/ROMs-Downloaded/ROMS/GBA/Tetris Worlds (USA).zip".into()),
@@ -569,6 +570,7 @@ fn organize_extract_item_sample() -> coverly_core::organize::OrganizeItem {
         playlist: None,
         title_source: None,
         action: OrganizeAction::Auto,
+        game: None,
     }
 }
 
@@ -1131,6 +1133,7 @@ fn organise_set_aside_views_match_the_shared_sample() {
         companions: vec![Companion {
             source: "Tetris (1).sav".into(),
             target: "_Duplicados/Tetris (1).sav".into(),
+            licence: false,
         }],
         catalogue_name: Some("Tetris (World) (Rev 1)".into()),
         transfer: Transfer::AsIs,
@@ -1145,6 +1148,7 @@ fn organise_set_aside_views_match_the_shared_sample() {
             reason: KeepReason::InLibrary,
             dest: "_Duplicados/Tetris (1).gb".into(),
         },
+        game: None,
     };
     let actual = json!({
         "organize_set_aside_item": item,
@@ -1279,6 +1283,7 @@ fn systems_batch_2_items_match_the_shared_sample() {
         playlist: None,
         title_source: None,
         action: OrganizeAction::Auto,
+        game: None,
     };
     let sources: Vec<IdSource> = vec![
         IdSource::ParamSfo,
@@ -1381,6 +1386,7 @@ fn systems_batch_3_items_match_the_shared_sample() {
         playlist: None,
         title_source: None,
         action: OrganizeAction::Auto,
+        game: None,
     };
     let folder: Value = serde_json::from_str(&serde_json::to_string(&folder).unwrap()).unwrap();
     let actual = json!({
@@ -1448,6 +1454,7 @@ fn adjustment_values_match_the_shared_sample() {
         playlist: None,
         title_source: Some(TitleSource::Titledb),
         action: OrganizeAction::Auto,
+        game: None,
     };
     let cartridge: Value =
         serde_json::from_str(&serde_json::to_string(&cartridge).unwrap()).unwrap();
@@ -1502,6 +1509,7 @@ fn adjustment_values_match_the_shared_sample() {
             TitleKind::Dlc,
             TitleKind::Demo,
             TitleKind::Homebrew,
+            TitleKind::System,
             TitleKind::Unknown,
         ],
         "adjustments_title_sources": [
@@ -1509,6 +1517,109 @@ fn adjustment_values_match_the_shared_sample() {
             TitleSource::Titledb,
             TitleSource::Nlib,
             TitleSource::FileName,
+        ],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+/// Game folders (spec D16, §10): an update in its game folder with a
+/// licence beside it, the fixed-folder reason, the new notes, renames and
+/// not-a-ROM values, every fixed folder and every role.
+#[test]
+fn game_folder_values_match_the_shared_sample() {
+    use coverly_core::consoles::{FixedFolder, IdSource, TitleIdRef};
+    use coverly_core::identify::evidence::{Evidence, IdLevel};
+    use coverly_core::identify::names::Region;
+    use coverly_core::identify::sniff::NotARom;
+    use coverly_core::organize::{
+        Companion, GameLink, GameRole, ItemKind, ItemNote, LeftReason, OrganizeAction,
+        OrganizeItem, RenameReason, SourceFp, Transfer,
+    };
+
+    let mut link = GameLink::new(GameRole::Update);
+    link.version = Some("1.5".into());
+    link.region = Some(Region::Europe);
+    link.of = Some(1);
+    link.folder = Some("3DS/Pokemon Y".into());
+    link.newest_here = true;
+    let update = OrganizeItem {
+        id: 2,
+        sources: vec!["pky-update.cia".into()],
+        kind: ItemKind::File,
+        size: 300_000_000,
+        fps: vec![SourceFp {
+            size: 300_000_000,
+            mtime_ns: 1_700_000_000_000_000_000,
+        }],
+        target: Some("3DS/Pokemon Y/Updates/Pokemon Y (v1.5).cia".into()),
+        set_targets: vec![],
+        system_id: Some("3ds".into()),
+        folder: Some("3DS".into()),
+        confidence: 0.95,
+        method: Some(IdLevel::Header),
+        why: vec![Evidence::new(IdLevel::Header, "3ds", 0.95, "CIA")],
+        alternatives: vec![],
+        rename: Some(RenameReason::GameFolder {
+            from: "pky-update.cia".into(),
+        }),
+        notes: vec![ItemNote::Update {
+            of: "Pokemon Y".into(),
+        }],
+        companions: vec![Companion {
+            source: "pky-update.tik".into(),
+            target: "3DS/Pokemon Y/Updates/Pokemon Y (v1.5).tik".into(),
+            licence: true,
+        }],
+        catalogue_name: None,
+        transfer: Transfer::AsIs,
+        disc: None,
+        title_id: Some(TitleIdRef {
+            id: "0004000E00055E00".into(),
+            source: IdSource::Header,
+        }),
+        content_id: None,
+        playlist: None,
+        title_source: None,
+        game: Some(link),
+        action: OrganizeAction::Auto,
+    };
+    let update: Value = serde_json::from_str(&serde_json::to_string(&update).unwrap()).unwrap();
+    let actual = json!({
+        "game_folder_item": update,
+        "game_folder_reasons": [
+            LeftReason::GameFolderContent {
+                folder: FixedFolder::Mods,
+                of: "Pokemon Y".into(),
+            },
+            LeftReason::NotARom { what: NotARom::EmulatorCache },
+            LeftReason::NotARom { what: NotARom::EmulatorConfig },
+        ],
+        "game_folder_notes": [
+            ItemNote::DemoOf { of: "Pokemon Y".into() },
+            ItemNote::BaseMissing,
+        ],
+        "game_folder_fixed_folders": [
+            FixedFolder::Updates,
+            FixedFolder::Dlc,
+            FixedFolder::Mods,
+            FixedFolder::Cheats,
+            FixedFolder::Extras,
+            FixedFolder::Saves,
+        ],
+        "game_folder_roles": [
+            GameRole::Base,
+            GameRole::Update,
+            GameRole::Dlc,
+            GameRole::Demo,
         ],
     });
     let expected: Value =

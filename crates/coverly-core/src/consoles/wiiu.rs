@@ -436,6 +436,7 @@ fn kind_word(kind: TitleKind) -> &'static str {
         TitleKind::Dlc => "dlc",
         TitleKind::Demo => "demo",
         TitleKind::Homebrew => "homebrew",
+        TitleKind::System => "system",
         TitleKind::Unknown => "unknown",
     }
 }

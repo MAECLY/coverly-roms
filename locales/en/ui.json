@@ -1371,6 +1371,8 @@
       "patch": "a patch; apply it to the original ROM",
       "pcGameData": "PC game data",
       "consoleSystem": "console system file",
+      "emulatorCache": "emulator cache",
+      "emulatorConfig": "emulator settings",
       "installer": "software installer",
       "model3d": "3D model",
       "bios": "BIOS: belongs in the device's BIOS folder",

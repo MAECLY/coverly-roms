@@ -878,7 +878,11 @@ export type NotARom =
   /** An Autodesk 3D Studio model named `.3ds`. */
   | 'model3d'
   /** A console's own system file or folder, never a game. */
-  | 'console-system';
+  | 'console-system'
+  /** An emulator's shader or pipeline cache, recognised by name. */
+  | 'emulator-cache'
+  /** An emulator's per-game settings file, recognised by name. */
+  | 'emulator-config';
 
 /** Why a file stays where it is. */
 export type LeftReason =
@@ -949,7 +953,38 @@ export type LeftReason =
       title_id: string | null;
     }
   /** A huge item the user said «No» to: it stays where it is. */
-  | { kind: 'not-confirmed' };
+  | { kind: 'not-confirmed' }
+  /** A file inside a fixed folder of a game folder (`of`: the game
+   * folder's name): it belongs to its game and stays for now. */
+  | { kind: 'game-folder-content'; folder: FixedFolder; of: string };
+
+/** A fixed folder inside a game folder (Rust `FixedFolder`). Its name on
+ * disk is English (`Updates`, `DLC`, `Mods`, `Cheats`, `Extras`,
+ * `Saves`); the UI translates it. */
+export type FixedFolder =
+  'updates' | 'dlc' | 'mods' | 'cheats' | 'extras' | 'saves';
+
+/** What an item is to its game (Rust `GameRole`). */
+export type GameRole = 'base' | 'update' | 'dlc' | 'demo';
+
+/** How an item belongs to a game folder (Rust `GameLink`); optional
+ * fields are left out when absent or false. */
+export interface GameLink {
+  role: GameRole;
+  /** Display form, never the raw header value. */
+  version?: string;
+  region?: Region;
+  /** The base item's id in this plan. */
+  of?: number;
+  /** The game folder, relative to the target root. */
+  folder?: string;
+  /** The game folder was already on disk. */
+  folder_exists?: boolean;
+  /** A demo's base title, linked by name only. */
+  demo_of?: string;
+  /** Highest version present for this base. */
+  newest_here?: boolean;
+}
 
 /** A piece of a game that cannot play alone (Rust `PartKind`). */
 export type PartKind =
@@ -957,7 +992,7 @@ export type PartKind =
 
 /** What a console title is (Rust `TitleKind`). */
 export type TitleKind =
-  'base' | 'update' | 'dlc' | 'demo' | 'homebrew' | 'unknown';
+  'base' | 'update' | 'dlc' | 'demo' | 'homebrew' | 'system' | 'unknown';
 
 /** Where a console title's name came from (Rust `TitleSource`). */
 export type TitleSource = 'header' | 'titledb' | 'nlib' | 'file-name';
@@ -1019,14 +1054,20 @@ export type ItemNote =
   /** Two names in the archive differ only in case: review. */
   | { kind: 'archive-case-collision' }
   /** Loose discs whose names alone say they are one game: review. */
-  | { kind: 'disc-set' };
+  | { kind: 'disc-set' }
+  /** A demo of `of`, linked by name only: its own game. */
+  | { kind: 'demo-of'; of: string }
+  /** An update or DLC whose game is not in the plan or the library. */
+  | { kind: 'base-missing' };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =
   | { kind: 'collision'; name: string }
   | { kind: 'safe-name'; from: string }
   | { kind: 'path-length' }
-  | { kind: 'catalogue'; from: string };
+  | { kind: 'catalogue'; from: string }
+  /** Renamed to its game folder's name. */
+  | { kind: 'game-folder'; from: string };
 
 /** Something about the whole plan. */
 export type PlanWarning =
@@ -1045,6 +1086,9 @@ export interface Companion {
   source: string;
   /** Relative to the target root. */
   target: string;
+  /** A licence recognised by its name only (never opened); Rust leaves
+   * it out when false. */
+  licence?: boolean;
 }
 
 /** Size and mtime of a source when planned (apply re-validates them). */
@@ -1194,6 +1238,9 @@ export type OrganizeItem = OrganizeAction & {
   /** Set only when the optional Switch catalogue named the title
    * (`titledb` or `nlib`, adjustments D7); Rust leaves it out otherwise. */
   title_source?: TitleSource;
+  /** What the item is to its game folder; Rust leaves it out when
+   * absent. */
+  game?: GameLink;
 };
 
 /** A playlist written for a loose multi-disc set: a new file, never over

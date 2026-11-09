@@ -397,6 +397,10 @@ export function leftReasonKey(
       return k('gameOverlay', { title: r.of });
     case 'not-confirmed':
       return k('notConfirmed');
+    // Placeholder until the game folder copy lands (game folders plan
+    // Task 18): the nearest existing sentence.
+    case 'game-folder-content':
+      return k('gameOverlay', { title: r.of });
     // A Vita backup is its own sentence; every other part stays alike.
     case 'game-part':
       return r.part === 'backup' ? k('backup') : k('gamePart');
@@ -410,6 +414,8 @@ const NOT_A_ROM: Record<NotARom, string> = {
   patch: 'patch',
   'pc-game-data': 'pcGameData',
   'console-system': 'consoleSystem',
+  'emulator-cache': 'emulatorCache',
+  'emulator-config': 'emulatorConfig',
   installer: 'installer',
   model3d: 'model3d',
 };
@@ -658,8 +664,11 @@ function renameText(t: Translate, r: RenameReason): string {
   switch (r.kind) {
     case 'collision':
       return t('organize.renamed', { name: r.name });
+    // `game-folder`: placeholder until `organize.renamedForFolder` (game
+    // folders plan Task 18).
     case 'safe-name':
     case 'catalogue':
+    case 'game-folder':
       return t('organize.renamedFrom', { name: r.from });
     case 'path-length':
       return t('organize.renamedShort');
@@ -773,6 +782,10 @@ export function noteKey(n: ItemNote): KeyedText | null {
     case 'extension-contradicted':
     case 'catalogue-missing':
     case 'encrypted':
+      return null;
+    // Worded with the game folder copy (game folders plan Task 18).
+    case 'demo-of':
+    case 'base-missing':
       return null;
   }
 }

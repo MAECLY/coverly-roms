@@ -30,6 +30,7 @@ use crate::dedupe::{
     group_units, DedupeOptions, DupGroup, GroupAction, GroupEnv, KeepReason, QuarantineChoice,
     Relation, ReportWhy, DEFAULT_QUARANTINE_NAME,
 };
+use crate::game_folder::FixedFolder;
 use crate::identify::dat::DatStore;
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::HeaderRule;
@@ -244,6 +245,13 @@ pub enum LeftReason {
     },
     /// A huge item the user said «No» to (spec D16): it stays where it is.
     NotConfirmed,
+    /// A file inside a fixed folder of a game folder (`Updates/`, `DLC/`,
+    /// `Mods/`…; game folders spec D3, §8.1): it belongs to its game and
+    /// stays for now. `of` is the game folder's name.
+    GameFolderContent {
+        folder: FixedFolder,
+        of: String,
+    },
 }
 
 /// The reason an inspection issue leaves an item in place (archives spec
@@ -363,6 +371,12 @@ pub enum ItemNote {
     /// Two names in the archive differ only in case: extracting them
     /// collides on macOS and Windows (spec D20), so review.
     ArchiveCaseCollision,
+    /// A demo of `of`, linked by name only (game folders spec D12): it
+    /// becomes its own game.
+    DemoOf { of: String },
+    /// An update or DLC whose game is neither in the plan nor in the
+    /// library (game folders spec D13): review.
+    BaseMissing,
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -450,6 +464,9 @@ pub enum RenameReason {
     PathLength,
     /// Renamed to the DAT game name (*Names: catalogue*).
     Catalogue { from: String },
+    /// Renamed to its game folder's name (`<Game>.<ext>`, `<Game>
+    /// (vX).<ext>`, `<Game> - <DLC name>.<ext>`; game folders spec §7).
+    GameFolder { from: String },
 }
 
 /// A save, patch or note that follows its ROM.
@@ -460,6 +477,63 @@ pub struct Companion {
     /// Relative to the target root; for a set-aside item, where it goes
     /// below the quarantine, as the item's `dest`.
     pub target: PathBuf,
+    /// A licence recognised by its name only (game folders spec D17):
+    /// never opened, it follows by a same-volume rename or stays.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub licence: bool,
+}
+
+/// What an item is to its game (game folders spec D16).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GameRole {
+    Base,
+    Update,
+    Dlc,
+    Demo,
+}
+
+/// How an item belongs to a game folder (game folders spec D16): data
+/// for the UI, never prose.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GameLink {
+    pub role: GameRole,
+    /// Display form (D11), never the raw header value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<crate::identify::names::Region>,
+    /// The base item's id in this plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub of: Option<usize>,
+    /// The game folder, relative to the target root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<PathBuf>,
+    /// The game folder was already on disk (plan P-5).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub folder_exists: bool,
+    /// A demo's base title, linked by name only (D12).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub demo_of: Option<String>,
+    /// Highest version present for this base (D24).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub newest_here: bool,
+}
+
+impl GameLink {
+    /// A link of `role` with nothing else known yet.
+    pub fn new(role: GameRole) -> GameLink {
+        GameLink {
+            role,
+            version: None,
+            region: None,
+            of: None,
+            folder: None,
+            folder_exists: false,
+            demo_of: None,
+            newest_here: false,
+        }
+    }
 }
 
 /// Size and mtime of a source when it was planned: apply skips items
@@ -563,6 +637,10 @@ pub struct OrganizeItem {
     /// left out of the JSON then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_source: Option<crate::consoles::TitleSource>,
+    /// What the item is to its game folder (game folders spec D16); left
+    /// out of the JSON when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game: Option<GameLink>,
     #[serde(flatten)]
     pub action: OrganizeAction,
 }
@@ -2362,7 +2440,9 @@ fn identify_one(
 /// (systems batch 3 D28).
 /// 9: game parts, title sources, homebrew, NCA ids, archive folder games
 /// and disc counts (adjustments D33).
-const FACTS_VERSION: u32 = 9;
+/// 10: system titles, emulator caches and configs, and the kinds, versions
+/// and regions game folders read (game folders spec D11, D14, D18).
+const FACTS_VERSION: u32 = 10;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -2545,6 +2625,7 @@ pub fn plan_from_survey(
             content_id: None,
             playlist: None,
             title_source: None,
+            game: None,
         };
         let mut key = None;
         match (&entry.left, &entry.identification) {
@@ -2924,6 +3005,7 @@ pub fn plan_from_survey(
             content_id: None,
             playlist: None,
             title_source: None,
+            game: None,
         });
     }
 
@@ -3853,6 +3935,7 @@ fn attach_chd_folders(
                 set.companions.push(Companion {
                     source: rel(src, chd),
                     target: to,
+                    licence: false,
                 });
             }
         }
@@ -4230,8 +4313,8 @@ mod tests {
             facts: f,
         })
         .unwrap();
-        assert_eq!(FACTS_VERSION, 9);
-        old["v"] = 8.into();
+        assert_eq!(FACTS_VERSION, 10);
+        old["v"] = 9.into();
         cache
             .put_organize_facts(&c.path, c.size, c.mtime_ns, &old.to_string())
             .unwrap();
@@ -4264,6 +4347,7 @@ mod tests {
             content_id: None,
             playlist: None,
             title_source: None,
+            game: None,
             action: OrganizeAction::Auto,
         };
         let bare = serde_json::to_value(&item).unwrap();
@@ -4273,6 +4357,120 @@ mod tests {
         item.content_id = Some("UP9000-CUSA00900_00-BLOODBORNE000000".into());
         let full = serde_json::to_value(&item).unwrap();
         assert_eq!(full["content_id"], "UP9000-CUSA00900_00-BLOODBORNE000000");
+        assert_eq!(serde_json::from_value::<OrganizeItem>(full).unwrap(), item);
+    }
+
+    fn bare_item() -> OrganizeItem {
+        OrganizeItem {
+            id: 0,
+            sources: vec!["Pokemon Y.3ds".into()],
+            kind: ItemKind::File,
+            size: 1,
+            fps: Vec::new(),
+            target: None,
+            set_targets: Vec::new(),
+            system_id: Some("3ds".into()),
+            folder: None,
+            confidence: 0.95,
+            method: None,
+            why: Vec::new(),
+            alternatives: Vec::new(),
+            rename: None,
+            notes: Vec::new(),
+            companions: Vec::new(),
+            catalogue_name: None,
+            transfer: Transfer::AsIs,
+            disc: None,
+            title_id: None,
+            content_id: None,
+            playlist: None,
+            title_source: None,
+            game: None,
+            action: OrganizeAction::Auto,
+        }
+    }
+
+    #[test]
+    fn game_folder_variants_serde() {
+        use serde_json::{json, to_value};
+        let reason = LeftReason::GameFolderContent {
+            folder: FixedFolder::Mods,
+            of: "Pokemon Y".into(),
+        };
+        let wire = json!({"kind": "game-folder-content", "folder": "mods", "of": "Pokemon Y"});
+        assert_eq!(to_value(&reason).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<LeftReason>(wire).unwrap(), reason);
+        for (note, wire) in [
+            (
+                ItemNote::DemoOf {
+                    of: "Pokemon Y".into(),
+                },
+                json!({"kind": "demo-of", "of": "Pokemon Y"}),
+            ),
+            (ItemNote::BaseMissing, json!({"kind": "base-missing"})),
+        ] {
+            assert_eq!(to_value(&note).unwrap(), wire);
+            assert_eq!(serde_json::from_value::<ItemNote>(wire).unwrap(), note);
+        }
+        let rename = RenameReason::GameFolder {
+            from: "pky.3ds".into(),
+        };
+        let wire = json!({"kind": "game-folder", "from": "pky.3ds"});
+        assert_eq!(to_value(&rename).unwrap(), wire);
+        assert_eq!(
+            serde_json::from_value::<RenameReason>(wire).unwrap(),
+            rename
+        );
+        for (role, wire) in [
+            (GameRole::Base, "base"),
+            (GameRole::Update, "update"),
+            (GameRole::Dlc, "dlc"),
+            (GameRole::Demo, "demo"),
+        ] {
+            assert_eq!(to_value(role).unwrap(), json!(wire));
+        }
+    }
+
+    #[test]
+    fn companion_licence_is_left_out_when_false() {
+        use serde_json::{json, to_value};
+        let mut c = Companion {
+            source: "a.rap".into(),
+            target: "b.rap".into(),
+            licence: false,
+        };
+        let bare = to_value(&c).unwrap();
+        assert!(bare.get("licence").is_none(), "{bare}");
+        // A companion written before licences still loads.
+        let old: Companion =
+            serde_json::from_value(json!({"source": "a.sav", "target": "b.sav"})).unwrap();
+        assert!(!old.licence);
+        c.licence = true;
+        let full = to_value(&c).unwrap();
+        assert_eq!(full["licence"], true);
+        assert_eq!(serde_json::from_value::<Companion>(full).unwrap(), c);
+    }
+
+    #[test]
+    fn organize_item_game_is_optional() {
+        let mut item = bare_item();
+        let bare = serde_json::to_value(&item).unwrap();
+        assert!(bare.get("game").is_none(), "{bare}");
+        // A plan item from before game folders still loads.
+        let back: OrganizeItem = serde_json::from_value(bare).unwrap();
+        assert_eq!(back.game, None);
+        let mut link = GameLink::new(GameRole::Update);
+        link.version = Some("1.5".into());
+        link.of = Some(3);
+        link.folder = Some(PathBuf::from("3DS").join("Pokemon Y"));
+        let link_wire = serde_json::to_value(&link).unwrap();
+        assert!(link_wire.get("folder_exists").is_none(), "{link_wire}");
+        assert!(link_wire.get("newest_here").is_none(), "{link_wire}");
+        assert!(link_wire.get("region").is_none(), "{link_wire}");
+        assert_eq!(link_wire["role"], "update");
+        item.game = Some(link);
+        let full = serde_json::to_value(&item).unwrap();
+        assert_eq!(full["game"]["of"], 3);
         assert_eq!(serde_json::from_value::<OrganizeItem>(full).unwrap(), item);
     }
 }

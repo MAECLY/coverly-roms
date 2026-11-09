@@ -14,7 +14,7 @@ use clap::{Args, ValueEnum};
 use coverly_core::archive::{FoundTool, Tool};
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::catalog::{SwitchCatalog, TitleNames};
-use coverly_core::consoles::PartKind;
+use coverly_core::consoles::{FixedFolder, PartKind};
 use coverly_core::credentials::{DevCredentials, SourceKeys};
 use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
 use coverly_core::identify::evidence::{Evidence, IdLevel};
@@ -1159,6 +1159,8 @@ fn left_reason_text(reason: &LeftReason) -> String {
             NotARom::Model3d => "not a ROM (3D model)".into(),
             NotARom::PcGameData => "not a ROM (PC game data)".into(),
             NotARom::ConsoleSystem => "not a ROM (console system file)".into(),
+            NotARom::EmulatorCache => "not a ROM (emulator cache)".into(),
+            NotARom::EmulatorConfig => "not a ROM (emulator settings)".into(),
         },
         LeftReason::Bios => "BIOS or firmware".into(),
         LeftReason::DamagedArchive => "damaged archive".into(),
@@ -1230,6 +1232,22 @@ fn left_reason_text(reason: &LeftReason) -> String {
         } => "encrypted Vita backup; not moved on its own".into(),
         LeftReason::GamePart { .. } => "part of a game; not moved on its own".into(),
         LeftReason::NotConfirmed => "not confirmed; left where it is".into(),
+        LeftReason::GameFolderContent { folder, of } => format!(
+            "kept in place: the {} folder of {of} stays for now",
+            fixed_folder_name(*folder)
+        ),
+    }
+}
+
+/// A fixed folder's name as on disk: English, never translated.
+fn fixed_folder_name(folder: FixedFolder) -> &'static str {
+    match folder {
+        FixedFolder::Updates => "Updates",
+        FixedFolder::Dlc => "DLC",
+        FixedFolder::Mods => "Mods",
+        FixedFolder::Cheats => "Cheats",
+        FixedFolder::Extras => "Extras",
+        FixedFolder::Saves => "Saves",
     }
 }
 
@@ -1250,6 +1268,7 @@ fn rename_text(r: &RenameReason) -> String {
         }
         RenameReason::PathLength => "renamed: the path was too long".into(),
         RenameReason::Catalogue { from } => format!("renamed from {from} to the catalogue name"),
+        RenameReason::GameFolder { from } => format!("renamed for its game folder (was {from})"),
     }
 }
 
@@ -1315,6 +1334,8 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::ArchiveCaseCollision => {
             "two names in the archive differ only in case; extracting them would collide".into()
         }
+        ItemNote::DemoOf { of } => format!("demo of {of}"),
+        ItemNote::BaseMissing => "its game is not here or in the library".into(),
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })
@@ -2390,6 +2411,54 @@ mod tests {
                 items: 2
             }),
             "12.0 GB will be written to the target; you will be asked to confirm"
+        );
+    }
+
+    #[test]
+    fn game_folder_texts() {
+        use coverly_core::consoles::FixedFolder;
+        assert_eq!(
+            left_text(&LeftReason::GameFolderContent {
+                folder: FixedFolder::Mods,
+                of: "Pokemon Y".into(),
+            }),
+            "kept in place: the Mods folder of Pokemon Y stays for now"
+        );
+        assert_eq!(
+            left_text(&LeftReason::GameFolderContent {
+                folder: FixedFolder::Dlc,
+                of: "Pokemon Y".into(),
+            }),
+            "kept in place: the DLC folder of Pokemon Y stays for now"
+        );
+        assert_eq!(
+            left_text(&LeftReason::NotARom {
+                what: NotARom::EmulatorCache
+            }),
+            "not a ROM (emulator cache)"
+        );
+        assert_eq!(
+            left_text(&LeftReason::NotARom {
+                what: NotARom::EmulatorConfig
+            }),
+            "not a ROM (emulator settings)"
+        );
+        assert_eq!(
+            note_text(&ItemNote::DemoOf {
+                of: "Pokemon Y".into()
+            })
+            .as_deref(),
+            Some("demo of Pokemon Y")
+        );
+        assert_eq!(
+            note_text(&ItemNote::BaseMissing).as_deref(),
+            Some("its game is not here or in the library")
+        );
+        assert_eq!(
+            rename_text(&RenameReason::GameFolder {
+                from: "pky.3ds".into()
+            }),
+            "renamed for its game folder (was pky.3ds)"
         );
     }
 }

@@ -442,6 +442,7 @@ pub fn assign_targets_in(
                     .map(|(source, target)| Companion {
                         source,
                         target: rel(&target),
+                        licence: false,
                     })
                     .collect();
                 item.notes
@@ -639,6 +640,7 @@ pub(crate) fn attach_set_aside_companions(
                 found.push(Companion {
                     source: rel.to_path_buf(),
                     target: base.join(rel),
+                    licence: false,
                 });
             }
         }

@@ -134,6 +134,11 @@ pub enum NotARom {
     /// A console's own system file or folder (firmware modules, a
     /// console system package), never a game (systems batch 3).
     ConsoleSystem,
+    /// An emulator's shader or pipeline cache (game folders spec D18):
+    /// recognised by name, left where it is.
+    EmulatorCache,
+    /// An emulator's per-game settings file (game folders spec D18).
+    EmulatorConfig,
 }
 
 /// Container formats recognised by their magic (contents not read here).
@@ -232,10 +237,13 @@ impl Sniff {
     /// 3 D19), the first verdict as [`Sniff::console`]. A console's own
     /// XVD (`xbox::XVD_SYSTEM_DETAIL`) or title metadata
     /// (`wiiu::TMD_SYSTEM_DETAIL`, adjustments D14) is no ROM and no hit.
+    /// So is a lone verdict of kind [`crate::consoles::TitleKind::System`]
+    /// (game folders plan P-1).
     pub fn add_console(&mut self, ids: Vec<crate::consoles::ConsoleId>) {
         if let [only] = ids.as_slice() {
             if only.detail == crate::consoles::xbox::XVD_SYSTEM_DETAIL
                 || only.detail == crate::consoles::wiiu::TMD_SYSTEM_DETAIL
+                || only.kind == crate::consoles::TitleKind::System
             {
                 self.not_a_rom = Some(NotARom::ConsoleSystem);
                 return;
@@ -1817,5 +1825,46 @@ pub mod fixtures {
     pub fn html_page() -> Vec<u8> {
         b"<!DOCTYPE html>\n<html><head><title>Download</title></head><body>Not found</body></html>\n"
             .to_vec()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::consoles::{ConsoleId, TitleKind};
+
+    fn with_kind(kind: TitleKind) -> ConsoleId {
+        let mut id = ConsoleId::proven("3ds", "CIA");
+        id.kind = kind;
+        id
+    }
+
+    #[test]
+    fn a_lone_system_title_is_a_console_system_file() {
+        let mut s = Sniff::default();
+        s.add_console(vec![with_kind(TitleKind::System)]);
+        assert_eq!(s.not_a_rom, Some(NotARom::ConsoleSystem));
+        assert!(s.hits.is_empty());
+        assert!(s.console.is_none());
+    }
+
+    #[test]
+    fn a_base_title_is_still_a_hit() {
+        let mut s = Sniff::default();
+        s.add_console(vec![with_kind(TitleKind::Base)]);
+        assert_eq!(s.not_a_rom, None);
+        assert_eq!(s.hits.len(), 1);
+    }
+
+    #[test]
+    fn emulator_caches_and_configs_serialise_kebab_case() {
+        assert_eq!(
+            serde_json::to_string(&NotARom::EmulatorCache).unwrap(),
+            "\"emulator-cache\""
+        );
+        assert_eq!(
+            serde_json::to_string(&NotARom::EmulatorConfig).unwrap(),
+            "\"emulator-config\""
+        );
     }
 }

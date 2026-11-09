@@ -832,6 +832,7 @@ mod apply_phases {
                 folder_game: false,
             },
             disc: None,
+            game: None,
             action: OrganizeAction::Auto,
             title_id: None,
             content_id: None,

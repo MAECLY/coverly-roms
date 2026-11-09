@@ -2904,9 +2904,10 @@ fn stored_facts(world: &World, path: &Path) -> Option<serde_json::Value> {
 }
 
 #[test]
-fn facts_of_version_8_are_read_again() {
-    // Adjustments D33: version 8 facts carry no game part, title source,
-    // homebrew kind, NCA ids or disc count on `Sniff.console`.
+fn facts_of_version_9_are_read_again() {
+    // Game folders D11, D14, D18: version 9 facts carry no system title
+    // kind, emulator cache or config verdict, nor the versions and regions
+    // game folders read (version 8 lacked the adjustments D33 facts).
     let dir = TempDir::new().unwrap();
     let rom = dir.path().join("Game.gba");
     put(&rom, &fx::gba());
@@ -2918,10 +2919,10 @@ fn facts_of_version_8_are_read_again() {
     };
     plan(&world, dir.path(), opts.clone());
     let mut stored = stored_facts(&world, &rom).expect("facts memoised");
-    assert_eq!(stored["v"], 9);
+    assert_eq!(stored["v"], 10);
 
-    // A version 8 row with a stale verdict is not trusted.
-    stored["v"] = 8.into();
+    // A version 9 row with a stale verdict is not trusted.
+    stored["v"] = 9.into();
     stored["inspection"]["payloads"][0]["sniff"]["hits"] = serde_json::json!([]);
     let meta = fs::metadata(&rom).unwrap();
     let mtime = FileTime::from_last_modification_time(&meta);
@@ -2937,7 +2938,7 @@ fn facts_of_version_8_are_read_again() {
         .find(|i| i.system_id.as_deref() == Some("gba"));
     assert!(item.is_some(), "the header is read again");
     let stored = stored_facts(&world, &rom).unwrap();
-    assert_eq!(stored["v"], 9);
+    assert_eq!(stored["v"], 10);
     assert_eq!(
         stored["inspection"]["payloads"][0]["sniff"]["hits"][0]["system"],
         "gba"

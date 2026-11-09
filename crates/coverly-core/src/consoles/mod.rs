@@ -37,6 +37,7 @@ pub mod wiiu;
 pub mod xbox;
 pub mod zarchive;
 
+pub use crate::game_folder::FixedFolder;
 pub(crate) use listing::MAX_CHILD_ENTRIES;
 pub use listing::{identify_dir_on_disk, on_disk, DirListing, DiskFs, EntryMeta, ListingFs};
 
@@ -60,6 +61,9 @@ pub enum TitleKind {
     /// Made outside the console maker's programme (NRO, `.3dsx`, a loose
     /// `.rpx`, a Vita homebrew SELF; spec D12).
     Homebrew,
+    /// The console's own title (a system update, firmware module or
+    /// system application; game folders plan P-1): never a game.
+    System,
     #[default]
     Unknown,
 }
@@ -791,6 +795,18 @@ mod tests {
     use super::*;
     use crate::identify::names::Region;
     use crate::identify::sniff::NotARom;
+
+    #[test]
+    fn system_kind_serialises_as_system() {
+        assert_eq!(
+            serde_json::to_string(&TitleKind::System).unwrap(),
+            "\"system\""
+        );
+        assert_eq!(
+            serde_json::from_str::<TitleKind>("\"system\"").unwrap(),
+            TitleKind::System
+        );
+    }
 
     #[test]
     fn is_key_material_list() {

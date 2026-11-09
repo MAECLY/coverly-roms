@@ -15,6 +15,7 @@ mod csv_util;
 pub mod dedupe;
 pub mod disc;
 pub mod fill;
+pub mod game_folder;
 pub mod gamelist;
 pub mod gather;
 pub mod identify;

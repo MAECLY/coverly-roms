@@ -1997,6 +1997,7 @@
     "dlc",
     "demo",
     "homebrew",
+    "system",
     "unknown"
   ],
   "adjustments_catalogue_item": {
@@ -2153,5 +2154,62 @@
     { "integration": "screenscraper", "problem": "rejected" },
     { "integration": "screenscraper", "problem": "quota" },
     { "integration": "switch-catalog", "problem": "off" }
-  ]
+  ],
+  "game_folder_item": {
+    "id": 2,
+    "sources": ["pky-update.cia"],
+    "kind": "file",
+    "size": 300000000,
+    "fps": [{ "size": 300000000, "mtime_ns": 1700000000000000000 }],
+    "target": "3DS/Pokemon Y/Updates/Pokemon Y (v1.5).cia",
+    "set_targets": [],
+    "system_id": "3ds",
+    "folder": "3DS",
+    "confidence": 0.95,
+    "method": "header",
+    "why": [
+      { "kind": "header", "system": "3ds", "weight": 0.95, "detail": "CIA" }
+    ],
+    "alternatives": [],
+    "rename": { "kind": "game-folder", "from": "pky-update.cia" },
+    "notes": [{ "kind": "update", "of": "Pokemon Y" }],
+    "companions": [
+      {
+        "source": "pky-update.tik",
+        "target": "3DS/Pokemon Y/Updates/Pokemon Y (v1.5).tik",
+        "licence": true
+      }
+    ],
+    "catalogue_name": null,
+    "transfer": { "kind": "as-is" },
+    "disc": null,
+    "title_id": { "id": "0004000E00055E00", "source": "header" },
+    "game": {
+      "role": "update",
+      "version": "1.5",
+      "region": "europe",
+      "of": 1,
+      "folder": "3DS/Pokemon Y",
+      "newest_here": true
+    },
+    "action": "auto"
+  },
+  "game_folder_reasons": [
+    { "kind": "game-folder-content", "folder": "mods", "of": "Pokemon Y" },
+    { "kind": "not-a-rom", "what": "emulator-cache" },
+    { "kind": "not-a-rom", "what": "emulator-config" }
+  ],
+  "game_folder_notes": [
+    { "kind": "demo-of", "of": "Pokemon Y" },
+    { "kind": "base-missing" }
+  ],
+  "game_folder_fixed_folders": [
+    "updates",
+    "dlc",
+    "mods",
+    "cheats",
+    "extras",
+    "saves"
+  ],
+  "game_folder_roles": ["base", "update", "dlc", "demo"]
 }

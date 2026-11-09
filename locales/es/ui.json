@@ -1371,6 +1371,8 @@
       "patch": "parche; aplícalo a la ROM original",
       "pcGameData": "datos de un juego de PC",
       "consoleSystem": "archivo del sistema de una consola",
+      "emulatorCache": "caché de un emulador",
+      "emulatorConfig": "ajustes de un emulador",
       "installer": "instalador de programas",
       "model3d": "modelo 3D",
       "bios": "BIOS: va en la carpeta de BIOS del dispositivo",
