@@ -219,7 +219,9 @@ pub struct ConsoleId {
     /// batch 3 §8.0).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_id: Option<String>,
-    /// From the first letter of the content id (systems batch 3 D8).
+    /// From the first letter of the content id (systems batch 3 D8), a
+    /// base's 3DS/Wii U product code, a GameCube/Wii game id or a PS3/PSP
+    /// serial (game folders spec D10).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<Region>,
     /// GDK StoreId, ERA Identity Name, XVC ProductId GUID (systems
@@ -778,8 +780,96 @@ pub fn region_from_content_id(content_id: &str) -> Option<Region> {
         b'J' => Some(Region::Japan),
         b'H' => Some(Region::Asia),
         b'I' => Some(Region::World),
+        // Korea, as PSN store content ids write it (`KP…`; game folders
+        // spec D10).
+        b'K' => Some(Region::Korea),
         _ => None,
     }
+}
+
+/// The region of a Nintendo game code letter (game folders spec D10):
+/// the letter after the 3-character game code of a 3DS or Wii U product
+/// code and of a GameCube/Wii disc id or WAD game code. Sources:
+/// `docs/02-research/updates-dlc-per-system.md` verifies `E`, `J`, `P`,
+/// `U`, `C`, `K` on DS game codes (dsibrew) and `E`/`P`/`J` on Wii U
+/// (wiiubrew `AMKJ`/`AMKE`/`AMKP`); `W`, `A`, `D`, `F`, `S`, `I`, `H` are
+/// the GameTDB region letters spec D10 lists. The 3DS uses the same
+/// game-code family, but the research does not verify its letters: medium
+/// confidence, base titles only.
+fn nintendo_region_letter(letter: u8) -> Option<Region> {
+    Some(match letter.to_ascii_uppercase() {
+        b'E' => Region::Usa,
+        b'P' => Region::Europe,
+        b'J' => Region::Japan,
+        b'K' => Region::Korea,
+        b'W' => Region::Taiwan,
+        b'C' => Region::China,
+        b'A' => Region::World,
+        b'D' => Region::Germany,
+        b'F' => Region::France,
+        b'S' => Region::Spain,
+        b'I' => Region::Italy,
+        b'U' => Region::Australia,
+        b'H' => Region::Netherlands,
+        _ => return None,
+    })
+}
+
+/// The region of a 3DS (`CTR-P-AXXE`, `KTR-…`) or Wii U (`WUP-P-AXXP`,
+/// or its ID4/ID6 `AXXP01`) product code: the last letter of the
+/// 4-character game code (game folders spec D10). Read for base titles
+/// only: the 3DS product-code letters are community knowledge (medium
+/// confidence) and the update/DLC product codes are unverified.
+pub fn region_from_product_code(code: &str) -> Option<Region> {
+    let code = code.trim();
+    let game = match code.as_bytes() {
+        [a, b, c, b'-', _, b'-', ..] if [a, b, c].iter().all(|x| x.is_ascii_uppercase()) => {
+            &code[6..]
+        }
+        _ => code,
+    };
+    region_from_game_id(game)
+}
+
+/// The region of a GameCube/Wii disc id (`RMCE01`) or a WAD game code
+/// (`WAAE`, a DLC's `wF4P`): its 4th character (game folders spec D10).
+/// `None` unless the id is 4 or 6 ASCII letters and digits.
+pub fn region_from_game_id(id: &str) -> Option<Region> {
+    let b = id.trim().as_bytes();
+    if !matches!(b.len(), 4 | 6) || !b.iter().all(u8::is_ascii_alphanumeric) {
+        return None;
+    }
+    nintendo_region_letter(b[3])
+}
+
+/// The region of a PS3 or PSP serial, disc or PSN (`BLUS30001`,
+/// `NPEB00001`, `ULJM05000`, `UCES-00001`): the third letter of a
+/// `[BN][LCP]xx` or `U[LC]xx` prefix (game folders spec D10). Vita
+/// `PCSx`, PS4 `CUSA` and every other shape give `None`: the research has
+/// no letter rule for them.
+pub fn region_from_sony_serial(serial: &str) -> Option<Region> {
+    let b = serial.trim().as_bytes();
+    let prefix = b.get(..4)?;
+    if !prefix.iter().all(u8::is_ascii_alphabetic) {
+        return None;
+    }
+    let p: Vec<u8> = prefix.iter().map(u8::to_ascii_uppercase).collect();
+    let shaped = matches!(
+        (p[0], p[1]),
+        (b'B' | b'N', b'L' | b'C' | b'P') | (b'U', b'L' | b'C')
+    );
+    if !shaped {
+        return None;
+    }
+    Some(match p[2] {
+        b'U' => Region::Usa,
+        b'E' => Region::Europe,
+        b'J' => Region::Japan,
+        b'A' => Region::Asia,
+        b'K' => Region::Korea,
+        b'H' => Region::HongKong,
+        _ => return None,
+    })
 }
 
 /// A plaintext title from a header field: NULs and padding trimmed,
@@ -1253,8 +1343,91 @@ mod tests {
         ] {
             assert_eq!(region_from_content_id(id), Some(region), "{id}");
         }
-        for id in ["KP9000-CUSA00001_00-X", "X", ""] {
+        assert_eq!(
+            region_from_content_id("KP9000-CUSA00001_00-X"),
+            Some(Region::Korea)
+        );
+        for id in ["XP9000-CUSA00001_00-X", "X", ""] {
             assert_eq!(region_from_content_id(id), None, "{id}");
+        }
+    }
+
+    #[test]
+    fn region_from_product_codes_and_game_ids() {
+        for (letter, region) in [
+            ('E', Region::Usa),
+            ('P', Region::Europe),
+            ('J', Region::Japan),
+            ('K', Region::Korea),
+            ('W', Region::Taiwan),
+            ('C', Region::China),
+            ('A', Region::World),
+            ('D', Region::Germany),
+            ('F', Region::France),
+            ('S', Region::Spain),
+            ('I', Region::Italy),
+            ('U', Region::Australia),
+            ('H', Region::Netherlands),
+        ] {
+            let code = format!("CTR-P-AXX{letter}");
+            assert_eq!(region_from_product_code(&code), Some(region), "{code}");
+            let id = format!("RMC{letter}01");
+            assert_eq!(region_from_game_id(&id), Some(region), "{id}");
+        }
+        assert_eq!(region_from_product_code("CTR-P-EK2A"), Some(Region::World));
+        assert_eq!(region_from_product_code("WUP-P-ARDP"), Some(Region::Europe));
+        assert_eq!(region_from_product_code("WUP-N-ARDE"), Some(Region::Usa));
+        assert_eq!(region_from_product_code("KTR-P-BXXJ"), Some(Region::Japan));
+        assert_eq!(region_from_product_code("ARDP01"), Some(Region::Europe));
+        assert_eq!(region_from_game_id("RMCE01"), Some(Region::Usa));
+        assert_eq!(region_from_game_id("WAAE"), Some(Region::Usa));
+        assert_eq!(
+            region_from_game_id("wF4P"),
+            Some(Region::Europe),
+            "Wii DLC code"
+        );
+        for bad in [
+            "CTR-P-AXXZ",
+            "CTR-P-AX",
+            "",
+            "CTR",
+            "RMCQ01",
+            "RM",
+            "RMC-01",
+        ] {
+            assert_eq!(region_from_product_code(bad), None, "{bad}");
+            assert_eq!(region_from_game_id(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn region_from_sony_serials() {
+        for (serial, region) in [
+            ("BLUS30001", Region::Usa),
+            ("BLES00001", Region::Europe),
+            ("BLJM60001", Region::Japan),
+            ("BCAS20001", Region::Asia),
+            ("BLKS20001", Region::Korea),
+            ("BLHS20001", Region::HongKong),
+            ("NPUB30001", Region::Usa),
+            ("NPEB00001", Region::Europe),
+            ("ULJM05000", Region::Japan),
+            ("ULUS10041", Region::Usa),
+            ("UCES00001", Region::Europe),
+            ("BLUS-30001", Region::Usa),
+        ] {
+            assert_eq!(region_from_sony_serial(serial), Some(region), "{serial}");
+        }
+        for serial in [
+            "PCSE00123",
+            "PCSB00001",
+            "CUSA00900",
+            "SLUS00001",
+            "BLXS00001",
+            "UP",
+            "",
+        ] {
+            assert_eq!(region_from_sony_serial(serial), None, "{serial}");
         }
     }
 

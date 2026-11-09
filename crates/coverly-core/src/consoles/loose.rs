@@ -455,6 +455,10 @@ fn pbp_id(system: &str, kind: TitleKind, disc: Option<String>) -> ConsoleId {
     let mut id = ConsoleId::proven(system, "PBP PARAM.SFO");
     id.kind = kind;
     if let Some(disc) = disc {
+        if system == "psp" {
+            // The DISC_ID's third letter (game folders spec D10).
+            id.region = super::region_from_sony_serial(&disc);
+        }
         id.serial = normalise_console_serial("ps3", &disc);
         id.title_id = Some(disc);
         id.id_source = Some(IdSource::Pbp);

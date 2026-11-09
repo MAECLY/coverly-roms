@@ -424,6 +424,12 @@ pub const CIA_CONTENT: u64 = 0x3900;
 /// bytes when encrypted), and a meta section with [`smdh`]`("Test Game")`
 /// when `with_meta`.
 pub fn cia(tid: u64, encrypted: bool, with_meta: bool) -> SparseAt {
+    cia_with_code(tid, "CTR-P-EKJA", encrypted, with_meta)
+}
+
+/// A [`cia`] whose clear content 0 carries the product code `code`
+/// (region letter variants: `CTR-P-AXXE`, `CTR-P-AXXP`…).
+pub fn cia_with_code(tid: u64, code: &str, encrypted: bool, with_meta: bool) -> SparseAt {
     const CONTENT: u64 = 0x10_0000;
     let meta_len: u32 = if with_meta { 0x400 + 0x36C0 } else { 0 };
     let mut head = Vec::new();
@@ -449,7 +455,7 @@ pub fn cia(tid: u64, encrypted: bool, with_meta: bool) -> SparseAt {
     if encrypted {
         s.put(CIA_CONTENT, &[0xCD; 0x200]);
     } else {
-        for (o, p) in ncch_parts("CTR-P-EKJA", tid, false) {
+        for (o, p) in ncch_parts(code, tid, false) {
             s.put(CIA_CONTENT + o, &p);
         }
     }

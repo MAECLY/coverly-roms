@@ -70,6 +70,11 @@ pub fn identify(b: &mut Budgeted) -> Option<ConsoleId> {
     id.title_id = Some(format!("{tid:016X}"));
     let id4 = &t[TMD_TITLE_ID + 4..TMD_TITLE_ID + 8];
     if id4.iter().all(u8::is_ascii_alphanumeric) {
+        // The 4th character keeps the region on every WAD, a DLC's
+        // lower-case code included (game folders spec D10).
+        id.region = std::str::from_utf8(id4)
+            .ok()
+            .and_then(super::region_from_game_id);
         id.serial = std::str::from_utf8(id4)
             .ok()
             .and_then(|s| crate::disc::serial::normalise_console_serial("wii", s));

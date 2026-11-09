@@ -121,9 +121,9 @@ const APP_TYPE_DEMO: u32 = 3;
 /// the title id and (in the DAT's form) the serial, `TITLE` with its line
 /// breaks folded, `APP_VER` else `VERSION`, and the kind by `CATEGORY`
 /// (PS3 `DG`/`HG` base, `GD` update; Vita `gd` base, `gp` update; PS4
-/// `gd` base, `gp*` update, `ac` DLC, `APP_TYPE` 3 demo, D7). A PS4 PSF
-/// also gives the content id and the region (D8); PS4 has no DAT, so no
-/// serial.
+/// `gd` base, `gp*` update, `ac` DLC, `APP_TYPE` 3 demo, D7), and the
+/// region where the ids carry one (game folders D10). A PS4 PSF also
+/// gives the content id (D8); PS4 has no DAT, so no serial.
 pub fn from_psf(psf: &Psf, system: &str, detail: &str) -> ConsoleId {
     let mut id = ConsoleId::proven(system, detail);
     id.id_source = Some(IdSource::ParamSfo);
@@ -147,16 +147,26 @@ pub fn from_psf(psf: &Psf, system: &str, detail: &str) -> ConsoleId {
         ("ps4", Some("ac")) => TitleKind::Dlc,
         _ => TitleKind::Unknown,
     };
+    // The content id's first letter wherever the PSF carries one, else a
+    // PS3/PSP serial's third letter; a Vita title without a content id
+    // has none (game folders spec D10).
+    id.region = psf
+        .text("CONTENT_ID")
+        .and_then(content_id)
+        .and_then(|c| super::region_from_content_id(&c))
+        .or_else(|| match system {
+            "ps3" | "psp" => id
+                .title_id
+                .as_deref()
+                .and_then(super::region_from_sony_serial),
+            _ => None,
+        });
     if system == "ps4" {
         id.serial = None;
         if id.kind == TitleKind::Base && psf.int("APP_TYPE") == Some(APP_TYPE_DEMO) {
             id.kind = TitleKind::Demo;
         }
         id.content_id = psf.text("CONTENT_ID").and_then(content_id);
-        id.region = id
-            .content_id
-            .as_deref()
-            .and_then(super::region_from_content_id);
     }
     id
 }
@@ -441,6 +451,11 @@ fn pkg(b: &mut Budgeted) -> Option<ConsoleId> {
     id.serial = crate::disc::serial::normalise_console_serial(system, &tid);
     id.title_id = Some(tid);
     id.id_source = Some(IdSource::Header);
+    // The header's content id at 0x30 (game folders spec D10).
+    id.region = std::str::from_utf8(content)
+        .ok()
+        .and_then(content_id)
+        .and_then(|c| super::region_from_content_id(&c));
     Some(id)
 }
 
@@ -766,7 +781,8 @@ mod tests {
             ("JP", Some(Region::Japan)),
             ("HP", Some(Region::Asia)),
             ("IP", Some(Region::World)),
-            ("KP", None),
+            ("KP", Some(Region::Korea)),
+            ("XP", None),
         ] {
             let cid = format!("{prefix}9000-CUSA00900_00-BLOODBORNE000000");
             assert_eq!(region(&cid), (true, want), "{prefix}");

@@ -56,6 +56,35 @@ impl Region {
         })
     }
 
+    /// The No-Intro word of the region, the inverse of
+    /// [`Region::from_no_intro`] (`Usa` → `USA`, `HongKong` → `Hong
+    /// Kong`, `UnitedKingdom` → `UK`), as a game folder name writes it
+    /// (game folders spec D10).
+    pub fn no_intro_word(self) -> &'static str {
+        use Region::*;
+        match self {
+            World => "World",
+            Usa => "USA",
+            Europe => "Europe",
+            Japan => "Japan",
+            Asia => "Asia",
+            Australia => "Australia",
+            Brazil => "Brazil",
+            Canada => "Canada",
+            China => "China",
+            France => "France",
+            Germany => "Germany",
+            HongKong => "Hong Kong",
+            Italy => "Italy",
+            Korea => "Korea",
+            Netherlands => "Netherlands",
+            Spain => "Spain",
+            Sweden => "Sweden",
+            Taiwan => "Taiwan",
+            UnitedKingdom => "UK",
+        }
+    }
+
     pub fn from_goodtools(code: char) -> Option<Region> {
         use Region::*;
         Some(match code {
@@ -758,5 +787,45 @@ fn disc_group(g: &str) -> Option<u8> {
         (None, None, None) => Some(n),
         (Some("of"), Some(m), None) if m.parse::<u8>().is_ok() => Some(n),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Region;
+
+    const ALL: [Region; 19] = [
+        Region::World,
+        Region::Usa,
+        Region::Europe,
+        Region::Japan,
+        Region::Asia,
+        Region::Australia,
+        Region::Brazil,
+        Region::Canada,
+        Region::China,
+        Region::France,
+        Region::Germany,
+        Region::HongKong,
+        Region::Italy,
+        Region::Korea,
+        Region::Netherlands,
+        Region::Spain,
+        Region::Sweden,
+        Region::Taiwan,
+        Region::UnitedKingdom,
+    ];
+
+    #[test]
+    fn no_intro_word_round_trips() {
+        for region in ALL {
+            let word = region.no_intro_word();
+            assert_eq!(Region::from_no_intro(word), Some(region), "{word}");
+        }
+        assert_eq!(Region::Usa.no_intro_word(), "USA");
+        assert_eq!(Region::Europe.no_intro_word(), "Europe");
+        assert_eq!(Region::Japan.no_intro_word(), "Japan");
+        assert_eq!(Region::HongKong.no_intro_word(), "Hong Kong");
+        assert_eq!(Region::UnitedKingdom.no_intro_word(), "UK");
     }
 }
