@@ -65,6 +65,13 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     label: 'settings.library.defaultProfile',
   },
   {
+    id: 'setting-organize-game-folders',
+    section: 'library',
+    label: 'settings.library.gameFolders',
+    hint: 'settings.library.gameFoldersHint',
+    keywords: 'settings.keywords.gameFolders',
+  },
+  {
     id: 'setting-library-include-hidden',
     section: 'library',
     label: 'settings.library.includeHidden',

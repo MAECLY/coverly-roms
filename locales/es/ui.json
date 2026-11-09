@@ -109,6 +109,9 @@
     "library": {
       "defaultProfile": "Perfil de estructura por defecto",
       "defaultProfileAuto": "Detectar automáticamente",
+      "gameFolders": "Carpeta por juego con DLC y actualizaciones",
+      "gameFoldersHint": "Cada juego en su carpeta, con sus actualizaciones y DLC dentro. Se aplica a {profile} al organizar.",
+      "gameFoldersDetails": "En disco las carpetas se llaman Updates y DLC, en inglés, para que emuladores y herramientas las reconozcan. Solo se crean cuando tienen algo dentro.",
       "ignoredDirs": "Carpetas ignoradas",
       "ignoredDirsHint": "Un nombre de carpeta por línea. Se saltan a cualquier profundidad.",
       "ignoredExts": "Extensiones ignoradas",
@@ -306,6 +309,7 @@
     "keywords": {
       "credits": "agradecimientos, créditos, licencias, atribución, avisos, credits",
       "duplicates": "copias, repetidos",
+      "gameFolders": "DLC, actualizaciones, updates, carpeta",
       "hidden": "dotfiles, punto",
       "quarantine": "cuarentena, apartados, quarantine",
       "rar": "unrar, 7-Zip, 7z, rar",

@@ -109,6 +109,9 @@
     "library": {
       "defaultProfile": "Default layout profile",
       "defaultProfileAuto": "Detect automatically",
+      "gameFolders": "One folder per game with DLC and updates",
+      "gameFoldersHint": "Each game in its own folder, with its updates and DLC inside. Applies to {profile} when organising.",
+      "gameFoldersDetails": "On disk the folders are named Updates and DLC so emulators and tools recognise them. They are only created when something goes in them.",
       "ignoredDirs": "Ignored folders",
       "ignoredDirsHint": "One folder name per line. They are skipped at any depth.",
       "ignoredExts": "Ignored extensions",
@@ -306,6 +309,7 @@
     "keywords": {
       "credits": "credits, licences, licenses, attribution, notices, agradecimientos",
       "duplicates": "copies, duplicates",
+      "gameFolders": "DLC, updates, folder, actualizaciones, carpeta",
       "hidden": "dotfiles, dot",
       "quarantine": "quarantine, set aside, cuarentena",
       "rar": "unrar, 7-Zip, 7z, rar",

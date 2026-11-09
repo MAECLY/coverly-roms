@@ -36,6 +36,8 @@ async function open(section: SettingsSection) {
   return screen.findByRole('tabpanel');
 }
 
+const GAME_FOLDERS = 'One folder per game with DLC and updates';
+
 const saved = async () => (await backend.getSettings()).settings;
 
 describe('settings sections', () => {
@@ -702,6 +704,7 @@ describe('settings sections', () => {
     ).not.toBeInTheDocument();
     const order = [
       within(panel).getByRole('combobox', { name: 'Default layout profile' }),
+      within(panel).getByRole('switch', { name: GAME_FOLDERS }),
       within(panel).getByRole('switch', { name: 'Include hidden files' }),
       within(panel).getByRole('switch', { name: 'Follow symbolic links' }),
       fold,
@@ -717,14 +720,72 @@ describe('settings sections', () => {
     expect(
       within(panel).getByRole('textbox', { name: 'Ignored extensions' }),
     ).toHaveAccessibleDescription('Comma-separated, without dots.');
-    const [, extsMore] = within(panel).getAllByRole('button', {
+    const extsRow = within(panel)
+      .getByRole('textbox', { name: 'Ignored extensions' })
+      .closest('[data-setting-row]');
+    if (!(extsRow instanceof HTMLElement)) throw new Error('no setting row');
+    const extsMore = within(extsRow).getByRole('button', {
       name: 'More information',
     });
-    if (!extsMore) throw new Error('no second More information toggle');
     await userEvent.click(extsMore);
     expect(
       within(panel).getByText(
         'Files with these extensions are never taken as ROMs.',
+      ),
+    ).toBeVisible();
+  });
+
+  it('library: game folders is on for the Coverly layout and names it', async () => {
+    await backend.updateSettings({
+      organize: { default_layout: 'coverly-library' },
+    });
+    const panel = await open('library');
+    const sw = await within(panel).findByRole('switch', {
+      name: GAME_FOLDERS,
+    });
+    expect(sw).toHaveAttribute('id', settingId('organize.game_folders'));
+    await waitFor(() => expect(sw).toBeChecked());
+    await waitFor(() =>
+      expect(sw).toHaveAccessibleDescription(
+        'Each game in its own folder, with its updates and DLC inside. Applies to Coverly when organising.',
+      ),
+    );
+  });
+
+  it('library: game folders is off for Anbernic stock; turning it on and back leaves no override', async () => {
+    const panel = await open('library');
+    const sw = within(panel).getByRole('switch', { name: GAME_FOLDERS });
+    await waitFor(() =>
+      expect(sw).toHaveAccessibleDescription(
+        'Each game in its own folder, with its updates and DLC inside. Applies to Anbernic stock when organising.',
+      ),
+    );
+    expect(sw).not.toBeChecked();
+    await userEvent.click(sw);
+    await waitFor(async () =>
+      expect((await saved()).organize.game_folders).toEqual({
+        'anbernic-stock': true,
+      }),
+    );
+    expect(sw).toBeChecked();
+    await userEvent.click(sw);
+    await waitFor(async () =>
+      expect((await saved()).organize.game_folders ?? {}).toEqual({}),
+    );
+    expect(sw).not.toBeChecked();
+  });
+
+  it('library: game folders tells the on-disk names behind More information', async () => {
+    const panel = await open('library');
+    const sw = within(panel).getByRole('switch', { name: GAME_FOLDERS });
+    const row = sw.closest('[data-setting-row]');
+    if (!(row instanceof HTMLElement)) throw new Error('no setting row');
+    await userEvent.click(
+      within(row).getByRole('button', { name: 'More information' }),
+    );
+    expect(
+      within(row).getByText(
+        'On disk the folders are named Updates and DLC so emulators and tools recognise them. They are only created when something goes in them.',
       ),
     ).toBeVisible();
   });
@@ -762,10 +823,9 @@ describe('settings sections', () => {
     expect(sw).toHaveAccessibleDescription(
       'Linked folders are read as if they were inside.',
     );
-    const [more] = within(panel).getAllByRole('button', {
-      name: 'More information',
-    });
-    if (!more) throw new Error('no More information toggle');
+    const row = sw.closest('[data-setting-row]');
+    if (!(row instanceof HTMLElement)) throw new Error('no setting row');
+    const more = within(row).getByRole('button', { name: 'More information' });
     expect(more).toHaveAttribute('aria-expanded', 'false');
     const details =
       'Art is never written outside the library folder: ROMs in a linked folder that points elsewhere are listed, but their art is skipped with an error.';

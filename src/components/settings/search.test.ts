@@ -47,6 +47,20 @@ describe('searchSettings', () => {
     ).toEqual([prefix, word, hint, keyword]);
   });
 
+  it('finds the game folders switch by DLC and by updates', () => {
+    expect(searchSettings('DLC', 'es')[0]?.id).toBe(
+      'setting-organize-game-folders',
+    );
+    expect(searchSettings('updates', 'es').map((e) => e.id)).toContain(
+      'setting-organize-game-folders',
+    );
+    expect(
+      searchSettings('DLC', 'en').find(
+        (e) => e.id === 'setting-organize-game-folders',
+      )?.section,
+    ).toBe('library');
+  });
+
   it('returns nothing for an empty query', () => {
     expect(searchSettings('', 'es')).toEqual([]);
     expect(searchSettings('   ', 'es')).toEqual([]);

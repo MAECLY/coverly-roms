@@ -22,6 +22,7 @@ import { useProfiles } from './useProfiles';
 export function LibrarySection() {
   const t = useT();
   const lib = useSettingsStore((s) => s.settings!.library);
+  const organize = useSettingsStore((s) => s.settings!.organize);
   const update = useSettingsStore((s) => s.update);
   const recents = useLibraryStore((s) => s.recents);
   const forget = useLibraryStore((s) => s.forget);
@@ -36,6 +37,13 @@ export function LibrarySection() {
     current !== null && !profiles.some((p) => p.profile.id === current)
       ? current
       : null;
+  // Game folders (spec §9.2): the switch edits the override for the default
+  // layout profile of Ajustes → Organizar; a value equal to the profile's own
+  // is not kept as an override.
+  const layoutId = organize.default_layout;
+  const layout = profiles.find((p) => p.profile.id === layoutId)?.profile;
+  const layoutDefault = layout?.game_folders ?? false;
+  const gameFolders = organize.game_folders?.[layoutId] ?? layoutDefault;
   const lines = (s: string) =>
     s
       .split('\n')
@@ -72,6 +80,23 @@ export function LibrarySection() {
           ))}
         </NativeSelect>
       </Field>
+      <SwitchSetting
+        id={settingId('organize.game_folders')}
+        name="game-folders"
+        label={t('settings.library.gameFolders')}
+        hint={t('settings.library.gameFoldersHint', {
+          profile: layout?.name ?? layoutId,
+        })}
+        more={t('settings.library.gameFoldersDetails')}
+        checked={gameFolders}
+        onCheckedChange={(on) =>
+          void update({
+            organize: {
+              game_folders: { [layoutId]: on === layoutDefault ? null : on },
+            },
+          })
+        }
+      />
       <SwitchSetting
         id={settingId('library.include_hidden')}
         name="include-hidden"
