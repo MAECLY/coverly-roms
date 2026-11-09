@@ -954,6 +954,81 @@ pub fn region_from_sony_serial(serial: &str) -> Option<Region> {
     })
 }
 
+/// Human form of a raw `ConsoleId.version` for names and the UI (game
+/// folders spec D11). The raw value stays what is stored and compared
+/// (`dedupe::keeper::version_order`); this is display only. Empty,
+/// unparsable or unknown-system values give `None`.
+///
+/// - `3ds`: TMD u16 as `major.minor.micro` from 6/6/4 bits (`1040` →
+///   `1.1.0`). Medium confidence: the split is the community convention
+///   recorded in `docs/02-research/updates-dlc-per-system.md` (3DS
+///   «Version»), since 3dbrew's TMD page gives no bit layout.
+/// - `wiiu`, `switch`: the raw decimal (`32`, `131072`, the scene form);
+///   no documented split is used.
+/// - `ps3`, `psvita`, `ps4`, `psp`, `ps5`: `APP_VER`/`VERSION`/
+///   `contentVersion` as written (`01.05`, `01.000.000`).
+/// - `xbox360`: the hex u32 as `major.minor.build.qfe` from 4/4/16/8 bits
+///   (`20000C00` → `2.0.12.0`).
+/// - `xboxone`, `xboxseries`: four dot-separated u16 as stored.
+/// - `gamecube`, `wii` disc: `Rev N` when N > 0, `None` for 0. A Wii WAD
+///   carries a TMD version instead: see [`display_version_of`].
+pub fn display_version(system: &str, raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let dotted = |max_parts: usize| -> Option<String> {
+        let parts: Vec<&str> = raw.split('.').collect();
+        (parts.len() <= max_parts
+            && parts
+                .iter()
+                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())))
+        .then(|| raw.to_owned())
+    };
+    match system {
+        "3ds" => {
+            let v: u16 = raw.parse().ok()?;
+            Some(format!("{}.{}.{}", v >> 10, (v >> 4) & 0x3F, v & 0xF))
+        }
+        "wiiu" | "switch" => raw.parse::<u32>().ok().map(|v| v.to_string()),
+        "ps3" | "psvita" | "ps4" | "psp" | "ps5" => dotted(4),
+        "xbox360" => {
+            if raw.is_empty() || raw.len() > 8 {
+                return None;
+            }
+            let v = u32::from_str_radix(raw, 16).ok()?;
+            Some(format!(
+                "{}.{}.{}.{}",
+                v >> 28,
+                (v >> 24) & 0xF,
+                (v >> 8) & 0xFFFF,
+                v & 0xFF
+            ))
+        }
+        "xboxone" | "xboxseries" => {
+            let parts: Vec<u16> = raw
+                .split('.')
+                .map(|p| p.parse().ok())
+                .collect::<Option<_>>()?;
+            (parts.len() == 4).then(|| raw.to_owned())
+        }
+        "gamecube" | "wii" => match raw.parse::<u8>().ok()? {
+            0 => None,
+            n => Some(format!("Rev {n}")),
+        },
+        _ => None,
+    }
+}
+
+/// [`display_version`] for a read identity. A Wii WAD (a 16-digit TMD
+/// title id) shows its TMD version as the raw decimal, like the Wii U
+/// TMD, instead of a disc's `Rev N` (game folders spec D11, D14 d).
+pub fn display_version_of(id: &ConsoleId) -> Option<String> {
+    let raw = id.version.as_deref()?;
+    let wad = id.system == "wii" && id.title_id.as_deref().is_some_and(|t| t.len() == 16);
+    if wad {
+        return display_version("wiiu", raw);
+    }
+    display_version(&id.system, raw)
+}
+
 /// A plaintext title from a header field: NULs and padding trimmed,
 /// controls and bidi overrides removed, at most 128 characters; `None`
 /// when nothing printable is left. Used by the readers as they land.
@@ -1649,5 +1724,79 @@ mod tests {
         );
         assert_eq!(clean_title("  A\u{202E}B \0").as_deref(), Some("AB"));
         assert_eq!(clean_title("\0\0"), None);
+    }
+
+    /// Game folders spec D11: each system's community form of the raw
+    /// header version; empty or unparsable raw values give `None`.
+    #[test]
+    fn display_version_per_system() {
+        for (system, raw, want) in [
+            // 3DS TMD u16, 6/6/4 bits (research: community convention).
+            ("3ds", "1040", Some("1.1.0")),
+            ("3ds", "1024", Some("1.0.0")),
+            ("3ds", "2069", Some("2.1.5")),
+            ("3ds", "0", Some("0.0.0")),
+            ("3ds", "70000", None),
+            ("3ds", "1.0", None),
+            ("wiiu", "32", Some("32")),
+            ("wiiu", " 080 ", Some("80")),
+            ("wiiu", "x", None),
+            ("switch", "131072", Some("131072")),
+            ("switch", "0", Some("0")),
+            ("switch", "-1", None),
+            ("ps3", "01.05", Some("01.05")),
+            ("psvita", "01.00", Some("01.00")),
+            ("ps4", "01.09", Some("01.09")),
+            ("psp", "1.00", Some("1.00")),
+            ("ps5", "01.000.000", Some("01.000.000")),
+            ("ps3", "01..05", None),
+            ("ps4", "1.0a", None),
+            ("ps4", ".", None),
+            // XEX/STFS u32 as eight hex digits, 4/4/16/8 bits.
+            ("xbox360", "20000C00", Some("2.0.12.0")),
+            ("xbox360", "2000c00", Some("0.2.12.0")),
+            ("xbox360", "FFFFFFFF", Some("15.15.65535.255")),
+            ("xbox360", "123456789", None),
+            ("xbox360", "zz", None),
+            // XVD PackageVersion as stored, four u16 high to low.
+            ("xboxone", "4.3.2.1", Some("4.3.2.1")),
+            ("xboxseries", "1.0.0.0", Some("1.0.0.0")),
+            ("xboxone", "1.0.0", None),
+            ("xboxone", "70000.0.0.0", None),
+            // Disc revision byte: Redump form, none for the first release.
+            ("gamecube", "1", Some("Rev 1")),
+            ("wii", "2", Some("Rev 2")),
+            ("gamecube", "0", None),
+            ("wii", "256", None),
+            // Retro and other systems have no header version form.
+            ("nes", "1", None),
+            ("3ds", "", None),
+            ("ps4", "  ", None),
+        ] {
+            assert_eq!(
+                display_version(system, raw).as_deref(),
+                want,
+                "{system} {raw:?}"
+            );
+        }
+    }
+
+    /// A Wii WAD's TMD version is not a disc revision byte: it shows as
+    /// its raw decimal, like the Wii U TMD (game folders spec D11, D14 d).
+    #[test]
+    fn display_version_of_tells_wii_wads_from_discs() {
+        let mut wad = ConsoleId::proven("wii", "WAD TMD");
+        wad.title_id = Some("0001000157414145".into());
+        wad.version = Some("513".into());
+        assert_eq!(display_version_of(&wad).as_deref(), Some("513"));
+        let mut disc = ConsoleId::proven("wii", "disc header");
+        disc.title_id = Some("RSPE01".into());
+        disc.version = Some("1".into());
+        assert_eq!(display_version_of(&disc).as_deref(), Some("Rev 1"));
+        disc.version = None;
+        assert_eq!(display_version_of(&disc), None);
+        let mut ctr = ConsoleId::proven("3ds", "CIA TMD");
+        ctr.version = Some("1040".into());
+        assert_eq!(display_version_of(&ctr).as_deref(), Some("1.1.0"));
     }
 }

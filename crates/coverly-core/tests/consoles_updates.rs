@@ -7,7 +7,8 @@ use coverly_core::consoles::testing::{
     psp_pbp, stfs_head, wad_head, wii_wad, xvd_head, SparseAt, STFS_HASH,
 };
 use coverly_core::consoles::{
-    base_title_id, identify, identify_all, psf, sony, wiiu, Budgeted, ConsoleId, TitleKind,
+    base_title_id, display_version_of, identify, identify_all, psf, sony, wiiu, Budgeted,
+    ConsoleId, TitleKind,
 };
 use coverly_core::dedupe::keeper::version_order;
 use coverly_core::identify::names::Region;
@@ -487,4 +488,77 @@ fn xbox360_stfs_version_and_media_id() {
     let back: ConsoleId = serde_json::from_str(&json).unwrap();
     assert_eq!(back.media_id, tu.media_id);
     assert!(!serde_json::to_string(&demo).unwrap().contains("media_id"));
+}
+
+/// Game folders spec D11 through the readers: the raw version each one
+/// stores shows in its community form, and the raw value is unchanged.
+#[test]
+fn display_versions_through_the_readers() {
+    let shown = |id: Option<ConsoleId>| {
+        let id = id.expect("identified");
+        (id.version.clone(), display_version_of(&id))
+    };
+    type Case = (
+        &'static str,
+        Option<ConsoleId>,
+        Option<&'static str>,
+        Option<&'static str>,
+    );
+    let cases: Vec<Case> = vec![
+        (
+            "Xbox 360 STFS title update",
+            read(
+                stfs_head(0x000B_0000, 0x4D53_07E6, 0x4D53_07E6, 0x2000_0C00),
+                "",
+                STFS_HASH,
+            ),
+            Some("20000C00"),
+            Some("2.0.12.0"),
+        ),
+        (
+            "Switch update cnmt",
+            read(
+                nsp_with_cnmt("Patch", "0100000000010800", 131072),
+                "nsp",
+                "u.nsp",
+            ),
+            Some("131072"),
+            Some("131072"),
+        ),
+        (
+            "PSP update APP_VER",
+            read(
+                bytes(psp_pbp("PG", "ULUS10041", "01.10")),
+                "pbp",
+                "EBOOT.PBP",
+            ),
+            Some("01.10"),
+            Some("01.10"),
+        ),
+        (
+            "Wii WAD TMD version",
+            read(wad_head(0x0001_0001_5746_3445, 513), "wad", "c.wad"),
+            Some("513"),
+            Some("513"),
+        ),
+        (
+            "GameCube disc, first release",
+            read(gc_disc("GM8E01", false), "iso", "g.iso"),
+            Some("0"),
+            None,
+        ),
+    ];
+    for (what, id, raw, display) in cases {
+        let (r, d) = shown(id);
+        assert_eq!((r.as_deref(), d.as_deref()), (raw, display), "{what}");
+    }
+    // XVD PackageVersion: stored high to low, shown as stored.
+    let mut src = xvd_head(0x01);
+    let len = src.len;
+    let ids = identify_all(&mut Budgeted::new(&mut src, len), "xvc", "g.xvc");
+    assert!(!ids.is_empty());
+    for id in ids {
+        assert_eq!(id.version.as_deref(), Some("1.2.3.4"), "{}", id.system);
+        assert_eq!(display_version_of(&id).as_deref(), Some("1.2.3.4"));
+    }
 }
