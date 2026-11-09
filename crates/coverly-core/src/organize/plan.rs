@@ -2053,9 +2053,15 @@ fn dlc_rest(stem: &str, title: &str) -> String {
     if !title.is_empty() {
         let lower = out.to_lowercase();
         let wanted = title.to_lowercase();
-        // Lower-casing keeps byte offsets only for ASCII; otherwise the
-        // title is left in place rather than cut at a wrong offset.
-        if lower.len() == out.len() && wanted.len() == title.len() {
+        // Offsets found in the lower-cased text hold in `out` only when
+        // every char keeps its byte length (`İ` grows, `ẞ` shrinks, and
+        // two such can even out the total); otherwise the title is left
+        // in place rather than cut inside a char.
+        let keeps_len = |s: &str| {
+            s.chars()
+                .all(|c| c.to_lowercase().map(char::len_utf8).sum::<usize>() == c.len_utf8())
+        };
+        if keeps_len(&out) && keeps_len(title) {
             let mut kept = String::new();
             let mut at = 0;
             while let Some(i) = lower[at..].find(&wanted) {
@@ -4851,5 +4857,17 @@ mod tests {
         let full = serde_json::to_value(&item).unwrap();
         assert_eq!(full["game"]["of"], 3);
         assert_eq!(serde_json::from_value::<OrganizeItem>(full).unwrap(), item);
+    }
+
+    #[test]
+    fn a_dlc_stem_whose_lower_case_moves_bytes_never_panics() {
+        // `İ` grows and `ẞ` shrinks when lower-cased: same total length,
+        // different offsets. Untrusted file names must not cut a char.
+        assert_eq!(dlc_rest("\u{130}a\u{1E9E}", "a"), "\u{130}a\u{1E9E}");
+        assert_eq!(
+            dlc_rest("Pok\u{e9}mon Y - Extra", "pok\u{e9}mon y"),
+            "Extra"
+        );
+        assert_eq!(dlc_rest("Zelda (USA) [DLC] - Pack", "zelda"), "Pack");
     }
 }
