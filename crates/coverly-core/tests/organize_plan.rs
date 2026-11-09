@@ -4110,3 +4110,55 @@ fn under_source_root(value: &mut serde_json::Value, root: &Path) {
     }
     walk(value, &roots);
 }
+
+/// Game folders spec D14 (d): a Wii WAD DLC is listed right after the
+/// disc game it belongs to (its code with the first letter lower-cased),
+/// and a system channel WAD is no ROM.
+#[test]
+fn wii_wad_dlc_follows_its_disc() {
+    use coverly_core::consoles::testing as ct;
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let dir = s.path();
+    put(
+        &dir.join("A DJ Hero DLC.wad"),
+        &ct::wii_wad(0x0001_0005_7358_4245).head_bytes(),
+    );
+    put(
+        &dir.join("B Other (USA).wbfs"),
+        &ct::wbfs(&ct::gc_header("RMGE01", true)).head_bytes(),
+    );
+    put(
+        &dir.join("DJ Hero (USA).wbfs"),
+        &ct::wbfs(&ct::gc_header("SXBE52", true)).head_bytes(),
+    );
+    put(
+        &dir.join("System Menu Channel.wad"),
+        &ct::wii_wad(0x0001_0002_4841_4241).head_bytes(),
+    );
+    for path in files_below(dir) {
+        pin_mtime(&path, 1);
+    }
+    let p = plan(
+        &world,
+        dir,
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    let names: Vec<String> = p.items.iter().map(|i| file_name(&i.sources[0])).collect();
+    let at = |n: &str| names.iter().position(|x| x == n).unwrap();
+    assert_eq!(
+        at("A DJ Hero DLC.wad"),
+        at("DJ Hero (USA).wbfs") + 1,
+        "{names:?}"
+    );
+    assert_eq!(
+        left_reason(&p, "System Menu Channel.wad"),
+        Some(LeftReason::NotARom {
+            what: NotARom::ConsoleSystem
+        })
+    );
+}

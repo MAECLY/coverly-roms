@@ -301,8 +301,14 @@ pub const WAD_TMD: u64 = 0xD00;
 /// An installable Wii WAD (wiibrew «WAD files»): header `0x20`/`Is`,
 /// certificate chain 0xA00, ticket 0x2A4, TMD 0x208 with title id `tid`,
 /// sections 64-byte aligned from 0x40. The ticket is filled with `0xEE`
-/// so a test can see it was never read.
+/// so a test can see it was never read. TMD title version 0.
 pub fn wii_wad(tid: u64) -> SparseAt {
+    wad_head(tid, 0)
+}
+
+/// [`wii_wad`] with TMD title version `version` (u16 at TMD 0x1DC,
+/// wiibrew «Title metadata»).
+pub fn wad_head(tid: u64, version: u16) -> SparseAt {
     let mut head = Vec::new();
     head.extend(be32(0x20));
     head.extend(*b"Is\0\0");
@@ -316,6 +322,7 @@ pub fn wii_wad(tid: u64) -> SparseAt {
     tmd[..4].copy_from_slice(&be32(0x0001_0001));
     tmd[0x140..0x14A].copy_from_slice(b"Root-CA000");
     tmd[0x18C..0x194].copy_from_slice(&tid.to_be_bytes());
+    tmd[0x1DC..0x1DE].copy_from_slice(&version.to_be_bytes());
     let mut s = SparseAt::new(0xF40 + 0x10_0000);
     s.put(0, &head)
         .put(WAD_TICKET.0, &vec![0xEE; WAD_TICKET.1 as usize])

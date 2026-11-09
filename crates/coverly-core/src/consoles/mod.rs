@@ -680,9 +680,36 @@ fn high(title_id: u64) -> u32 {
     (title_id >> 32) as u32
 }
 
+/// Whether `title_id` is the console's own title, never a game (game
+/// folders spec D14 a, b, d; plan P-1). Plaintext ids only:
+/// - 3DS: platform `0004` with the System category bit (`high & 0x10`;
+///   3dbrew «Titles»: `00040010` applets and system applications,
+///   `0004001B` system data archives, `00040030` applets, `0004009B` and
+///   `000400DB` system data, `00040130` system modules, `00040138`
+///   firmware);
+/// - Switch: every id below the first application,
+///   `0100000000010000` (switchbrew «Title list»: system modules, system
+///   data, applets, system updates);
+/// - Wii: `00000001` essential titles (IOS, boot2, System Menu),
+///   `00010002` system channels and `00010008` hidden channels
+///   (wiibrew «Title database»). `00010000` is disc data, not system.
+pub fn is_console_system_title(system: &str, title_id: u64) -> bool {
+    let high = high(title_id);
+    match system {
+        "3ds" => high >> 16 == 0x0004 && high & 0x10 != 0,
+        "switch" => title_id < 0x0100_0000_0001_0000,
+        "wii" => matches!(high, 0x0000_0001 | 0x0001_0002 | 0x0001_0008),
+        _ => false,
+    }
+}
+
 /// 3DS title kind by the high word (3dbrew «Titles»: platform 4, content
-/// category `0x0` normal, `0x2` demo, `0xE` patch, `0x8C` add-on content).
+/// category `0x0` normal, `0x2` demo, `0xE` patch, `0x8C` add-on content;
+/// the System category bit first, [`is_console_system_title`]).
 pub fn kind_3ds(title_id: u64) -> TitleKind {
+    if is_console_system_title("3ds", title_id) {
+        return TitleKind::System;
+    }
     match high(title_id) {
         0x0004_0000 => TitleKind::Base,
         0x0004_000E => TitleKind::Update,
@@ -705,9 +732,14 @@ pub fn kind_wiiu(title_id: u64) -> TitleKind {
     }
 }
 
-/// Wii title kind by the high word: `00010001` downloaded channels
-/// (WiiWare, Virtual Console), `00010005` DLC.
+/// Wii title kind by the high word: system titles first
+/// ([`is_console_system_title`]), `00010001` downloaded channels
+/// (WiiWare, Virtual Console), `00010005` DLC. `00010004` game channels
+/// (a disc's channel) stay unknown and are placed as today (spec D14 d).
 pub fn kind_wii(title_id: u64) -> TitleKind {
+    if is_console_system_title("wii", title_id) {
+        return TitleKind::System;
+    }
     match high(title_id) {
         0x0001_0001 => TitleKind::Base,
         0x0001_0005 => TitleKind::Dlc,
@@ -716,13 +748,20 @@ pub fn kind_wii(title_id: u64) -> TitleKind {
 }
 
 /// Switch title kind by the low bits: an application ends in `000` with
-/// bit 12 clear, its patch is the application id + `0x800`, and its
-/// add-on content is `(id & !0xFFF) + 0x1000 + index` (nxdumptool
-/// `TITLE_PATCH_ID_OFFSET`, `TITLE_ADDONCONTENT_ID_OFFSET`).
+/// bit 12 clear, its patch is the application id + `0x800`, its delta
+/// fragment the application id + `0xC00`, and its add-on content is
+/// `(id & !0xFFF) + 0x1000 + index`; a DataPatch (an add-on's patch,
+/// `0x1801..=0x1FD0`) has bit 12 set too and is DLC of the same base
+/// (nxdumptool `TITLE_PATCH_ID_OFFSET`, `TITLE_ADDONCONTENT_ID_OFFSET`;
+/// game folders spec D14 b). Ids below the first application are the
+/// console's own ([`is_console_system_title`]).
 pub fn kind_switch(title_id: u64) -> TitleKind {
+    if is_console_system_title("switch", title_id) {
+        return TitleKind::System;
+    }
     match title_id & 0x1FFF {
         0 => TitleKind::Base,
-        0x800 => TitleKind::Update,
+        0x800 | 0xC00 => TitleKind::Update,
         x if x & 0x1000 != 0 => TitleKind::Dlc,
         _ => TitleKind::Unknown,
     }
@@ -737,7 +776,8 @@ pub fn switch_base(title_id: u64) -> u64 {
 /// grouping updates and DLC with their base: Switch `id & !0x1FFF`, 3DS
 /// and Wii U the base high word with the same low 32 bits, Sony (PS3,
 /// Vita, PS4, PS5: systems batch 3 D15) and Xbox 360 the title id
-/// itself; Xbox One and Series GDK folders (systems batch 3 D15) the
+/// itself; Wii the 4-character game code ([`wii_game_code`]); Xbox One
+/// and Series GDK folders (systems batch 3 D15) the
 /// `StoreId` of a base and the one `AllowedProduct` of a DLC (ERA and
 /// XVC identities give no key). `None` for other systems or without a
 /// title id.
@@ -763,10 +803,45 @@ pub fn base_title_id(id: &ConsoleId) -> Option<String> {
         "switch" => Some(format!("{:016X}", switch_base(hex()?))),
         "3ds" => Some(format!("00040000{:08X}", hex()? as u32)),
         "wiiu" => Some(format!("00050000{:08X}", hex()? as u32)),
+        "wii" => wii_game_code(tid),
         "ps3" | "psvita" | "xbox360" | "ps4" | "ps5" if !tid.is_empty() => {
             Some(tid.to_ascii_uppercase())
         }
         _ => None,
+    }
+}
+
+/// The 4-character game code a Wii title belongs to (game folders spec
+/// D14 d): a WAD's low 32 bits as ASCII, a disc's first four ID6
+/// characters, upper-cased. A DLC's code is its base's with the first
+/// letter lower-cased (wiibrew «Title database»: `00010005-wF4E`), so
+/// upper-casing it meets both a `00010001` channel and a disc game.
+fn wii_game_code(tid: &str) -> Option<String> {
+    let code = match tid.len() {
+        16 => {
+            let low = u64::from_str_radix(tid, 16).ok()? as u32;
+            String::from_utf8(low.to_be_bytes().to_vec()).ok()?
+        }
+        6 => tid.get(..4)?.to_owned(),
+        _ => return None,
+    };
+    code.bytes()
+        .all(|b| b.is_ascii_alphanumeric())
+        .then(|| code.to_ascii_uppercase())
+}
+
+/// The kind a title links as when updates and DLC are grouped with
+/// their base: its own kind, except that a Wii disc (an ID6 title id,
+/// no kind in its header) is the base its WAD DLC belongs to (game
+/// folders spec D14 d: DJ Hero and Rock Band DLC belong to discs).
+pub fn link_kind(id: &ConsoleId) -> TitleKind {
+    let disc = id.system == "wii"
+        && id.kind == TitleKind::Unknown
+        && id.title_id.as_deref().is_some_and(|t| t.trim().len() == 6);
+    if disc {
+        TitleKind::Base
+    } else {
+        id.kind
     }
 }
 
@@ -1005,20 +1080,137 @@ mod tests {
         assert_eq!(kind_3ds(0x0004_000E_0003_0800), TitleKind::Update);
         assert_eq!(kind_3ds(0x0004_008C_0003_0800), TitleKind::Dlc);
         assert_eq!(kind_3ds(0x0004_0002_0003_0800), TitleKind::Demo);
-        assert_eq!(kind_3ds(0x0004_0010_0003_0800), TitleKind::Unknown);
+        assert_eq!(kind_3ds(0x0004_0010_0003_0800), TitleKind::System);
         assert_eq!(kind_wiiu(0x0005_000E_1010_ED00), TitleKind::Update);
         assert_eq!(kind_wiiu(0x0005_0000_1010_ED00), TitleKind::Base);
         assert_eq!(kind_wiiu(0x0005_000C_1010_ED00), TitleKind::Dlc);
         assert_eq!(kind_wiiu(0x0005_0002_1010_ED00), TitleKind::Demo);
         assert_eq!(kind_wii(0x0001_0001_5741_4145), TitleKind::Base);
         assert_eq!(kind_wii(0x0001_0005_5741_4145), TitleKind::Dlc);
-        assert_eq!(kind_wii(0x0001_0002_4841_4141), TitleKind::Unknown);
+        assert_eq!(kind_wii(0x0001_0002_4841_4141), TitleKind::System);
+        assert_eq!(kind_wii(0x0001_0004_5241_4141), TitleKind::Unknown);
         assert_eq!(kind_switch(0x0100_0000_0001_0000), TitleKind::Base);
         assert_eq!(kind_switch(0x0100_0000_0001_0800), TitleKind::Update);
         assert_eq!(kind_switch(0x0100_0000_0001_1001), TitleKind::Dlc);
         assert_eq!(kind_switch(0x0100_0000_0001_0001), TitleKind::Unknown);
         assert_eq!(switch_base(0x0100_0000_0001_1001), 0x0100_0000_0001_0000);
         assert_eq!(switch_base(0x0100_0000_0001_0800), 0x0100_0000_0001_0000);
+    }
+
+    /// Game folders spec D14 (a): the System category bit of a 3DS title
+    /// id is the console's own title, whatever else the high word says.
+    #[test]
+    fn kind_3ds_system_titles_are_system() {
+        for high in [
+            0x0004_0010u64,
+            0x0004_001B,
+            0x0004_0030,
+            0x0004_009B,
+            0x0004_00DB,
+            0x0004_0130,
+            0x0004_0138,
+        ] {
+            let tid = (high << 32) | 0x0002_0300;
+            assert_eq!(kind_3ds(tid), TitleKind::System, "{high:08X}");
+            assert!(is_console_system_title("3ds", tid), "{high:08X}");
+        }
+        for high in [0x0004_0000u64, 0x0004_000E, 0x0004_008C, 0x0004_0002] {
+            assert!(!is_console_system_title("3ds", (high << 32) | 0x0003_0800));
+        }
+        // Another platform's high word is never a 3DS system title.
+        assert!(!is_console_system_title("3ds", 0x0005_0010_1010_ED00));
+        assert_eq!(kind_3ds(0x0005_0010_1010_ED00), TitleKind::Unknown);
+    }
+
+    /// Game folders spec D14 (b): a DataPatch is DLC of the base its
+    /// `switch_base` gives, a Delta is an update.
+    #[test]
+    fn kind_switch_datapatch_and_delta() {
+        for tid in [0x0100_0000_0001_1801u64, 0x0100_0000_0001_1FD0] {
+            assert_eq!(kind_switch(tid), TitleKind::Dlc, "{tid:016X}");
+            assert_eq!(
+                switch_base(tid),
+                ((tid - 0x800) - 0x1000) & !0xFFF,
+                "{tid:016X}"
+            );
+            assert_eq!(switch_base(tid), 0x0100_0000_0001_0000);
+        }
+        assert_eq!(kind_switch(0x0100_0000_0001_0C00), TitleKind::Update);
+        assert_eq!(switch_base(0x0100_0000_0001_0C00), 0x0100_0000_0001_0000);
+    }
+
+    /// Game folders spec D14 (b): ids below the first application are the
+    /// console's own (firmware modules, system applets, system data).
+    #[test]
+    fn switch_system_titles() {
+        for tid in [
+            0x0100_0000_0000_0809u64,
+            0x0100_0000_0000_1000,
+            0x0100_0000_0000_FFFF,
+        ] {
+            assert_eq!(kind_switch(tid), TitleKind::System, "{tid:016X}");
+            assert!(is_console_system_title("switch", tid));
+        }
+        assert!(!is_console_system_title("switch", 0x0100_0000_0001_0000));
+        assert_eq!(kind_switch(0x0100_0000_0001_0000), TitleKind::Base);
+    }
+
+    /// Game folders spec D14 (d): a WAD DLC's code is its base's code
+    /// with the first letter lower-cased; upper-casing it meets both a
+    /// `00010001` channel and a disc game's ID6.
+    #[test]
+    fn base_title_id_wii_wad_dlc_meets_disc_and_channel() {
+        let with = |tid: &str| {
+            let mut id = ConsoleId::proven("wii", "x");
+            id.title_id = Some(tid.into());
+            base_title_id(&id)
+        };
+        // `00010005-wF4E` (DLC) → `WF4E`.
+        assert_eq!(with("0001000577463445").as_deref(), Some("WF4E"));
+        // A channel with that code.
+        assert_eq!(with("0001000157463445").as_deref(), Some("WF4E"));
+        // A disc game: the first four characters of its ID6.
+        assert_eq!(with("SXBE52").as_deref(), Some("SXBE"));
+        let mut disc = ConsoleId::proven("wii", "disc");
+        disc.title_id = Some("sxbe52".into());
+        assert_eq!(base_title_id(&disc).as_deref(), Some("SXBE"));
+        assert_eq!(
+            base_title_id(&{
+                let mut d = ConsoleId::proven("wii", "x");
+                d.title_id = Some("0001000573584245".into()); // `sXBE`
+                d
+            })
+            .as_deref(),
+            Some("SXBE")
+        );
+        // The disc links as the base, the DLC as DLC, a game channel as
+        // nothing.
+        assert_eq!(link_kind(&disc), TitleKind::Base);
+        let mut dlc = ConsoleId::proven("wii", "WAD TMD");
+        dlc.title_id = Some("0001000573584245".into());
+        dlc.kind = TitleKind::Dlc;
+        assert_eq!(link_kind(&dlc), TitleKind::Dlc);
+        let mut channel = ConsoleId::proven("wii", "WAD TMD");
+        channel.title_id = Some("0001000452414141".into());
+        assert_eq!(link_kind(&channel), TitleKind::Unknown);
+        let mut gc = ConsoleId::proven("gamecube", "disc");
+        gc.title_id = Some("GM8E01".into());
+        assert_eq!(link_kind(&gc), TitleKind::Unknown);
+        // A code that is not text, or an id of another shape: no key.
+        assert_eq!(with("0001000500000002"), None);
+        assert_eq!(with("RM"), None);
+        // Wii system ids: essential titles, system and hidden channels.
+        for tid in [
+            0x0000_0001_0000_0002u64,
+            0x0001_0002_4841_4241,
+            0x0001_0008_4841_4B45,
+        ] {
+            assert_eq!(kind_wii(tid), TitleKind::System, "{tid:016X}");
+            assert!(is_console_system_title("wii", tid));
+        }
+        // Disc data titles (`00010000`) are not system titles.
+        assert!(!is_console_system_title("wii", 0x0001_0000_5241_4141));
+        assert!(!is_console_system_title("gamecube", 0x0000_0001_0000_0002));
     }
 
     #[test]

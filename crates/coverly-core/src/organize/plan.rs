@@ -18,7 +18,7 @@ use walkdir::WalkDir;
 use crate::archive::names::UnsafeWhy;
 use crate::archive::{ContainerKind, Limits, Tool, ToolsOnDemand};
 use crate::cache::Cache;
-use crate::consoles::{base_title_id, PartKind, TitleKind};
+use crate::consoles::{base_title_id, link_kind, PartKind, TitleKind};
 use crate::dedupe::archive::ArchiveEntryListing;
 use crate::dedupe::disc::ReaderDiscProbe;
 use crate::dedupe::source::DiscId;
@@ -1688,7 +1688,7 @@ const NO_PLAYLIST: [&str; 3] = ["ps2", "xbox", "xbox360"];
 /// The base title id and kind of an entry's console header (D11).
 fn title_group(entry: &SurveyEntry) -> Option<((String, String), TitleKind)> {
     let c = entry.console.as_ref()?;
-    Some(((c.system.clone(), base_title_id(c)?), c.kind))
+    Some(((c.system.clone(), base_title_id(c)?), link_kind(c)))
 }
 
 /// Puts every update and DLC right after its base (systems batch 2

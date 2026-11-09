@@ -372,9 +372,9 @@ pub fn sniff_switch_first(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str)
         read: usize::try_from(read).unwrap_or(usize::MAX),
         ..Sniff::default()
     };
-    s.hit(&id.system, id.confidence, id.detail.clone());
-    s.serial = id.serial.clone();
-    s.console = Some(id);
+    // Through `add_console`, so a Switch system title (game folders spec
+    // D14 b) is no ROM, as on every other console.
+    s.add_console(vec![id]);
     Some(s)
 }
 
