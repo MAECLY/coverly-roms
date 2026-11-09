@@ -231,6 +231,10 @@ pub struct ConsoleId {
     /// GDK DLC: its single AllowedProduct (systems batch 3 D15).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
+    /// Xbox 360 STFS media id (0x354) as `{:08X}`: keeps the title
+    /// updates of different disc builds apart (game folders spec D11).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_id: Option<String>,
     /// A piece that cannot play alone (spec D12).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub part: Option<PartKind>,
@@ -267,6 +271,7 @@ impl ConsoleId {
             region: None,
             product_id: None,
             parent_id: None,
+            media_id: None,
             part: None,
             title_source: None,
             nca_ids: Vec::new(),
@@ -804,7 +809,9 @@ pub fn base_title_id(id: &ConsoleId) -> Option<String> {
         "3ds" => Some(format!("00040000{:08X}", hex()? as u32)),
         "wiiu" => Some(format!("00050000{:08X}", hex()? as u32)),
         "wii" => wii_game_code(tid),
-        "ps3" | "psvita" | "xbox360" | "ps4" | "ps5" if !tid.is_empty() => {
+        // PSP: the `DISC_ID` an update's SFO shares with its game (game
+        // folders spec D14 g).
+        "ps3" | "psvita" | "psp" | "xbox360" | "ps4" | "ps5" if !tid.is_empty() => {
             Some(tid.to_ascii_uppercase())
         }
         _ => None,

@@ -3,10 +3,13 @@
 //! kind and version tasks extend. Synthetic headers only, no keys.
 
 use coverly_core::consoles::testing::{
-    cia, cia_with_code, gc_disc, meta_xml, ncsd, nsp, param_sfo, pbp, pkg, ps3_sfo, wad_head,
-    wii_wad, SparseAt,
+    cia, cia_with_code, cnt_pkg, gc_disc, meta_xml, ncsd, nsp, param_sfo, pbp, pkg, ps3_sfo,
+    psp_pbp, stfs_head, wad_head, wii_wad, xvd_head, SparseAt, STFS_HASH,
 };
-use coverly_core::consoles::{identify, psf, sony, wiiu, Budgeted, ConsoleId, TitleKind};
+use coverly_core::consoles::{
+    base_title_id, identify, identify_all, psf, sony, wiiu, Budgeted, ConsoleId, TitleKind,
+};
+use coverly_core::dedupe::keeper::version_order;
 use coverly_core::identify::names::Region;
 use coverly_core::identify::sniff::{sniff_named, NotARom};
 
@@ -276,6 +279,102 @@ fn kinds() -> Vec<Kind> {
             version: Some("0"),
         },
         Kind {
+            what: "Vita add-on content PARAM.SFO",
+            id: psf_id(
+                &param_sfo(&[
+                    ("APP_VER", "01.00"),
+                    ("CATEGORY", "ac"),
+                    ("TITLE", "Test DLC"),
+                    ("TITLE_ID", "PCSE00844"),
+                ]),
+                "psvita",
+            ),
+            system: "psvita",
+            kind: TitleKind::Dlc,
+            title_id: Some("PCSE00844"),
+            version: Some("01.00"),
+        },
+        Kind {
+            what: "PSP update EBOOT.PBP of category PG",
+            id: read(
+                bytes(psp_pbp("PG", "ULUS10041", "01.10")),
+                "pbp",
+                "EBOOT.PBP",
+            ),
+            system: "psp",
+            kind: TitleKind::Update,
+            title_id: Some("ULUS10041"),
+            version: Some("01.10"),
+        },
+        Kind {
+            what: "PSP PBOOT.PBP is an update by its name",
+            id: read(
+                bytes(psp_pbp("UG", "ULUS10041", "01.20")),
+                "pbp",
+                "PBOOT.PBP",
+            ),
+            system: "psp",
+            kind: TitleKind::Update,
+            title_id: Some("ULUS10041"),
+            version: Some("01.20"),
+        },
+        Kind {
+            what: "PSP game EBOOT.PBP: its disc version",
+            id: read(
+                bytes(psp_pbp("UG", "ULUS10041", "01.00")),
+                "pbp",
+                "EBOOT.PBP",
+            ),
+            system: "psp",
+            kind: TitleKind::Base,
+            title_id: Some("ULUS10041"),
+            version: Some("1.00"),
+        },
+        Kind {
+            what: "PSN PSP game EBOOT.PBP of category EG",
+            id: read(
+                bytes(psp_pbp("EG", "NPUH10001", "01.00")),
+                "pbp",
+                "EBOOT.PBP",
+            ),
+            system: "psp",
+            kind: TitleKind::Base,
+            title_id: Some("NPUH10001"),
+            version: Some("1.00"),
+        },
+        Kind {
+            what: "Xbox 360 STFS demo",
+            id: read(stfs_head(0x0008_0000, 0x4D53_07E6, 0, 0), "", STFS_HASH),
+            system: "xbox360",
+            kind: TitleKind::Demo,
+            title_id: Some("4D5307E6"),
+            version: None,
+        },
+        Kind {
+            what: "Xbox 360 STFS title update with its version",
+            id: read(
+                stfs_head(0x000B_0000, 0x4D53_07E6, 0x4D53_07E6, 0x2000_0C00),
+                "",
+                STFS_HASH,
+            ),
+            system: "xbox360",
+            kind: TitleKind::Update,
+            title_id: Some("4D5307E6"),
+            version: Some("20000C00"),
+        },
+        Kind {
+            what: "PS4 licence-only (AL) DLC PKG is a DLC PKG",
+            id: read(
+                cnt_pkg("EP0002-CUSA04447_00-SAMPLEDLC0000000", 0x1C, 0, &[]),
+                "pkg",
+                "d.pkg",
+            ),
+            system: "ps4",
+            kind: TitleKind::Dlc,
+            title_id: Some("CUSA04447"),
+            version: None,
+        },
+        Kind {
             what: "3DS system title CIA",
             id: read(cia(0x0004_001B_0001_0002, false, false), "cia", "s.cia"),
             system: "3ds",
@@ -324,8 +423,68 @@ fn system_titles_are_not_roms() {
         assert_eq!(s.not_a_rom, Some(NotARom::ConsoleSystem), "{name}");
         assert!(s.console.is_none(), "{name}");
     }
+    // Xbox One/Series updaters (XVD content types 0x0B, 0x0C).
+    for ct in [0x0B, 0x0C] {
+        let mut src = xvd_head(ct);
+        let len = src.len;
+        let s = sniff_named(&mut src, len, "xvc", "u.xvc");
+        assert_eq!(s.not_a_rom, Some(NotARom::ConsoleSystem), "{ct:#x}");
+        let mut src = xvd_head(ct);
+        let len = src.len;
+        let ids = identify_all(&mut Budgeted::new(&mut src, len), "xvc", "u.xvc");
+        assert_eq!(ids.len(), 1, "{ct:#x}");
+        assert_eq!(ids[0].kind, TitleKind::System, "{ct:#x}");
+    }
     // A game WAD and a 3DS game stay games.
     let mut src = wii_wad(0x0001_0001_5741_4145);
     let len = src.len;
     assert_eq!(sniff_named(&mut src, len, "wad", "g.wad").not_a_rom, None);
+}
+
+/// Game folders spec D14 (g): a PSP update links to its game by the
+/// `DISC_ID`, upper-cased.
+#[test]
+fn psp_update_links_by_disc_id() {
+    let id = read(
+        bytes(psp_pbp("PG", "ULUS10041", "01.10")),
+        "pbp",
+        "EBOOT.PBP",
+    )
+    .unwrap();
+    assert_eq!(base_title_id(&id).as_deref(), Some("ULUS10041"));
+    let base = read(
+        bytes(psp_pbp("UG", "ULUS10041", "01.00")),
+        "pbp",
+        "EBOOT.PBP",
+    )
+    .unwrap();
+    assert_eq!(base_title_id(&base), base_title_id(&id));
+}
+
+/// Game folders spec D11, D14 (i): the STFS version is stored raw as
+/// eight hex digits, which `version_order` still parses, and the media
+/// id beside it; a zero media id or version is not stored.
+#[test]
+fn xbox360_stfs_version_and_media_id() {
+    let tu = read(
+        stfs_head(0x000B_0000, 0x4D53_07E6, 0x4D53_07E6, 0x2000_0C00),
+        "",
+        STFS_HASH,
+    )
+    .unwrap();
+    assert_eq!(tu.media_id.as_deref(), Some("4D5307E6"));
+    assert_eq!(
+        version_order("xbox360", tu.version.as_deref().unwrap()),
+        Some(vec![0x2000_0C00])
+    );
+    let older = version_order("xbox360", "20000800").unwrap();
+    assert!(older < version_order("xbox360", "20000C00").unwrap());
+    let demo = read(stfs_head(0x0008_0000, 0x4D53_07E6, 0, 0), "", STFS_HASH).unwrap();
+    assert_eq!((&demo.media_id, &demo.version), (&None, &None));
+    // The media id survives a facts round trip and is skipped when none.
+    let json = serde_json::to_string(&tu).unwrap();
+    assert!(json.contains("\"media_id\":\"4D5307E6\""), "{json}");
+    let back: ConsoleId = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.media_id, tu.media_id);
+    assert!(!serde_json::to_string(&demo).unwrap().contains("media_id"));
 }

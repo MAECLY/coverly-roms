@@ -1518,6 +1518,18 @@ pub fn stfs(magic: &[u8; 4], tid: u32, ctype: u32, thumb: &[u8]) -> Vec<u8> {
     h
 }
 
+/// An [`stfs`] `LIVE` package of `ctype` for `title_id` (no
+/// thumbnail) with the embedded execution info's `media_id` at 0x354 and
+/// `version` at 0x358 (free60 «STFS» metadata, game folders spec D14 i).
+pub fn stfs_head(ctype: u32, title_id: u32, media_id: u32, version: u32) -> SparseAt {
+    let mut h = stfs(b"LIVE", title_id, ctype, &[]);
+    h[0x354..0x358].copy_from_slice(&be32(media_id));
+    h[0x358..0x35C].copy_from_slice(&be32(version));
+    let mut s = SparseAt::new(h.len() as u64);
+    s.put(0, &h);
+    s
+}
+
 /// A 40-hex STFS file name of the fixtures.
 pub const STFS_HASH: &str = "0123456789ABCDEF0123456789ABCDEF01234567";
 
@@ -1929,11 +1941,34 @@ pub fn ps3_npdrm_self(content_id: &str) -> Vec<u8> {
 /// with `CATEGORY`, `DISC_ID` and a title, then a PSAR opening with
 /// `psar_magic` (none when empty).
 pub fn pbp(category: &str, disc_id: &str, psar_magic: &[u8]) -> Vec<u8> {
-    let sfo = param_sfo(&[
-        ("CATEGORY", category),
-        ("DISC_ID", disc_id),
-        ("TITLE", "Test Game"),
-    ]);
+    pbp_with_sfo(
+        param_sfo(&[
+            ("CATEGORY", category),
+            ("DISC_ID", disc_id),
+            ("TITLE", "Test Game"),
+        ]),
+        psar_magic,
+    )
+}
+
+/// A PSP PBP of `category` for `disc_id` whose `PARAM.SFO` also carries
+/// `APP_VER` = `version` and `DISC_VERSION` `1.00` (game folders spec
+/// D14 g: `PG` is an update, `UG`/`EG` a game).
+pub fn psp_pbp(category: &str, disc_id: &str, version: &str) -> Vec<u8> {
+    pbp_with_sfo(
+        param_sfo(&[
+            ("APP_VER", version),
+            ("CATEGORY", category),
+            ("DISC_ID", disc_id),
+            ("DISC_VERSION", "1.00"),
+            ("TITLE", "Test Game"),
+        ]),
+        b"",
+    )
+}
+
+/// A PBP holding `sfo`, then a PSAR opening with `psar_magic`.
+fn pbp_with_sfo(sfo: Vec<u8>, psar_magic: &[u8]) -> Vec<u8> {
     let sfo_at = 0x28u32;
     let after = sfo_at + sfo.len() as u32;
     let mut out = vec![0u8; 0x28];

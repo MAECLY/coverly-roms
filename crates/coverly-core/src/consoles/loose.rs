@@ -66,7 +66,7 @@ pub fn identify(b: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
         "dol" => dol(b),
         "self" => sce_self(b, false),
         "bin" if name.eq_ignore_ascii_case("eboot.bin") => sce_self(b, true),
-        "pbp" => pbp(b),
+        "pbp" => pbp(b, name),
         "prx" => prx(b),
         _ => by_name(ext),
     }
@@ -396,7 +396,13 @@ const PBP_UNREAD_WEIGHT: f32 = 0.70;
 /// PSN ISO (`NPUMDIMG`) and any other PBP are `psp`, homebrew when the
 /// category is `MG` and `DISC_ID` is no retail id. An SFO over
 /// [`MAX_META_FILE`] leaves a `psp` verdict below the auto line.
-fn pbp(b: &mut Budgeted) -> Option<ConsoleId> {
+///
+/// Game folders spec D14 (g): a `PBOOT.PBP` (by its name) or a PBP of
+/// category `PG` is an update of the game its `DISC_ID` names; `UG`
+/// (UMD) and `EG` (PSN) are games. The version is `APP_VER` for an
+/// update (the patch's own), `DISC_VERSION` (the revision) for a game,
+/// each falling back on the other.
+fn pbp(b: &mut Budgeted, name: &str) -> Option<ConsoleId> {
     if b.len() < PBP_HEADER as u64 {
         return None;
     }
@@ -438,8 +444,11 @@ fn pbp(b: &mut Budgeted) -> Option<ConsoleId> {
     let category = sfo.text("CATEGORY");
     let disc = sfo.text("DISC_ID").and_then(sony::title_id);
     let retail = disc.as_deref().is_some_and(sony::retail_id);
+    let pboot = name.eq_ignore_ascii_case("PBOOT.PBP");
     let (system, kind) = if ps1_image || category == Some("ME") {
         ("psx", TitleKind::Base)
+    } else if pboot || category == Some("PG") {
+        ("psp", TitleKind::Update)
     } else if psn_iso {
         ("psp", TitleKind::Base)
     } else if category == Some("MG") && !retail {
@@ -447,7 +456,19 @@ fn pbp(b: &mut Budgeted) -> Option<ConsoleId> {
     } else {
         ("psp", TitleKind::Base)
     };
-    Some(pbp_id(system, kind, disc.filter(|_| retail)))
+    let mut id = pbp_id(system, kind, disc.filter(|_| retail));
+    if system == "psp" {
+        let (first, then) = if kind == TitleKind::Update {
+            ("APP_VER", "DISC_VERSION")
+        } else {
+            ("DISC_VERSION", "APP_VER")
+        };
+        id.version = sfo
+            .text(first)
+            .or_else(|| sfo.text(then))
+            .and_then(super::clean_title);
+    }
+    Some(id)
 }
 
 /// A PBP verdict with its `DISC_ID` as the title id and serial (the

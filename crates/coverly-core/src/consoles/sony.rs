@@ -120,7 +120,8 @@ const APP_TYPE_DEMO: u32 = 3;
 /// A [`ConsoleId`] from a parsed `PARAM.SFO` (spec §8.4): `TITLE_ID` as
 /// the title id and (in the DAT's form) the serial, `TITLE` with its line
 /// breaks folded, `APP_VER` else `VERSION`, and the kind by `CATEGORY`
-/// (PS3 `DG`/`HG` base, `GD` update; Vita `gd` base, `gp` update; PS4
+/// (PS3 `DG`/`HG` base, `GD` update; Vita `gd` base, `gp` update, `ac`
+/// DLC, game folders spec D14 f; PS4
 /// `gd` base, `gp*` update, `ac` DLC, `APP_TYPE` 3 demo, D7), and the
 /// region where the ids carry one (game folders D10). A PS4 PSF also
 /// gives the content id (D8); PS4 has no DAT, so no serial.
@@ -144,7 +145,7 @@ pub fn from_psf(psf: &Psf, system: &str, detail: &str) -> ConsoleId {
         ("ps3", Some("GD")) | ("psvita", Some("gp")) => TitleKind::Update,
         ("ps4", Some("gd")) => TitleKind::Base,
         ("ps4", Some("gp" | "gpc" | "gpd" | "gpe" | "gpk" | "gpl")) => TitleKind::Update,
-        ("ps4", Some("ac")) => TitleKind::Dlc,
+        ("ps4" | "psvita", Some("ac")) => TitleKind::Dlc,
         _ => TitleKind::Unknown,
     };
     // The content id's first letter wherever the PSF carries one, else a
@@ -760,11 +761,22 @@ mod tests {
         // APP_TYPE 3 only turns a base into a demo.
         assert_eq!(kind("gp", 3), TitleKind::Update);
         assert_eq!(kind("", 1), TitleKind::Unknown);
-        // A PS4 category means nothing on the Vita and the PS3.
-        let raw = testing::ps4_sfo("CUSA00900", "ac", "UP9000-CUSA00900_00-BLOODBORNE000000", 1);
+        // A PS4-only category means nothing on the Vita and the PS3.
+        let raw = testing::ps4_sfo(
+            "CUSA00900",
+            "gpc",
+            "UP9000-CUSA00900_00-BLOODBORNE000000",
+            1,
+        );
         let p = psf::parse(&raw).unwrap();
         assert_eq!(from_psf(&p, "psvita", "x").kind, TitleKind::Unknown);
         assert_eq!(from_psf(&p, "psvita", "x").content_id, None);
+        // `ac` is add-on content on the Vita too (game folders spec D14
+        // f), never on the PS3.
+        let raw = testing::ps4_sfo("CUSA00900", "ac", "UP9000-CUSA00900_00-BLOODBORNE000000", 1);
+        let p = psf::parse(&raw).unwrap();
+        assert_eq!(from_psf(&p, "psvita", "x").kind, TitleKind::Dlc);
+        assert_eq!(from_psf(&p, "ps3", "x").kind, TitleKind::Unknown);
     }
 
     #[test]

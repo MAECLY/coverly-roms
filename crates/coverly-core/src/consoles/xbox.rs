@@ -22,13 +22,13 @@
 //!   `title_id` (+0xC), `platform`, `executable_table`, `disc_number`
 //!   (+0x12), `disc_count` (+0x13). The plan's +0x16/+0x17 for the disc
 //!   fields did not check out; xenia's offsets are used.
-//! - free60 «STFS» (metadata v1): content type at 0x344, title id at
-//!   0x360, display name (UTF-16BE, 0x80 bytes for the first locale) at
+//! - free60 «STFS» (metadata v1): content type at 0x344, media id at
+//!   0x354, version at 0x358, title id at 0x360, display name (UTF-16BE, 0x80 bytes for the first locale) at
 //!   0x411, title name at 0x1691, thumbnail size at 0x1712 and the
 //!   thumbnail (at most 0x4000 bytes) at 0x171A. Content types:
 //!   `0x00007000` Games on Demand, `0x000D0000` Arcade title,
 //!   `0x000B0000` installer (title update), `0x00000002` marketplace
-//!   content (DLC).
+//!   content (DLC), `0x00080000` game demo (xenia `XContentType`).
 //!
 //! - Xbox One and Series folders (systems batch 3 D18): the GDK
 //!   `MicrosoftGame.config` (root `Game`; `Identity`, `ExecutableList/
@@ -91,6 +91,7 @@ const CT_GOD: u32 = 0x0000_7000;
 const CT_XBLA: u32 = 0x000D_0000;
 const CT_UPDATE: u32 = 0x000B_0000;
 const CT_DLC: u32 = 0x0000_0002;
+const CT_DEMO: u32 = 0x0008_0000;
 /// The bytes of a ZAR's `default.xex` decoded for its header: one block.
 const ZAR_XEX_HEAD: u64 = zarchive::BLOCK;
 /// Longest launcher file whose text is read as a title id (D14).
@@ -301,6 +302,7 @@ fn content_kind(ctype: u32) -> (TitleKind, &'static str) {
         CT_XBLA => (TitleKind::Base, "XBLA package"),
         CT_UPDATE => (TitleKind::Update, "title update package"),
         CT_DLC => (TitleKind::Dlc, "DLC package"),
+        CT_DEMO => (TitleKind::Demo, "demo package"),
         _ => (TitleKind::Unknown, "STFS package"),
     }
 }
@@ -313,7 +315,7 @@ pub fn dat_name_prefix(id: &ConsoleId) -> Option<String> {
         return None;
     }
     let tid = id.title_id.as_deref().filter(|t| is_hex(t, 8))?;
-    let ctype = [CT_GOD, CT_XBLA, CT_UPDATE, CT_DLC]
+    let ctype = [CT_GOD, CT_XBLA, CT_UPDATE, CT_DLC, CT_DEMO]
         .into_iter()
         .find(|&c| content_kind(c).1 == id.detail)?;
     Some(format!("{}{ctype:08X}", tid.to_ascii_uppercase()))
@@ -354,6 +356,12 @@ pub fn stfs(b: &mut Budgeted) -> Option<ConsoleId> {
         )
     };
     id.title = text(0x411).or_else(|| text(0x1691));
+    // The embedded execution info (free60 «STFS»): media id at 0x354,
+    // version at 0x358, both raw `{:08X}` like the XEX reader so
+    // `version_order` reads them (game folders spec D11). Zero is unset.
+    let hex = |at: usize| be32(&h, at).filter(|&v| v != 0).map(|v| format!("{v:08X}"));
+    id.media_id = hex(0x354);
+    id.version = hex(0x358);
     let thumb = u64::from(be32(&h, 0x1712)?);
     if thumb > 0
         && thumb <= STFS_THUMB_MAX
@@ -1313,7 +1321,13 @@ pub fn xvd(b: &mut Budgeted) -> Option<Vec<ConsoleId>> {
         0x01 => TitleKind::Base,
         0x18..=0x1A => TitleKind::Dlc,
         0x08..=0x0A => TitleKind::Unknown,
-        _ => return Some(vec![ConsoleId::proven(XVD_SYSTEMS[0], XVD_SYSTEM_DETAIL)]),
+        // Updaters (0x0B, 0x0C), apps and the rest: the console's own
+        // (game folders spec D14 j).
+        _ => {
+            let mut id = ConsoleId::proven(XVD_SYSTEMS[0], XVD_SYSTEM_DETAIL);
+            id.kind = TitleKind::System;
+            return Some(vec![id]);
+        }
     };
     let v: Vec<u16> = (0..4)
         .map(|i| le16(&rest, at(0x3BC + 2 * i)?))
@@ -1639,6 +1653,7 @@ mod tests {
             (CT_GOD, TitleKind::Base),
             (CT_UPDATE, TitleKind::Update),
             (CT_DLC, TitleKind::Dlc),
+            (CT_DEMO, TitleKind::Demo),
             (0x0009_0000, TitleKind::Unknown),
         ] {
             let id = run(&mut file(&t::stfs(b"CON ", 1, ctype, &[])), "").unwrap();
@@ -1647,6 +1662,8 @@ mod tests {
         }
         let unknown = run(&mut file(&t::stfs(b"PIRS", 1, 0x0009_0000, &[])), "").unwrap();
         assert_eq!(dat_name_prefix(&unknown), None);
+        let demo = run(&mut file(&t::stfs(b"LIVE", 1, CT_DEMO, &[])), "").unwrap();
+        assert_eq!(dat_name_prefix(&demo).as_deref(), Some("0000000100080000"));
         // Without a display name the title name is used; a thumbnail size
         // over 16 KiB is no locator.
         let mut h = t::stfs(b"CON ", 1, CT_GOD, &[]);
