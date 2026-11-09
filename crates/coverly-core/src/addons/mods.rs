@@ -99,7 +99,11 @@ fn has_dir(entries: &[(String, bool)], name: &str) -> bool {
 
 /// A Dolphin (or Azahar) custom texture: `tex1_…` `.png`/`.dds`.
 fn is_tex1(name: &str) -> bool {
-    name.len() > 5 && name[..5].eq_ignore_ascii_case("tex1_") && ext_is(name, &["png", "dds"])
+    name.len() > 5
+        && name
+            .get(..5)
+            .is_some_and(|p| p.eq_ignore_ascii_case("tex1_"))
+        && ext_is(name, &["png", "dds"])
 }
 
 fn one_or_many(ids: BTreeSet<String>, one: impl FnOnce(String) -> AddonKey) -> AddonKey {
@@ -573,6 +577,14 @@ pub fn sniff_mod_dir_on_disk(path: &Path) -> io::Result<ModVerdict> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_multibyte_texture_name_does_not_panic() {
+        // "te€1_x.png": byte 5 falls inside "€".
+        for name in ["te€1_x.png", "€€.dds", "tex€.png"] {
+            assert!(!is_tex1(name));
+        }
+    }
+
     fn e(list: &[&str]) -> Vec<(String, bool)> {
         list.iter()
             .map(|n| match n.strip_suffix('/') {
@@ -695,6 +707,41 @@ mod tests {
         // Without a listed xml, it is not a Riivolution pack.
         let children = vec![("riivolution".to_string(), e(&[]))];
         let dir = DirView {
+            children: &children,
+            ..dir
+        };
+        assert_eq!(sniff_mod_dir(&dir, &no_reads), ModVerdict::NotAMod);
+    }
+
+    /// Dolphin and Azahar packs are often sorted into sub-folders
+    /// (`GALE01/HUD/tex1_….png`): one level down counts too.
+    #[test]
+    fn texture_packs_sorted_into_sub_folders() {
+        let entries = e(&["HUD/", "readme.txt"]);
+        let children = vec![("HUD".to_string(), e(&["tex1_64x64_abc_0.png"]))];
+        let dir = DirView {
+            name: "GALE01",
+            parents: &["Textures", "Load"],
+            entries: &entries,
+            children: &children,
+        };
+        assert_eq!(
+            sniff_mod_dir(&dir, &no_reads),
+            m(F::TexturePack, game("GALE01"))
+        );
+        let dir = DirView {
+            name: "0004000000055D00",
+            parents: &["textures", "load"],
+            ..dir
+        };
+        assert_eq!(
+            sniff_mod_dir(&dir, &no_reads),
+            m(F::TexturePack, title("0004000000055D00"))
+        );
+        // A sub-folder without tex1 files is still nothing.
+        let children = vec![("HUD".to_string(), e(&["a.png"]))];
+        let dir = DirView {
+            name: "GALE01",
             children: &children,
             ..dir
         };
