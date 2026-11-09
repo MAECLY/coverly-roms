@@ -10,8 +10,12 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use unicode_normalization::UnicodeNormalization;
+
+use crate::game_folder::FixedFolder;
+use crate::identify::names::{parse_tags, Region};
 use crate::organize::plan::{
-    Companion, ExtractEntry, ItemKind, ItemNote, LeftReason, NameMode, OrganizeAction,
+    Companion, ExtractEntry, GameRole, ItemKind, ItemNote, LeftReason, NameMode, OrganizeAction,
     OrganizeItem, Playlist, RenameReason, Transfer,
 };
 use crate::profiles::naming::{system_folder, FolderChoice};
@@ -69,6 +73,10 @@ pub struct TargetLayout {
     pub names: NameMode,
     /// Lower-case extensions without the dot; a trailing `*` is a prefix.
     pub companion_exts: Vec<String>,
+    /// A modern game's base, updates and DLC go into one folder
+    /// (`<System>/<Game>/`; game folders spec D1, D5): the profile's
+    /// option, or the user's override for it, resolved for this run.
+    pub game_folders: bool,
 }
 
 /// Name keys (NFC, lower case) of each target folder: what is on disk,
@@ -127,6 +135,15 @@ impl DirIndex {
             .find(|s| s.as_str() == name)
             .or_else(|| spellings.first())?;
         Some(dir.join(found))
+    }
+
+    /// The on-disk twin of `name` in `dir` whose spelling sorts first by
+    /// bytes: on a case-sensitive volume holding both `DLC/` and `dlc/`,
+    /// the one Organizar fills (game folders spec D3).
+    pub fn existing_first(&mut self, dir: &Path, name: &str) -> Option<PathBuf> {
+        let key = name_key(name);
+        let first = self.names(dir).on_disk.get(&key)?.iter().min()?.clone();
+        Some(dir.join(first))
     }
 
     /// `name` (ignoring case and Unicode normalisation) was claimed in
@@ -306,16 +323,32 @@ pub fn assign_targets_with_extracts(
     )
 }
 
-/// [`assign_targets_with_extracts`] where `subdirs[i]`, when set, is a
-/// folder below item `i`'s system folder that it goes into instead (the
-/// frontend's DLC folder, [`dlc_target`]): the item keeps its own name,
-/// takes no folder game suffix (only the base game is listed) and gets
-/// [`ItemNote::DlcFolder`]; `item.folder` still names the system folder.
+/// Where an item goes below its system folder instead of the folder
+/// itself (see [`assign_targets_in`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Subdir {
+    /// The frontend's DLC folder ([`dlc_target`]).
+    Dlc(PathBuf),
+    /// The base's game folder of that name (game folders spec D5,
+    /// [`game_folder_name`]): its file is named `<Game>.<ext>`, a set's
+    /// members go inside it.
+    Game(String),
+    /// An update or DLC of a base in a game folder: placed afterwards by
+    /// [`game_children_targets`], from its base's final folder.
+    Child,
+}
+
+/// [`assign_targets_with_extracts`] where `subdirs[i]`, when set, says
+/// where item `i` goes below its system folder ([`Subdir`]): a
+/// [`Subdir::Dlc`] item keeps its own name, takes no folder game suffix
+/// (only the base game is listed) and gets [`ItemNote::DlcFolder`]; a
+/// [`Subdir::Game`] base goes into its game folder; a [`Subdir::Child`]
+/// gets no target here. `item.folder` still names the system folder.
 #[allow(clippy::too_many_arguments)]
 pub fn assign_targets_in(
     items: &mut [OrganizeItem],
     shapes: &[Option<ExtractShape>],
-    subdirs: &[Option<PathBuf>],
+    subdirs: &[Option<Subdir>],
     layout: &TargetLayout,
     db: &SystemDb,
     source_root: &Path,
@@ -326,8 +359,9 @@ pub fn assign_targets_in(
     let roms = resolved_roms_dir(layout);
     let mut folders: HashMap<String, (PathBuf, FolderChoice)> = HashMap::new();
     let mut dirs: Vec<Option<(PathBuf, FolderChoice)>> = Vec::with_capacity(items.len());
-    for item in items.iter() {
-        let dir = match (&item.system_id, item.moves_in()) {
+    for (pos, item) in items.iter().enumerate() {
+        let child = matches!(subdirs.get(pos), Some(Some(Subdir::Child)));
+        let dir = match (&item.system_id, item.moves_in() && !child) {
             (Some(system), true) => Some(
                 folders
                     .entry(system.clone())
@@ -346,9 +380,15 @@ pub fn assign_targets_in(
             continue;
         };
         let subdir = subdirs.get(pos).and_then(Option::as_ref);
+        let in_dlc = matches!(subdir, Some(Subdir::Dlc(_)));
+        let game_stem = match subdir {
+            Some(Subdir::Game(name)) => Some(name.as_str()),
+            _ => None,
+        };
         let dir = &match subdir {
-            Some(sub) => system_dir.join(sub),
-            None => system_dir.clone(),
+            Some(Subdir::Dlc(sub)) => system_dir.join(sub),
+            Some(Subdir::Game(name)) => system_dir.join(name),
+            _ => system_dir.clone(),
         };
         item.target = None;
         item.set_targets.clear();
@@ -375,15 +415,7 @@ pub fn assign_targets_in(
         let shape = shapes.get(pos).and_then(Option::as_ref);
         let outcome = match (shape, &item.transfer) {
             (Some(ExtractShape::Folder { root, name }), Transfer::Extract { .. }) => {
-                extract_folder(
-                    item,
-                    (root, name),
-                    dir,
-                    layout,
-                    subdir.is_none(),
-                    &comps,
-                    index,
-                )
+                extract_folder(item, (root, name), dir, layout, !in_dlc, &comps, index)
             }
             (Some(shape), Transfer::Extract { .. }) => {
                 assign_extract_targets(item, shape, dir, layout, &comps, index)
@@ -400,13 +432,14 @@ pub fn assign_targets_in(
             }
             _ => match item.kind {
                 ItemKind::Set => plan_set(item, dir, &comps, index, same_content),
-                ItemKind::Folder => plan_folder(item, dir, layout, subdir.is_none(), index),
+                ItemKind::Folder => plan_folder(item, dir, layout, !in_dlc, index),
                 ItemKind::File | ItemKind::Archive => {
                     let original = file_name(&item.sources[0]);
                     let stem = split_name(&original).0.to_string();
                     plan_single(
                         item,
                         (&original, &stem),
+                        game_stem,
                         dir,
                         layout,
                         &comps,
@@ -447,7 +480,7 @@ pub fn assign_targets_in(
                     .collect();
                 item.notes
                     .retain(|n| !matches!(n, ItemNote::DlcFolder { .. }));
-                if subdir.is_some() {
+                if in_dlc {
                     item.notes.push(ItemNote::DlcFolder {
                         layout: layout.profile.name.clone(),
                     });
@@ -732,9 +765,15 @@ enum Search {
 /// One file named `original` in `dir`; companions beside the source
 /// matched `companion_stem` (the source's stem, or the archive's stem
 /// for a ROM extracted from it).
+///
+/// `game_stem`, a base going into its game folder (game folders spec
+/// D5), names the file `<game_stem>.<ext>` instead
+/// ([`RenameReason::GameFolder`] when that differs from `original`).
+#[allow(clippy::too_many_arguments)]
 fn plan_single(
     item: &OrganizeItem,
     (original, companion_stem): (&str, &str),
+    game_stem: Option<&str>,
     dir: &Path,
     layout: &TargetLayout,
     comps: &[&Comp],
@@ -742,9 +781,22 @@ fn plan_single(
     same_content: &dyn Fn(&Path, &OrganizeItem) -> bool,
 ) -> Planned {
     let original_stem = companion_stem;
-    let keep = safe_base(original, original, false);
+    let keep = match game_stem {
+        Some(game) => {
+            let wanted = match split_name(original).1 {
+                Some(ext) => format!("{game}.{ext}"),
+                None => game.to_string(),
+            };
+            let mut base = safe_base(&wanted, original, false);
+            base.reason = (base.name != original).then(|| RenameReason::GameFolder {
+                from: original.to_string(),
+            });
+            base
+        }
+        None => safe_base(original, original, false),
+    };
     let catalogue = match (&layout.names, &item.catalogue_name) {
-        (NameMode::Catalogue, Some(game)) if !game.trim().is_empty() => {
+        (NameMode::Catalogue, Some(game)) if !game.trim().is_empty() && game_stem.is_none() => {
             let ext = split_name(original).1;
             let wanted = match ext {
                 Some(ext) => format!("{}.{ext}", game.trim()),
@@ -1346,6 +1398,361 @@ pub fn sibling_targets(items: &mut [OrganizeItem], pairs: &[OverlayPair], layout
     }
 }
 
+// --- Game folders (game folders spec D5, D6, D20) ---
+
+/// Systems whose games get a folder when the option is on (D5, D14):
+/// the ones with updates, DLC or demos by header. Retro systems keep
+/// today's placement (§13 Q8).
+pub const GAME_FOLDER_SYSTEMS: &[&str] = &[
+    "3ds",
+    "switch",
+    "wiiu",
+    "wii",
+    "ps3",
+    "psvita",
+    "psp",
+    "ps4",
+    "ps5",
+    "xbox360",
+    "xboxone",
+    "xboxseries",
+];
+
+/// `system` is one of [`GAME_FOLDER_SYSTEMS`].
+pub fn is_game_folder_system(system: &str) -> bool {
+    GAME_FOLDER_SYSTEMS.contains(&system)
+}
+
+/// `<Game>` in `system_dir` (absolute) and whether that folder is already
+/// on disk (D5, D6, D10, D20): `stem` (the base's final stem) plus
+/// ` (<Region>)` in No-Intro words when the stem has no region tag, NFC,
+/// FAT-safe (reserved names, forbidden characters, trailing dots and
+/// spaces). An existing real folder of that name in any case or Unicode
+/// form is reused under its own spelling; a name an earlier item claimed,
+/// or a file or link in its place, takes the next free ` (n)`. The name
+/// is claimed in `index`. `None` when no safe name is left.
+pub fn game_folder_name(
+    stem: &str,
+    region: Option<Region>,
+    system_dir: &Path,
+    index: &mut DirIndex,
+) -> Option<(String, bool)> {
+    let stem = stem.trim();
+    let wanted = match region {
+        Some(region) if parse_tags(stem).regions.is_empty() => {
+            format!("{stem} ({})", region.no_intro_word())
+        }
+        _ => stem.to_string(),
+    };
+    let wanted: String = wanted.nfc().collect();
+    let safe = safe_file_name(&wanted).ok()?;
+    for n in 1u32..=u32::from(u16::MAX) {
+        let name = if n == 1 {
+            safe.clone()
+        } else {
+            format!("{safe} ({n})")
+        };
+        if name_too_long(&name) {
+            return None;
+        }
+        if let Some(found) = game_folder(system_dir, &name, index) {
+            let exists = found.symlink_metadata().is_ok();
+            let name = file_name(&found);
+            index.claim(system_dir, &name);
+            return Some((name, exists));
+        }
+    }
+    None
+}
+
+/// How a child's file name is built (D6): `<Game> (v<version>)`,
+/// `<Game> - <DLC name>`, or a folder child's own name.
+enum ChildName {
+    Update { game: String, version: String },
+    Dlc { game: String, name: String },
+    Own { name: String },
+}
+
+impl ChildName {
+    /// The name with collision number `n` (1 = none) and `ext`, the
+    /// `<DLC name>` shortened first, then the `<Game>` prefix (never the
+    /// version, never the folder), until it fits 255 bytes and, with
+    /// `windows_paths`, `dir` joined with it fits 259 UTF-16 units.
+    fn fit(&self, n: u32, ext: Option<&str>, dir: &Path, windows_paths: bool) -> Option<String> {
+        let suffix = if n > 1 {
+            format!(" ({n})")
+        } else {
+            String::new()
+        };
+        let dot_ext = ext.map(|e| format!(".{e}")).unwrap_or_default();
+        let (mut game, mut part) = match self {
+            ChildName::Update { game, version } => (game.clone(), version.clone()),
+            ChildName::Dlc { game, name } => (game.clone(), name.clone()),
+            ChildName::Own { name } => (String::new(), name.clone()),
+        };
+        let fits = |name: &str| {
+            !name_too_long(name)
+                && !(windows_paths
+                    && dir.join(name).to_string_lossy().encode_utf16().count() > WINDOWS_MAX_PATH)
+        };
+        let shorten = |s: &mut String| {
+            if s.chars().count() <= 1 {
+                return false;
+            }
+            s.pop();
+            while s.chars().count() > 1 && (s.ends_with(' ') || s.ends_with('.')) {
+                s.pop();
+            }
+            true
+        };
+        loop {
+            let name = match self {
+                ChildName::Update { .. } => format!("{game} ({part}){suffix}{dot_ext}"),
+                ChildName::Dlc { .. } => format!("{game} - {part}{suffix}{dot_ext}"),
+                ChildName::Own { .. } => format!("{part}{suffix}{dot_ext}"),
+            };
+            if fits(&name) {
+                return Some(name);
+            }
+            let shortened = match self {
+                ChildName::Update { .. } => shorten(&mut game),
+                ChildName::Dlc { .. } => shorten(&mut part) || shorten(&mut game),
+                ChildName::Own { .. } => shorten(&mut part),
+            };
+            if !shortened {
+                return None;
+            }
+        }
+    }
+}
+
+/// Untrusted header text as one path component (D6): cleaned like a
+/// header title, then FAT-safe (separators, `..`, controls, reserved
+/// names); `None` when nothing is left.
+fn safe_component(raw: &str) -> Option<String> {
+    let clean = crate::consoles::clean_title(raw)?;
+    safe_file_name(&clean).ok()
+}
+
+/// The game folder (relative to the target root) a child of `base` goes
+/// into and whether it was on disk: a moving folder game is its own
+/// folder; a moving base file or set its planned `game.folder`; a base
+/// already present in its game folder that folder.
+fn base_game_folder(base: &OrganizeItem) -> Option<(PathBuf, bool)> {
+    match &base.action {
+        OrganizeAction::Auto | OrganizeAction::Review if base.kind == ItemKind::Folder => {
+            base.target.clone().map(|t| (t, false))
+        }
+        OrganizeAction::Auto | OrganizeAction::Review => base
+            .game
+            .as_ref()
+            .and_then(|g| Some((g.folder.clone()?, g.folder_exists))),
+        OrganizeAction::Left {
+            reason: LeftReason::AlreadyPresent { at },
+        } => base
+            .game
+            .as_ref()
+            .filter(|g| g.folder.is_some())
+            .map(|_| (parent(at), true)),
+        _ => None,
+    }
+}
+
+/// After [`assign_targets_in`] (game folders spec D5, D6, D20, plan
+/// P-3): every update or DLC whose `game.of` base was planned into a game
+/// folder gets `<folder>/Updates/<Game> (v<version>).<ext>` or
+/// `<folder>/DLC/<Game> - <DLC name>.<ext>` (a folder child keeps its own
+/// name below `Updates/` or `DLC/`), [`RenameReason::GameFolder`] when
+/// the name changed, and the base's `folder` and `folder_exists`; so a
+/// ` (2)` on the base's folder carries over. A base left (any reason but
+/// *already present*) leaves its children with the same reason (§12).
+/// Fixed folder spelling: an existing case variant is reused (the first
+/// by bytes); a file or link named like it leaves the child
+/// `UnsafeTarget`. Inside it, the same content → *already present*; a
+/// different file → ` (2)` and Review. `<DLC name>` comes from
+/// `dlc_name(child)` (untrusted text, made safe here; `DLC` when nothing
+/// is left). Names that do not fit lose their DLC part first, then their
+/// `<Game>` prefix; still too long → `PathTooLong`.
+pub fn game_children_targets(
+    items: &mut [OrganizeItem],
+    layout: &TargetLayout,
+    index: &mut DirIndex,
+    same_content: &dyn Fn(&Path, &OrganizeItem) -> bool,
+    dlc_name: &dyn Fn(usize) -> Option<String>,
+) {
+    // A folder game is its own game folder.
+    for item in items.iter_mut() {
+        if item.kind != ItemKind::Folder || !item.moves_in() {
+            continue;
+        }
+        let target = item.target.clone();
+        if let Some(link) = item.game.as_mut().filter(|g| g.role == GameRole::Base) {
+            link.folder = target;
+        }
+    }
+    for pos in 0..items.len() {
+        let Some(link) = items[pos].game.clone() else {
+            continue;
+        };
+        let fixed = match link.role {
+            GameRole::Update => FixedFolder::Updates,
+            GameRole::Dlc => FixedFolder::Dlc,
+            _ => continue,
+        };
+        let Some(b) = link.of.filter(|&b| b != pos) else {
+            continue;
+        };
+        if !items[pos].moves_in() || items[pos].target.is_some() {
+            continue;
+        }
+        let Some(base) = items.get(b) else { continue };
+        let system_folder = base.folder.clone();
+        let Some((folder, folder_exists)) = base_game_folder(base) else {
+            let reason = match &base.action {
+                OrganizeAction::Left { reason } => reason.clone(),
+                _ => LeftReason::Unknown,
+            };
+            items[pos].leave(reason);
+            continue;
+        };
+        if layout.fat32 && too_big_for_fat(&items[pos]) {
+            items[pos].leave(LeftReason::TooBigForFat);
+            continue;
+        }
+        let folder_abs = layout.target_root.join(&folder);
+        let fixed_dir = match index.existing_first(&folder_abs, fixed.dir_name()) {
+            Some(existing) => {
+                let real_dir = fs::symlink_metadata(&existing).is_ok_and(|m| m.is_dir());
+                if !real_dir {
+                    items[pos].leave(LeftReason::UnsafeTarget);
+                    continue;
+                }
+                existing
+            }
+            None => folder_abs.join(fixed.dir_name()),
+        };
+        let item = &items[pos];
+        let original = file_name(&item.sources[0]);
+        let game = file_name(&folder);
+        let (shape, ext) = if item.kind == ItemKind::Folder {
+            let name = safe_file_name(&original).unwrap_or_else(|_| original.clone());
+            (ChildName::Own { name }, None)
+        } else {
+            let ext = split_name(&original).1.map(str::to_string);
+            let shape = match fixed {
+                FixedFolder::Updates => ChildName::Update {
+                    game,
+                    version: link
+                        .version
+                        .as_deref()
+                        .and_then(safe_component)
+                        .map_or_else(|| "Update".to_string(), |v| format!("v{v}")),
+                },
+                _ => ChildName::Dlc {
+                    game,
+                    name: dlc_name(pos)
+                        .as_deref()
+                        .and_then(safe_component)
+                        .unwrap_or_else(|| "DLC".to_string()),
+                },
+            };
+            (shape, ext)
+        };
+        let mut review = false;
+        let mut outcome: Result<String, LeftReason> = Err(LeftReason::PathTooLong);
+        for n in 1u32..=u32::from(u16::MAX) {
+            let Some(name) = shape.fit(n, ext.as_deref(), &fixed_dir, layout.windows_paths) else {
+                outcome = Err(LeftReason::PathTooLong);
+                break;
+            };
+            if !index.taken(&fixed_dir, &name) {
+                outcome = Ok(name);
+                break;
+            }
+            if let Some(existing) = index.existing(&fixed_dir, &name) {
+                if same_content(&existing, item) {
+                    outcome = Err(LeftReason::AlreadyPresent {
+                        at: relative(&layout.target_root, &existing),
+                    });
+                    break;
+                }
+                review = true;
+            }
+        }
+        let name = match outcome {
+            Ok(name) => name,
+            Err(reason) => {
+                items[pos].leave(reason);
+                continue;
+            }
+        };
+        index.claim(&folder_abs, &file_name(&fixed_dir));
+        index.claim(&fixed_dir, &name);
+        let item = &mut items[pos];
+        item.target = Some(relative(&layout.target_root, &fixed_dir.join(&name)));
+        item.set_targets.clear();
+        item.companions.clear();
+        item.playlist = None;
+        item.folder = system_folder;
+        item.rename = (name != original).then_some(RenameReason::GameFolder { from: original });
+        if review && item.action == OrganizeAction::Auto {
+            item.action = OrganizeAction::Review;
+        }
+        if let Some(link) = item.game.as_mut() {
+            link.folder = Some(folder);
+            link.folder_exists = folder_exists;
+        }
+    }
+}
+
+/// After the target gates (D27 trees, FAT folder slots): a base that a
+/// gate left (any reason but *already present*) leaves its updates and
+/// DLC with the same reason and no longer names a game folder (§12), so a
+/// game folder never holds an update without its base by surprise.
+pub fn game_children_follow(items: &mut [OrganizeItem]) {
+    let mut follow: Vec<(usize, LeftReason)> = Vec::new();
+    for (pos, item) in items.iter().enumerate() {
+        let Some(b) = item
+            .game
+            .as_ref()
+            .filter(|g| matches!(g.role, GameRole::Update | GameRole::Dlc))
+            .and_then(|g| g.of)
+            .filter(|&b| b != pos)
+        else {
+            continue;
+        };
+        if !item.moves_in() {
+            continue;
+        }
+        match items.get(b).map(|base| &base.action) {
+            Some(OrganizeAction::Left {
+                reason: LeftReason::AlreadyPresent { .. },
+            }) => {}
+            Some(OrganizeAction::Left { reason }) => follow.push((pos, reason.clone())),
+            Some(OrganizeAction::SetAside { .. }) => follow.push((pos, LeftReason::Unknown)),
+            _ => {}
+        }
+    }
+    for (pos, reason) in follow {
+        items[pos].leave(reason);
+    }
+    for item in items.iter_mut() {
+        let present = matches!(
+            item.action,
+            OrganizeAction::Left {
+                reason: LeftReason::AlreadyPresent { .. }
+            }
+        );
+        if item.moves_in() || present {
+            continue;
+        }
+        if let Some(link) = item.game.as_mut() {
+            link.folder = None;
+            link.folder_exists = false;
+        }
+    }
+}
+
 /// A disc set keeps its member names and layout; any collision leaves the
 /// whole set (the cue text names its tracks).
 fn plan_set(
@@ -1498,6 +1905,7 @@ fn extract_one_rom(
     let mut planned = plan_single(
         item,
         (&original, &companion_stem),
+        None,
         dir,
         layout,
         comps,
@@ -2162,6 +2570,7 @@ mod tests {
             windows_paths: false,
             names: NameMode::Keep,
             companion_exts: Vec::new(),
+            game_folders: false,
         }
     }
 
@@ -2223,6 +2632,228 @@ mod tests {
             mount_fs_type(info, Path::new("/home/me")).as_deref(),
             Some("ext4")
         );
+    }
+
+    /// A moving file item of the plan (3DS), source `name`.
+    fn file_item(id: usize, name: &str) -> OrganizeItem {
+        OrganizeItem {
+            id,
+            sources: vec![PathBuf::from(name)],
+            kind: ItemKind::File,
+            size: 10,
+            fps: Vec::new(),
+            target: None,
+            set_targets: Vec::new(),
+            system_id: Some("3ds".into()),
+            folder: Some("3DS".into()),
+            confidence: 1.0,
+            method: None,
+            why: Vec::new(),
+            alternatives: Vec::new(),
+            rename: None,
+            notes: Vec::new(),
+            companions: Vec::new(),
+            catalogue_name: None,
+            transfer: Transfer::AsIs,
+            disc: None,
+            title_id: None,
+            content_id: None,
+            playlist: None,
+            title_source: None,
+            game: None,
+            action: OrganizeAction::Auto,
+        }
+    }
+
+    fn game_layout(root: &Path, windows_paths: bool) -> TargetLayout {
+        TargetLayout {
+            target_root: root.to_path_buf(),
+            roms_dir: root.to_path_buf(),
+            profile: crate::profiles::builtin_profiles()
+                .into_iter()
+                .find(|p| p.id == "coverly-library")
+                .expect("the library profile"),
+            overrides: BTreeMap::new(),
+            fat32: false,
+            windows_paths,
+            names: NameMode::Keep,
+            companion_exts: Vec::new(),
+            game_folders: true,
+        }
+    }
+
+    /// A base placed in `3DS/<game>/` and one child of `role` per name.
+    fn family(game: &str, role: GameRole, children: &[&str]) -> Vec<OrganizeItem> {
+        let mut base = file_item(0, "base.cia");
+        let folder = Path::new("3DS").join(game);
+        base.target = Some(folder.join(format!("{game}.cia")));
+        let mut link = crate::organize::plan::GameLink::new(GameRole::Base);
+        link.folder = Some(folder);
+        base.game = Some(link);
+        let mut items = vec![base];
+        for (i, name) in children.iter().enumerate() {
+            let mut child = file_item(i + 1, name);
+            let mut link = crate::organize::plan::GameLink::new(role);
+            link.of = Some(0);
+            link.version = Some("1.1.0".into());
+            child.game = Some(link);
+            items.push(child);
+        }
+        items
+    }
+
+    fn components(p: &Path) -> Vec<String> {
+        p.components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    fn never_same(_: &Path, _: &OrganizeItem) -> bool {
+        false
+    }
+
+    #[test]
+    fn untrusted_dlc_names_stay_inside_the_dlc_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = game_layout(tmp.path(), false);
+        let mut items = family("Game", GameRole::Dlc, &["a.cia", "b.cia", "c.cia", "d.cia"]);
+        let names = ["../../x", "CON", "Pack.", "\u{0}\u{1}"];
+        game_children_targets(
+            &mut items,
+            &layout,
+            &mut DirIndex::new(),
+            &never_same,
+            &|i| names.get(i - 1).map(|n| n.to_string()),
+        );
+        let got: Vec<Vec<String>> = items[1..]
+            .iter()
+            .map(|it| components(it.target.as_deref().expect("placed")))
+            .collect();
+        for parts in &got {
+            assert_eq!(parts.len(), 4, "{parts:?}");
+            assert_eq!(parts[..3], ["3DS", "Game", "DLC"]);
+        }
+        assert_eq!(got[0][3], "Game - .._.._x.cia");
+        // A device name is made safe as a component of its own; the
+        // trailing dot is trimmed; nothing printable left → `DLC`.
+        assert_eq!(got[1][3], "Game - _CON.cia");
+        assert_eq!(got[2][3], "Game - Pack.cia");
+        assert_eq!(got[3][3], "Game - DLC.cia");
+        assert!(matches!(
+            items[1].rename,
+            Some(RenameReason::GameFolder { .. })
+        ));
+    }
+
+    #[test]
+    fn a_device_name_or_trailing_dot_folder_gets_its_safe_form() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut index = DirIndex::new();
+        let (name, exists) = game_folder_name("CON", None, tmp.path(), &mut index).unwrap();
+        assert_eq!((name.as_str(), exists), ("_CON", false));
+        let (name, _) = game_folder_name("Dr. Mario.", None, tmp.path(), &mut index).unwrap();
+        assert_eq!(name, "Dr. Mario");
+        // A region joins a name without one, never a second one.
+        let (name, _) =
+            game_folder_name("Zelda", Some(Region::Europe), tmp.path(), &mut index).unwrap();
+        assert_eq!(name, "Zelda (Europe)");
+        let (name, _) =
+            game_folder_name("Zelda (USA)", Some(Region::Europe), tmp.path(), &mut index).unwrap();
+        assert_eq!(name, "Zelda (USA)");
+        // Claimed already: the next free name.
+        let (name, _) =
+            game_folder_name("Zelda (USA)", Some(Region::Europe), tmp.path(), &mut index).unwrap();
+        assert_eq!(name, "Zelda (USA) (2)");
+    }
+
+    #[test]
+    fn a_long_dlc_name_is_shortened_before_the_game_and_never_the_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let units = |p: &Path| p.to_string_lossy().encode_utf16().count();
+        let game = "G".repeat(40);
+        let folder_units = units(&root.join("3DS").join(&game).join("DLC"));
+        // Room for the game prefix and a few characters of the DLC name.
+        let room = WINDOWS_MAX_PATH - folder_units - 1;
+        assert!(room > game.len() + 10, "temp path too long for the test");
+        let layout = game_layout(root, true);
+        let mut items = family(&game, GameRole::Dlc, &["a.cia"]);
+        let long = "D".repeat(400);
+        game_children_targets(
+            &mut items,
+            &layout,
+            &mut DirIndex::new(),
+            &never_same,
+            &|_| Some(long.clone()),
+        );
+        let target = items[1].target.clone().expect("placed");
+        assert!(units(&root.join(&target)) <= WINDOWS_MAX_PATH);
+        let parts = components(&target);
+        assert_eq!(parts[..3], ["3DS".to_string(), game.clone(), "DLC".into()]);
+        assert!(parts[3].starts_with(&format!("{game} - D")), "{parts:?}");
+        assert!(parts[3].ends_with("D.cia"), "{parts:?}");
+
+        // No room even for one character of each: path too long.
+        let deep = "F".repeat(WINDOWS_MAX_PATH);
+        let mut items = family(&deep, GameRole::Dlc, &["a.cia"]);
+        game_children_targets(
+            &mut items,
+            &layout,
+            &mut DirIndex::new(),
+            &never_same,
+            &|_| Some(long.clone()),
+        );
+        assert_eq!(
+            items[1].action,
+            OrganizeAction::Left {
+                reason: LeftReason::PathTooLong
+            }
+        );
+    }
+
+    #[test]
+    fn children_follow_a_left_base() {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = game_layout(tmp.path(), false);
+        // Left before the children pass: they leave with its reason.
+        let mut items = family("Game", GameRole::Update, &["u.cia"]);
+        items[0].leave(LeftReason::TooBigForFat);
+        game_children_targets(
+            &mut items,
+            &layout,
+            &mut DirIndex::new(),
+            &never_same,
+            &|_| None,
+        );
+        assert_eq!(
+            items[1].action,
+            OrganizeAction::Left {
+                reason: LeftReason::TooBigForFat
+            }
+        );
+        // Left by a later gate: the follow pass leaves them too and the
+        // base no longer names a folder.
+        let mut items = family("Game", GameRole::Update, &["u.cia"]);
+        game_children_targets(
+            &mut items,
+            &layout,
+            &mut DirIndex::new(),
+            &never_same,
+            &|_| None,
+        );
+        assert_eq!(
+            components(items[1].target.as_deref().unwrap()),
+            ["3DS", "Game", "Updates", "Game (v1.1.0).cia"]
+        );
+        items[0].leave(LeftReason::PathTooLong);
+        game_children_follow(&mut items);
+        assert_eq!(
+            items[1].action,
+            OrganizeAction::Left {
+                reason: LeftReason::PathTooLong
+            }
+        );
+        assert_eq!(items[0].game.as_ref().unwrap().folder, None);
     }
 
     #[test]

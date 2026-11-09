@@ -204,3 +204,583 @@ fn a_folder_of_several_games_gives_roles_without_a_game() {
         .iter()
         .all(|e| !matches!(e.left, Some(LeftReason::GameFolderContent { .. }))));
 }
+
+// --- Planning bases, updates and DLC into game folders (Task 10) ---
+
+use coverly_core::organize::plan::{GameRole, RenameReason};
+use coverly_core::organize::{plan_organize, OrganizeAction, OrganizeItem, OrganizePlan};
+use coverly_core::settings::OrganizeDedupeMode;
+
+const PY_BASE: u64 = 0x0004_0000_0005_5D00;
+const PY_UPDATE: u64 = 0x0004_000E_0005_5D00;
+const PY_DLC: u64 = 0x0004_008C_0005_5D00;
+
+/// Header bytes of `s` plus `tail` distinct bytes, so two files with one
+/// header are not the same content.
+fn with_tail(s: &ct::SparseAt, tail: u8) -> Vec<u8> {
+    let mut b = s.head_bytes();
+    b.extend([tail; 16]);
+    b
+}
+
+/// A 3DS CIA update of `tid` with TMD title version `version`.
+fn cia_update(tid: u64, version: u16) -> ct::SparseAt {
+    let mut s = ct::cia(tid, true, false);
+    s.put(ct::CIA_TMD + 0x1DC, &version.to_be_bytes());
+    s
+}
+
+/// Pokemon Y (`CTR-P-EK2A`, region A = World), its update (TMD 1040)
+/// and two DLC files, flat in `pile`.
+fn pokemon_flat(pile: &Path) {
+    let files: Vec<(&str, Vec<u8>)> = vec![
+        (
+            "Pokemon Y.cia",
+            ct::cia_with_code(PY_BASE, "CTR-P-EK2A", false, false).head_bytes(),
+        ),
+        (
+            "0004000E00055D00.cia",
+            with_tail(&cia_update(PY_UPDATE, 1040), 1),
+        ),
+        (
+            "Pokemon Y - Extra Pack (USA).cia",
+            with_tail(&ct::cia(PY_DLC, true, false), 2),
+        ),
+        (
+            "Pokemon Y [DLC2].cia",
+            with_tail(&ct::cia(PY_DLC, true, false), 3),
+        ),
+    ];
+    for (n, (rel, bytes)) in files.iter().enumerate() {
+        put(pile, rel, bytes, n as u64);
+    }
+}
+
+fn options(layout: &str, target: &Path) -> OrganizeOptions {
+    OrganizeOptions {
+        layout: layout.to_string(),
+        target: Some(target.to_path_buf()),
+        flat: true,
+        duplicates: OrganizeDedupeMode::Off,
+        ..OrganizeOptions::default()
+    }
+}
+
+fn plan_of(pile: &Path, opts: &OrganizeOptions) -> OrganizePlan {
+    let db = SystemDb::builtin();
+    let profiles = builtin_profiles();
+    let cache = Cache::in_memory().unwrap();
+    let env = OrganizeEnv {
+        db: &db,
+        profiles: &profiles,
+        cache: &cache,
+        dats: None,
+        probe: &NoCloud,
+        online: None,
+        titles: None,
+        now: SystemTime::now(),
+    };
+    plan_organize(pile, opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap()
+}
+
+fn item<'a>(plan: &'a OrganizePlan, name: &str) -> &'a OrganizeItem {
+    plan.items
+        .iter()
+        .find(|i| i.sources[0].file_name().is_some_and(|n| n == name))
+        .unwrap_or_else(|| panic!("no item {name}"))
+}
+
+/// `rel`'s components as strings (never slash text: Windows CI).
+fn parts(rel: &Path) -> Vec<String> {
+    rel.components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect()
+}
+
+fn target_parts(it: &OrganizeItem) -> Vec<String> {
+    parts(
+        it.target
+            .as_deref()
+            .unwrap_or_else(|| panic!("{:?} has no target: {:?}", it.sources, it.action)),
+    )
+}
+
+fn p(s: &[&str]) -> Vec<String> {
+    s.iter().map(|c| c.to_string()).collect()
+}
+
+/// The plan rows a snapshot compares: sources, action, target, rename
+/// and game link, paths by component.
+fn rows(plan: &OrganizePlan) -> serde_json::Value {
+    let join = |p: &Path| parts(p).join("/");
+    serde_json::Value::Array(
+        plan.items
+            .iter()
+            .map(|it| {
+                let mut v = serde_json::to_value(it).unwrap();
+                let game = v.get("game").cloned();
+                let mut game = game.unwrap_or(serde_json::Value::Null);
+                if let Some(folder) = it.game.as_ref().and_then(|g| g.folder.as_deref()) {
+                    game["folder"] = join(folder).into();
+                }
+                serde_json::json!({
+                    "id": it.id,
+                    "source": join(&it.sources[0]),
+                    "action": v["action"].take(),
+                    "reason": v.get_mut("reason").map(|r| r.take()),
+                    "target": it.target.as_deref().map(join),
+                    "folder": it.folder,
+                    "rename": it.rename,
+                    "game": game,
+                })
+            })
+            .collect(),
+    )
+}
+
+#[test]
+fn bases_updates_and_dlc_go_into_their_game_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_flat(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+
+    let base = item(&plan, "Pokemon Y.cia");
+    assert_eq!(base.action, OrganizeAction::Auto, "{base:?}");
+    let game = "Pokemon Y (World)";
+    assert_eq!(
+        target_parts(base),
+        p(&["3DS", game, "Pokemon Y (World).cia"])
+    );
+    assert_eq!(
+        base.rename,
+        Some(RenameReason::GameFolder {
+            from: "Pokemon Y.cia".into()
+        })
+    );
+    let link = base.game.as_ref().unwrap();
+    assert_eq!(link.role, GameRole::Base);
+    assert_eq!(parts(link.folder.as_deref().unwrap()), p(&["3DS", game]));
+    assert!(!link.folder_exists);
+
+    let update = item(&plan, "0004000E00055D00.cia");
+    assert_eq!(
+        target_parts(update),
+        p(&["3DS", game, "Updates", "Pokemon Y (World) (v1.1.0).cia"])
+    );
+    let link = update.game.as_ref().unwrap();
+    assert_eq!(
+        (
+            link.role,
+            link.of,
+            link.version.as_deref(),
+            link.newest_here
+        ),
+        (GameRole::Update, Some(base.id), Some("1.1.0"), true)
+    );
+    assert_eq!(
+        update.rename,
+        Some(RenameReason::GameFolder {
+            from: "0004000E00055D00.cia".into()
+        })
+    );
+
+    let dlc = item(&plan, "Pokemon Y - Extra Pack (USA).cia");
+    assert_eq!(
+        target_parts(dlc),
+        p(&["3DS", game, "DLC", "Pokemon Y (World) - Extra Pack.cia"])
+    );
+    assert_eq!(dlc.game.as_ref().unwrap().of, Some(base.id));
+    let bare = item(&plan, "Pokemon Y [DLC2].cia");
+    assert_eq!(
+        target_parts(bare),
+        p(&[
+            "3DS",
+            game,
+            "DLC",
+            "Pokemon Y (World) - DLC 0004008C00055D00.cia"
+        ])
+    );
+    insta::assert_json_snapshot!("game_folders_3ds_plan", rows(&plan));
+}
+
+/// `parts` without the system folder (its spelling is the profile's).
+fn below_system(it: &OrganizeItem) -> Vec<String> {
+    target_parts(it)[1..].to_vec()
+}
+
+#[test]
+fn the_option_off_or_a_handheld_profile_keeps_the_flat_layout() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_flat(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let off = OrganizeOptions {
+        game_folders: Some(false),
+        ..options("coverly-library", &lib)
+    };
+    for opts in [off, options("esde", &lib), options("anbernic-stock", &lib)] {
+        let plan = plan_of(&pile, &opts);
+        for it in plan.items.iter().filter(|i| i.moves_in()) {
+            assert_eq!(it.game, None, "{}: {:?}", opts.layout, it.sources);
+            assert_eq!(
+                target_parts(it).len(),
+                2,
+                "{}: {:?}",
+                opts.layout,
+                it.target
+            );
+            assert!(
+                !matches!(it.rename, Some(RenameReason::GameFolder { .. })),
+                "{}",
+                opts.layout
+            );
+        }
+        let base = item(&plan, "Pokemon Y.cia");
+        assert_eq!(below_system(base), p(&["Pokemon Y.cia"]), "{}", opts.layout);
+    }
+    // The option on for a handheld profile through the run's override.
+    let on = OrganizeOptions {
+        game_folders: Some(true),
+        ..options("esde", &lib)
+    };
+    let plan = plan_of(&pile, &on);
+    assert_eq!(
+        below_system(item(&plan, "0004000E00055D00.cia")),
+        p(&[
+            "Pokemon Y (World)",
+            "Updates",
+            "Pokemon Y (World) (v1.1.0).cia"
+        ])
+    );
+}
+
+#[test]
+fn a_switch_update_keeps_its_raw_version_and_no_region() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    let nca = ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nca", &[0x55u8; 64][..]);
+    let tik = "01007EF00011E0000000000000000000.tik";
+    put(
+        &pile,
+        "Zelda.nsp",
+        &ct::nsp(&[nca, (tik, &[0x66; 0x2C0])]).bytes(),
+        1,
+    );
+    put(
+        &pile,
+        "Zelda [01007EF00011E800][v131072].nsp",
+        &ct::nsp(&[nca]).bytes(),
+        2,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    assert_eq!(
+        below_system(item(&plan, "Zelda.nsp")),
+        p(&["Zelda", "Zelda.nsp"])
+    );
+    let update = item(&plan, "Zelda [01007EF00011E800][v131072].nsp");
+    assert_eq!(
+        below_system(update),
+        p(&["Zelda", "Updates", "Zelda (v131072).nsp"])
+    );
+    assert_eq!(update.game.as_ref().unwrap().region, None);
+}
+
+#[test]
+fn a_folder_game_is_its_own_game_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    ct::ps3_jb(&pile.join("Resistance"), "BLUS30001", "DG");
+    ct::ps3_hdd(&pile.join("BLUS30001 Patch"), "BLUS30001", "GD");
+    for f in walk_files(&pile) {
+        pin_mtime(&f, 7);
+    }
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let base = item(&plan, "Resistance");
+    assert_eq!(below_system(base), p(&["Resistance"]), "{base:?}");
+    let link = base.game.as_ref().unwrap();
+    assert_eq!(
+        link.folder.as_deref().map(parts),
+        Some(target_parts(base)),
+        "a folder game's folder is itself"
+    );
+    let update = item(&plan, "BLUS30001 Patch");
+    assert_eq!(
+        below_system(update),
+        p(&["Resistance", "Updates", "BLUS30001 Patch"]),
+        "{update:?}"
+    );
+    assert_eq!(update.rename, None);
+}
+
+fn walk_files(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            out.extend(walk_files(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
+}
+
+#[test]
+fn an_existing_game_folder_is_reused_and_a_file_in_its_place_is_a_collision() {
+    // Reused with its own casing.
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_flat(&pile);
+    fs::create_dir_all(lib.join("3DS").join("pokemon y (world)").join("updates")).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let base = item(&plan, "Pokemon Y.cia");
+    assert_eq!(
+        below_system(base),
+        p(&["pokemon y (world)", "pokemon y (world).cia"])
+    );
+    assert!(base.game.as_ref().unwrap().folder_exists);
+    // The case-different `updates/` is reused, never a second one.
+    let update = item(&plan, "0004000E00055D00.cia");
+    assert_eq!(
+        below_system(update),
+        p(&[
+            "pokemon y (world)",
+            "updates",
+            "pokemon y (world) (v1.1.0).cia"
+        ])
+    );
+    assert!(update.game.as_ref().unwrap().folder_exists);
+
+    // A file named like the folder: the next free name, children follow.
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_flat(&pile);
+    put(&lib, "3DS/Pokemon Y (World)", b"not a folder", 9);
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let game = "Pokemon Y (World) (2)";
+    assert_eq!(
+        below_system(item(&plan, "Pokemon Y.cia")),
+        p(&[game, "Pokemon Y (World) (2).cia"])
+    );
+    assert_eq!(
+        below_system(item(&plan, "0004000E00055D00.cia")),
+        p(&[game, "Updates", "Pokemon Y (World) (2) (v1.1.0).cia"])
+    );
+    assert_eq!(
+        below_system(item(&plan, "Pokemon Y - Extra Pack (USA).cia")),
+        p(&[game, "DLC", "Pokemon Y (World) (2) - Extra Pack.cia"])
+    );
+}
+
+#[test]
+fn a_file_named_like_a_fixed_folder_leaves_the_child() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_flat(&pile);
+    put(&lib, "3DS/Pokemon Y (World)/Updates", b"a file", 9);
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let update = item(&plan, "0004000E00055D00.cia");
+    assert_eq!(
+        update.action,
+        OrganizeAction::Left {
+            reason: LeftReason::UnsafeTarget
+        }
+    );
+    // The base and the DLC still go into the existing folder.
+    assert_eq!(
+        below_system(item(&plan, "Pokemon Y - Extra Pack (USA).cia")),
+        p(&[
+            "Pokemon Y (World)",
+            "DLC",
+            "Pokemon Y (World) - Extra Pack.cia"
+        ])
+    );
+}
+
+#[test]
+fn nfc_and_nfd_names_meet_in_one_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(
+        &pile,
+        "Pok\u{e9}mon Y.cia",
+        &ct::cia_with_code(PY_BASE, "CTR-P-EK2A", false, false).head_bytes(),
+        1,
+    );
+    let nfd = "Poke\u{301}mon Y (World)";
+    fs::create_dir_all(lib.join("3DS").join(nfd)).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let base = item(&plan, "Pok\u{e9}mon Y.cia");
+    assert!(base.game.as_ref().unwrap().folder_exists, "{base:?}");
+    let entries: Vec<_> = fs::read_dir(lib.join("3DS")).unwrap().flatten().collect();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        target_parts(base)[1],
+        entries[0].file_name().to_string_lossy().into_owned()
+    );
+}
+
+#[test]
+fn a_wii_dlc_wad_folds_under_its_disc() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(
+        &pile,
+        "Fortune Street.iso",
+        &ct::gc_disc("WF4E01", true).head_bytes(),
+        1,
+    );
+    put(
+        &pile,
+        "wF4E.wad",
+        &ct::wad_head(0x0001_0005_7746_3445, 0).head_bytes(),
+        2,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let base = item(&plan, "Fortune Street.iso");
+    assert_eq!(
+        below_system(base),
+        p(&["Fortune Street (USA)", "Fortune Street (USA).iso"]),
+        "{base:?}"
+    );
+    let dlc = item(&plan, "wF4E.wad");
+    assert_eq!(
+        dlc.game.as_ref().and_then(|g| g.of),
+        Some(base.id),
+        "{dlc:?}"
+    );
+    assert_eq!(target_parts(dlc)[1..3], p(&["Fortune Street (USA)", "DLC"]));
+}
+
+#[test]
+fn a_demo_with_its_base_title_id_is_not_folded() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    let tid = 0x5841_0A00;
+    let hash = ct::STFS_HASH;
+    // GOD/XBLA layout `<tid>/<content type>/<40 hex>`, one per folder.
+    put(
+        &pile,
+        &format!("base/58410A00/000D0000/{hash}"),
+        &ct::stfs_head(0x000D_0000, tid, 1, 0).head_bytes(),
+        1,
+    );
+    put(
+        &pile,
+        &format!("demo/58410A00/00080000/{hash}"),
+        &ct::stfs_head(0x0008_0000, tid, 1, 0).head_bytes(),
+        2,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let base = plan
+        .items
+        .iter()
+        .find(|i| i.sources[0].starts_with("base"))
+        .unwrap();
+    assert_eq!(
+        base.game.as_ref().map(|g| g.role),
+        Some(GameRole::Base),
+        "{base:?}"
+    );
+    let demo = plan
+        .items
+        .iter()
+        .find(|i| i.sources[0].starts_with("demo"))
+        .unwrap();
+    assert_ne!(demo.game.as_ref().map(|g| g.role), Some(GameRole::Update));
+    assert!(demo.game.as_ref().and_then(|g| g.of).is_none(), "{demo:?}");
+    if let Some(t) = &demo.target {
+        assert!(
+            !parts(t).iter().any(|c| c == "Updates" || c == "DLC"),
+            "{t:?}"
+        );
+    }
+}
+
+#[test]
+fn two_bases_with_one_title_keep_their_own_children() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    let (a, b) = (0x0004_0000_0001_1100u64, 0x0004_0000_0002_2200u64);
+    let upd = |tid: u64| tid | 0x0000_000E_0000_0000;
+    put(
+        &pile,
+        "a/Tetris.cia",
+        &ct::cia_with_code(a, "CTR-P-ATRE", false, false).head_bytes(),
+        1,
+    );
+    put(
+        &pile,
+        "b/Tetris.cia",
+        &ct::cia_with_code(b, "CTR-P-ATRE", false, false).head_bytes(),
+        2,
+    );
+    put(
+        &pile,
+        "a/u.cia",
+        &with_tail(&cia_update(upd(a), 1040), 1),
+        3,
+    );
+    put(
+        &pile,
+        "b/u.cia",
+        &with_tail(&cia_update(upd(b), 2080), 2),
+        4,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let by_source = |rel: &[&str]| {
+        plan.items
+            .iter()
+            .find(|i| parts(&i.sources[0]) == p(rel))
+            .unwrap()
+    };
+    let (base_a, base_b) = (
+        by_source(&["a", "Tetris.cia"]),
+        by_source(&["b", "Tetris.cia"]),
+    );
+    let (ua, ub) = (by_source(&["a", "u.cia"]), by_source(&["b", "u.cia"]));
+    assert_eq!(ua.game.as_ref().unwrap().of, Some(base_a.id));
+    assert_eq!(ub.game.as_ref().unwrap().of, Some(base_b.id));
+    let folder = |it: &OrganizeItem| target_parts(it)[1].clone();
+    assert_ne!(folder(base_a), folder(base_b));
+    assert_eq!(folder(ua), folder(base_a));
+    assert_eq!(folder(ub), folder(base_b));
+    let mut names = vec![folder(base_a), folder(base_b)];
+    names.sort();
+    assert_eq!(names, p(&["Tetris (USA)", "Tetris (USA) (2)"]));
+}
+
+#[test]
+fn the_highest_update_is_the_newest_here() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_flat(&pile);
+    put(
+        &pile,
+        "newer.cia",
+        &with_tail(&cia_update(PY_UPDATE, 2080), 9),
+        9,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let old = item(&plan, "0004000E00055D00.cia").game.clone().unwrap();
+    let new = item(&plan, "newer.cia").game.clone().unwrap();
+    assert!(!old.newest_here);
+    assert!(new.newest_here);
+    assert_eq!(new.version.as_deref(), Some("2.2.0"));
+    assert_eq!(
+        below_system(item(&plan, "newer.cia")),
+        p(&[
+            "Pokemon Y (World)",
+            "Updates",
+            "Pokemon Y (World) (v2.2.0).cia"
+        ])
+    );
+}

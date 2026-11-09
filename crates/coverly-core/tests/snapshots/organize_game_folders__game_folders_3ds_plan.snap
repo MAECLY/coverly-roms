@@ -1,0 +1,79 @@
+---
+source: crates/coverly-core/tests/organize_game_folders.rs
+expression: rows(&plan)
+---
+[
+  {
+    "action": "auto",
+    "folder": "3DS",
+    "game": {
+      "folder": "3DS/Pokemon Y (World)",
+      "region": "world",
+      "role": "base"
+    },
+    "id": 0,
+    "reason": null,
+    "rename": {
+      "from": "Pokemon Y.cia",
+      "kind": "game-folder"
+    },
+    "source": "Pokemon Y.cia",
+    "target": "3DS/Pokemon Y (World)/Pokemon Y (World).cia"
+  },
+  {
+    "action": "auto",
+    "folder": "3DS",
+    "game": {
+      "folder": "3DS/Pokemon Y (World)",
+      "newest_here": true,
+      "of": 0,
+      "region": "world",
+      "role": "update",
+      "version": "1.1.0"
+    },
+    "id": 1,
+    "reason": null,
+    "rename": {
+      "from": "0004000E00055D00.cia",
+      "kind": "game-folder"
+    },
+    "source": "0004000E00055D00.cia",
+    "target": "3DS/Pokemon Y (World)/Updates/Pokemon Y (World) (v1.1.0).cia"
+  },
+  {
+    "action": "auto",
+    "folder": "3DS",
+    "game": {
+      "folder": "3DS/Pokemon Y (World)",
+      "of": 0,
+      "region": "world",
+      "role": "dlc"
+    },
+    "id": 2,
+    "reason": null,
+    "rename": {
+      "from": "Pokemon Y - Extra Pack (USA).cia",
+      "kind": "game-folder"
+    },
+    "source": "Pokemon Y - Extra Pack (USA).cia",
+    "target": "3DS/Pokemon Y (World)/DLC/Pokemon Y (World) - Extra Pack.cia"
+  },
+  {
+    "action": "auto",
+    "folder": "3DS",
+    "game": {
+      "folder": "3DS/Pokemon Y (World)",
+      "of": 0,
+      "region": "world",
+      "role": "dlc"
+    },
+    "id": 3,
+    "reason": null,
+    "rename": {
+      "from": "Pokemon Y [DLC2].cia",
+      "kind": "game-folder"
+    },
+    "source": "Pokemon Y [DLC2].cia",
+    "target": "3DS/Pokemon Y (World)/DLC/Pokemon Y (World) - DLC 0004008C00055D00.cia"
+  }
+]

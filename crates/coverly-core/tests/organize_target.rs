@@ -68,6 +68,7 @@ fn layout(target: &Path, nested: bool) -> TargetLayout {
         windows_paths: false,
         names: NameMode::Keep,
         companion_exts: default_companion_exts(),
+        game_folders: false,
     }
 }
 
