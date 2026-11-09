@@ -1160,3 +1160,168 @@ fn the_new_key_names_are_left_by_name() {
         assert_eq!(reason_of(&w, name), Some(LeftReason::KeyMaterial), "{name}");
     }
 }
+
+/// Writes `bytes` at `rel` below `root` with a pinned mtime (Windows CI).
+fn put_pinned(root: &Path, rel: &str, bytes: &[u8], n: u64) -> PathBuf {
+    let p = rel.split('/').fold(root.to_path_buf(), |p, c| p.join(c));
+    fs::create_dir_all(p.parent().unwrap()).unwrap();
+    fs::write(&p, bytes).unwrap();
+    coverly_core::dedupe::testing::pin_mtime(&p, n);
+    p
+}
+
+fn game_folder_rows(w: &Walked) -> Vec<(String, FixedFolder, String)> {
+    w.left
+        .iter()
+        .filter_map(|(p, r)| match r {
+            LeftReason::GameFolderContent { folder, of } => Some((
+                p.file_name().unwrap().to_string_lossy().into_owned(),
+                *folder,
+                of.clone(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+use coverly_core::game_folder::{ChildRole, FixedFolder};
+
+fn pokemon_game_folder(root: &Path) {
+    for (n, rel) in [
+        "Pokemon/Pokemon.cia",
+        "Pokemon/Updates/u.cia",
+        "Pokemon/DLC/d.cia",
+        "Pokemon/Mods/m.ips",
+        "Pokemon/Saves/s.sav",
+        "Pokemon/Extras/ost.cia",
+    ]
+    .iter()
+    .enumerate()
+    {
+        put_pinned(root, rel, &[7u8; 64], n as u64);
+    }
+}
+
+#[test]
+fn a_game_folder_keeps_its_fixed_folders() {
+    let tmp = tempfile::tempdir().unwrap();
+    pokemon_game_folder(tmp.path());
+    let w = run(tmp.path(), &NoCloud);
+    let mut names = candidate_names(&w);
+    names.sort();
+    assert_eq!(names, vec!["Pokemon.cia", "d.cia", "u.cia"]);
+    assert_eq!(
+        game_folder_rows(&w),
+        vec![
+            (
+                "Extras".to_string(),
+                FixedFolder::Extras,
+                "Pokemon".to_string()
+            ),
+            ("Mods".to_string(), FixedFolder::Mods, "Pokemon".to_string()),
+            (
+                "Saves".to_string(),
+                FixedFolder::Saves,
+                "Pokemon".to_string()
+            ),
+        ]
+    );
+    // Nothing from inside them: no patch, save or game row.
+    let inside = |p: &Path| {
+        p.components().any(|c| {
+            ["Mods", "Saves", "Extras"]
+                .iter()
+                .any(|f| c.as_os_str() == *f)
+        }) && p
+            .file_name()
+            .is_some_and(|n| n != "Mods" && n != "Saves" && n != "Extras")
+    };
+    assert!(w.left.iter().all(|(p, _)| !inside(p)), "{:?}", w.left);
+    assert!(w.companions.iter().all(|p| !inside(p)));
+    assert!(w.other_files.iter().all(|p| !inside(p)));
+    let game = tmp.path().join("Pokemon");
+    assert_eq!(
+        w.child_dirs
+            .iter()
+            .map(|c| (
+                c.dir.file_name().unwrap().to_string_lossy().into_owned(),
+                c.role,
+                c.game_dir.clone()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("DLC".to_string(), ChildRole::Dlc, Some(game.clone())),
+            ("Updates".to_string(), ChildRole::Update, Some(game)),
+        ]
+    );
+}
+
+#[test]
+fn a_pile_that_is_a_game_folder_keeps_its_fixed_folders() {
+    let tmp = tempfile::tempdir().unwrap();
+    pokemon_game_folder(tmp.path());
+    let w = run(&tmp.path().join("Pokemon"), &NoCloud);
+    let mut names = candidate_names(&w);
+    names.sort();
+    assert_eq!(names, vec!["Pokemon.cia", "d.cia", "u.cia"]);
+    assert_eq!(game_folder_rows(&w).len(), 3);
+    assert_eq!(w.child_dirs.len(), 2);
+}
+
+#[test]
+fn a_folder_of_several_games_walks_its_mods_as_today() {
+    let tmp = tempfile::tempdir().unwrap();
+    put_pinned(tmp.path(), "Hacks/a.sfc", &[1u8; 64], 1);
+    put_pinned(tmp.path(), "Hacks/b.sfc", &[2u8; 64], 2);
+    put_pinned(tmp.path(), "Hacks/Mods/x.sfc", &[3u8; 64], 3);
+    let w = run(tmp.path(), &NoCloud);
+    let mut names = candidate_names(&w);
+    names.sort();
+    assert_eq!(names, vec!["a.sfc", "b.sfc", "x.sfc"]);
+    assert!(game_folder_rows(&w).is_empty());
+    assert!(w.child_dirs.is_empty());
+}
+
+#[test]
+fn updates_of_a_folder_of_several_games_still_get_their_role() {
+    let tmp = tempfile::tempdir().unwrap();
+    put_pinned(tmp.path(), "Mix/a.cia", &[1u8; 64], 1);
+    put_pinned(tmp.path(), "Mix/b.cia", &[2u8; 64], 2);
+    put_pinned(tmp.path(), "Mix/updates/u.cia", &[3u8; 64], 3);
+    put_pinned(tmp.path(), "Mix/Saves/s.cia", &[4u8; 64], 4);
+    let w = run(tmp.path(), &NoCloud);
+    assert_eq!(w.child_dirs.len(), 1);
+    assert_eq!(w.child_dirs[0].role, ChildRole::Update);
+    assert_eq!(w.child_dirs[0].game_dir, None);
+    assert_eq!(
+        w.child_dirs[0].dir.file_name().unwrap(),
+        "updates",
+        "the on-disk spelling"
+    );
+    // `saves` is an ignored folder name: walked as today, so left out.
+    assert!(game_folder_rows(&w).is_empty());
+    assert!(candidate_names(&w).iter().all(|n| n != "s.cia"));
+}
+
+#[test]
+fn a_sheet_set_is_one_base_of_a_game_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    put_pinned(
+        tmp.path(),
+        "Game/Game.cue",
+        b"FILE \"Game (Track 1).bin\" BINARY\n",
+        1,
+    );
+    put_pinned(tmp.path(), "Game/Game (Track 1).bin", &[1u8; 64], 2);
+    put_pinned(tmp.path(), "Game/Game (Track 2).bin", &[2u8; 64], 3);
+    put_pinned(tmp.path(), "Game/Cheats/c.cht", &[3u8; 64], 4);
+    let w = run(tmp.path(), &NoCloud);
+    assert_eq!(
+        game_folder_rows(&w),
+        vec![(
+            "Cheats".to_string(),
+            FixedFolder::Cheats,
+            "Game".to_string()
+        )]
+    );
+}

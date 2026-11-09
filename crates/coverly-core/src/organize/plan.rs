@@ -30,7 +30,7 @@ use crate::dedupe::{
     group_units, DedupeOptions, DupGroup, GroupAction, GroupEnv, KeepReason, QuarantineChoice,
     Relation, ReportWhy, DEFAULT_QUARANTINE_NAME,
 };
-use crate::game_folder::FixedFolder;
+use crate::game_folder::{ChildRole, FixedFolder};
 use crate::identify::dat::DatStore;
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::HeaderRule;
@@ -1037,6 +1037,48 @@ pub struct SurveyEntry {
     /// Loose discs grouped into one game (adjustments D24): the entry is
     /// their `Set`, sources in disc order.
     pub disc_set: Option<LooseDiscSet>,
+    /// The role the entry's `Updates/` or `DLC/` folder gives it (game
+    /// folders D7); a header kind wins over it ([`effective_kind`]).
+    pub role_hint: Option<ChildRole>,
+    /// The game folder holding that `Updates/` or `DLC/` folder when it has
+    /// exactly one base at its root (D3): the entry's link candidate.
+    pub game_dir: Option<PathBuf>,
+}
+
+/// What an entry is to its game (game folders D7, D14): the header's kind
+/// when it says anything, else the role its `Updates/` or `DLC/` folder
+/// gives it, else `Unknown`. A header kind always wins over the folder.
+pub fn effective_kind(entry: &SurveyEntry) -> TitleKind {
+    let header = entry
+        .console
+        .as_ref()
+        .map_or(TitleKind::Unknown, |c| c.kind);
+    match (header, entry.role_hint) {
+        (TitleKind::Unknown, Some(ChildRole::Update)) => TitleKind::Update,
+        (TitleKind::Unknown, Some(ChildRole::Dlc)) => TitleKind::Dlc,
+        (kind, _) => kind,
+    }
+}
+
+/// Gives every entry found below an `Updates/` or `DLC/` folder of the
+/// pile its role hint and game folder (D7); the deepest folder wins.
+fn hint_child_roles(entries: &mut [SurveyEntry], child_dirs: &[super::walk::ChildDir]) {
+    if child_dirs.is_empty() {
+        return;
+    }
+    for entry in entries {
+        let Some(primary) = entry.sources.first() else {
+            continue;
+        };
+        let found = child_dirs
+            .iter()
+            .filter(|c| primary.starts_with(&c.dir) && primary != &c.dir)
+            .max_by_key(|c| c.dir.components().count());
+        if let Some(child) = found {
+            entry.role_hint = Some(child.role);
+            entry.game_dir = child.game_dir.clone();
+        }
+    }
 }
 
 /// A loose multi-disc game the survey grouped (adjustments spec D24).
@@ -1354,6 +1396,8 @@ pub fn survey(
                 tree: None,
                 console: None,
                 disc_set: None,
+                role_hint: None,
+                game_dir: None,
             },
             candidate: None,
             set_sniff: None,
@@ -1532,7 +1576,8 @@ pub fn survey(
     // Loose discs of one game become one set (adjustments D24), before
     // the duplicates step sees them.
     let entries = group_loose_discs(entries, env.db);
-    let entries = updates_after_bases(entries);
+    let mut entries = updates_after_bases(entries);
+    hint_child_roles(&mut entries, &walked.child_dirs);
 
     Ok(Survey {
         source_root: source_abs,
@@ -2079,6 +2124,8 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
             tree: Some(tree),
             console,
             disc_set: None,
+            role_hint: None,
+            game_dir: None,
         }
     };
     let mut out = Vec::new();
@@ -2220,6 +2267,8 @@ fn build_entries(
             tree: None,
             console: None,
             disc_set: None,
+            role_hint: None,
+            game_dir: None,
         };
         if !is_list {
             if candidate.ext == "zip" || candidate.ext == "7z" {

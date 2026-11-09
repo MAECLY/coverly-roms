@@ -18,6 +18,7 @@ use walkdir::WalkDir;
 use super::plan::LeftReason;
 use crate::archive::detect::multi_volume_part;
 use crate::consoles::{identify_dir_on_disk, is_key_material, ConsoleId, FolderLeave};
+use crate::game_folder::{classify_listing, ChildRole, DirShape, FixedFolder, GameBase};
 use crate::identify::sniff::is_doom_wad;
 use crate::organize::inspect::names_an_archive;
 use crate::profiles::naming::system_folder;
@@ -116,6 +117,33 @@ pub struct Walked {
     /// Folders two probes claimed for different systems (review), with
     /// those systems in probe order and the folder's tree.
     pub folder_conflicts: Vec<(PathBuf, Vec<String>, TreeSummary)>,
+    /// `Updates/` and `DLC/` folders of pile directories (game folders
+    /// D7): everything found below one is a child of a game by its folder,
+    /// sorted by folder.
+    pub child_dirs: Vec<ChildDir>,
+}
+
+/// An `Updates/` or `DLC/` folder the walk met in a pile directory (game
+/// folders spec D7, §8.1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChildDir {
+    /// The fixed folder itself, as walked.
+    pub dir: PathBuf,
+    /// The role its folder gives an item whose header says nothing (D14).
+    pub role: ChildRole,
+    /// The game folder holding it when that folder has exactly one base at
+    /// its root (D3); `None` for a folder of several games.
+    pub game_dir: Option<PathBuf>,
+}
+
+/// What a fixed folder of a pile directory is to the walk (D7).
+#[derive(Clone, Debug)]
+enum FixedSeen {
+    /// `Updates/` or `DLC/`: walked, its items carry the role.
+    Child(ChildDir),
+    /// `Mods/`, `Cheats/`, `Extras/` or `Saves/` of a game folder: not
+    /// descended, one left row.
+    Content { folder: FixedFolder, of: String },
 }
 
 /// A folder game the walk found (spec D12, plan P-3).
@@ -329,6 +357,12 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     // Folders a probe or the overlay rule leaves whole (plan P-2, D11 d).
     let mut left_dirs: Vec<(PathBuf, LeftReason)> = Vec::new();
     let mut refused_links: Vec<PathBuf> = Vec::new();
+    // Fixed folders of the pile directories met so far, by path key (D7).
+    let mut fixed_seen: HashMap<String, FixedSeen> = HashMap::new();
+    let mut game_content: Vec<(PathBuf, LeftReason)> = Vec::new();
+    if let Some(listed) = list_dir(source) {
+        note_fixed_folders(source, &listed, db, &mut fixed_seen);
+    }
     let skip_keys: Vec<String> = opts.skip_dirs.iter().map(|p| dir_key(p)).collect();
     let roms_root_key = opts.roms_root.as_deref().map(dir_key);
     let mut partial_dirs: Vec<PathBuf> = Vec::new();
@@ -354,7 +388,27 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 return false;
             }
             let name = entry.file_name().to_string_lossy();
-            if is_hidden(&name) || ignored.contains(&name.to_lowercase()) {
+            if is_hidden(&name) {
+                return false;
+            }
+            // A game folder's `Mods/`, `Cheats/`, `Extras/` and `Saves/`
+            // stay with their game, unread (game folders D7), even when the
+            // name is an ignored one (`saves`).
+            if !fixed_seen.is_empty() {
+                if let Some(FixedSeen::Content { folder, of }) =
+                    fixed_seen.get(&path_key(entry.path()))
+                {
+                    game_content.push((
+                        entry.path().to_path_buf(),
+                        LeftReason::GameFolderContent {
+                            folder: *folder,
+                            of: of.clone(),
+                        },
+                    ));
+                    return false;
+                }
+            }
+            if ignored.contains(&name.to_lowercase()) {
                 return false;
             }
             // Safari keeps an unfinished download inside `<name>.download/`.
@@ -449,7 +503,10 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                     folder_games.push((entry.path().to_path_buf(), reason));
                     false
                 }
-                None => true,
+                None => {
+                    note_fixed_folders(entry.path(), &listed, db, &mut fixed_seen);
+                    true
+                }
             }
         });
 
@@ -565,6 +622,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     out.left.extend(folder_games);
     out.left.extend(emulator_data);
     out.left.extend(left_dirs);
+    out.left.extend(game_content);
     out.left.extend(
         partial_dirs
             .into_iter()
@@ -582,7 +640,97 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     out.deep_folders.sort();
     out.companions.sort();
     out.other_files.sort();
+    out.child_dirs = fixed_seen
+        .into_values()
+        .filter_map(|seen| match seen {
+            FixedSeen::Child(child) => Some(child),
+            FixedSeen::Content { .. } => None,
+        })
+        .collect();
+    out.child_dirs.sort_by(|a, b| a.dir.cmp(&b.dir));
     Ok(out)
+}
+
+/// Extensions a sheet's tracks use: with a sheet at a folder's root they
+/// are its tracks, not further games (§8.1).
+const TRACK_EXTS: [&str; 10] = [
+    "bin", "img", "raw", "sub", "wav", "iso", "flac", "ape", "ogg", "mp3",
+];
+
+/// Sheets of a disc set or a playlist (§8.1).
+const SHEET_EXTS: [&str; 4] = ["cue", "gdi", "ccd", "m3u"];
+
+/// Records the fixed folders of the pile directory `dir` lists (game
+/// folders D3, D7): `Updates/` and `DLC/` always give their items a role;
+/// `Mods/`, `Cheats/`, `Extras/` and `Saves/` are left whole only when
+/// `dir` has exactly one base at its root, so a folder of several games
+/// (`SNES/Hacks/` with a `Mods/`) is walked as today. Names only, from
+/// the listing the walk already took; one `symlink_metadata` per entry
+/// named like a fixed folder.
+fn note_fixed_folders(
+    dir: &Path,
+    listed: &[(String, PathBuf, bool)],
+    db: &SystemDb,
+    seen: &mut HashMap<String, FixedSeen>,
+) {
+    if !listed
+        .iter()
+        .any(|(name, _, is_file)| !is_file && FixedFolder::from_dir_name(name).is_some())
+    {
+        return;
+    }
+    let entries: Vec<(String, bool)> = listed
+        .iter()
+        .filter(|(name, _, _)| !is_hidden(name))
+        .map(|(name, path, is_file)| {
+            let is_dir = !is_file
+                && (FixedFolder::from_dir_name(name).is_none()
+                    || fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()));
+            (name.clone(), is_dir)
+        })
+        .collect();
+    let ext_of = |name: &str| extension(Path::new(name));
+    let has_sheet = entries
+        .iter()
+        .any(|(name, is_dir)| !is_dir && SHEET_EXTS.contains(&ext_of(name).as_str()));
+    let rom_like = |name: &str| {
+        let ext = ext_of(name);
+        !is_key_material(name)
+            && !is_companion(name, &ext)
+            && !(has_sheet && TRACK_EXTS.contains(&ext.as_str()))
+            && (db.is_rom_like_extension(&ext) || names_an_archive(&ext))
+    };
+    let sheet = |name: &str| SHEET_EXTS.contains(&ext_of(name).as_str());
+    let (base, fixed) = match classify_listing(&entries, &rom_like, &sheet, false) {
+        DirShape::GameFolder { base, fixed } => (Some(base), fixed),
+        DirShape::Loose { fixed } => (None, fixed),
+        DirShape::Plain => return,
+    };
+    let of = base.as_ref().map(|base| match base {
+        GameBase::File(name) | GameBase::Sheet(name) => Path::new(name)
+            .file_stem()
+            .map_or_else(|| name.clone(), |s| s.to_string_lossy().into_owned()),
+        GameBase::SelfIsFolderGame => dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    });
+    for (folder, spelling) in fixed {
+        let path = dir.join(&spelling);
+        let entry = match (folder.child_role(), &of) {
+            (Some(role), _) => FixedSeen::Child(ChildDir {
+                dir: path.clone(),
+                role,
+                game_dir: of.as_ref().map(|_| dir.to_path_buf()),
+            }),
+            (None, Some(of)) => FixedSeen::Content {
+                folder,
+                of: of.clone(),
+            },
+            (None, None) => continue,
+        };
+        seen.insert(path_key(&path), entry);
+    }
 }
 
 /// The names a console probe sees in a folder listing: key and licence
