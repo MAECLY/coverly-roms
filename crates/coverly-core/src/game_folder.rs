@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::organize::discsets::disc_tag;
+
 /// A fixed folder inside a game folder (spec D3, D4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -109,8 +111,9 @@ pub enum GameBase {
 /// - `folder_game`: a probe already recognised the directory itself.
 ///
 /// A sheet set counts as one base: one sheet, or one `.m3u` beside the
-/// per-disc sheets it lists. Only directories count as fixed folders; a file
-/// named `DLC` does not.
+/// per-disc sheets it lists and the disc images named after it
+/// (`Game (Disc 1).chd` beside `Game.m3u`). Only directories count as
+/// fixed folders; a file named `DLC` does not.
 pub fn classify_listing(
     entries: &[(String, bool)],
     rom_like: &dyn Fn(&str) -> bool,
@@ -170,11 +173,25 @@ fn root_base(
         }
     };
 
+    // A playlist's disc images (`Game (Disc 1).chd` beside `Game.m3u`, the
+    // disc layout's shape) are its discs, not further games. Matched by name
+    // only: the playlist is never opened.
+    if let Some(list) = sheet_base.as_deref().filter(|n| is_m3u(n)) {
+        let title = stem(list);
+        roms.retain(|rom| {
+            !disc_tag(stem(rom)).is_some_and(|tag| tag.title.eq_ignore_ascii_case(title.trim()))
+        });
+    }
+
     match (sheet_base, roms.as_slice()) {
         (Some(s), []) => Some(GameBase::Sheet(s)),
         (None, [one]) => Some(GameBase::File((*one).clone())),
         _ => None,
     }
+}
+
+fn stem(name: &str) -> &str {
+    name.rsplit_once('.').map_or(name, |(stem, _)| stem)
 }
 
 fn is_m3u(name: &str) -> bool {

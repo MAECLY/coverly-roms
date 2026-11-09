@@ -15,7 +15,7 @@ fn ext(name: &str) -> String {
 /// ROM-like root files for these tables. Track files (`.bin`) are excluded,
 /// as the caller does when a sheet is present.
 fn rom_like(name: &str) -> bool {
-    matches!(ext(name).as_str(), "sfc" | "cia" | "nsp" | "iso")
+    matches!(ext(name).as_str(), "sfc" | "cia" | "nsp" | "iso" | "chd")
 }
 
 fn sheet(name: &str) -> bool {
@@ -144,6 +144,40 @@ fn m3u_with_its_disc_sheets_is_one_base() {
             fixed: fixed(&[(FixedFolder::Updates, "Updates")]),
         }
     );
+}
+
+#[test]
+fn m3u_with_its_disc_images_is_one_base() {
+    // The library profile's disc layout: one playlist over `.chd` discs.
+    assert_eq!(
+        shape(
+            &[
+                "Panzer Dragoon Saga (USA).m3u",
+                "Panzer Dragoon Saga (USA) (Disc 1).chd",
+                "Panzer Dragoon Saga (USA) (Disc 2).chd",
+                "Saves/"
+            ],
+            false
+        ),
+        DirShape::GameFolder {
+            base: GameBase::Sheet("Panzer Dragoon Saga (USA).m3u".into()),
+            fixed: fixed(&[(FixedFolder::Saves, "Saves")]),
+        }
+    );
+}
+
+#[test]
+fn m3u_beside_another_game_is_loose() {
+    // A ROM that is not one of the playlist's discs is a second game.
+    for other in ["Other Game.chd", "Other Game (Disc 1).chd", "Game.chd"] {
+        assert_eq!(
+            shape(&["Game.m3u", "Game (Disc 1).chd", other, "Mods/"], false),
+            DirShape::Loose {
+                fixed: fixed(&[(FixedFolder::Mods, "Mods")]),
+            },
+            "{other:?}"
+        );
+    }
 }
 
 #[test]
