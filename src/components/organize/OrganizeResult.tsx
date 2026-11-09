@@ -148,6 +148,9 @@ export function OrganizeResult({
   // Duplicates sent to the Trash are not archives with extracted files.
   const lostCopies = lostTrashedCopies(allLost, report, plan);
   const lost = allLost.filter((p) => !lostCopies.has(p));
+  // Folders the job created that undo kept because they are not empty
+  // (a save added to a game folder after the run, game folders spec §8.3).
+  const dirsKept = (undo?.report ?? []).flatMap((r) => r.dirs_kept ?? []);
   // A verb plus the exact count when it is known (brand §7).
   const undoLabel =
     placed > 0
@@ -308,6 +311,18 @@ export function OrganizeResult({
             {lost.map((path) => (
               <li key={path} className={pathText}>
                 {baseName(path)}
+              </li>
+            ))}
+          </ul>
+        </Alert>
+      )}
+      {dirsKept.length > 0 && (
+        <Alert variant="info">
+          <p className="m-0">{t('organize.undo.dirsKept')}</p>
+          <ul className="m-0 grid list-none gap-0.5 p-0">
+            {dirsKept.map((path) => (
+              <li key={path} className={pathText}>
+                {path}
               </li>
             ))}
           </ul>

@@ -1545,6 +1545,7 @@
       "action": "Undo",
       "actionCount": "Undo {count} files",
       "archiveLost": "The archive couldn't be recovered from the Trash; the extracted files stay",
+      "dirsKept": "These folders stay because they aren't empty",
       "confirmTitle": "Undo this organisation?",
       "laterJobs": "These must be undone first: {jobs}",
       "laterJob": "{kind} {date}",

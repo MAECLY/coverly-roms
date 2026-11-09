@@ -377,6 +377,40 @@ describe('OrganizeResult', () => {
       .closest('[role]')!;
     expect(alert).toHaveTextContent('Next Tetris, The.zip');
   });
+  it('names the created folders an undo keeps for the user files in them', () => {
+    const report: OrganizeUndoReport = {
+      job: 'organize-0001',
+      removed: [],
+      restored: ['/pile/Pokemon Y.cia'],
+      skipped_modified: [],
+      skipped_occupied: [],
+      dirs_removed: ['/Volumes/SD/3DS/Pokemon Y (World)/Updates'],
+      dirs_kept: ['/Volumes/SD/3DS/Pokemon Y (World)', '/Volumes/SD/3DS'],
+      archive_lost: [],
+    };
+    render(
+      <I18nProvider locale="es">
+        <OrganizeResult
+          job={view()}
+          plan={null}
+          undo={{ report: [report], later_jobs: [] }}
+          error={null}
+          onOpen={vi.fn()}
+          onUndo={vi.fn()}
+          onResume={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+    const alert = screen
+      .getByText('Estas carpetas se quedan porque no están vacías')
+      .closest('[role]')!;
+    const items = within(alert as HTMLElement).getAllByRole('listitem');
+    expect(items.map((li) => li.textContent)).toEqual([
+      '/Volumes/SD/3DS/Pokemon Y (World)',
+      '/Volumes/SD/3DS',
+    ]);
+  });
+
   it('a_duplicate_the_trash_lost_is_not_called_an_archive', () => {
     // A copy set aside to the Trash and an extracted archive sent there
     // too: neither is in the Trash any more when the job is undone.

@@ -1545,6 +1545,7 @@
       "action": "Deshacer",
       "actionCount": "Deshacer {count} archivos",
       "archiveLost": "No se pudo recuperar el comprimido de la papelera; los archivos extraídos se quedan",
+      "dirsKept": "Estas carpetas se quedan porque no están vacías",
       "confirmTitle": "¿Deshacer esta organización?",
       "laterJobs": "Primero hay que deshacer: {jobs}",
       "laterJob": "{kind} {date}",
