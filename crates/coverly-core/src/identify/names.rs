@@ -599,6 +599,35 @@ pub fn parse_tags(name: &str) -> NameTags {
     tags
 }
 
+/// The region a stem already ends with as a bare word (D21): the last
+/// whitespace-separated word, trimmed of `-_.,`, when it is a one-word
+/// No-Intro region other than `World`, or `EU EUR JP JPN JAP KOR CHN`;
+/// never `US` (`Among Us`), and never when it is the only word.
+pub fn bare_region(stem: &str) -> Option<Region> {
+    let words: Vec<&str> = stem.split_whitespace().collect();
+    let last = words
+        .last()?
+        .trim_matches(|c| matches!(c, '-' | '_' | '.' | ','));
+    let others = words[..words.len() - 1]
+        .iter()
+        .filter(|w| w.chars().any(char::is_alphanumeric))
+        .count();
+    if others == 0 || last.is_empty() {
+        return None;
+    }
+    let alias = match last.to_ascii_uppercase().as_str() {
+        "EU" | "EUR" => Some(Region::Europe),
+        "JP" | "JPN" | "JAP" => Some(Region::Japan),
+        "KOR" => Some(Region::Korea),
+        "CHN" => Some(Region::China),
+        _ => None,
+    };
+    alias.or_else(|| {
+        Region::from_no_intro(last)
+            .filter(|r| *r != Region::World && !r.no_intro_word().contains(' '))
+    })
+}
+
 /// Whether a file or catalogue name marks a patched program: GoodTools
 /// `[T+…]`, `[T-…]`, `[h…]`, `[t…]`, `[f…]`, or the words Hack, Translated,
 /// Traducido, Undub, Patched. Names may only veto a group, never form one.
@@ -792,7 +821,7 @@ fn disc_group(g: &str) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::Region;
+    use super::{bare_region, Region};
 
     const ALL: [Region; 19] = [
         Region::World,
@@ -827,5 +856,28 @@ mod tests {
         assert_eq!(Region::Japan.no_intro_word(), "Japan");
         assert_eq!(Region::HongKong.no_intro_word(), "Hong Kong");
         assert_eq!(Region::UnitedKingdom.no_intro_word(), "UK");
+    }
+
+    #[test]
+    fn bare_region_reads_only_a_last_word_that_is_not_the_whole_title() {
+        use Region::*;
+        for (stem, want) in [
+            ("New Super Mario Bros 2 USA", Some(Usa)),
+            ("Game usa", Some(Usa)),
+            ("Game - Europe", Some(Europe)),
+            ("Game EUR", Some(Europe)),
+            ("Game JPN", Some(Japan)),
+            ("Game JP.", Some(Japan)),
+            ("Game KOR", Some(Korea)),
+            ("Game CHN", Some(China)),
+            ("USA Racer", None), // not the last word
+            ("Among Us", None),  // `US` is not an alias
+            ("Game US", None),
+            ("Super Mario World", None), // `World` is a title word
+            ("USA", None),               // the title itself
+            ("Game", None),
+        ] {
+            assert_eq!(bare_region(stem), want, "{stem}");
+        }
     }
 }

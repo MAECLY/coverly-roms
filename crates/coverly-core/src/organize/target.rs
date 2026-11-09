@@ -14,7 +14,7 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::consoles::{licence_matches, LicenceKeys};
 use crate::game_folder::FixedFolder;
-use crate::identify::names::{parse_tags, Region};
+use crate::identify::names::{bare_region, parse_tags, Region};
 use crate::organize::plan::{
     Companion, ExtractEntry, GameRole, ItemKind, ItemNote, LeftReason, NameMode, OrganizeAction,
     OrganizeItem, Playlist, RenameReason, Transfer,
@@ -1440,7 +1440,9 @@ pub fn game_folder_name(
 ) -> Option<(String, bool)> {
     let stem = stem.trim();
     let wanted = match region {
-        Some(region) if parse_tags(stem).regions.is_empty() => {
+        Some(region)
+            if parse_tags(stem).regions.is_empty() && bare_region(stem) != Some(region) =>
+        {
             format!("{stem} ({})", region.no_intro_word())
         }
         _ => stem.to_string(),
@@ -3008,5 +3010,25 @@ mod tests {
         assert!(cut);
         assert!(name.len() <= MAX_NAME_BYTES);
         assert!(name.ends_with(" (2).gb"));
+    }
+
+    #[test]
+    fn a_bare_region_word_is_not_doubled_in_a_game_folder_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let name = |s: &str, r| {
+            game_folder_name(s, r, tmp.path(), &mut DirIndex::new())
+                .unwrap()
+                .0
+        };
+        assert_eq!(
+            name("New Super Mario Bros 2 USA", Some(Region::Usa)),
+            "New Super Mario Bros 2 USA"
+        );
+        assert_eq!(name("Game USA", Some(Region::Europe)), "Game USA (Europe)");
+        assert_eq!(name("USA Racer", Some(Region::Usa)), "USA Racer (USA)");
+        assert_eq!(
+            name("Super Mario World", Some(Region::Usa)),
+            "Super Mario World (USA)"
+        );
     }
 }

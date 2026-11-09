@@ -34,7 +34,7 @@ use crate::game_folder::{ChildRole, FixedFolder};
 use crate::identify::dat::DatStore;
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::HeaderRule;
-use crate::identify::names::{parse_tags, Region};
+use crate::identify::names::{bare_region, parse_tags, Region};
 use crate::identify::sniff::{NotARom, Sniff};
 use crate::organize::apply::{cluster_size, large_transfer, user_available};
 use crate::organize::discsets::{self, HeaderDisc, SetEvidence};
@@ -2460,7 +2460,7 @@ fn demo_folder_stem(stem: &str, region: Option<Region>) -> (String, Option<Regio
     }
     let stem = stem.trim();
     match region {
-        Some(r) if parse_tags(stem).regions.is_empty() => {
+        Some(r) if parse_tags(stem).regions.is_empty() && bare_region(stem) != Some(r) => {
             (format!("{stem} ({}) (Demo)", r.no_intro_word()), None)
         }
         _ => (format!("{stem} (Demo)"), None),
@@ -5410,5 +5410,17 @@ mod tests {
             "Extra"
         );
         assert_eq!(dlc_rest("Zelda (USA) [DLC] - Pack", "zelda"), "Pack");
+    }
+
+    #[test]
+    fn demo_folder_stem_does_not_double_a_bare_region_word() {
+        assert_eq!(
+            demo_folder_stem("Game USA", Some(Region::Usa)),
+            ("Game USA (Demo)".to_string(), None)
+        );
+        assert_eq!(
+            demo_folder_stem("Game", Some(Region::Usa)),
+            ("Game (USA) (Demo)".to_string(), None)
+        );
     }
 }
