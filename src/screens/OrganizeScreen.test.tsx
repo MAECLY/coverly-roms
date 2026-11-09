@@ -141,7 +141,7 @@ describe('OrganizeScreen', () => {
       .closest('section')!;
     expect(
       within(left).getAllByText(
-        'Key or licence file: Coverly never reads or moves it',
+        'Key or licence file: Coverly never reads it and leaves it here',
       ),
     ).toHaveLength(3);
   });

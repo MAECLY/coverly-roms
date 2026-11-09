@@ -407,7 +407,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 ));
                 return false;
             }
-            let names: Vec<String> = listed.iter().map(|(n, _, _)| n.clone()).collect();
+            let names = probe_names(&listed);
             match identify_dir_on_disk(entry.path(), &names) {
                 Ok(Some(found)) => {
                     if let Some(leave) = found.leave {
@@ -486,6 +486,13 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
         // By name, before the size, the siblings or a byte (D4).
         if is_key_material(&name) {
             out.left.push((path.to_path_buf(), LeftReason::KeyMaterial));
+            continue;
+        }
+        // Firmware, shader caches and emulator configs: by name and the
+        // folders below the source, before the size (game folders D18).
+        if let Some(what) = crate::scan::not_a_game(path.strip_prefix(source).unwrap_or(path)) {
+            out.left
+                .push((path.to_path_buf(), LeftReason::NotARom { what }));
             continue;
         }
         if is_partial_download(&name)
@@ -576,6 +583,17 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     out.companions.sort();
     out.other_files.sort();
     Ok(out)
+}
+
+/// The names a console probe sees in a folder listing: key and licence
+/// files left out by name (game folders spec D17), so no probe depends
+/// on them.
+fn probe_names(listed: &[(String, PathBuf, bool)]) -> Vec<String> {
+    listed
+        .iter()
+        .filter(|(name, _, _)| !is_key_material(name))
+        .map(|(name, _, _)| name.clone())
+        .collect()
 }
 
 /// One `read_dir` of `dir`: each entry's name, path and whether it is a
@@ -1096,6 +1114,24 @@ mod tests {
         assert!(!t.truncated);
         assert_eq!(t.files, 1);
         assert_eq!(t.longest_rel_utf16, "a.bin".len());
+    }
+
+    #[test]
+    fn probes_never_see_key_names() {
+        let listed: Vec<(String, PathBuf, bool)> = [
+            "EBOOT.BIN",
+            "keys.txt",
+            "otp.bin",
+            "ticket.db",
+            "eeprom.bin",
+            "Game.edat",
+            "x.rap",
+            "sce_sys",
+        ]
+        .iter()
+        .map(|n| (n.to_string(), PathBuf::from(n), true))
+        .collect();
+        assert_eq!(probe_names(&listed), vec!["EBOOT.BIN", "sce_sys"]);
     }
 
     #[test]

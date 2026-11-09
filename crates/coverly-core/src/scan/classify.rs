@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use crate::identify::sniff::NotARom;
 use crate::systems::System;
 
 use super::ScanOptions;
@@ -74,6 +75,64 @@ const BIOS_PREFIXES: [(&str, &str); 6] = [
     ("kickstart", "rom"),
     ("kick#", "rom"),
 ];
+
+/// Console firmware packages, by exact lowercase name (game folders spec
+/// D18). A PSP `EBOOT.PBP` is never one: every PSP game has one.
+const FIRMWARE_NAMES: [&str; 4] = [
+    "ps3updat.pup",
+    "ps4update.pup",
+    "ps5update.pup",
+    "psp2updat.pup",
+];
+
+/// Folders (lowercase) whose files are an emulator's shader or pipeline
+/// cache, at any depth.
+const SHADER_CACHE_DIRS: [&str; 4] = [
+    "shadercache",
+    "shader_cache",
+    "glcache",
+    "vulkan_pipeline_cache",
+];
+
+/// Extensions (lowercase) of shader and pipeline caches.
+const CACHE_EXTS: [&str; 2] = ["shadercache", "pipelinecache"];
+
+/// Extensions (lowercase) of per-game emulator settings: RetroArch core
+/// options, remaps and shader presets.
+const CONFIG_EXTS: [&str; 5] = ["opt", "rmp", "slangp", "glslp", "cgp"];
+
+/// Firmware packages, shader caches and per-game emulator configs (game
+/// folders spec D18), by the file's name and its parent folders' names
+/// only: nothing is opened or stat'ed. `path` is the file's path below
+/// the folder being walked, so only folders inside it count.
+pub fn not_a_game(path: &Path) -> Option<NotARom> {
+    let name = path.file_name()?.to_string_lossy().to_lowercase();
+    if FIRMWARE_NAMES.contains(&name.as_str()) {
+        return Some(NotARom::ConsoleSystem);
+    }
+    let ext = extension(path);
+    let dirs: Vec<String> = path
+        .parent()
+        .into_iter()
+        .flat_map(Path::components)
+        .filter_map(|c| match c {
+            std::path::Component::Normal(n) => Some(n.to_string_lossy().to_lowercase()),
+            _ => None,
+        })
+        .collect();
+    if CACHE_EXTS.contains(&ext.as_str())
+        || dirs.iter().any(|d| SHADER_CACHE_DIRS.contains(&d.as_str()))
+    {
+        return Some(NotARom::EmulatorCache);
+    }
+    let parent = dirs.last().map(String::as_str);
+    let grandparent = dirs.len().checked_sub(2).map(|i| dirs[i].as_str());
+    let config = CONFIG_EXTS.contains(&ext.as_str())
+        || (ext == "ini" && matches!(parent, Some("gamesettings" | "gameprofiles" | "custom")))
+        || (ext == "ini" && name.ends_with("_ppsspp.ini"))
+        || (ext == "yml" && parent == Some("custom_configs") && grandparent == Some("config"));
+    config.then_some(NotARom::EmulatorConfig)
+}
 
 /// Whether `name` is a file a download is still writing.
 pub(crate) fn is_partial_download(name: &str) -> bool {
@@ -374,5 +433,42 @@ mod tests {
         assert!(is_skipped_entry("Tetris.zip.crdownload", &opts));
         assert!(is_skipped_entry("Tetris.zip:Zone.Identifier", &opts));
         assert!(!is_skipped_entry("Tetris.zip", &opts));
+    }
+
+    #[test]
+    fn not_a_game_by_name_and_folder() {
+        let cases: [(&str, Option<NotARom>); 22] = [
+            ("PS3UPDAT.PUP", Some(NotARom::ConsoleSystem)),
+            ("x/ps4update.pup", Some(NotARom::ConsoleSystem)),
+            ("PS5UPDATE.PUP", Some(NotARom::ConsoleSystem)),
+            ("PSP2UPDAT.PUP", Some(NotARom::ConsoleSystem)),
+            ("EBOOT.PBP", None),
+            ("PSP/GAME/EBOOT.PBP", None),
+            ("ShaderCache/a/b.bin", Some(NotARom::EmulatorCache)),
+            ("emu/SHADER_CACHE/b.bin", Some(NotARom::EmulatorCache)),
+            ("GLCache/b.bin", Some(NotARom::EmulatorCache)),
+            ("vulkan_pipeline_cache/b", Some(NotARom::EmulatorCache)),
+            ("Game.shadercache", Some(NotARom::EmulatorCache)),
+            ("Game.PipelineCache", Some(NotARom::EmulatorCache)),
+            ("Game.opt", Some(NotARom::EmulatorConfig)),
+            ("crt.cgp", Some(NotARom::EmulatorConfig)),
+            ("GameSettings/GM8E01.ini", Some(NotARom::EmulatorConfig)),
+            (
+                "gameProfiles/0005000010101C00.ini",
+                Some(NotARom::EmulatorConfig),
+            ),
+            (
+                "config/custom_configs/BLUS30001.yml",
+                Some(NotARom::EmulatorConfig),
+            ),
+            ("custom_configs/BLUS30001.yml", None),
+            ("ULUS10041_PPSSPP.ini", Some(NotARom::EmulatorConfig)),
+            ("custom/0100.ini", Some(NotARom::EmulatorConfig)),
+            ("Settings.ini", None),
+            ("Game.gba", None),
+        ];
+        for (path, want) in cases {
+            assert_eq!(not_a_game(Path::new(path)), want, "{path}");
+        }
     }
 }

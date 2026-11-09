@@ -10,6 +10,8 @@
 pub(crate) mod classify;
 pub(crate) mod multifile;
 
+pub use classify::not_a_game;
+
 use std::fs::{self, FileType};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};

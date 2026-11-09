@@ -414,7 +414,9 @@ impl ReadAt for Budgeted<'_> {
     }
 }
 
-/// Exact file names (lower-case) of key and licence files.
+/// Exact file names (lower-case) of key and licence files. Every one is a
+/// global key file (game folders spec D17): it never belongs to one game,
+/// so [`licence_matches`] never matches it and it always stays.
 const KEY_NAMES: &[&str] = &[
     "prod.keys",
     "title.keys",
@@ -423,16 +425,21 @@ const KEY_NAMES: &[&str] = &[
     "seeddb.bin",
     "act.dat",
     "work.bin",
+    "keys.txt",
+    "otp.bin",
+    "ticket.db",
+    "eeprom.bin",
 ];
 
 /// Extensions (lower-case) of licence and ticket files.
-const KEY_EXTS: &[&str] = &["rap", "rif", "dkey", "zrif", "tik", "cetk", "cik"];
+const KEY_EXTS: &[&str] = &["rap", "rif", "dkey", "zrif", "tik", "cetk", "cik", "edat"];
 
-/// Key or licence files: never opened, hashed, uploaded or moved (D4).
+/// Key or licence files: never opened, hashed or uploaded (systems batch 2
+/// D4), recognised by name or extension only (game folders spec D17).
 ///
-/// `keys.txt` is deliberately absent: the name is far too common (notes,
-/// readmes, game configs) to treat as key material, and the emulators
-/// that read console keys use the exact names listed here.
+/// `keys.txt` is listed since the owner's brief for game folders names it:
+/// a readme with that name is left in place with the key-material reason,
+/// which only makes Coverly stricter (it is never opened).
 pub fn is_key_material(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     if KEY_NAMES.contains(&lower.as_str()) {
@@ -442,6 +449,46 @@ pub fn is_key_material(name: &str) -> bool {
         Some((stem, ext)) => !stem.is_empty() && KEY_EXTS.contains(&ext),
         None => false,
     }
+}
+
+/// Keys an item offers for licence matching (game folders spec D17): its
+/// content id, its title id and its file stem.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LicenceKeys<'a> {
+    /// A PS3/PSP/Vita content id (`UP9000-BLUS30001_00-…`).
+    pub content_id: Option<&'a str>,
+    /// The item's title id (`BLUS30001`, `0100ABCD12340000`).
+    pub title_id: Option<&'a str>,
+    /// The item's own file stem (`Game` for `Game.pkg`).
+    pub stem: &'a str,
+}
+
+/// Whether the licence file `name` belongs to the item `item`: its stem
+/// equals, ignoring ASCII case, the item's content id, its title id, its
+/// own stem, or (a 32-hex-character Switch rights id) the title id in its
+/// first 16 characters. Only per-title licences (by extension) can match;
+/// global key files never do. Works on the name alone, never on the file
+/// system, so the licence is never opened.
+pub fn licence_matches(name: &str, item: &LicenceKeys) -> bool {
+    if !is_key_material(name) || KEY_NAMES.contains(&name.to_ascii_lowercase().as_str()) {
+        return false;
+    }
+    let Some((stem, _)) = name.rsplit_once('.') else {
+        return false;
+    };
+    if stem.is_empty() {
+        return false;
+    }
+    let same =
+        |want: Option<&str>| want.is_some_and(|w| !w.is_empty() && stem.eq_ignore_ascii_case(w));
+    if same(item.content_id) || same(item.title_id) || same(Some(item.stem)) {
+        return true;
+    }
+    stem.len() == 32
+        && stem.bytes().all(|b| b.is_ascii_hexdigit())
+        && item
+            .title_id
+            .is_some_and(|t| t.len() == 16 && stem[..16].eq_ignore_ascii_case(t))
 }
 
 /// Opens a ROM candidate for reading. Key material is refused by name
@@ -1074,6 +1121,11 @@ mod tests {
             "seeddb.bin",
             "act.dat",
             "work.bin",
+            "keys.txt",
+            "otp.bin",
+            "ticket.db",
+            "eeprom.bin",
+            "x.edat",
             "NPUB30024.rap",
             "x.rif",
             "game.dkey",
@@ -1084,7 +1136,6 @@ mod tests {
             assert!(is_key_material(name), "{name}");
         }
         for name in [
-            "keys.txt",
             "prod.keys.txt",
             "game.iso",
             "title.tmd",

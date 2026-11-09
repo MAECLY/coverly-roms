@@ -676,9 +676,10 @@ fn key_material_is_left_before_any_read() {
             "{name} is no candidate"
         );
     }
-    // `keys.txt` is no key file: a document like any other `.txt`.
-    assert_eq!(reason_of(&w, "keys.txt"), None);
-    assert!(w
+    // `keys.txt` is key material since game folders D17 (the owner's
+    // brief names it): left by name, even when it is only notes.
+    assert_eq!(reason_of(&w, "keys.txt"), Some(LeftReason::KeyMaterial));
+    assert!(!w
         .companions
         .iter()
         .chain(&w.other_files)
@@ -1038,4 +1039,124 @@ fn guid_named_files_are_candidates_only_with_the_xvd_magic() {
         reason_of(&w, "abcdef01-2345-6789-abcd-ef0123456789.cik"),
         Some(LeftReason::KeyMaterial)
     );
+}
+
+#[test]
+fn firmware_shader_caches_and_emulator_configs_are_not_games() {
+    use coverly_core::identify::sniff::NotARom;
+    let tmp = tempfile::tempdir().unwrap();
+    for name in [
+        "PS3UPDAT.PUP",
+        "PS4UPDATE.PUP",
+        "PS5UPDATE.PUP",
+        "PSP2UPDAT.PUP",
+    ] {
+        put(tmp.path(), name, b"SCEUF\0\0\0");
+    }
+    put(tmp.path(), "shadercache/x.bin", &[1u8; 64]);
+    put(tmp.path(), "emu/Shader_Cache/y.bin", &[1u8; 64]);
+    put(tmp.path(), "GLCache/z.bin", &[1u8; 64]);
+    put(tmp.path(), "Game.shadercache", &[1u8; 64]);
+    put(tmp.path(), "Game.pipelinecache", &[1u8; 64]);
+    put(tmp.path(), "Game.opt", b"x = y\n");
+    put(tmp.path(), "Game.rmp", b"x");
+    put(tmp.path(), "crt.slangp", b"x");
+    put(tmp.path(), "GameSettings/GM8E01.ini", b"[Core]\n");
+    put(
+        tmp.path(),
+        "gameProfiles/0005000010101C00.ini",
+        b"[Graphics]\n",
+    );
+    put(
+        tmp.path(),
+        "config/custom_configs/BLUS30001.yml",
+        b"Core:\n",
+    );
+    put(tmp.path(), "ULUS10041_ppsspp.ini", b"[Graphics]\n");
+    put(tmp.path(), "custom/0100ABCD12340000.ini", b"[Renderer]\n");
+    put(tmp.path(), "Game.gba", &[0u8; 512]);
+    let w = run(tmp.path(), &NoCloud);
+    let what = |name: &str| match reason_of(&w, name) {
+        Some(LeftReason::NotARom { what }) => Some(what),
+        other => panic!("{name}: {other:?}"),
+    };
+    for name in [
+        "PS3UPDAT.PUP",
+        "PS4UPDATE.PUP",
+        "PS5UPDATE.PUP",
+        "PSP2UPDAT.PUP",
+    ] {
+        assert_eq!(what(name), Some(NotARom::ConsoleSystem), "{name}");
+    }
+    for name in [
+        "x.bin",
+        "y.bin",
+        "z.bin",
+        "Game.shadercache",
+        "Game.pipelinecache",
+    ] {
+        assert_eq!(what(name), Some(NotARom::EmulatorCache), "{name}");
+    }
+    for name in [
+        "Game.opt",
+        "Game.rmp",
+        "crt.slangp",
+        "GM8E01.ini",
+        "0005000010101C00.ini",
+        "BLUS30001.yml",
+        "ULUS10041_ppsspp.ini",
+        "0100ABCD12340000.ini",
+    ] {
+        assert_eq!(what(name), Some(NotARom::EmulatorConfig), "{name}");
+    }
+    assert_eq!(
+        file_names(
+            &w.candidates
+                .iter()
+                .map(|c| c.path.clone())
+                .collect::<Vec<_>>()
+        ),
+        vec!["Game.gba".to_string()]
+    );
+}
+
+#[test]
+fn a_psp_eboot_is_never_firmware_by_name() {
+    use coverly_core::consoles::testing::psp_pbp;
+    let tmp = tempfile::tempdir().unwrap();
+    put(
+        tmp.path(),
+        "EBOOT.PBP",
+        &psp_pbp("UG", "ULUS10041", "01.00"),
+    );
+    let w = run(tmp.path(), &NoCloud);
+    assert_eq!(reason_of(&w, "EBOOT.PBP"), None);
+    assert_eq!(
+        file_names(
+            &w.candidates
+                .iter()
+                .map(|c| c.path.clone())
+                .collect::<Vec<_>>()
+        ),
+        vec!["EBOOT.PBP".to_string()]
+    );
+}
+
+#[test]
+fn the_new_key_names_are_left_by_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    for (n, name) in [
+        "keys.txt",
+        "otp.bin",
+        "ticket.db",
+        "eeprom.bin",
+        "Game.edat",
+    ]
+    .iter()
+    .enumerate()
+    {
+        put(tmp.path(), &format!("k{n}/{name}"), &[7u8; 64]);
+        let w = run(tmp.path(), &NoCloud);
+        assert_eq!(reason_of(&w, name), Some(LeftReason::KeyMaterial), "{name}");
+    }
 }

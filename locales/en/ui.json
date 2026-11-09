@@ -1392,7 +1392,7 @@
       "tooBigForFat": "Too big for FAT32 (exFAT needed)",
       "unreadable": "Can't be read",
       "collisionSet": "Another game already uses those names in the target",
-      "keyMaterial": "Key or licence file: Coverly never reads or moves it",
+      "keyMaterial": "Key or licence file: Coverly never reads it and leaves it here",
       "emulatorData": "Inside an emulator's data ({folder}); left as it is",
       "gameOverlay": "Mods or patch folder of {title}: left where it is",
       "notConfirmed": "Not confirmed; stays where it is",

@@ -1219,7 +1219,7 @@ fn left_reason_text(reason: &LeftReason) -> String {
         LeftReason::TooBigForFat => "larger than 4 GiB on a FAT32 target".into(),
         LeftReason::Unreadable => "cannot be read".into(),
         LeftReason::CollisionSet => "a file of the game is taken at the target".into(),
-        LeftReason::KeyMaterial => "key or licence file: never read or moved".into(),
+        LeftReason::KeyMaterial => "key or licence file: never read, left here".into(),
         LeftReason::EmulatorData { folder } => {
             format!("inside an emulator's data folder ({folder}): left as it is")
         }
@@ -2267,7 +2267,7 @@ mod tests {
         let cases = [
             (
                 LeftReason::KeyMaterial,
-                "key or licence file: never read or moved",
+                "key or licence file: never read, left here",
             ),
             (
                 LeftReason::EmulatorData {

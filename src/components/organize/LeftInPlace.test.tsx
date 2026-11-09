@@ -288,7 +288,7 @@ describe('LeftInPlace', () => {
       left(4, 'model.3ds', { kind: 'not-a-rom', what: 'model3d' }),
     ]);
     const keys = screen.getAllByText(
-      'Archivo de claves o licencia: Coverly no lo lee ni lo mueve',
+      'Archivo de claves o licencia: Coverly no lo lee y lo deja aquí',
     );
     expect(keys).toHaveLength(3);
     expect(screen.getByText('prod.keys')).toHaveClass('font-mono');

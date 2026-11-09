@@ -930,10 +930,10 @@ describe('systems batch 2 copy (spec §10)', () => {
 
   it('key material and emulator data read as the spec says', () => {
     expect(leftReasonText(t, { kind: 'key-material' })).toBe(
-      'Archivo de claves o licencia: Coverly no lo lee ni lo mueve',
+      'Archivo de claves o licencia: Coverly no lo lee y lo deja aquí',
     );
     expect(leftReasonText(tEn, { kind: 'key-material' })).toBe(
-      'Key or licence file: Coverly never reads or moves it',
+      'Key or licence file: Coverly never reads it and leaves it here',
     );
     expect(leftReasonText(t, { kind: 'emulator-data', folder: 'ux0' })).toBe(
       'Está dentro de los datos de un emulador (ux0); se deja tal cual',
