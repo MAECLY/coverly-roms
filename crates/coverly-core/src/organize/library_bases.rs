@@ -28,7 +28,8 @@ pub const LIBRARY_READ_COST: u64 = 64 * 1024;
 #[derive(Clone, Debug)]
 pub struct LookupBudget {
     bytes_left: u64,
-    deadline: Instant,
+    /// `None`: a wall time too long for an `Instant` (no deadline).
+    deadline: Option<Instant>,
 }
 
 impl LookupBudget {
@@ -36,14 +37,15 @@ impl LookupBudget {
     pub fn new(bytes: u64, wall: Duration) -> LookupBudget {
         LookupBudget {
             bytes_left: bytes,
-            deadline: Instant::now() + wall,
+            deadline: Instant::now().checked_add(wall),
         }
     }
 
     /// Charges one fresh header read; `false` (nothing charged) once the
     /// bytes or the time ran out.
     pub fn spend_read(&mut self) -> bool {
-        if self.bytes_left < LIBRARY_READ_COST || Instant::now() >= self.deadline {
+        let late = self.deadline.is_some_and(|d| Instant::now() >= d);
+        if self.bytes_left < LIBRARY_READ_COST || late {
             self.bytes_left = 0;
             return false;
         }
@@ -202,20 +204,15 @@ pub fn library_bases(
         .collect();
     // Bytes order: the same index on every platform.
     entries.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
-    let mut reading = read_ids;
-    let mut read_one = |path: &Path, meta: &fs::Metadata, index: &mut LibraryIndex| {
-        if !reading {
-            return None;
-        }
-        match read(path, meta) {
+    // A spent budget (`incomplete`) stops every later read.
+    let mut read_one =
+        |path: &Path, meta: &fs::Metadata, index: &mut LibraryIndex| match read(path, meta) {
             Some(console) => console.as_ref().and_then(base_id),
             None => {
-                reading = false;
                 index.incomplete = true;
                 None
             }
-        }
-    };
+        };
     for (name, path, meta) in entries {
         let (shown, dir) = if meta.is_dir() {
             (name.clone(), true)
@@ -235,7 +232,11 @@ pub fn library_bases(
                 index.keys.entry(key).or_insert_with(|| base.clone());
             }
         }
-        let id = if dir {
+        let id = if !read_ids || index.incomplete {
+            // Names only (demos), or the budget ran out: no header, so no
+            // listing of the folder either.
+            None
+        } else if dir {
             // The one file of the system at the folder's root.
             let roots: Vec<(PathBuf, fs::Metadata)> = fs::read_dir(&path)
                 .map(|l| {
@@ -292,5 +293,9 @@ mod tests {
         assert!(!b.spend_read());
         let mut none = LookupBudget::new(0, Duration::from_secs(60));
         assert!(!none.spend_read());
+        // A wall time past what an `Instant` holds is no deadline, not a
+        // panic.
+        let mut endless = LookupBudget::new(LIBRARY_READ_COST, Duration::MAX);
+        assert!(endless.spend_read());
     }
 }
