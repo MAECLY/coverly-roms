@@ -38,12 +38,14 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ### Changed
 
-- A licence file beside a game (`.rap`, `.rif`, `work.bin`, `.tik` and
-  similar) may move with it, by a rename on the same drive only. It is
-  never opened, read or copied; when it is unclear which game it belongs to,
-  it stays where it is.
+- A licence file beside a game (`.rap`, `.rif`, `.tik`, `.edat` and
+  similar) may move with it, by a rename on the same drive only, when its
+  name matches that one game. It is never opened, read or copied; when it
+  is unclear which game it belongs to, it stays where it is.
 - `keys.txt`, `otp.bin`, `ticket.db`, `eeprom.bin` and `.edat` files are now
-  treated as key material and never touched.
+  treated as key material and never opened. Files with a fixed key name
+  (`prod.keys`, `seeddb.bin`, `work.bin`, `keys.txt` and the like) belong to
+  no single game and always stay where they are.
 - Firmware packages, shader caches and emulator settings files are shown as
   «not a game» and left where they are.
 - Duplicates never removes a game whose folder holds updates or DLC; it only
