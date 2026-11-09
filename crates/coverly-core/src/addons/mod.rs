@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::game_folder::FixedFolder;
 use crate::write::safe_file_name;
 
+pub mod cheat;
 pub mod patch;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
