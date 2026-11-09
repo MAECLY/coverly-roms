@@ -139,6 +139,23 @@ describe('ReviewBuckets', () => {
     expect(onDecide).toHaveBeenLastCalledWith([4], 'leave');
   });
 
+  it('gives every system select a unique id and the name "system"', async () => {
+    renderBuckets();
+    await openAll();
+    const selects = screen.getAllByRole('combobox');
+    expect(selects.length).toBeGreaterThan(2);
+    const ids = selects.map((s) => s.id);
+    for (const s of selects) {
+      expect(s.id).not.toBe('');
+      expect(s).toHaveAttribute('name', 'system');
+    }
+    expect(new Set(ids).size).toBe(ids.length);
+    // Accessible names are unchanged.
+    expect(
+      screen.getByRole('combobox', { name: 'System for Pokemon Pinball.zip' }),
+    ).toBeInTheDocument();
+  });
+
   it('keeps a flat candidate list, ungrouped, with leave last', async () => {
     renderBuckets();
     await openAll();

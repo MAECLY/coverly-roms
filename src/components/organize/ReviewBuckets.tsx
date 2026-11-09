@@ -147,6 +147,8 @@ function Bucket({
         <NativeSelect
           size="sm"
           className="w-auto max-w-[16rem]"
+          id={`${id}-system`}
+          name="system"
           aria-labelledby={id}
           value={choice}
           disabled={disabled}
@@ -270,6 +272,8 @@ function ReviewRow({
         <NativeSelect
           size="sm"
           className="w-auto max-w-[16rem]"
+          id={`review-system-${item.id}`}
+          name="system"
           aria-label={t('organize.review.systemFor', { name })}
           value=""
           disabled={disabled}
