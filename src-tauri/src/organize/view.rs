@@ -67,6 +67,10 @@ pub struct OrganizeRequest {
     pub rescan: bool,
     /// What the duplicates step does (`None` = `dedupe.organize_step`).
     pub duplicates: Option<OrganizeDedupeMode>,
+    /// Game folders for this run (`None` = the layout's own value with
+    /// the user's override in `organize.game_folders`; game folders spec
+    /// D1).
+    pub game_folders: Option<bool>,
 }
 
 /// A dry run kept by the backend under `plan_id`: the webview only sends

@@ -36,6 +36,12 @@
     },
     "safety": {
       "backup_dir": null
+    },
+    "organize": {
+      "game_folders": {
+        "coverly-library": false,
+        "anbernic-stock": null
+      }
     }
   },
   "link_ids": [
@@ -65,7 +71,8 @@
     "names": "catalogue",
     "offline": true,
     "rescan": true,
-    "duplicates": "report"
+    "duplicates": "report",
+    "game_folders": true
   },
   "organize_request_bare": {
     "source": "/Users/me/ROMs-Downloaded"

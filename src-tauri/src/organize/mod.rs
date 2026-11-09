@@ -383,13 +383,14 @@ fn end_state(report: &OrganizeReport) -> OrganizeJobState {
 }
 
 /// The options a survey depends on: everything but the transfer mode, the
-/// names and the duplicates step (layout, target, flat, offline,
-/// thresholds, folders…).
+/// names, the duplicates step and game folders, which only the plan reads
+/// (layout, target, flat, offline, thresholds, folders…).
 fn survey_key(opts: &OrganizeOptions) -> OrganizeOptions {
     OrganizeOptions {
         mode: None,
         names: Default::default(),
         duplicates: Default::default(),
+        game_folders: None,
         ..opts.clone()
     }
 }
@@ -680,7 +681,7 @@ mod tests {
     }
 
     #[test]
-    fn mode_and_names_do_not_need_a_new_survey() {
+    fn mode_names_and_game_folders_do_not_need_a_new_survey() {
         let base = OrganizeOptions::default();
         let other = OrganizeOptions {
             mode: Some(TransferMode::Copy),
@@ -688,6 +689,11 @@ mod tests {
             ..base.clone()
         };
         assert_eq!(survey_key(&base), survey_key(&other));
+        let folders = OrganizeOptions {
+            game_folders: Some(true),
+            ..base.clone()
+        };
+        assert_eq!(survey_key(&base), survey_key(&folders));
         let offline = OrganizeOptions {
             offline: true,
             ..base.clone()

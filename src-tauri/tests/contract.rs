@@ -377,6 +377,11 @@ fn settings_requests_deserialize() {
         .unwrap();
     assert_eq!(s.network.timeout_secs, 60);
     assert_eq!(s.safety.backup_dir, None);
+    // Game folders spec D1: one override set, `null` clears another.
+    assert_eq!(
+        s.organize.game_folders,
+        [("coverly-library".to_string(), false)].into()
+    );
     for id in req["link_ids"].as_array().unwrap() {
         serde_json::from_value::<LinkId>(id.clone()).unwrap();
     }
@@ -805,11 +810,13 @@ fn rust_reads_the_shared_organise_requests() {
     assert_eq!(full.offline, Some(true));
     assert!(full.rescan);
     assert_eq!(full.duplicates, Some(OrganizeDedupeMode::Report));
+    assert_eq!(full.game_folders, Some(true));
     let bare: OrganizeRequest =
         serde_json::from_value(req["organize_request_bare"].clone()).unwrap();
     assert_eq!(bare.source, "/Users/me/ROMs-Downloaded");
     assert_eq!(bare.layout, None);
     assert_eq!(bare.duplicates, None);
+    assert_eq!(bare.game_folders, None);
     assert!(
         !bare.rescan,
         "a request reuses the kept survey unless asked"

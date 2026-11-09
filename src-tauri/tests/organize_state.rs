@@ -1463,3 +1463,110 @@ fn a_declined_huge_item_stays_and_the_rest_applies_with_its_confirmation() {
         }
     );
 }
+
+/// A 3DS base and its DLC (synthetic headers, pinned mtimes).
+fn three_ds_pile() -> TempDir {
+    use coverly_core::consoles::testing as ct;
+    use coverly_core::dedupe::testing::pin_mtime;
+    const BASE: u64 = 0x0004_0000_0005_5E00;
+    const DLC: u64 = 0x0004_008C_0005_5E00;
+    let dir = TempDir::new().unwrap();
+    let files = [
+        ("Pokemon Y.cia", ct::cia(BASE, true, false).head_bytes()),
+        (
+            "Pokemon Y - Extra Pack (USA).cia",
+            ct::cia(DLC, true, false).head_bytes(),
+        ),
+    ];
+    for (n, (name, bytes)) in files.iter().enumerate() {
+        write(dir.path(), name, bytes);
+        pin_mtime(&dir.path().join(name), n as u64);
+    }
+    dir
+}
+
+/// Whether the DLC of [`three_ds_pile`] goes into a `DLC/` folder.
+fn dlc_nested(plan: &coverly_core::organize::OrganizePlan) -> bool {
+    let dlc = plan
+        .items
+        .iter()
+        .find(|i| {
+            i.sources[0]
+                .file_name()
+                .is_some_and(|n| n == "Pokemon Y - Extra Pack (USA).cia")
+        })
+        .expect("the DLC item");
+    let target = dlc.target.as_deref().unwrap_or_else(|| panic!("{dlc:?}"));
+    target.components().any(|c| c.as_os_str() == "DLC")
+}
+
+#[test]
+fn the_plan_resolves_game_folders_from_the_layout_the_override_and_the_request() {
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let pile = three_ds_pile();
+    let with = |layout: &str, game_folders: Option<bool>| OrganizeRequest {
+        layout: Some(layout.into()),
+        game_folders,
+        ..offline(pile.path())
+    };
+    let plan = |req: &OrganizeRequest| {
+        st.organize_plan(req, &[], Arc::new(Recorder::default()))
+            .unwrap()
+            .plan
+    };
+
+    // The library profile is on by itself; a handheld one is off.
+    assert!(dlc_nested(&plan(&with("coverly-library", None))));
+    assert!(!dlc_nested(&plan(&with("anbernic-stock", None))));
+
+    // The user's override for the profile wins over its own value.
+    let off = st
+        .update_settings(&serde_json::json!({
+            "organize": {"game_folders": {"coverly-library": false}}
+        }))
+        .unwrap();
+    assert!(off.errors.is_empty(), "{:?}", off.errors);
+    assert_eq!(
+        off.settings.organize.game_folders.get("coverly-library"),
+        Some(&false)
+    );
+    assert!(!dlc_nested(&plan(&with("coverly-library", None))));
+
+    // The request wins over both.
+    assert!(dlc_nested(&plan(&with("coverly-library", Some(true)))));
+    assert!(dlc_nested(&plan(&with("anbernic-stock", Some(true)))));
+
+    // `null` clears the override: the profile's own value again.
+    let cleared = st
+        .update_settings(&serde_json::json!({
+            "organize": {"game_folders": {"coverly-library": null}}
+        }))
+        .unwrap();
+    assert!(cleared.errors.is_empty(), "{:?}", cleared.errors);
+    assert!(cleared.settings.organize.game_folders.is_empty());
+    assert!(dlc_nested(&plan(&with("coverly-library", None))));
+}
+
+#[test]
+fn switching_game_folders_reuses_the_survey() {
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let pile = three_ds_pile();
+    let req = |game_folders| OrganizeRequest {
+        layout: Some("coverly-library".into()),
+        game_folders,
+        ..offline(pile.path())
+    };
+    let first = Arc::new(Recorder::default());
+    let nested = st.organize_plan(&req(None), &[], first.clone()).unwrap();
+    assert!(!first.events().is_empty());
+    assert!(dlc_nested(&nested.plan));
+
+    let second = Arc::new(Recorder::default());
+    let flat = st
+        .organize_plan(&req(Some(false)), &[], second.clone())
+        .unwrap();
+    assert!(second.events().is_empty(), "the survey was reused");
+    assert!(!dlc_nested(&flat.plan));
+}

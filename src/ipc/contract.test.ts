@@ -481,6 +481,7 @@ const ORGANIZE_REQUEST_KEYS = [
   'offline',
   'rescan',
   'duplicates',
+  'game_folders',
 ] as const;
 
 /** Compiles only when `K` lists every member of the union `T`. */
@@ -946,6 +947,10 @@ describe('settings contract', () => {
   it('requests use the Rust spellings', () => {
     const patch: SettingsPatch = requests.settings_patch as SettingsPatch;
     expect(patch.safety?.backup_dir).toBeNull();
+    expect(patch.organize?.game_folders).toEqual({
+      'coverly-library': false,
+      'anbernic-stock': null,
+    });
     expect(requests.credential_keys).toEqual([...CREDENTIAL_KEYS]);
   });
 });

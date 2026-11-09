@@ -515,7 +515,7 @@ export interface CatalogSettings {
 export type SettingsGroup = Exclude<keyof Settings, 'version'>;
 
 /** A merge patch: maps merge key by key, so removing a per-profile max
- * size takes an explicit `null` for that key. */
+ * size or game folders override takes an explicit `null` for that key. */
 export type SettingsPatch = {
   [G in SettingsGroup]?: G extends 'art'
     ? Partial<Omit<Settings['art'], 'max_size'>> & {
@@ -523,7 +523,11 @@ export type SettingsPatch = {
       }
     : G extends 'catalogs'
       ? { switch?: Partial<SwitchCatalogSettings> | null }
-      : Partial<Settings[G]>;
+      : G extends 'organize'
+        ? Partial<Omit<Settings['organize'], 'game_folders'>> & {
+            game_folders?: Record<string, boolean | null>;
+          }
+        : Partial<Settings[G]>;
 };
 
 export type FieldErrorCode =
@@ -1331,6 +1335,9 @@ export interface OrganizeRequest {
   rescan?: boolean;
   /** What the duplicates step does (missing: `dedupe.organize_step`). */
   duplicates?: OrganizeDedupeMode | null;
+  /** Game folders for this run (missing: the layout's own value with the
+   * user's override in `organize.game_folders`; game folders spec D1). */
+  game_folders?: boolean | null;
 }
 
 /** The user's answer for one plan item. */

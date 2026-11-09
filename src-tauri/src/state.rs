@@ -1540,7 +1540,7 @@ impl AppState {
         events: Arc<dyn OrganizeEvents>,
     ) -> Result<OrganizePlanView, IpcError> {
         let cfg = self.fill_config();
-        let (source, opts) = Self::organize_options(&cfg.settings, req)?;
+        let (source, mut opts) = Self::organize_options(&cfg.settings, req)?;
         existing_folder(&source)?;
         if let Some(target) = &opts.target {
             existing_folder(target)?;
@@ -1554,6 +1554,12 @@ impl AppState {
             .find(|p| p.id == opts.layout)
             .cloned()
             .ok_or_else(|| IpcError::UnknownProfile(opts.layout.clone()))?;
+        // Resolved for the layout this run uses (game folders spec D1):
+        // the request, else the user's override, else the profile's own.
+        opts.game_folders = Some(
+            req.game_folders
+                .unwrap_or_else(|| layout.uses_game_folders(&cfg.settings.organize)),
+        );
         let db = SystemDb::builtin();
         fs::create_dir_all(&cfg.cache_dir).map_err(|e| IpcError::Io(e.to_string()))?;
         let cache = Cache::open(&cfg.cache_dir.join(CACHE_FILE))
