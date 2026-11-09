@@ -203,9 +203,16 @@ pub struct TreeSummary {
 /// only (never a file's content), without following links, within
 /// [`TREE_MAX_ENTRIES`] and [`TREE_MAX_DEPTH`] (spec D27).
 pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
+    tree_summary_excluding(dir, opts, &[])
+}
+
+/// [`tree_summary`] that never enters the folders in `exclude` (a game
+/// folder's fixed folders, game folders spec D5): they count neither in
+/// the size nor in the digest.
+pub fn tree_summary_excluding(dir: &Path, opts: &WalkOptions, exclude: &[PathBuf]) -> TreeSummary {
     let mut listed: Vec<(String, u64)> = Vec::new();
     let mut unreadable = false;
-    let mut out = tree_walk(dir, opts, &mut listed, &mut unreadable);
+    let mut out = tree_walk(dir, opts, exclude, &mut listed, &mut unreadable);
     // A folder or entry that could not be read hides files: the digest of
     // what was seen could match a copy without them (spec D19).
     if !out.truncated && !out.symlink && !unreadable && !listed.is_empty() {
@@ -240,6 +247,7 @@ pub fn tree_now(dir: &Path) -> TreeSummary {
 fn tree_walk(
     dir: &Path,
     opts: &WalkOptions,
+    exclude: &[PathBuf],
     listed: &mut Vec<(String, u64)>,
     unreadable: &mut bool,
 ) -> TreeSummary {
@@ -285,6 +293,9 @@ fn tree_walk(
                 out.longest_rel_utf16 = out.longest_rel_utf16.max(units);
             }
             if meta.is_dir() {
+                if exclude.contains(&path) {
+                    continue;
+                }
                 if depth + 1 > TREE_MAX_DEPTH {
                     out.truncated = true;
                 } else {
@@ -662,12 +673,12 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
 
 /// Extensions a sheet's tracks use: with a sheet at a folder's root they
 /// are its tracks, not further games (§8.1).
-const TRACK_EXTS: [&str; 10] = [
+pub(crate) const TRACK_EXTS: [&str; 10] = [
     "bin", "img", "raw", "sub", "wav", "iso", "flac", "ape", "ogg", "mp3",
 ];
 
 /// Sheets of a disc set or a playlist (§8.1).
-const SHEET_EXTS: [&str; 4] = ["cue", "gdi", "ccd", "m3u"];
+pub(crate) const SHEET_EXTS: [&str; 4] = ["cue", "gdi", "ccd", "m3u"];
 
 /// Records the fixed folders of the pile directory `dir` lists (game
 /// folders D3, D7): `Updates/` and `DLC/` always give their items a role;
