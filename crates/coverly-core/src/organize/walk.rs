@@ -18,7 +18,9 @@ use walkdir::WalkDir;
 use super::plan::LeftReason;
 use crate::archive::detect::multi_volume_part;
 use crate::consoles::{identify_dir_on_disk, is_key_material, ConsoleId, FolderLeave};
-use crate::game_folder::{classify_listing, ChildRole, DirShape, FixedFolder, GameBase};
+use crate::game_folder::{
+    classify_listing, is_system_level_fixed, ChildRole, DirShape, FixedFolder, GameBase,
+};
 use crate::identify::sniff::is_doom_wad;
 use crate::organize::inspect::names_an_archive;
 use crate::profiles::naming::system_folder;
@@ -361,7 +363,14 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     let mut fixed_seen: HashMap<String, FixedSeen> = HashMap::new();
     let mut game_content: Vec<(PathBuf, LeftReason)> = Vec::new();
     if let Some(listed) = list_dir(source) {
-        note_fixed_folders(source, &listed, db, &mut fixed_seen);
+        // A pile picked at a system folder (Batocera `ps4/`): its fixed
+        // folders are never a game's (D3). Deeper system folders are
+        // `sorted` and never descended.
+        let is_system = source.file_name().is_some_and(|n| {
+            db.resolve_folder_in(opts.profile, &n.to_string_lossy())
+                .is_some()
+        });
+        note_fixed_folders(source, &listed, is_system, db, &mut fixed_seen);
     }
     let skip_keys: Vec<String> = opts.skip_dirs.iter().map(|p| dir_key(p)).collect();
     let roms_root_key = opts.roms_root.as_deref().map(dir_key);
@@ -504,7 +513,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                     false
                 }
                 None => {
-                    note_fixed_folders(entry.path(), &listed, db, &mut fixed_seen);
+                    note_fixed_folders(entry.path(), &listed, false, db, &mut fixed_seen);
                     true
                 }
             }
@@ -666,17 +675,20 @@ const SHEET_EXTS: [&str; 4] = ["cue", "gdi", "ccd", "m3u"];
 /// `dir` has exactly one base at its root, so a folder of several games
 /// (`SNES/Hacks/` with a `Mods/`) is walked as today. Names only, from
 /// the listing the walk already took; one `symlink_metadata` per entry
-/// named like a fixed folder.
+/// named like a fixed folder. `is_system`: `dir` is a system folder, whose
+/// fixed folders keep today's behaviour (D3, [`is_system_level_fixed`]).
 fn note_fixed_folders(
     dir: &Path,
     listed: &[(String, PathBuf, bool)],
+    is_system: bool,
     db: &SystemDb,
     seen: &mut HashMap<String, FixedSeen>,
 ) {
-    if !listed
-        .iter()
-        .any(|(name, _, is_file)| !is_file && FixedFolder::from_dir_name(name).is_some())
-    {
+    if !listed.iter().any(|(name, _, is_file)| {
+        !is_file
+            && FixedFolder::from_dir_name(name).is_some()
+            && !is_system_level_fixed(name, is_system)
+    }) {
         return;
     }
     let entries: Vec<(String, bool)> = listed

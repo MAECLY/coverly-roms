@@ -1325,3 +1325,19 @@ fn a_sheet_set_is_one_base_of_a_game_folder() {
         )]
     );
 }
+
+#[test]
+fn a_pile_that_is_a_system_folder_keeps_its_fixed_folders_as_today() {
+    // Batocera `3ds/DLC/…` picked as the pile itself: a fixed folder
+    // directly under a system folder is never a game's (D3, §8.1).
+    let tmp = tempfile::tempdir().unwrap();
+    put_pinned(tmp.path(), "3ds/Game.cia", &[1u8; 64], 1);
+    put_pinned(tmp.path(), "3ds/DLC/d.cia", &[2u8; 64], 2);
+    put_pinned(tmp.path(), "3ds/Mods/m.cia", &[3u8; 64], 3);
+    let w = run(&tmp.path().join("3ds"), &NoCloud);
+    assert!(w.child_dirs.is_empty(), "{:?}", w.child_dirs);
+    assert!(game_folder_rows(&w).is_empty());
+    let mut names = candidate_names(&w);
+    names.sort();
+    assert_eq!(names, vec!["Game.cia", "d.cia", "m.cia"]);
+}
