@@ -4,9 +4,10 @@
 //! `cheats/` and `patches/`. Packages are never extracted.
 
 use super::{
-    base_parent, ends_with_ci, file_name, game_sony_title_id, in_emulator, on_system, placed,
-    safe_join, Destination, EmulatorId, EntryForm, MasterAddon, MasterEntry, MasterGame,
-    NotSupportedWhy, Rule, TranslateNote, TranslateTarget, TranslatedGame, STAYS,
+    addon_sony_title_id, base_parent, ends_with_ci, file_name, game_sony_title_id, id_named,
+    in_emulator, on_system, placed, safe_join, Destination, EmulatorId, EntryForm, MasterAddon,
+    MasterEntry, MasterGame, NotSupportedWhy, Rule, TranslateNote, TranslateTarget, TranslatedGame,
+    STAYS,
 };
 use crate::addons::{AddonFormat, AddonKind};
 
@@ -128,7 +129,13 @@ fn cheat(game: &MasterGame, addon: &MasterAddon) -> Rule {
         return STAYS;
     };
     match addon.format {
-        AddonFormat::Shadps4Cheat => in_emulator(game, E, &["cheats", name]),
+        // shadPS4 opens `<SERIAL>_<VERSION>.json` as written.
+        AddonFormat::Shadps4Cheat => {
+            match addon_sony_title_id(game, addon).and_then(|id| id_named(name, &id, ".json")) {
+                Some(name) => in_emulator(game, E, &["cheats", &name]),
+                None => STAYS,
+            }
+        }
         AddonFormat::Shadps4Patch => in_emulator(game, E, &["patches", name]),
         _ => STAYS,
     }

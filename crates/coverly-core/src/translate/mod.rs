@@ -523,12 +523,45 @@ pub fn translate(game: &MasterGame, to: &TranslateTarget) -> TranslatedGame {
         Some(emulator) => emulator_layout(emulator, game, to),
         None => master_layout(game),
     };
-    if to.frontend == FrontendMode::DirAsGame && to.game_folders && to.scope == TranslateScope::Full
+    let laid = if to.frontend == FrontendMode::DirAsGame
+        && to.game_folders
+        && to.scope == TranslateScope::Full
     {
         frontend::dir_as_game(game, laid)
     } else {
         laid
+    };
+    never_shared(laid)
+}
+
+/// Two entries that would land on one place (the same path, ignoring
+/// case, in the same folder tree) both stay in the library: nothing is
+/// ever written over or merged, the user picks (spec «collisions are left
+/// for review»).
+fn never_shared(mut laid: TranslatedGame) -> TranslatedGame {
+    fn key(to: &Destination) -> Option<(Option<EmulatorId>, Vec<String>)> {
+        let (emulator, path) = match to {
+            Destination::System(path) => (None, path),
+            Destination::EmulatorData { emulator, path } => (Some(*emulator), path),
+            Destination::Library => return None,
+        };
+        let parts = path
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+            .collect();
+        Some((emulator, parts))
     }
+    let keys: Vec<_> = laid.entries.iter().map(|p| key(&p.to)).collect();
+    for (i, placement) in laid.entries.iter_mut().enumerate() {
+        let shared = keys[i]
+            .as_ref()
+            .is_some_and(|k| keys.iter().filter(|o| o.as_ref() == Some(k)).count() > 1);
+        if shared {
+            placement.to = Destination::Library;
+            placement.note = None;
+        }
+    }
+    laid
 }
 
 /// One emulator's layout. An emulator that does not run the game's
@@ -683,6 +716,16 @@ fn game_sony_title_id(game: &MasterGame) -> Option<String> {
         .and_then(sony_title_id)
 }
 
+/// The Sony title id an addon is for: its own key when it carries one
+/// (never replaced when that key is not valid), else the game's.
+fn addon_sony_title_id(game: &MasterGame, addon: &MasterAddon) -> Option<String> {
+    match &addon.key {
+        AddonKey::TitleId { id } => sony_title_id(id),
+        AddonKey::SerialVersion { serial, .. } => sony_title_id(serial),
+        _ => game_sony_title_id(game),
+    }
+}
+
 /// The 16-hex title id an addon is for: its own key when it carries a
 /// title id (never replaced when that key is not valid), else the game's.
 fn addon_title_id16(game: &MasterGame, addon: &MasterAddon) -> Option<String> {
@@ -690,6 +733,18 @@ fn addon_title_id16(game: &MasterGame, addon: &MasterAddon) -> Option<String> {
         AddonKey::TitleId { id } => valid_title_id16(id),
         _ => game.ids.title_id.as_deref().and_then(valid_title_id16),
     }
+}
+
+/// `name` as the emulator looks it up: its leading `id` as `id` is
+/// written (upper case) and its ending `tail` in lower case
+/// (`pcse00120_60fps.TXT` → `PCSE00120_60fps.txt`). `None` when `name`
+/// does not start with `id` or end with `tail`, ignoring case.
+fn id_named(name: &str, id: &str, tail: &str) -> Option<String> {
+    let rest = name.len().checked_sub(tail.len())?.checked_sub(id.len())?;
+    let head = name.get(..id.len())?;
+    let middle = name.get(id.len()..id.len() + rest)?;
+    (head.eq_ignore_ascii_case(id) && ends_with_ci(name, tail))
+        .then(|| format!("{id}{middle}{tail}"))
 }
 
 /// `name` ends with `suffix`, ignoring ASCII case.

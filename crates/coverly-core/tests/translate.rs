@@ -1104,6 +1104,85 @@ mod emulators {
     }
 
     #[test]
+    fn two_addons_never_share_one_place() {
+        // Two LayeredFS mods and two cheat files for one title would land
+        // on the same `load/mods/<TitleID>` and `cheats/<TitleID>.txt`:
+        // nothing is written over, both stay for review.
+        let e = EmulatorId::Azahar;
+        let mut g = pokemon_y_full();
+        let t = g.title.clone();
+        g.mods.push(addon(
+            &[&t, "Mods", "Other mod"],
+            true,
+            AddonFormat::LayeredFs,
+            tid("0004000000055D00"),
+        ));
+        g.cheats.push(addon(
+            &[&t, "Cheats", "More cheats.txt"],
+            false,
+            AddonFormat::CtrCheats,
+            tid("0004000000055D00"),
+        ));
+        let tr = translate(&g, &full(e));
+        same_entries(&g, &tr);
+        for name in [
+            "0004000000055D00",
+            "Other mod",
+            "0004000000055D00.txt",
+            "More cheats.txt",
+        ] {
+            assert_eq!(placement(&tr, name).to, Destination::Library, "{name}");
+        }
+        // The texture pack has its own place and keeps it.
+        assert_eq!(
+            dest(&tr, "HD textures"),
+            emu(e, &["load", "textures", "0004000000055D00"])
+        );
+        let tr = translate(&g, &conservative(e));
+        assert_eq!(placement(&tr, "Other mod").to, Destination::Library);
+
+        // Cemu: a pack name that differs only in case is the same folder
+        // on a case-insensitive disk.
+        let mut g = botw();
+        g.cheats[0].path = pb(&["Zelda BotW (USA)", "Cheats", "botw_fps++"]);
+        let tr = translate(&g, &full(EmulatorId::Cemu));
+        assert_eq!(placement(&tr, "BotW_FPS++").to, Destination::Library);
+        assert_eq!(placement(&tr, "botw_fps++").to, Destination::Library);
+    }
+
+    #[test]
+    fn an_emulator_file_name_carries_the_id_as_the_emulator_reads_it() {
+        // Vita3K loads `patch/*.txt` whose name contains the TITLE_ID, as
+        // written; RPCS3 loads `*_patch.yml`; shadPS4 `SERIAL_VERSION.json`.
+        let mut g = persona4();
+        g.cheats[0].path = pb(&[&g.title.clone(), "Cheats", "pcse00120_60fps.TXT"]);
+        let t = translate(&g, &full(EmulatorId::Vita3k));
+        assert_eq!(
+            dest(&t, "pcse00120_60fps.TXT"),
+            emu(EmulatorId::Vita3k, &["patch", "PCSE00120_60fps.txt"])
+        );
+        let mut g = demons_souls();
+        g.cheats[0].path = pb(&[&g.title.clone(), "Cheats", "blus30443_PATCH.YML"]);
+        let t = translate(&g, &full(EmulatorId::Rpcs3));
+        assert_eq!(
+            dest(&t, "blus30443_PATCH.YML"),
+            emu(EmulatorId::Rpcs3, &["patches", "BLUS30443_patch.yml"])
+        );
+        let mut g = bloodborne();
+        g.cheats[0].path = pb(&["Bloodborne", "Cheats", "cusa00900_01.09.JSON"]);
+        let t = translate(&g, &full(EmulatorId::Shadps4));
+        assert_eq!(
+            dest(&t, "cusa00900_01.09.JSON"),
+            emu(EmulatorId::Shadps4, &["cheats", "CUSA00900_01.09.json"])
+        );
+        // A Vita3K patch whose name does not start with its id stays.
+        let mut g = persona4();
+        g.cheats[0].path = pb(&[&g.title.clone(), "Cheats", "60fps.txt"]);
+        let t = translate(&g, &full(EmulatorId::Vita3k));
+        assert_eq!(placement(&t, "60fps.txt").to, Destination::Library);
+    }
+
+    #[test]
     fn a_header_note_is_never_invented_by_these_translators() {
         // Header fit is a retro-ROM concern (RetroArch, Task 16).
         let mut g = demons_souls();
