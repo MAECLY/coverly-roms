@@ -707,6 +707,7 @@ fn remove_created_dir(ctx: &Ctx<'_>, dir: &Path, report: &mut UndoReport) {
     }
     clean_job_temps(ctx.job, std::slice::from_ref(&dir));
     if !only_litter(&dir, LITTER_DEPTH) {
+        report.dirs_kept.push(dir);
         return;
     }
     remove_litter(&dir);

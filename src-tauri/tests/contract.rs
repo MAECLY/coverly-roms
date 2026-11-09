@@ -630,6 +630,7 @@ fn archive_and_disc_views_match_the_shared_sample() {
             skipped_modified: vec![],
             skipped_occupied: vec![],
             dirs_removed: vec![],
+            dirs_kept: vec!["/Users/me/ROMs-Downloaded/ROMS/GB".into()],
             archive_lost: vec!["/Users/me/ROMs-Downloaded/Next Tetris, The.zip".into()],
         },
     });
@@ -738,6 +739,7 @@ fn organise_views_match_the_shared_sample() {
                 skipped_modified: vec![],
                 skipped_occupied: vec![],
                 dirs_removed: vec!["/Users/me/ROMs-Downloaded/ROMS/GBA".into()],
+                dirs_kept: vec![],
                 archive_lost: vec![],
             }],
             later_jobs: vec![JobHistoryView {

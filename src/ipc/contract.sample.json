@@ -1437,6 +1437,7 @@
   },
   "organize_undo_archive_lost": {
     "archive_lost": ["/Users/me/ROMs-Downloaded/Next Tetris, The.zip"],
+    "dirs_kept": ["/Users/me/ROMs-Downloaded/ROMS/GB"],
     "dirs_removed": [],
     "job": "20261024T091500Z-1bfb-0002",
     "removed": [],

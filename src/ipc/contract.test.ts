@@ -468,6 +468,7 @@ const UNDO_REPORT_KEYS = [
   'skipped_modified',
   'skipped_occupied',
   'dirs_removed',
+  'dirs_kept',
   'archive_lost',
 ] as const;
 const ORGANIZE_REQUEST_KEYS = [
@@ -996,7 +997,7 @@ describe('organise contract', () => {
       omitted(ORGANIZE_REPORT_KEYS, 'extracted', 'set_aside'),
     );
     expect(Object.keys(sample.organize_undo.report[0]!).sort()).toEqual(
-      omitted(UNDO_REPORT_KEYS, 'archive_lost'),
+      omitted(UNDO_REPORT_KEYS, 'archive_lost', 'dirs_kept'),
     );
     expect(Object.keys(sample.organize_plan_view.plan).sort()).toEqual(
       omitted(PLAN_KEYS, ...PLAN_OMITTED),

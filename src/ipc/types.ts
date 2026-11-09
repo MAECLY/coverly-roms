@@ -1523,6 +1523,9 @@ export interface OrganizeUndoReport {
   skipped_modified: string[];
   skipped_occupied: string[];
   dirs_removed: string[];
+  /** Folders the job created that undo kept because they hold something
+   * of the user's (Rust leaves it out when empty). */
+  dirs_kept?: string[];
   /** Archives sent to the Trash that could not be brought back: their
    * extracted files stay (Rust leaves it out when empty; the adapter
    * fills it in). */
