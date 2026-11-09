@@ -124,7 +124,7 @@ pub fn resolve_by_readme(readme: &str, c: &Candidates<'_>) -> Resolution {
     let crcs = crcs_in(text);
     let named = |name: &str| {
         let n = fold(name);
-        !n.trim().is_empty() && lower.contains(&n)
+        !n.trim().is_empty() && stands_alone(&lower, &n)
     };
     let hits = hits_of(c.list, |cand| {
         let by_name = named(&cand.file_name)
@@ -287,8 +287,11 @@ fn tiers_for<'a>(
                 tiers.push((
                     LinkVia::Key,
                     name_test(move |cand| {
+                        // An APS10 key is the cart id and the country
+                        // (header 0x3C-0x3E): the game code without its
+                        // media letter (`SME` of `NSME`).
                         cand.n64_id.as_deref().map(compact).is_some_and(|n| {
-                            n == want || (want.len() == 3 && n.len() == 4 && n.starts_with(&want))
+                            n == want || (want.len() == 3 && n.len() == 4 && n[1..] == want)
                         })
                     }),
                 ));
@@ -367,6 +370,7 @@ fn decide(hits: &[(&Candidate, Option<HeaderFit>)], via: LinkVia) -> Resolution 
                     && !g.title_key.is_empty()
                     && g.title_key == first.0.title_key
                     && region_set(&g.regions) == region_set(&first.0.regions)
+                    && same_ids(g, first.0)
             });
             let keepers: Vec<_> = games.iter().filter(|(g, _)| g.keeper).collect();
             match (same_game, keepers.as_slice()) {
@@ -375,6 +379,34 @@ fn decide(hits: &[(&Candidate, Option<HeaderFit>)], via: LinkVia) -> Resolution 
             }
         }
     }
+}
+
+/// Two dumps of one game never carry different ids: a region-less name
+/// with `RMCE01` and `RMCP01` is two regions, not two dumps.
+fn same_ids(a: &Candidate, b: &Candidate) -> bool {
+    fn agree(x: Option<String>, y: Option<String>) -> bool {
+        match (x, y) {
+            (Some(x), Some(y)) => x == y,
+            _ => true,
+        }
+    }
+    let serials = |c: &Candidate| -> Vec<String> {
+        let mut v: Vec<String> = c.serials.iter().filter_map(|s| serial_key(s)).collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    let (sa, sb) = (serials(a), serials(b));
+    agree(
+        a.game_id.as_deref().map(compact),
+        b.game_id.as_deref().map(compact),
+    ) && agree(
+        a.title_id.as_deref().and_then(serial_key),
+        b.title_id.as_deref().and_then(serial_key),
+    ) && agree(
+        a.n64_id.as_deref().map(compact),
+        b.n64_id.as_deref().map(compact),
+    ) && (sa.is_empty() || sb.is_empty() || sa == sb)
 }
 
 fn region_set(regions: &[Region]) -> Vec<Region> {
@@ -415,6 +447,20 @@ fn has_id(cand: &Candidate, want: &str) -> bool {
         .chain(cand.title_id.iter())
         .filter_map(|s| serial_key(s))
         .any(|s| s == want)
+}
+
+/// Whether `name` appears in `text` as a whole name: no letter or digit
+/// right before or after it, and no further ` (tag)` / ` [tag]` after it
+/// (`Contra (USA) (Rev 1)` names another dump than `Contra (USA)`).
+fn stands_alone(text: &str, name: &str) -> bool {
+    let word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+    text.match_indices(name).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let rest = &text[at + name.len()..];
+        let after = rest.chars().next();
+        let more_tags = rest.trim_start_matches([' ', '\t']).starts_with(['(', '[']);
+        !word(before) && !word(after) && !more_tags
+    })
 }
 
 fn cap(s: &str, max: usize) -> &str {
@@ -754,6 +800,62 @@ mod tests {
     }
 
     #[test]
+    fn a_keeper_never_chooses_between_two_ids_of_one_name() {
+        // Region-less names: only the game ids tell the regions apart.
+        let mut us = rom(0, "wii", "Mario Kart Wii.rvz");
+        us.game_id = Some("RMCE01".into());
+        us.keeper = true;
+        let mut eu = rom(1, "wii", "Mario Kart Wii.wbfs");
+        eu.game_id = Some("RMCP01".into());
+        let three = AddonKey::GameId { id: "RMC".into() };
+        assert_eq!(run(&three, Some("wii"), &[us, eu]), Resolution::Several(2));
+        let key = AddonKey::TitleIds {
+            ids: vec!["00050000101C9400".into(), "00050000101C9500".into()],
+        };
+        let mut a = rom(2, "wiiu", "Zelda.wua");
+        a.title_id = Some("00050000101C9400".into());
+        a.keeper = true;
+        let mut b = rom(3, "wiiu", "Zelda.wux");
+        b.title_id = Some("00050000101C9500".into());
+        assert_eq!(
+            run(&key, Some("wiiu"), &[a.clone(), b.clone()]),
+            Resolution::Several(2)
+        );
+        // Two dumps with the same id are one game: the keeper.
+        b.title_id = a.title_id.clone();
+        assert_eq!(run(&key, Some("wiiu"), &[a, b]), one(2, LinkVia::Key, None));
+    }
+
+    #[test]
+    fn a_readme_name_must_stand_alone() {
+        let mut a = rom(0, "nes", "Contra (USA).nes");
+        a.catalogue_name = Some("Contra (USA)".into());
+        let list = [a, rom(1, "nes", "Game.nes")];
+        let c = Candidates {
+            list: &list,
+            dat_by_crc: &no_dat,
+            budget_out: false,
+        };
+        // Another dump of the same title is not this one.
+        assert_eq!(
+            resolve_by_readme("Patch Contra (USA) (Rev 1) only.\n", &c),
+            Resolution::None
+        );
+        assert_eq!(
+            resolve_by_readme("Apply to MyGame.nes or Game.nes2\n", &c),
+            Resolution::None
+        );
+        assert_eq!(
+            resolve_by_readme("Apply to \"Game.nes\".\n", &c),
+            one(1, LinkVia::Readme, None)
+        );
+        assert_eq!(
+            resolve_by_readme("Use Contra (USA), headerless.\n", &c),
+            one(0, LinkVia::Readme, None)
+        );
+    }
+
+    #[test]
     fn title_ids_link_when_one_listed_base_is_present() {
         let key = AddonKey::TitleIds {
             ids: vec!["00050000101C9400".into(), "00050000101C9500".into()],
@@ -802,8 +904,18 @@ mod tests {
         a.n64_id = Some("NSME".into());
         a.n64_name = Some("SUPER MARIO 64".into());
         let list = [a];
+        // An APS10 header keeps the cart id and the country (0x3C-0x3E):
+        // `SME` of the game code `NSME`, not its media letter.
+        assert_eq!(
+            run(&AddonKey::N64Id { id: "SME".into() }, Some("n64"), &list),
+            one(0, LinkVia::Key, None)
+        );
         assert_eq!(
             run(&AddonKey::N64Id { id: "NSM".into() }, Some("n64"), &list),
+            Resolution::None
+        );
+        assert_eq!(
+            run(&AddonKey::N64Id { id: "NSME".into() }, Some("n64"), &list),
             one(0, LinkVia::Key, None)
         );
         assert_eq!(
