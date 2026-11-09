@@ -101,6 +101,11 @@ pub struct ItemOutcome {
     /// Where its files are now (absolute): ROM or set members, then
     /// companions.
     pub targets: Vec<PathBuf>,
+    /// Its licences that stayed where they were (absolute; game folders
+    /// spec D17): their rename failed, so they were never copied. Left
+    /// out of the JSON when none did.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub licences_left: Vec<PathBuf>,
 }
 
 /// What an apply (or resume) did.
@@ -475,6 +480,7 @@ fn record_outcome(
         item,
         status,
         targets,
+        licences_left: Vec::new(),
     });
 }
 
@@ -1360,6 +1366,9 @@ struct Run<'a> {
     tools: ToolsOnDemand,
     /// The journal's archive lines before this run (resume only).
     archive_steps: Vec<ArchiveRecord>,
+    /// Per item, the licences that stayed at their source (game folders
+    /// spec D17), for its outcome.
+    licences_left: HashMap<usize, Vec<PathBuf>>,
 }
 
 impl<'a> Run<'a> {
@@ -1386,6 +1395,7 @@ impl<'a> Run<'a> {
             extract_need: 0,
             tools: ToolsOnDemand::new(&[&plan.source_root, &plan.target_root]),
             archive_steps: Vec::new(),
+            licences_left: HashMap::new(),
         }
     }
 
@@ -1418,7 +1428,12 @@ impl<'a> Run<'a> {
             }
             match self.apply_item(item) {
                 Step::Done(status, targets) => {
-                    record_outcome(&mut report, item.id, status, targets)
+                    record_outcome(&mut report, item.id, status, targets);
+                    if let (Some(left), Some(outcome)) =
+                        (self.licences_left.remove(&item.id), report.items.last_mut())
+                    {
+                        outcome.licences_left = left;
+                    }
                 }
                 Step::Pause(reason) => {
                     pause(&mut report, reason, &pending[n..]);
@@ -2005,6 +2020,12 @@ impl<'a> Run<'a> {
                     to = to.with_file_name(format!("{actual_stem}{rest}"));
                 }
             }
+            if companion.licence {
+                if let Some(pause) = self.move_licence(item.id, &from, &to, targets) {
+                    return Some(pause);
+                }
+                continue;
+            }
             let to = self.free_name(&to);
             match self.transfer(&from, &to, Collision::Rename, item.id) {
                 Ok(
@@ -2022,6 +2043,38 @@ impl<'a> Run<'a> {
                     }
                 }
             }
+        }
+        None
+    }
+
+    /// A licence companion (game folders spec D17): one exclusive rename
+    /// on one volume in move mode, or it stays where it is and the item's
+    /// outcome says so. Never a copy, never a numbered name, never a look
+    /// at a file already at `to`; the item's own move stands either way.
+    /// `Some` is a pause: the volume itself is gone.
+    fn move_licence(
+        &mut self,
+        id: usize,
+        from: &Path,
+        to: &Path,
+        targets: &mut Vec<PathBuf>,
+    ) -> Option<Step> {
+        let moved = match self.plan.mode {
+            TransferMode::Move => self.writer.rename_licence(from, to, Some(id)),
+            TransferMode::Copy => Ok(None),
+        };
+        match moved {
+            Ok(Some(at)) => {
+                if let Some((dir, name)) = split(&at) {
+                    self.index.claim(dir, name);
+                }
+                targets.push(at);
+            }
+            Ok(None) => self.licences_left.entry(id).or_default().push(from.into()),
+            Err(_) if roots_gone(self.plan).is_some() => {
+                return Some(Step::Pause(ItemErrorKind::VolumeGone));
+            }
+            Err(_) => self.licences_left.entry(id).or_default().push(from.into()),
         }
         None
     }
@@ -2624,6 +2677,7 @@ mod tests {
                         reason: SkipReason::ChangedSincePlan,
                     },
                     targets: Vec::new(),
+                    licences_left: Vec::new(),
                 },
                 ItemOutcome {
                     item: 4,
@@ -2632,6 +2686,7 @@ mod tests {
                         detail: "x".into(),
                     },
                     targets: vec![PathBuf::from("/t/a.gb")],
+                    licences_left: vec![PathBuf::from("/p/BLUS30001.rap")],
                 },
             ],
             paused: Some(PauseKind::Volume),
@@ -2642,6 +2697,8 @@ mod tests {
         assert_eq!(json["items"][0]["status"], "skipped");
         assert_eq!(json["items"][0]["reason"], "changed-since-plan");
         assert_eq!(json["pause_reason"], "disk-full");
+        assert!(json["items"][0].get("licences_left").is_none());
+        assert_eq!(json["items"][1]["licences_left"][0], "/p/BLUS30001.rap");
         let back: OrganizeReport = serde_json::from_value(json).unwrap();
         assert_eq!(back, report);
     }

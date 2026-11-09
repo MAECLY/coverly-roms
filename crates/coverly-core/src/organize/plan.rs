@@ -53,8 +53,8 @@ use crate::organize::library_bases::{
 use crate::organize::target::{
     assign_targets_in, attach_set_aside_companions, default_companion_exts, dlc_target,
     file_system_is_fat32, folder_dir, folder_gate, game_children_follow, game_children_targets,
-    game_folder_name, is_game_folder_system, limit_fat_folders, overlay_pairs, sibling_targets,
-    siblings_follow, windows_paths, DirIndex, ExtractShape, Subdir, TargetLayout,
+    game_folder_name, is_game_folder_system, licence_companions, limit_fat_folders, overlay_pairs,
+    sibling_targets, siblings_follow, windows_paths, DirIndex, ExtractShape, Subdir, TargetLayout,
 };
 use crate::organize::walk::{
     is_broad_root, walk, MetaProbe, TreeSummary, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
@@ -225,8 +225,15 @@ pub enum LeftReason {
     /// One file of a set collides at the target: the whole set stays.
     CollisionSet,
     /// A console key or licence file (systems batch 2 D4): never read,
-    /// never moved.
+    /// never moved on its own.
     KeyMaterial,
+    /// A licence that goes with its game as a companion (game folders
+    /// spec D17): never opened, moved only by a same-volume rename when
+    /// `of` (relative to the source root) is applied; not moved on its
+    /// own.
+    LicenceOf {
+        of: PathBuf,
+    },
     /// Inside an emulator's own data tree (`ux0`, `dev_hdd0`, `mlc01`,
     /// `sdmc/Nintendo 3DS`, `nand`): moving it breaks the install.
     /// `folder` is the root's name as on disk.
@@ -3771,6 +3778,11 @@ pub fn plan_from_survey(
     siblings_follow(&mut items, &pairs, &title_of);
     if layout.game_folders {
         game_children_follow(&mut items);
+        // A licence goes with its game only by a rename (D17): move mode
+        // with the target on the pile's volume.
+        if mode == TransferMode::Move && same_volume(src, &target_root) {
+            licence_companions(&mut items, &layout, &mut index);
+        }
     }
     point_at_keepers(&mut items, &dups.keepers);
     attach_set_aside_companions(

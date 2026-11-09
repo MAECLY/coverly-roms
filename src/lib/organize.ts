@@ -391,6 +391,8 @@ export function leftReasonKey(
       return k('collisionSet');
     case 'key-material':
       return k('keyMaterial');
+    case 'licence-of':
+      return k('licenceOf', { title: baseName(r.of) });
     case 'emulator-data':
       return k('emulatorData', { folder: r.folder });
     case 'game-overlay':

@@ -231,6 +231,56 @@ impl Writer {
         self.transfer(from, to, collision, item, Mode::Move, false)
     }
 
+    /// Moves the licence `from` (inside the source root) to `to` (inside
+    /// the root) by one exclusive rename on one volume, journaled as any
+    /// move (game folders spec D17). Never a copy (it would read its
+    /// bytes), never a numbered name, never a look at a file already at
+    /// `to`: only `symlink_metadata` touches the licence. `Ok(None)` when
+    /// it stays: `to`'s name (or a case/NFC twin) is taken, or `to` is on
+    /// another volume.
+    pub fn rename_licence(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        item: Option<usize>,
+    ) -> Result<Option<PathBuf>, WriteError> {
+        let from = ensure_within(&self.source_root, from)?;
+        let to = ensure_within(&self.root, to)?;
+        let meta = fs::symlink_metadata(&from).map_err(|e| map_io(e, &from))?;
+        if !meta.file_type().is_file() {
+            return Err(WriteError::NotAFile(from));
+        }
+        let asked = file_name_of(&to)?.to_string();
+        if safe_file_name(&asked)? != asked {
+            return Err(WriteError::NameInvalid(asked));
+        }
+        let parent = to
+            .parent()
+            .ok_or_else(|| WriteError::OutsideRoot(to.clone()))?
+            .to_path_buf();
+        // The licence's folder, never the licence itself (a stat).
+        let home = from.parent().unwrap_or(&from);
+        if !same_volume(home, &parent) {
+            return Ok(None);
+        }
+        self.ensure_dir(&parent)?;
+        if find_twin(&parent, &asked)?.is_some() {
+            return Ok(None);
+        }
+        let mut prepared = Prepared {
+            from,
+            parent,
+            name: asked.clone(),
+            asked,
+            next_n: 2,
+            indexed: false,
+        };
+        match self.rename_into(&mut prepared, Collision::Skip, &meta, item)? {
+            Renamed::Done(MoveOutcome::Moved { to, .. }) => Ok(Some(to)),
+            Renamed::Done(_) | Renamed::CrossDevice => Ok(None),
+        }
+    }
+
     /// Moves `from` to `to`: a pile copy the duplicates step sets aside
     /// (duplicates spec §7.1), on the pile's own side when `to` is inside
     /// the source root, else in the library's quarantine (a pile inside a

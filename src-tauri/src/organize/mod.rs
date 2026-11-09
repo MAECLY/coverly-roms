@@ -730,6 +730,7 @@ mod tests {
                 reason: SkipReason::Cancelled,
             },
             targets: Vec::new(),
+            licences_left: Vec::new(),
         });
         assert_eq!(end_state(&report), OrganizeJobState::Cancelled);
         report.paused = Some(coverly_core::progress::PauseKind::Volume);

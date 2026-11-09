@@ -942,8 +942,11 @@ export type LeftReason =
   | { kind: 'too-big-for-fat' }
   | { kind: 'unreadable' }
   | { kind: 'collision-set' }
-  /** A console key or licence file: never read, never moved. */
+  /** A console key or licence file: never read, never moved on its own. */
   | { kind: 'key-material' }
+  /** A licence that goes with its game as a companion (`of`: the game's
+   * source path); never read, moved only by a same-volume rename. */
+  | { kind: 'licence-of'; of: string }
   /** Inside an emulator's own data tree; `folder` is its root (`ux0`). */
   | { kind: 'emulator-data'; folder: string }
   /** A mods or patch folder beside its base that cannot move alone; `of`
@@ -1416,6 +1419,9 @@ export type OrganizeItemOutcome = OrganizeItemStatus & {
   item: number;
   /** Where its files are now (absolute). */
   targets: string[];
+  /** Its licences that stayed where they were (absolute): their rename
+   * failed, so they were never copied. Rust leaves it out when none did. */
+  licences_left?: string[];
 };
 
 /** What an apply (or resume) did. */

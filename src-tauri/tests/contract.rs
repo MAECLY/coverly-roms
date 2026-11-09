@@ -617,6 +617,7 @@ fn archive_and_disc_views_match_the_shared_sample() {
                 targets: vec![
                     "/Users/me/ROMs-Downloaded/ROMS/PS/Next Tetris, The (USA).cue".into(),
                 ],
+                licences_left: Vec::new(),
             }],
             paused: None,
             pause_reason: None,
@@ -692,11 +693,13 @@ fn organise_views_match_the_shared_sample() {
                         item: 0,
                         status: OrganizeItemStatus::Moved,
                         targets: vec!["/Users/me/ROMs-Downloaded/ROMS/GBA/Tetris Worlds (USA).zip".into()],
+                        licences_left: Vec::new(),
                     },
                     ItemOutcome {
                         item: 1,
                         status: OrganizeItemStatus::Skipped { reason: SkipReason::NotDecided },
                         targets: vec![],
+                        licences_left: Vec::new(),
                     },
                 ],
                 paused: Some(PauseKind::Volume),
@@ -1181,11 +1184,13 @@ fn organise_set_aside_views_match_the_shared_sample() {
                     item: 4,
                     status: ItemStatus::Quarantined,
                     targets: vec!["/Users/me/ROMs-Downloaded/_Duplicados/Tetris (1).gb".into()],
+                    licences_left: Vec::new(),
                 },
                 ItemOutcome {
                     item: 5,
                     status: ItemStatus::Trashed,
                     targets: vec![],
+                    licences_left: Vec::new(),
                 },
             ],
             ..OrganizeReport::default()
@@ -1610,6 +1615,9 @@ fn game_folder_values_match_the_shared_sample() {
             },
             LeftReason::NotARom { what: NotARom::EmulatorCache },
             LeftReason::NotARom { what: NotARom::EmulatorConfig },
+            LeftReason::LicenceOf {
+                of: "Resistance.pkg".into(),
+            },
         ],
         "game_folder_notes": [
             ItemNote::DemoOf { of: "Pokemon Y".into() },

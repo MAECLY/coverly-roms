@@ -1393,6 +1393,7 @@
       "unreadable": "Can't be read",
       "collisionSet": "Another game already uses those names in the target",
       "keyMaterial": "Key or licence file: Coverly never reads it and leaves it here",
+      "licenceOf": "Licence of {title}: goes with its game; Coverly does not open it",
       "emulatorData": "Inside an emulator's data ({folder}); left as it is",
       "gameOverlay": "Mods or patch folder of {title}: left where it is",
       "notConfirmed": "Not confirmed; stays where it is",

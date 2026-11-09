@@ -1393,6 +1393,7 @@
       "unreadable": "No se puede leer",
       "collisionSet": "Otro juego ya usa esos nombres en el destino",
       "keyMaterial": "Archivo de claves o licencia: Coverly no lo lee y lo deja aquí",
+      "licenceOf": "Licencia de {title}: va con su juego; Coverly no la abre",
       "emulatorData": "Está dentro de los datos de un emulador ({folder}); se deja tal cual",
       "gameOverlay": "Carpeta de mods o parches de {title}: se deja donde está",
       "notConfirmed": "No confirmado; se queda donde está",

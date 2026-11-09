@@ -1199,3 +1199,324 @@ fn a_child_whose_base_is_in_the_plan_is_no_orphan() {
     assert_eq!(below_system(update), p(&["BLUS30001 Patch"]), "{update:?}");
     assert_eq!(update.game.as_ref().and_then(|g| g.folder.clone()), None);
 }
+
+// --- Licences (game folders spec D17, plan Task 12) ---
+
+use coverly_core::consoles::{start_open_log, take_open_log};
+use coverly_core::organize::{apply_organize, ApplyEnv, OrganizeReport, TransferMode};
+use coverly_core::write::trash::FakeTrash;
+use coverly_core::write::{set_copy_fault, undo_job, CopyStage};
+
+/// A PS3 base PKG (`BLUS30001`) and its `.rap` licence, flat in `pile`.
+fn resistance_with_rap(pile: &Path, rap: &str) {
+    put(
+        pile,
+        "Resistance.pkg",
+        &ps3_pkg("UP9000-BLUS30001_00-RESISTANCE000001", 1),
+        1,
+    );
+    put(pile, rap, &[0xA5; 16], 2);
+}
+
+fn apply_in(plan: &OrganizePlan, data: &Path) -> OrganizeReport {
+    apply_organize(
+        plan,
+        &ApplyEnv {
+            data_dir: data,
+            progress: &|_| {},
+            cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
+        },
+    )
+    .unwrap()
+}
+
+/// No path with a licence or key name was opened.
+fn assert_no_licence_opened() {
+    let opened = take_open_log();
+    let named: Vec<&PathBuf> = opened
+        .iter()
+        .filter(|p| {
+            p.file_name()
+                .is_some_and(|n| coverly_core::consoles::is_key_material(&n.to_string_lossy()))
+        })
+        .collect();
+    assert!(named.is_empty(), "licences opened: {named:?}");
+}
+
+fn licence_companions(it: &OrganizeItem) -> Vec<&coverly_core::organize::Companion> {
+    it.companions.iter().filter(|c| c.licence).collect()
+}
+
+fn left_reason(it: &OrganizeItem) -> Option<&LeftReason> {
+    match &it.action {
+        OrganizeAction::Left { reason } => Some(reason),
+        _ => None,
+    }
+}
+
+#[test]
+fn licence_follows_by_rename_only() {
+    start_open_log();
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("lib"),
+        tmp.path().join("data"),
+    );
+    resistance_with_rap(&pile, "BLUS30001.rap");
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    assert_eq!(plan.mode, TransferMode::Move);
+
+    let base = item(&plan, "Resistance.pkg");
+    assert!(base.moves_in(), "{base:?}");
+    let target = base.target.clone().unwrap();
+    let licences = licence_companions(base);
+    assert_eq!(licences.len(), 1, "{base:?}");
+    assert_eq!(parts(&licences[0].source), p(&["BLUS30001.rap"]));
+    // Beside its game's file, under its own name (an id names it).
+    assert_eq!(
+        parts(&licences[0].target),
+        parts(&target.parent().unwrap().join("BLUS30001.rap"))
+    );
+    let rap = item(&plan, "BLUS30001.rap");
+    assert_eq!(
+        left_reason(rap),
+        Some(&LeftReason::LicenceOf {
+            of: PathBuf::from("Resistance.pkg")
+        }),
+        "{rap:?}"
+    );
+
+    let report = apply_in(&plan, &data);
+    let outcome = report.items.iter().find(|o| o.item == base.id).unwrap();
+    assert!(outcome.licences_left.is_empty(), "{outcome:?}");
+    let moved = lib.join(target.parent().unwrap()).join("BLUS30001.rap");
+    assert_eq!(fs::read(&moved).unwrap(), [0xA5; 16]);
+    assert!(!pile.join("BLUS30001.rap").exists());
+    assert!(outcome.targets.contains(&moved), "{outcome:?}");
+
+    undo_job(&data, report.job.as_deref().unwrap()).unwrap();
+    assert_eq!(fs::read(pile.join("BLUS30001.rap")).unwrap(), [0xA5; 16]);
+    assert!(pile.join("Resistance.pkg").is_file());
+    assert!(!moved.exists());
+    assert_no_licence_opened();
+}
+
+#[test]
+fn a_licence_named_by_the_game_s_stem_takes_its_new_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    resistance_with_rap(&pile, "resistance.rap");
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let base = item(&plan, "Resistance.pkg");
+    let target = base.target.clone().unwrap();
+    let stem = target.file_stem().unwrap().to_string_lossy().into_owned();
+    let licences = licence_companions(base);
+    assert_eq!(licences.len(), 1, "{base:?}");
+    assert_eq!(
+        parts(&licences[0].target),
+        parts(&target.parent().unwrap().join(format!("{stem}.rap")))
+    );
+}
+
+#[test]
+fn licence_stays_in_copy_mode() {
+    start_open_log();
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("lib"),
+        tmp.path().join("data"),
+    );
+    resistance_with_rap(&pile, "BLUS30001.rap");
+    fs::create_dir_all(&lib).unwrap();
+    let opts = OrganizeOptions {
+        mode: Some(TransferMode::Copy),
+        ..options("coverly-library", &lib)
+    };
+    let plan = plan_of(&pile, &opts);
+    let base = item(&plan, "Resistance.pkg");
+    assert!(base.moves_in());
+    assert!(licence_companions(base).is_empty(), "{base:?}");
+    let rap = item(&plan, "BLUS30001.rap");
+    assert_eq!(left_reason(rap), Some(&LeftReason::KeyMaterial));
+    apply_in(&plan, &data);
+    assert!(pile.join("BLUS30001.rap").is_file());
+    let copied: Vec<PathBuf> = walk_files(&lib);
+    assert!(
+        copied
+            .iter()
+            .all(|f| f.extension().is_none_or(|e| e != "rap")),
+        "{copied:?}"
+    );
+    assert_no_licence_opened();
+}
+
+#[test]
+fn licence_stays_when_ambiguous() {
+    start_open_log();
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    resistance_with_rap(&pile, "BLUS30001.rap");
+    // A second item of the same title id in the same folder.
+    put(
+        &pile,
+        "Resistance Extra.pkg",
+        &ps3_pkg("UP9000-BLUS30001_00-RESISTANCEEXTRA1", 3),
+        3,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    assert!(plan.items.iter().all(|i| licence_companions(i).is_empty()));
+    let rap = item(&plan, "BLUS30001.rap");
+    assert_eq!(left_reason(rap), Some(&LeftReason::KeyMaterial));
+    assert_no_licence_opened();
+}
+
+#[test]
+fn global_keys_and_other_folders_never_follow() {
+    start_open_log();
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    resistance_with_rap(&pile, "prod.keys");
+    // The right name, but another folder than its game.
+    put(&pile, "licences/BLUS30001.rap", &[0x5A; 16], 3);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let base = item(&plan, "Resistance.pkg");
+    assert!(licence_companions(base).is_empty(), "{base:?}");
+    assert_eq!(
+        left_reason(item(&plan, "prod.keys")),
+        Some(&LeftReason::KeyMaterial)
+    );
+    assert_eq!(
+        left_reason(item(&plan, "BLUS30001.rap")),
+        Some(&LeftReason::KeyMaterial)
+    );
+    assert_no_licence_opened();
+}
+
+#[test]
+fn licence_follows_only_with_game_folders() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    resistance_with_rap(&pile, "BLUS30001.rap");
+    fs::create_dir_all(&lib).unwrap();
+    let off = OrganizeOptions {
+        game_folders: Some(false),
+        ..options("coverly-library", &lib)
+    };
+    let plan = plan_of(&pile, &off);
+    assert!(licence_companions(item(&plan, "Resistance.pkg")).is_empty());
+    assert_eq!(
+        left_reason(item(&plan, "BLUS30001.rap")),
+        Some(&LeftReason::KeyMaterial)
+    );
+}
+
+#[test]
+fn a_taken_licence_name_at_plan_time_leaves_it() {
+    start_open_log();
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    resistance_with_rap(&pile, "BLUS30001.rap");
+    fs::create_dir_all(&lib).unwrap();
+    let probe = plan_of(&pile, &options("coverly-library", &lib));
+    let dir = item(&probe, "Resistance.pkg")
+        .target
+        .clone()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    put(&lib.join(&dir), "BLUS30001.rap", &[0x11; 16], 4);
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    assert!(licence_companions(item(&plan, "Resistance.pkg")).is_empty());
+    assert_eq!(
+        left_reason(item(&plan, "BLUS30001.rap")),
+        Some(&LeftReason::KeyMaterial)
+    );
+    assert_no_licence_opened();
+}
+
+#[test]
+fn licence_rename_exdev_leaves_it() {
+    start_open_log();
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("lib"),
+        tmp.path().join("data"),
+    );
+    resistance_with_rap(&pile, "BLUS30001.rap");
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let base = item(&plan, "Resistance.pkg");
+    assert_eq!(licence_companions(base).len(), 1);
+
+    // The volume changed since the plan: the licence's rename is refused
+    // as across volumes; the game itself still moves.
+    set_copy_fault(Some(|stage, path| {
+        (stage == CopyStage::Rename && path.extension().is_some_and(|e| e == "rap"))
+            .then(|| std::io::Error::from(std::io::ErrorKind::CrossesDevices))
+    }));
+    let report = apply_in(&plan, &data);
+    set_copy_fault(None);
+    let outcome = report.items.iter().find(|o| o.item == base.id).unwrap();
+    assert!(
+        matches!(outcome.status, coverly_core::organize::ItemStatus::Moved),
+        "{outcome:?}"
+    );
+    assert_eq!(outcome.licences_left, [pile.join("BLUS30001.rap")]);
+    assert_eq!(fs::read(pile.join("BLUS30001.rap")).unwrap(), [0xA5; 16]);
+    assert!(lib.join(base.target.as_ref().unwrap()).is_file());
+    let copied = walk_files(&lib);
+    assert!(
+        copied
+            .iter()
+            .all(|f| f.extension().is_none_or(|e| e != "rap")),
+        "never a copy: {copied:?}"
+    );
+    // Undo puts the game back and leaves the licence alone.
+    undo_job(&data, report.job.as_deref().unwrap()).unwrap();
+    assert!(pile.join("Resistance.pkg").is_file());
+    assert_eq!(fs::read(pile.join("BLUS30001.rap")).unwrap(), [0xA5; 16]);
+    assert_no_licence_opened();
+}
+
+#[test]
+fn a_licence_name_taken_at_apply_leaves_it_and_the_other_file_untouched() {
+    start_open_log();
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("lib"),
+        tmp.path().join("data"),
+    );
+    resistance_with_rap(&pile, "BLUS30001.rap");
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let base = item(&plan, "Resistance.pkg");
+    let licence = licence_companions(base)[0].clone();
+    // Someone puts a file of that name there between plan and apply.
+    let there = lib.join(&licence.target);
+    put(there.parent().unwrap(), "BLUS30001.rap", &[0x22; 8], 5);
+
+    let report = apply_in(&plan, &data);
+    let outcome = report.items.iter().find(|o| o.item == base.id).unwrap();
+    assert_eq!(outcome.licences_left, [pile.join("BLUS30001.rap")]);
+    assert_eq!(fs::read(&there).unwrap(), [0x22; 8], "never replaced");
+    assert_eq!(fs::read(pile.join("BLUS30001.rap")).unwrap(), [0xA5; 16]);
+    let dir_names: Vec<String> = fs::read_dir(there.parent().unwrap())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".rap"))
+        .collect();
+    assert_eq!(dir_names, ["BLUS30001.rap"], "never a numbered name");
+    assert_no_licence_opened();
+}

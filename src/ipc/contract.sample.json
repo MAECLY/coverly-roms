@@ -2233,7 +2233,8 @@
   "game_folder_reasons": [
     { "kind": "game-folder-content", "folder": "mods", "of": "Pokemon Y" },
     { "kind": "not-a-rom", "what": "emulator-cache" },
-    { "kind": "not-a-rom", "what": "emulator-config" }
+    { "kind": "not-a-rom", "what": "emulator-config" },
+    { "kind": "licence-of", "of": "Resistance.pkg" }
   ],
   "game_folder_notes": [
     { "kind": "demo-of", "of": "Pokemon Y" },

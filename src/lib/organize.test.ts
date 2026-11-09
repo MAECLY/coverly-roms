@@ -114,6 +114,7 @@ const ALL_REASONS: LeftReason[] = [
   { kind: 'unreadable' },
   { kind: 'collision-set' },
   { kind: 'key-material' },
+  { kind: 'licence-of', of: 'ps3/Resistance.pkg' },
   { kind: 'emulator-data', folder: 'ux0' },
   { kind: 'not-a-rom', what: 'installer' },
   { kind: 'not-a-rom', what: 'model3d' },
@@ -935,6 +936,14 @@ describe('systems batch 2 copy (spec §10)', () => {
     expect(leftReasonText(tEn, { kind: 'key-material' })).toBe(
       'Key or licence file: Coverly never reads it and leaves it here',
     );
+    expect(
+      leftReasonText(t, { kind: 'licence-of', of: 'ps3/Resistance.pkg' }),
+    ).toBe('Licencia de Resistance.pkg: va con su juego; Coverly no la abre');
+    expect(
+      leftReasonText(tEn, { kind: 'licence-of', of: 'ps3\\Resistance.pkg' }),
+    ).toBe(
+      'Licence of Resistance.pkg: goes with its game; Coverly does not open it',
+    );
     expect(leftReasonText(t, { kind: 'emulator-data', folder: 'ux0' })).toBe(
       'Está dentro de los datos de un emulador (ux0); se deja tal cual',
     );
@@ -1067,6 +1076,7 @@ describe('systems batch 2 copy (spec §10)', () => {
   it('the new copy exists in both locales with the same placeholders', () => {
     for (const key of [
       'organize.left.keyMaterial',
+      'organize.left.licenceOf',
       'organize.left.emulatorData',
       'organize.left.installer',
       'organize.left.model3d',

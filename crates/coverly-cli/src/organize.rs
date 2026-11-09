@@ -1220,6 +1220,10 @@ fn left_reason_text(reason: &LeftReason) -> String {
         LeftReason::Unreadable => "cannot be read".into(),
         LeftReason::CollisionSet => "a file of the game is taken at the target".into(),
         LeftReason::KeyMaterial => "key or licence file: never read, left here".into(),
+        LeftReason::LicenceOf { of } => format!(
+            "licence of {}: goes with it, never read",
+            of.file_name().unwrap_or(of.as_os_str()).to_string_lossy()
+        ),
         LeftReason::EmulatorData { folder } => {
             format!("inside an emulator's data folder ({folder}): left as it is")
         }
@@ -2417,6 +2421,12 @@ mod tests {
     #[test]
     fn game_folder_texts() {
         use coverly_core::consoles::FixedFolder;
+        assert_eq!(
+            left_text(&LeftReason::LicenceOf {
+                of: std::path::Path::new("ps3").join("Resistance.pkg"),
+            }),
+            "licence of Resistance.pkg: goes with it, never read"
+        );
         assert_eq!(
             left_text(&LeftReason::GameFolderContent {
                 folder: FixedFolder::Mods,

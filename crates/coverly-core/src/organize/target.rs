@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use unicode_normalization::UnicodeNormalization;
 
+use crate::consoles::{licence_matches, LicenceKeys};
 use crate::game_folder::FixedFolder;
 use crate::identify::names::{parse_tags, Region};
 use crate::organize::plan::{
@@ -2537,6 +2538,112 @@ fn fs_is_fat32(_path: &Path) -> bool {
 /// `path` relative to `root` when inside it, else as is.
 fn relative(root: &Path, path: &Path) -> PathBuf {
     path.strip_prefix(root).unwrap_or(path).to_path_buf()
+}
+
+/// Licences that go with their game (game folders spec D17), by name
+/// only: a licence left as key material goes beside the one item of its
+/// own folder it names (content id, title id, a Switch rights id's title
+/// id, or the item's own stem), as a `Companion { licence: true }`, and
+/// its own row says whose it is. Call only when every move is a rename
+/// (move mode, target on the source's volume); otherwise every licence
+/// stays. A licence two items name, a global key file, an owner that is
+/// not moved as it is (left, set aside, extracted, a set) or a name
+/// already taken beside the owner: it stays with
+/// [`LeftReason::KeyMaterial`]. Nothing here opens or stats a licence.
+pub fn licence_companions(items: &mut [OrganizeItem], layout: &TargetLayout, index: &mut DirIndex) {
+    let licences: Vec<usize> = items
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| {
+            i.kind == ItemKind::File
+                && i.sources.len() == 1
+                && matches!(
+                    i.action,
+                    OrganizeAction::Left {
+                        reason: LeftReason::KeyMaterial
+                    }
+                )
+        })
+        .map(|(pos, _)| pos)
+        .collect();
+    let is_licence: HashSet<usize> = licences.iter().copied().collect();
+    for pos in licences {
+        let source = items[pos].sources[0].clone();
+        let name = file_name(&source);
+        let home = parent(&source);
+        let owners: Vec<usize> = items
+            .iter()
+            .enumerate()
+            .filter(|(j, other)| {
+                !is_licence.contains(j)
+                    && other.sources.first().is_some_and(|p| parent(p) == home)
+                    && licence_matches(&name, &licence_keys(other))
+            })
+            .map(|(j, _)| j)
+            .collect();
+        let [owner] = owners[..] else {
+            continue;
+        };
+        let it = &items[owner];
+        let (true, Transfer::AsIs, Some(target)) = (
+            it.moves_in() && matches!(it.kind, ItemKind::File | ItemKind::Folder),
+            &it.transfer,
+            it.target.as_ref(),
+        ) else {
+            continue;
+        };
+        // Named by the item's own stem only: it takes the item's new stem,
+        // as any companion; named by an id: it keeps its name.
+        let keys = licence_keys(it);
+        let by_id = licence_matches(&name, &LicenceKeys { stem: "", ..keys });
+        let new_name = match (by_id, split_name(&name).1) {
+            (false, Some(ext)) => {
+                let stem = if it.kind == ItemKind::File {
+                    split_name(&file_name(target)).0.to_string()
+                } else {
+                    file_name(target)
+                };
+                format!("{stem}.{ext}")
+            }
+            _ => name.clone(),
+        };
+        let dir = parent(target);
+        let abs = layout.target_root.join(&dir);
+        if safe_file_name(&new_name).ok().as_deref() != Some(new_name.as_str())
+            || index.taken(&abs, &new_name)
+        {
+            continue;
+        }
+        index.claim(&abs, &new_name);
+        let of = it.sources[0].clone();
+        items[owner].companions.push(Companion {
+            source: source.clone(),
+            target: dir.join(&new_name),
+            licence: true,
+        });
+        items[pos].action = OrganizeAction::Left {
+            reason: LeftReason::LicenceOf { of },
+        };
+    }
+}
+
+/// What an item offers [`licence_matches`]: its content id, its title id
+/// and its own stem (a folder game: its folder name).
+fn licence_keys(item: &OrganizeItem) -> LicenceKeys<'_> {
+    let stem = item
+        .sources
+        .first()
+        .and_then(|p| match item.kind {
+            ItemKind::Folder => p.file_name(),
+            _ => p.file_stem(),
+        })
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    LicenceKeys {
+        content_id: item.content_id.as_deref(),
+        title_id: item.title_id.as_ref().map(|t| t.id.as_str()),
+        stem,
+    }
 }
 
 fn file_name(path: &Path) -> String {
