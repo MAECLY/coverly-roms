@@ -150,6 +150,24 @@ fn a_same_stem_patch_is_still_a_companion() {
 }
 
 #[test]
+fn a_same_stem_patch_in_another_normal_form_is_still_a_companion() {
+    // The companion pass matches stems by NFC and case (`name_key`): a
+    // patch whose name a Mac wrote decomposed still travels with its ROM.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    put(
+        root,
+        "Pok\u{e9}mon Snap (USA).sfc",
+        &vec![0x11u8; 1 << 16],
+        1,
+    );
+    let ips = put(root, "POKE\u{301}MON SNAP (USA).ips", &at::ips(), 2);
+    let s = survey_of(root);
+    assert!(s.walked.addons.is_empty(), "{:#?}", s.walked.addons);
+    assert!(s.walked.companions.contains(&ips));
+}
+
+#[test]
 fn a_keyless_patch_carries_the_readme_beside_it() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();

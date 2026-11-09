@@ -796,11 +796,11 @@ fn plain_file(out: &mut Walked, path: &Path, name: &str, ext: &str, ignored_exts
     }
 }
 
-/// Lower-case stem of a file name (up to its last dot).
+/// Stem of a file name (up to its last dot) as the companion pass keys
+/// it: NFC, lower case, so a same-stem patch the pass would attach is
+/// never taken for an addon.
 fn stem_key(name: &str) -> String {
-    name.rsplit_once('.')
-        .map_or(name, |(stem, _)| stem)
-        .to_lowercase()
+    crate::write::name_key(name.rsplit_once('.').map_or(name, |(stem, _)| stem))
 }
 
 /// Up to two parent folder names of `path`, nearest first.
