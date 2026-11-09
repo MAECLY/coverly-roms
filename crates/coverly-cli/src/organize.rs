@@ -1569,6 +1569,7 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
         };
         let _ = writeln!(out, "  {}  {line}", label(o));
     }
+    out.push_str(&licences_left_text(report));
     if let Some(j) = &report.job {
         if report.paused.is_some() {
             let _ = writeln!(
@@ -1588,6 +1589,21 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
         );
     }
     table::terminal_safe(&out)
+}
+
+/// One line per licence whose rename failed (game folders spec D17): it
+/// stays beside the pile although the plan said it went with its game.
+fn licences_left_text(report: &OrganizeReport) -> String {
+    let mut out = String::new();
+    for path in report.items.iter().flat_map(|o| &o.licences_left) {
+        let name = path.file_name().unwrap_or(path.as_os_str());
+        let _ = writeln!(
+            out,
+            "  {}  licence stayed where it was: only a rename moves it",
+            name.to_string_lossy()
+        );
+    }
+    out
 }
 
 /// `s` quoted for a POSIX shell when it holds anything but plain path
@@ -2416,6 +2432,24 @@ mod tests {
             }),
             "12.0 GB will be written to the target; you will be asked to confirm"
         );
+    }
+
+    #[test]
+    fn a_licence_left_behind_is_named_in_the_report() {
+        let report = OrganizeReport {
+            items: vec![ItemOutcome {
+                item: 0,
+                status: ItemStatus::Moved,
+                targets: vec![std::path::Path::new("lib").join("Resistance.pkg")],
+                licences_left: vec![std::path::Path::new("pile").join("BLUS30001.rap")],
+            }],
+            ..OrganizeReport::default()
+        };
+        assert_eq!(
+            licences_left_text(&report),
+            "  BLUS30001.rap  licence stayed where it was: only a rename moves it\n"
+        );
+        assert_eq!(licences_left_text(&OrganizeReport::default()), "");
     }
 
     #[test]
