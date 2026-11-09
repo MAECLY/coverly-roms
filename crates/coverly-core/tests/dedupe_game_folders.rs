@@ -524,3 +524,32 @@ fn another_base_version_never_makes_proven_copies_report_only() {
     assert!(grp.members.iter().any(|m| m.unit.primary == copy));
     assert!(grp.members.iter().all(|m| m.unit.primary != other));
 }
+
+#[test]
+fn the_has_children_note_and_flag_keep_their_wire_names() {
+    // `src/ipc/dedupeTypes.ts` reads `{ kind: 'has-children' }` and
+    // `holds_children` (absent when false).
+    assert_eq!(
+        serde_json::to_value(ReportWhy::HasChildren).unwrap(),
+        serde_json::json!({ "kind": "has-children" })
+    );
+    let card = Card::new("coverly-library");
+    let (folder, _) = base_with_copy(&card, false);
+    let plan = card.plan(&card.opts());
+    let grp = group_with(&plan, &folder).unwrap();
+    let wire = serde_json::to_value(grp).unwrap();
+    let units: Vec<&serde_json::Value> = wire["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| &m["unit"])
+        .collect();
+    assert!(
+        units.iter().any(|u| u["holds_children"] == true),
+        "{units:?}"
+    );
+    assert!(
+        units.iter().any(|u| u.get("holds_children").is_none()),
+        "{units:?}"
+    );
+}
