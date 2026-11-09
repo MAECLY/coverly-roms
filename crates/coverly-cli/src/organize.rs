@@ -1718,10 +1718,16 @@ fn render_table(
         mode_name(plan.mode)
     );
     let c = &plan.counts;
+    // Counted as listed below: a licence that goes with its game is not
+    // staying put (D22), although the plan counts it as left.
+    let left = staying(plan);
     let _ = writeln!(
         out,
         "ROMs: {} · Systems: {} · To review: {} · Staying put: {}",
-        c.roms, c.systems, c.review, c.left
+        c.roms,
+        c.systems,
+        c.review,
+        left.len()
     );
     if c.set_aside + c.in_library > 0 {
         let _ = writeln!(
@@ -1819,7 +1825,6 @@ fn render_table(
         }
     }
 
-    let left = staying(plan);
     if !left.is_empty() {
         let _ = writeln!(out, "\nStaying where they are ({})", left.len());
         for (item, reason) in left {
@@ -2577,7 +2582,9 @@ mod tests {
         key.action = OrganizeAction::Left {
             reason: LeftReason::KeyMaterial,
         };
-        let plan = plan_with_items(vec![game, rap, key]);
+        let mut plan = plan_with_items(vec![game, rap, key]);
+        // As the core counts them: both left items.
+        plan.counts.left = 2;
         let names: Vec<String> = staying(&plan)
             .iter()
             .map(|(i, _)| source_label(i))
@@ -2594,6 +2601,8 @@ mod tests {
             "{table}"
         );
         assert!(table.contains("Staying where they are (1)"), "{table}");
+        // The summary line agrees with the list below it.
+        assert!(table.contains("Staying put: 1"), "{table}");
         assert!(!table.contains("licence of Resistance.pkg"), "{table}");
     }
 
