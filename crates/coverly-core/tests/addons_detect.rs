@@ -33,6 +33,22 @@ fn a_renamed_patch_is_told_by_its_bytes() {
     let text = dir.path().join("Readme.ips");
     fs::write(&text, "This is not a patch, only a note.\n").unwrap();
     assert_eq!(read_patch(&text).unwrap(), None);
+    let notes = dir.path().join("Notes.ips");
+    fs::write(&notes, "PATCH NOTES\nFixed the intro text.\n").unwrap();
+    assert_eq!(read_patch(&notes).unwrap(), None, "PATCH without EOF");
+    let ips = dir.path().join("Game (Japan).ips");
+    fs::write(&ips, t::ips()).unwrap();
+    assert_eq!(
+        read_patch(&ips).unwrap(),
+        Some((AddonFormat::Ips, AddonKey::None))
+    );
+    let bare = dir.path().join("Empty.ips");
+    fs::write(&bare, b"PATCHEOF").unwrap();
+    assert_eq!(
+        read_patch(&bare).unwrap(),
+        Some((AddonFormat::Ips, AddonKey::None)),
+        "an IPS shorter than its 12-byte footer window"
+    );
     let empty = dir.path().join("Empty.bps");
     fs::write(&empty, b"").unwrap();
     assert_eq!(read_patch(&empty).unwrap(), None);
@@ -110,9 +126,11 @@ fn a_big_patch_is_read_only_at_its_head_and_footer() {
     );
     assert!(r.read <= 64 + 4096, "read {} bytes", r.read);
 
-    // A 5 MB IPS: the head only.
+    // A 5 MB IPS: the head and the last 12 bytes (its `EOF`).
     let mut bytes = t::ips();
-    bytes.resize(5_000_000, 0);
+    bytes.truncate(bytes.len() - 3);
+    bytes.resize(5_000_000 - 3, 0);
+    bytes.extend(b"EOF");
     let mut r = Counting {
         inner: Cursor::new(bytes),
         read: 0,
@@ -121,7 +139,7 @@ fn a_big_patch_is_read_only_at_its_head_and_footer() {
         read_patch_from(&mut r).unwrap(),
         Some((AddonFormat::Ips, AddonKey::None))
     );
-    assert!(r.read <= 64, "read {} bytes", r.read);
+    assert!(r.read <= 64 + 12, "read {} bytes", r.read);
 }
 
 /// Unix only: a 4 GiB `set_len` is sparse there; on NTFS it may reserve

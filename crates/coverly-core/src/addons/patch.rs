@@ -66,7 +66,10 @@ pub fn sniff_patch(
         return Some((format, key));
     }
     if head.starts_with(b"PATCH") {
-        return Some((AddonFormat::Ips, AddonKey::None));
+        // `PATCH` … `EOF`, or `EOF` and a 3-byte truncation size. Without
+        // the footer bytes (a head-only caller) the magic alone decides.
+        let ends = tail12.is_none_or(|t| &t[9..] == b"EOF" || &t[6..9] == b"EOF");
+        return ends.then_some((AddonFormat::Ips, AddonKey::None));
     }
     if head.starts_with(&XDELTA_MAGIC) {
         let key = xdelta_app
@@ -159,8 +162,8 @@ fn read_up_to<R: Read>(r: &mut R, buf: &mut [u8]) -> io::Result<usize> {
 }
 
 /// The bounded reads of one patch (D2): the first 64 bytes, then the last
-/// 12 for BPS/UPS or at most 4 KiB from offset 4 for xdelta. Never reads
-/// the whole patch.
+/// 12 for BPS/UPS/IPS or at most 4 KiB from offset 4 for xdelta. Never
+/// reads the whole patch.
 pub fn read_patch_from<R: Read + Seek>(r: &mut R) -> io::Result<Option<(AddonFormat, AddonKey)>> {
     let mut head = [0u8; HEAD_LEN];
     let n = read_up_to(r, &mut head)?;
@@ -175,6 +178,19 @@ pub fn read_patch_from<R: Read + Seek>(r: &mut R) -> io::Result<Option<(AddonFor
             r.read_exact(&mut t)?;
             tail = Some(t);
         }
+    } else if head.starts_with(b"PATCH") {
+        // The `EOF` check needs the end; a file shorter than 12 bytes is
+        // all in `head`, right-aligned into the 12-byte window.
+        let len = r.seek(SeekFrom::End(0))?;
+        let mut t = [0u8; 12];
+        match usize::try_from(len).ok().filter(|l| *l < 12) {
+            Some(l) => t[12 - l..].copy_from_slice(&head[..l]),
+            None => {
+                r.seek(SeekFrom::End(-12))?;
+                r.read_exact(&mut t)?;
+            }
+        }
+        tail = Some(t);
     } else if head.starts_with(&XDELTA_MAGIC) {
         r.seek(SeekFrom::Start(4))?;
         let mut buf = vec![0u8; XDELTA_APP_CAP];
@@ -255,6 +271,25 @@ mod tests {
             );
         }
         assert_eq!(sniff_patch(b"PPF40rest", None, None), None);
+        // IPS is `PATCH` … `EOF` (or `EOF` and a 3-byte truncation size).
+        let mut tail = [0u8; 12];
+        tail[9..].copy_from_slice(b"EOF");
+        assert_eq!(
+            sniff_patch(&t::ips(), Some(tail), None),
+            Some((AddonFormat::Ips, AddonKey::None))
+        );
+        tail[6..9].copy_from_slice(b"EOF");
+        tail[9..].copy_from_slice(&[0x01, 0x00, 0x00]);
+        assert_eq!(
+            sniff_patch(&t::ips(), Some(tail), None),
+            Some((AddonFormat::Ips, AddonKey::None)),
+            "EOF and a truncation size"
+        );
+        assert_eq!(
+            sniff_patch(b"PATCH NOTES for 1.2", Some(*b"ed in v1.2.\n"), None),
+            None,
+            "text that starts with PATCH and has no EOF is no IPS"
+        );
         assert_eq!(
             sniff_patch(&t::aps_n64("NSM"), None, None),
             Some((AddonFormat::Aps, AddonKey::N64Id { id: "NSM".into() }))
