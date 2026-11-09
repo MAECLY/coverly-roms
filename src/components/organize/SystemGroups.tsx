@@ -251,6 +251,8 @@ function Row({
           <NativeSelect
             size="sm"
             className="w-auto max-w-[16rem]"
+            id={`chosen-system-${item.id}`}
+            name="system"
             aria-label={t('organize.review.systemFor', { name })}
             value={item.system_id ?? ''}
             disabled={disabled}

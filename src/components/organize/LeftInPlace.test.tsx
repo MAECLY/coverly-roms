@@ -246,6 +246,21 @@ describe('LeftInPlace', () => {
     });
   });
 
+  it('gives every system select a unique id and the name "system"', () => {
+    show([unknown(0), unknown(1), unknown(2)]);
+    const selects = screen.getAllByRole('combobox');
+    expect(selects).toHaveLength(3);
+    for (const s of selects) {
+      expect(s.id).not.toBe('');
+      expect(s).toHaveAttribute('name', 'system');
+    }
+    expect(new Set(selects.map((s) => s.id)).size).toBe(3);
+    // The accessible name is unchanged.
+    expect(
+      screen.getByRole('combobox', { name: 'Sistema para File 001.bin' }),
+    ).toBeInTheDocument();
+  });
+
   it('renders at most 200 rows and a show-more button', async () => {
     render(
       <I18nProvider locale="en">

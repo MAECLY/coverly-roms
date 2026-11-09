@@ -113,6 +113,8 @@ export function LeftInPlace({
                         <NativeSelect
                           size="sm"
                           className="w-auto max-w-[16rem]"
+                          id={`left-system-${item.id}`}
+                          name="system"
                           aria-label={t('organize.review.systemFor', { name })}
                           value=""
                           disabled={disabled}

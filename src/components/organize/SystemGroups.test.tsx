@@ -195,6 +195,15 @@ describe('SystemGroups — a system the user chose', () => {
     );
   }
 
+  it('gives the changeable system select an id and the name "system"', () => {
+    renderChosen(() => {});
+    const select = screen.getByRole('combobox', {
+      name: 'System for mystery.rom',
+    });
+    expect(select.id).not.toBe('');
+    expect(select).toHaveAttribute('name', 'system');
+  });
+
   it('can be changed to another system or left in place', async () => {
     const calls: [number[], unknown][] = [];
     renderChosen((ids, c) => calls.push([ids, c]));
