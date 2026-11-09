@@ -406,7 +406,7 @@ fn undo_names_a_created_folder_it_keeps() {
         .success()
         .stdout(contains("moved back 2"))
         .stdout(contains(format!(
-            "kept folder {}; it holds files that are not the job's",
+            "kept folder {}; it isn't empty",
             p.path().join("ROMS").join("GB").display()
         )));
     assert!(p.path().join("ROMS/GB/Game B.sav").is_file());

@@ -1278,9 +1278,9 @@ pub struct UndoReport {
     /// Folders the job created and the undo removed (they held nothing
     /// of the user's).
     pub dirs_removed: Vec<PathBuf>,
-    /// Folders the job created that the undo kept because they hold
-    /// something that is not the job's (a save the user added to a game
-    /// folder after the run, game folders spec §12).
+    /// Folders the job created that the undo kept because they are not
+    /// empty: a save the user added to a game folder after the run, or a
+    /// file left in place because it changed (game folders spec §8.3).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub dirs_kept: Vec<PathBuf>,
     /// Archives the job sent to the Trash that could not be brought back
