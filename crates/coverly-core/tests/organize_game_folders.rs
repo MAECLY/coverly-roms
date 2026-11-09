@@ -1067,6 +1067,41 @@ fn a_demo_with_a_region_links_to_the_base_of_that_region() {
 }
 
 #[test]
+fn a_library_base_of_the_demo_region_beats_a_plan_base_of_another() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(
+        &pile,
+        "Resistance (USA).pkg",
+        &ps3_pkg("UP9000-BCUS98107_00-RESISTANCE000001", 1),
+        1,
+    );
+    put(
+        &pile,
+        "Resistance (Europe) (Demo).pkg",
+        &ps3_pkg("EP9000-NPEA00001_00-RESISTANCEDEMO01", 2),
+        2,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let probe = plan_of(&pile, &options("coverly-library", &lib));
+    let ps3 = item(&probe, "Resistance (USA).pkg").folder.clone().unwrap();
+    // The European base is already in the library: the demo's own region
+    // wins over the USA base in the pile (mods spec D20).
+    put(
+        &lib,
+        &format!("{ps3}/Resistance (Europe)/Resistance (Europe).pkg"),
+        &ps3_pkg("EP9000-BCES00001_00-RESISTANCE000001", 3),
+        3,
+    );
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let demo = item(&plan, "Resistance (Europe) (Demo).pkg");
+    assert_eq!(
+        demo.game.as_ref().and_then(|g| g.demo_of.as_deref()),
+        Some("Resistance (Europe)")
+    );
+}
+
+#[test]
 fn a_library_demo_lookup_uses_the_same_order() {
     let tmp = tempfile::tempdir().unwrap();
     let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));

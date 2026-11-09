@@ -2701,21 +2701,30 @@ fn link_demos_and_orphans(
         let stem = item_stem(&items[i]);
         let key = demo_free_key(&stem);
         let demo_region = header_region(i, &system).or_else(|| single_name_region(&stem));
-        let of = plan_bases
+        let in_plan = plan_bases
             .get(&(system.clone(), key.clone()))
             .and_then(|cands| pick_by_region(cands, demo_region, |c| c.1, |c| &c.0))
-            .map(|c| c.0.clone())
-            .or_else(|| {
-                libraries.get(&system).and_then(|l| {
-                    pick_by_region(
-                        l.by_title_key_all(&key),
-                        demo_region,
-                        |b| b.region,
-                        |b| b.title.as_deref().unwrap_or(""),
-                    )
-                    .and_then(|b| b.title.clone())
-                })
-            });
+            .map(|c| (c.0.clone(), c.1));
+        let in_library = libraries.get(&system).and_then(|l| {
+            pick_by_region(
+                l.by_title_key_all(&key),
+                demo_region,
+                |b| b.region,
+                |b| b.title.as_deref().unwrap_or(""),
+            )
+            .and_then(|b| b.title.clone().map(|t| (t, b.region)))
+        });
+        // The demo's own region wins wherever it is (plan first); else the
+        // plan's pick by preference, else the library's (D20).
+        let exact = |c: &Option<(String, Option<Region>)>| {
+            demo_region.is_some() && c.as_ref().is_some_and(|c| c.1 == demo_region)
+        };
+        let of = if !exact(&in_plan) && exact(&in_library) {
+            in_library
+        } else {
+            in_plan.or(in_library)
+        }
+        .map(|c| c.0);
         if let Some(of) = &of {
             let note = ItemNote::DemoOf { of: of.clone() };
             if !items[i].notes.contains(&note) {
