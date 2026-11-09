@@ -969,11 +969,16 @@ pub fn region_from_sony_serial(serial: &str) -> Option<Region> {
 ///   `contentVersion` as written (`01.05`, `01.000.000`).
 /// - `xbox360`: the hex u32 as `major.minor.build.qfe` from 4/4/16/8 bits
 ///   (`20000C00` → `2.0.12.0`).
-/// - `xboxone`, `xboxseries`: four dot-separated u16 as stored.
+/// - `xboxone`, `xboxseries`: four dot-separated u16, high to low, in
+///   canonical decimal (`01.02.0.0` → `1.2.0.0`).
 /// - `gamecube`, `wii` disc: `Rev N` when N > 0, `None` for 0. A Wii WAD
 ///   carries a TMD version instead: see [`display_version_of`].
 pub fn display_version(system: &str, raw: &str) -> Option<String> {
     let raw = raw.trim();
+    // Rust's integer parsing takes a leading `+`; header text is untrusted,
+    // so only plain digits count.
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let dec = |s: &str| digits(s).then(|| s.parse::<u32>().ok()).flatten();
     let dotted = |max_parts: usize| -> Option<String> {
         let parts: Vec<&str> = raw.split('.').collect();
         (parts.len() <= max_parts
@@ -984,13 +989,13 @@ pub fn display_version(system: &str, raw: &str) -> Option<String> {
     };
     match system {
         "3ds" => {
-            let v: u16 = raw.parse().ok()?;
+            let v = u16::try_from(dec(raw)?).ok()?;
             Some(format!("{}.{}.{}", v >> 10, (v >> 4) & 0x3F, v & 0xF))
         }
-        "wiiu" | "switch" => raw.parse::<u32>().ok().map(|v| v.to_string()),
+        "wiiu" | "switch" => dec(raw).map(|v| v.to_string()),
         "ps3" | "psvita" | "ps4" | "psp" | "ps5" => dotted(4),
         "xbox360" => {
-            if raw.is_empty() || raw.len() > 8 {
+            if raw.is_empty() || raw.len() > 8 || !raw.bytes().all(|b| b.is_ascii_hexdigit()) {
                 return None;
             }
             let v = u32::from_str_radix(raw, 16).ok()?;
@@ -1003,13 +1008,17 @@ pub fn display_version(system: &str, raw: &str) -> Option<String> {
             ))
         }
         "xboxone" | "xboxseries" => {
-            let parts: Vec<u16> = raw
+            let parts: Vec<String> = raw
                 .split('.')
-                .map(|p| p.parse().ok())
+                .map(|p| {
+                    dec(p)
+                        .and_then(|v| u16::try_from(v).ok())
+                        .map(|v| v.to_string())
+                })
                 .collect::<Option<_>>()?;
-            (parts.len() == 4).then(|| raw.to_owned())
+            (parts.len() == 4).then(|| parts.join("."))
         }
-        "gamecube" | "wii" => match raw.parse::<u8>().ok()? {
+        "gamecube" | "wii" => match u8::try_from(dec(raw)?).ok()? {
             0 => None,
             n => Some(format!("Rev {n}")),
         },
@@ -1763,6 +1772,16 @@ mod tests {
             ("xboxseries", "1.0.0.0", Some("1.0.0.0")),
             ("xboxone", "1.0.0", None),
             ("xboxone", "70000.0.0.0", None),
+            // Manifest text is untrusted: shown in canonical decimal, never
+            // with a sign or padding that would land in a file name.
+            ("xboxone", "01.02.0.0", Some("1.2.0.0")),
+            ("xboxone", "+1.0.0.0", None),
+            ("xboxone", "1.0.-0.0", None),
+            ("3ds", "+1040", None),
+            ("wiiu", "+32", None),
+            ("switch", "+1", None),
+            ("gamecube", "+1", None),
+            ("xbox360", "+2000C00", None),
             // Disc revision byte: Redump form, none for the first release.
             ("gamecube", "1", Some("Rev 1")),
             ("wii", "2", Some("Rev 2")),
