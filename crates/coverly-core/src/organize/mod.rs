@@ -6,6 +6,7 @@ pub mod discsets;
 pub mod evidence;
 pub mod extract;
 pub mod inspect;
+pub mod library_bases;
 pub mod online;
 pub mod plan;
 pub mod target;

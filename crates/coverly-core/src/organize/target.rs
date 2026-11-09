@@ -1560,7 +1560,8 @@ fn base_game_folder(base: &OrganizeItem) -> Option<(PathBuf, bool)> {
 
 /// After [`assign_targets_in`] (game folders spec D5, D6, D20, plan
 /// P-3): every update or DLC whose `game.of` base was planned into a game
-/// folder gets `<folder>/Updates/<Game> (v<version>).<ext>` or
+/// folder (or, with no `of`, an orphan whose `game.folder` the library
+/// lookup chose, D13) gets `<folder>/Updates/<Game> (v<version>).<ext>` or
 /// `<folder>/DLC/<Game> - <DLC name>.<ext>` (a folder child keeps its own
 /// name below `Updates/` or `DLC/`), [`RenameReason::GameFolder`] when
 /// the name changed, and the base's `folder` and `folder_exists`; so a
@@ -1599,21 +1600,29 @@ pub fn game_children_targets(
             GameRole::Dlc => FixedFolder::Dlc,
             _ => continue,
         };
-        let Some(b) = link.of.filter(|&b| b != pos) else {
-            continue;
-        };
         if !items[pos].moves_in() || items[pos].target.is_some() {
             continue;
         }
-        let Some(base) = items.get(b) else { continue };
-        let system_folder = base.folder.clone();
-        let Some((folder, folder_exists)) = base_game_folder(base) else {
-            let reason = match &base.action {
-                OrganizeAction::Left { reason } => reason.clone(),
-                _ => LeftReason::Unknown,
-            };
-            items[pos].leave(reason);
-            continue;
+        let (system_folder, folder, folder_exists) = match link.of {
+            Some(b) if b == pos => continue,
+            Some(b) => {
+                let Some(base) = items.get(b) else { continue };
+                let system_folder = base.folder.clone();
+                let Some((folder, folder_exists)) = base_game_folder(base) else {
+                    let reason = match &base.action {
+                        OrganizeAction::Left { reason } => reason.clone(),
+                        _ => LeftReason::Unknown,
+                    };
+                    items[pos].leave(reason);
+                    continue;
+                };
+                (system_folder, folder, folder_exists)
+            }
+            // An orphan (D13): the game folder the lookup chose.
+            None => match link.folder.clone() {
+                Some(folder) => (items[pos].folder.clone(), folder, link.folder_exists),
+                None => continue,
+            },
         };
         if layout.fat32 && too_big_for_fat(&items[pos]) {
             items[pos].leave(LeftReason::TooBigForFat);

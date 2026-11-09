@@ -830,3 +830,319 @@ fn an_update_already_in_its_folder_is_present_and_another_gets_a_number() {
         ])
     );
 }
+
+// --- Demos, orphans and the library lookup (Task 11) ---
+
+use coverly_core::organize::ItemNote;
+
+/// A PS3 PKG head with `content_id`.
+fn ps3_pkg(content_id: &str, tail: u8) -> Vec<u8> {
+    with_tail(&ct::pkg(1, content_id), tail)
+}
+
+fn plan_with(pile: &Path, opts: &OrganizeOptions, cache: &Cache) -> OrganizePlan {
+    let db = SystemDb::builtin();
+    let profiles = builtin_profiles();
+    let env = OrganizeEnv {
+        db: &db,
+        profiles: &profiles,
+        cache,
+        dats: None,
+        probe: &NoCloud,
+        online: None,
+        titles: None,
+        now: SystemTime::now(),
+    };
+    plan_organize(pile, opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap()
+}
+
+fn has_note(it: &OrganizeItem, note: &ItemNote) -> bool {
+    it.notes.contains(note)
+}
+
+#[test]
+fn a_demo_is_its_own_game_linked_to_its_base_by_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(
+        &pile,
+        "Resistance (USA).pkg",
+        &ps3_pkg("UP9000-BCUS98107_00-RESISTANCE000001", 1),
+        1,
+    );
+    put(
+        &pile,
+        "Resistance (USA) (Demo).pkg",
+        &ps3_pkg("UP9000-NPUA80001_00-RESISTANCEDEMO01", 2),
+        2,
+    );
+    put(
+        &pile,
+        "Resistance (USA) (Kiosk Demo).pkg",
+        &ps3_pkg("UP9000-NPUA80002_00-RESISTANCEKIOSK1", 3),
+        3,
+    );
+    // A 3DS demo by its header (`00040002`): ` (Demo)` is added (no
+    // region: a 3DS child's product code is not trusted for it, D10).
+    put(
+        &pile,
+        "Pokemon Y Special.cia",
+        &ct::cia_with_code(0x0004_0002_0005_5D00, "CTR-P-EK2A", false, false).head_bytes(),
+        4,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+
+    let demo = item(&plan, "Resistance (USA) (Demo).pkg");
+    assert!(demo.moves_in(), "{demo:?}");
+    let game = "Resistance (USA) (Demo)";
+    assert_eq!(below_system(demo), p(&[game, &format!("{game}.pkg")]));
+    let link = demo.game.as_ref().unwrap();
+    assert_eq!(link.role, GameRole::Demo);
+    assert_eq!(link.of, None);
+    assert_eq!(link.demo_of.as_deref(), Some("Resistance (USA)"));
+    assert!(has_note(
+        demo,
+        &ItemNote::DemoOf {
+            of: "Resistance (USA)".into()
+        }
+    ));
+    // Never inside its base's folder.
+    let base = item(&plan, "Resistance (USA).pkg");
+    assert!(base
+        .target
+        .as_deref()
+        .is_some_and(|t| !t.starts_with(demo.game.as_ref().unwrap().folder.as_deref().unwrap())));
+
+    let kiosk = item(&plan, "Resistance (USA) (Kiosk Demo).pkg");
+    let game = "Resistance (USA) (Kiosk Demo)";
+    assert_eq!(below_system(kiosk), p(&[game, &format!("{game}.pkg")]));
+    assert_eq!(kiosk.game.as_ref().map(|g| g.role), Some(GameRole::Demo));
+
+    let special = item(&plan, "Pokemon Y Special.cia");
+    let game = "Pokemon Y Special (Demo)";
+    assert_eq!(
+        target_parts(special),
+        p(&["3DS", game, &format!("{game}.cia")])
+    );
+    assert_eq!(special.game.as_ref().map(|g| g.role), Some(GameRole::Demo));
+    assert_eq!(special.game.as_ref().and_then(|g| g.demo_of.clone()), None);
+
+    // Option off: flat as today, the note still shows, no link.
+    let off = OrganizeOptions {
+        game_folders: Some(false),
+        ..options("coverly-library", &lib)
+    };
+    let plan = plan_of(&pile, &off);
+    let demo = item(&plan, "Resistance (USA) (Demo).pkg");
+    assert_eq!(below_system(demo), p(&["Resistance (USA) (Demo).pkg"]));
+    assert_eq!(demo.game, None);
+    assert!(has_note(
+        demo,
+        &ItemNote::DemoOf {
+            of: "Resistance (USA)".into()
+        }
+    ));
+}
+
+#[test]
+fn a_demo_finds_its_base_in_the_library_by_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(
+        &pile,
+        "Resistance (USA) (Demo).pkg",
+        &ps3_pkg("UP9000-NPUA80001_00-RESISTANCEDEMO01", 2),
+        2,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    // Where the profile puts PS3 games.
+    let probe = plan_of(&pile, &options("coverly-library", &lib));
+    let ps3 = item(&probe, "Resistance (USA) (Demo).pkg")
+        .folder
+        .clone()
+        .unwrap();
+    put(
+        &lib,
+        &format!("{ps3}/Resistance (USA)/Resistance (USA).pkg"),
+        &ps3_pkg("UP9000-BCUS98107_00-RESISTANCE000001", 1),
+        1,
+    );
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let demo = item(&plan, "Resistance (USA) (Demo).pkg");
+    assert!(has_note(
+        demo,
+        &ItemNote::DemoOf {
+            of: "Resistance (USA)".into()
+        }
+    ));
+    assert_eq!(
+        demo.game.as_ref().and_then(|g| g.demo_of.as_deref()),
+        Some("Resistance (USA)")
+    );
+}
+
+/// The Pokemon Y update alone in `pile` (no base): TMD 1040, encrypted,
+/// no title in its header.
+fn orphan_update(pile: &Path) {
+    put(
+        pile,
+        "0004000E00055D00.cia",
+        &with_tail(&cia_update(PY_UPDATE, 1040), 1),
+        1,
+    );
+}
+
+#[test]
+fn an_orphan_without_a_title_stays_flat_for_review() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    orphan_update(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let update = item(&plan, "0004000E00055D00.cia");
+    assert_eq!(update.action, OrganizeAction::Review, "{update:?}");
+    assert_eq!(target_parts(update), p(&["3DS", "0004000E00055D00.cia"]));
+    assert!(has_note(update, &ItemNote::BaseMissing));
+    let link = update.game.as_ref().unwrap();
+    assert_eq!(
+        (link.role, link.of, &link.folder),
+        (GameRole::Update, None, &None)
+    );
+}
+
+#[test]
+fn an_orphan_with_a_title_gets_a_folder_for_review() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    // A clear update whose header names its game (SMDH «Test Game»); a
+    // 3DS child's own product code gives no region (D10).
+    let mut s = ct::cia_with_code(PY_UPDATE, "CTR-P-EK2A", false, true);
+    s.put(ct::CIA_TMD + 0x1DC, &1040u16.to_be_bytes());
+    put(&pile, "0004000E00055D00.cia", &with_tail(&s, 1), 1);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let update = item(&plan, "0004000E00055D00.cia");
+    assert_eq!(update.action, OrganizeAction::Review, "{update:?}");
+    assert!(has_note(update, &ItemNote::BaseMissing));
+    let game = "Test Game";
+    assert_eq!(
+        target_parts(update),
+        p(&["3DS", game, "Updates", "Test Game (v1.1.0).cia"])
+    );
+    let link = update.game.as_ref().unwrap();
+    assert_eq!(parts(link.folder.as_deref().unwrap()), p(&["3DS", game]));
+    assert!(!link.folder_exists);
+}
+
+#[test]
+fn an_orphan_joins_its_game_folder_in_the_library() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    orphan_update(&pile);
+    put(
+        &lib,
+        "3DS/Pokemon Y (World)/Pokemon Y (World).cia",
+        &ct::cia_with_code(PY_BASE, "CTR-P-EK2A", false, false).head_bytes(),
+        5,
+    );
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let update = item(&plan, "0004000E00055D00.cia");
+    assert_eq!(update.action, OrganizeAction::Auto, "{update:?}");
+    assert!(!has_note(update, &ItemNote::BaseMissing));
+    assert_eq!(
+        target_parts(update),
+        p(&[
+            "3DS",
+            "Pokemon Y (World)",
+            "Updates",
+            "Pokemon Y (World) (v1.1.0).cia"
+        ])
+    );
+    let link = update.game.as_ref().unwrap();
+    assert!(link.folder_exists);
+    assert_eq!(link.of, None);
+
+    // The budget spent before the base is read: never guessed, review.
+    let mut tiny = options("coverly-library", &lib);
+    tiny.limits.plan_head_budget = 0;
+    let plan = plan_with(&pile, &tiny, &Cache::in_memory().unwrap());
+    let update = item(&plan, "0004000E00055D00.cia");
+    assert_eq!(update.action, OrganizeAction::Review, "{update:?}");
+    assert!(has_note(update, &ItemNote::BaseMissing));
+}
+
+#[test]
+fn an_orphan_beside_a_flat_base_stays_flat() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    orphan_update(&pile);
+    put(
+        &lib,
+        "3DS/Pokemon Y.cia",
+        &ct::cia_with_code(PY_BASE, "CTR-P-EK2A", false, false).head_bytes(),
+        5,
+    );
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let update = item(&plan, "0004000E00055D00.cia");
+    assert_eq!(update.action, OrganizeAction::Auto, "{update:?}");
+    assert!(!has_note(update, &ItemNote::BaseMissing));
+    assert_eq!(target_parts(update), p(&["3DS", "0004000E00055D00.cia"]));
+    // No folder created around a file the user did not pick (D19).
+    assert!(!lib.join("3DS").join("Pokemon Y").exists());
+    assert_eq!(update.game.as_ref().and_then(|g| g.folder.clone()), None);
+}
+
+#[test]
+fn the_library_is_read_only_for_systems_with_an_orphan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    orphan_update(&pile);
+    put(
+        &pile,
+        "Resistance (USA) (Demo).pkg",
+        &ps3_pkg("UP9000-NPUA80001_00-RESISTANCEDEMO01", 2),
+        2,
+    );
+    let probe = plan_of(&pile, &options("coverly-library", &lib));
+    let ps3 = item(&probe, "Resistance (USA) (Demo).pkg")
+        .folder
+        .clone()
+        .unwrap();
+    let base = put(
+        &lib,
+        "3DS/Pokemon Y (World)/Pokemon Y (World).cia",
+        &ct::cia_with_code(PY_BASE, "CTR-P-EK2A", false, false).head_bytes(),
+        5,
+    );
+    let many: Vec<PathBuf> = (0..2000)
+        .map(|n| {
+            put(
+                &lib,
+                &format!("{ps3}/Game {n:04}.pkg"),
+                &ps3_pkg("UP9000-BCUS98107_00-RESISTANCE000001", (n % 251) as u8),
+                n,
+            )
+        })
+        .collect();
+    let cache = Cache::in_memory().unwrap();
+    let plan = plan_with(&pile, &options("coverly-library", &lib), &cache);
+    assert_eq!(
+        item(&plan, "0004000E00055D00.cia").action,
+        OrganizeAction::Auto
+    );
+    let memoised = |path: &Path| {
+        let meta = fs::metadata(path).unwrap();
+        let mtime = coverly_core::cache::mtime_ns(meta.modified().unwrap());
+        let real = fs::canonicalize(path).unwrap();
+        [path.to_path_buf(), real].iter().any(|p| {
+            cache
+                .organize_facts(p, meta.len(), mtime)
+                .unwrap()
+                .is_some()
+        })
+    };
+    // The 3DS base's header was read (and memoised); no PS3 file was.
+    assert!(memoised(&base));
+    assert!(many.iter().all(|m| !memoised(m)));
+}
