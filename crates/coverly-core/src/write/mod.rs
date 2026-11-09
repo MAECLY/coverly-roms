@@ -176,6 +176,46 @@ pub fn ensure_within(root: &Path, target: &Path) -> Result<PathBuf, WriteError> 
     Ok(target.to_path_buf())
 }
 
+/// `target` with its deepest existing ancestor resolved, when the rest of
+/// it is plain names; `None` otherwise.
+fn resolve_existing(target: &Path) -> Option<PathBuf> {
+    let mut probe = target;
+    let mut rest = Vec::new();
+    while fs::symlink_metadata(probe).is_err() {
+        rest.push(probe.file_name()?);
+        probe = probe.parent()?;
+    }
+    if rest.is_empty() {
+        // The target itself exists: resolve its parent only, so a
+        // symlink target is still seen as one.
+        rest.push(probe.file_name()?);
+        probe = probe.parent()?;
+    }
+    let mut out = probe.canonicalize().ok()?;
+    out.extend(rest.iter().rev());
+    Some(out)
+}
+
+/// Whether `target` (lexically under `canon_root`, already resolved) still
+/// resolves inside it on disk: its deepest existing ancestor resolves
+/// inside the root, and the target itself is not a symlink.
+fn within_resolved(canon_root: &Path, target: &Path) -> Result<bool, WriteError> {
+    let mut probe = match target.parent() {
+        Some(p) => p.to_path_buf(),
+        None => return Ok(false),
+    };
+    while fs::symlink_metadata(&probe).is_err() {
+        probe = match probe.parent() {
+            Some(p) => p.to_path_buf(),
+            None => return Ok(false),
+        };
+    }
+    if !probe.canonicalize()?.starts_with(canon_root) {
+        return Ok(false);
+    }
+    Ok(!fs::symlink_metadata(target).is_ok_and(|m| m.file_type().is_symlink()))
+}
+
 /// The first bytes of an AppleDouble file.
 const APPLE_DOUBLE_MAGIC: [u8; 4] = [0x00, 0x05, 0x16, 0x07];
 
@@ -461,6 +501,10 @@ pub struct Writer {
     /// Target folders apply created before this job began (D19), outermost
     /// first; empty for a resumed job (it never creates a root).
     created_roots: Vec<PathBuf>,
+    /// Emulator data folders the job may also write into (D17): each as
+    /// the caller named it and as it resolved at begin. Writes land under
+    /// the resolved form, so swapping a link later redirects nothing.
+    extra_roots: Vec<(PathBuf, PathBuf)>,
 }
 
 impl Writer {
@@ -486,7 +530,10 @@ impl Writer {
         let extra_roots = meta
             .extra_roots
             .iter()
-            .map(|d| fs::canonicalize(d).map_err(|_| WriteError::OutsideRoot(d.clone())))
+            .map(|d| match fs::canonicalize(d) {
+                Ok(c) if d.is_absolute() && c.is_dir() => Ok((d.clone(), c)),
+                _ => Err(WriteError::OutsideRoot(d.clone())),
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let jobs = data_dir.join("jobs");
         fs::create_dir_all(&jobs).map_err(|e| map_io(e, &jobs))?;
@@ -517,6 +564,7 @@ impl Writer {
             prior_copies: HashMap::new(),
             prior_dirs: HashSet::new(),
             created_roots: meta.created_roots.clone(),
+            extra_roots,
         };
         let header = Line::Header {
             job: writer.job.clone(),
@@ -525,7 +573,7 @@ impl Writer {
             kind: meta.kind,
             created_at: rfc3339_utc(SystemTime::now()),
             created_roots: meta.created_roots,
-            extra_roots,
+            extra_roots: writer.extra_roots.iter().map(|(_, c)| c.clone()).collect(),
         };
         writer.append(&header)?;
         Ok(writer)
@@ -555,6 +603,7 @@ impl Writer {
             root: journal_root,
             source_root,
             kind,
+            extra_roots,
             ..
         } = header
         else {
@@ -606,6 +655,12 @@ impl Writer {
             prior_copies,
             prior_dirs,
             created_roots: Vec::new(),
+            // Journaled resolved and absolute at begin.
+            extra_roots: extra_roots
+                .into_iter()
+                .filter(|d| d.is_absolute())
+                .map(|d| (d.clone(), d))
+                .collect(),
         })
     }
 
@@ -617,6 +672,57 @@ impl Writer {
     /// outermost first: a caller that discards the job removes them.
     pub fn created_roots(&self) -> &[PathBuf] {
         &self.created_roots
+    }
+
+    /// `target` if it lies strictly inside the job root or inside one of
+    /// its extra roots (emulator data folders, D17), as [`ensure_within`]
+    /// checks it. A target under an extra root comes back under the form
+    /// that root resolved to at begin, which every write then uses.
+    pub fn ensure_within_any(&self, target: &Path) -> Result<PathBuf, WriteError> {
+        self.within_any(target).map(|(t, _)| t)
+    }
+
+    /// Whether `dir` is one of the job's extra roots (as named or resolved).
+    pub(crate) fn is_extra_root(&self, dir: &Path) -> bool {
+        self.extra_roots.iter().any(|(g, c)| dir == g || dir == c)
+    }
+
+    /// [`Writer::ensure_within_any`] plus the root the target lies in.
+    pub(crate) fn within_any(&self, target: &Path) -> Result<(PathBuf, PathBuf), WriteError> {
+        let first = match ensure_within(&self.root, target) {
+            Ok(t) => return Ok((t, self.root.clone())),
+            Err(e) => e,
+        };
+        if self.extra_roots.is_empty() {
+            return Err(first);
+        }
+        let resolved = resolve_existing(target);
+        for (given, canon) in &self.extra_roots {
+            // As named at begin, as resolved at begin, or (a resumed job
+            // knows only the resolved form) as it resolves now.
+            let rel = target
+                .strip_prefix(canon)
+                .or_else(|_| target.strip_prefix(given))
+                .ok()
+                .map(Path::to_path_buf)
+                .or_else(|| {
+                    let r = resolved.as_ref()?;
+                    r.strip_prefix(canon).ok().map(Path::to_path_buf)
+                });
+            let Some(rel) = rel else {
+                continue;
+            };
+            if rel.as_os_str().is_empty()
+                || rel.components().any(|c| !matches!(c, Component::Normal(_)))
+            {
+                continue;
+            }
+            let rebased = canon.join(rel);
+            if within_resolved(canon, &rebased)? {
+                return Ok((rebased, canon.clone()));
+            }
+        }
+        Err(first)
     }
 
     /// The library root this job writes into.
@@ -1767,6 +1873,7 @@ fn undo_journal(
         root,
         source_root,
         created_roots,
+        extra_roots,
         ..
     } = header
     else {
@@ -1816,6 +1923,7 @@ fn undo_journal(
     let mut ctx = undo_organize::Ctx {
         root: &root,
         source_root: &source_root,
+        extra_roots: &extra_roots,
         data_dir,
         job: &journal.job,
         counter: 0,

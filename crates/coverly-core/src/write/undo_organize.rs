@@ -38,6 +38,8 @@ const LITTER_DEPTH: u32 = 8;
 pub(super) struct Ctx<'a> {
     pub root: &'a Path,
     pub source_root: &'a Path,
+    /// Emulator data folders the job could write into (header, D17).
+    pub extra_roots: &'a [PathBuf],
     pub data_dir: &'a Path,
     pub job: &'a str,
     /// Temp file counter of the copies back across volumes.
@@ -152,13 +154,16 @@ pub(super) fn undo_entry(
     }
 }
 
-/// `target` inside the job's root, or inside its source root: a pile copy
-/// the duplicates step set aside stays on the pile's side (moves and the
-/// folders they created).
+/// `target` inside the job's root, inside its source root (a pile copy the
+/// duplicates step set aside stays on the pile's side: moves and the
+/// folders they created), or inside one of the header's extra roots (an
+/// emulator data folder, D17).
 fn within_either(ctx: &Ctx<'_>, target: &Path) -> Result<PathBuf, WriteError> {
-    ensure_within(ctx.root, target).or_else(|e| match ensure_within(ctx.source_root, target) {
-        Ok(t) => Ok(t),
-        Err(_) => Err(e),
+    ensure_within(ctx.root, target).or_else(|e| {
+        std::iter::once(ctx.source_root)
+            .chain(ctx.extra_roots.iter().map(PathBuf::as_path))
+            .find_map(|r| ensure_within(r, target).ok())
+            .ok_or(e)
     })
 }
 
