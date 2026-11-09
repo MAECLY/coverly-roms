@@ -155,8 +155,8 @@ pub fn roots_state(
 mod tests {
     use super::*;
 
-    /// Directories that exist, with their device number.
-    struct Fake(Vec<(PathBuf, u64)>);
+    /// Directories that exist, with their device number, and plain files.
+    struct Fake(Vec<(PathBuf, u64)>, Vec<PathBuf>);
     impl RootProbe for Fake {
         fn is_dir(&self, p: &Path) -> bool {
             self.0
@@ -164,7 +164,7 @@ mod tests {
                 .any(|(d, _)| d.components().eq(p.components()))
         }
         fn exists(&self, p: &Path) -> bool {
-            self.is_dir(p)
+            self.is_dir(p) || self.1.iter().any(|f| f.components().eq(p.components()))
         }
         fn dev(&self, p: &Path) -> Option<u64> {
             self.0
@@ -181,15 +181,18 @@ mod tests {
         p
     }
     fn world() -> Fake {
-        Fake(vec![
-            (pb(&[]), 1),
-            (pb(&["home"]), 1),
-            (pb(&["home", "m"]), 1),
-            (pb(&["pile"]), 1),
-            (pb(&["Volumes"]), 1),
-            (pb(&["mnt"]), 1),
-            (pb(&["mnt", "usb"]), 1),
-        ])
+        Fake(
+            vec![
+                (pb(&[]), 1),
+                (pb(&["home"]), 1),
+                (pb(&["home", "m"]), 1),
+                (pb(&["pile"]), 1),
+                (pb(&["Volumes"]), 1),
+                (pb(&["mnt"]), 1),
+                (pb(&["mnt", "usb"]), 1),
+            ],
+            Vec::new(),
+        )
     }
     fn anchor(parts: &[&str], dev: u64) -> TargetAnchor {
         TargetAnchor {
@@ -326,6 +329,101 @@ mod tests {
                 &f
             ),
             RootsState::VolumeGone
+        );
+    }
+
+    #[test]
+    fn a_level_that_appeared_as_another_device_is_gone() {
+        // /mnt/usb/ROMS is now the mount point of another device.
+        let mut f = world();
+        f.0.push((pb(&["mnt", "usb", "ROMS"]), 9));
+        let t = pb(&["mnt", "usb", "ROMS", "sub"]);
+        assert_eq!(
+            roots_state(
+                &pb(&["pile"]),
+                &t,
+                Some(&anchor(&["mnt", "usb"], 1)),
+                &[],
+                &f
+            ),
+            RootsState::VolumeGone
+        );
+    }
+
+    #[test]
+    fn a_stale_folder_under_a_mount_parent_anchor_is_never_written() {
+        // Planned while /Volumes/USB was missing (anchor /Volumes); a stale
+        // /Volumes/USB folder on the system disk now is not written into,
+        // and neither is /Volumes itself.
+        let mut f = world();
+        let t = pb(&["Volumes", "USB", "ROMS"]);
+        let mounts = [pb(&["Volumes"])];
+        let a = anchor(&["Volumes"], 1);
+        assert_eq!(
+            roots_state(&pb(&["pile"]), &t, Some(&a), &mounts, &f),
+            RootsState::VolumeGone
+        );
+        f.0.push((pb(&["Volumes", "USB"]), 1));
+        assert_eq!(
+            roots_state(&pb(&["pile"]), &t, Some(&a), &mounts, &f),
+            RootsState::VolumeGone
+        );
+    }
+
+    #[test]
+    fn a_file_where_a_folder_should_be_is_gone() {
+        let mut f = world();
+        f.1.push(pb(&["home", "m", "new"]));
+        let t = pb(&["home", "m", "new", "sub"]);
+        assert_eq!(anchor_of(&t, &f), None, "a file is no anchor");
+        assert_eq!(
+            roots_state(
+                &pb(&["pile"]),
+                &t,
+                Some(&anchor(&["home", "m"], 1)),
+                &[],
+                &f
+            ),
+            RootsState::VolumeGone
+        );
+        // The target itself is a file.
+        assert_eq!(
+            roots_state(
+                &pb(&["pile"]),
+                &pb(&["home", "m", "new"]),
+                Some(&anchor(&["home", "m"], 1)),
+                &[],
+                &f
+            ),
+            RootsState::VolumeGone
+        );
+    }
+
+    #[test]
+    fn a_missing_anchor_device_on_windows_still_matches() {
+        // Windows records no device: `None` on both sides is the same volume.
+        let f = Fake(vec![(pb(&[]), 0), (pb(&["home"]), 0)], Vec::new());
+        struct NoDev(Fake);
+        impl RootProbe for NoDev {
+            fn is_dir(&self, p: &Path) -> bool {
+                self.0.is_dir(p)
+            }
+            fn exists(&self, p: &Path) -> bool {
+                self.0.exists(p)
+            }
+            fn dev(&self, _: &Path) -> Option<u64> {
+                None
+            }
+        }
+        let probe = NoDev(f);
+        let t = pb(&["home", "ROMS"]);
+        let a = anchor_of(&t, &probe).unwrap();
+        assert_eq!(a.dev, None);
+        assert_eq!(
+            roots_state(&pb(&["home"]), &t, Some(&a), &[], &probe),
+            RootsState::CreateTarget {
+                missing: vec![t.clone()]
+            }
         );
     }
 }
