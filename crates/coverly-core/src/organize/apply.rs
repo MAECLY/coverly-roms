@@ -371,7 +371,9 @@ pub fn apply_organize(plan: &OrganizePlan, env: &ApplyEnv) -> Result<OrganizeRep
         }
     };
     if let Err(e) = save_plan(env.data_dir, writer.job_id(), plan) {
-        let _ = writer.discard();
+        if writer.discard().is_ok() {
+            remove_created(&created);
+        }
         return Err(e.into());
     }
     Ok(Run::new(plan, env, writer, false, Vec::new()).run(&pending, 0, report))
@@ -1520,8 +1522,12 @@ impl<'a> Run<'a> {
             if self.writer.has_entries() || self.resumed {
                 Some(self.writer.finish().unwrap_or(job))
             } else {
-                // Nothing changed: no job to list or undo.
-                let _ = self.writer.discard();
+                // Nothing changed: no job to list or undo, so the target
+                // folders created for it go too (only when still empty).
+                let created = self.writer.created_roots().to_vec();
+                if self.writer.discard().is_ok() {
+                    remove_created(&created);
+                }
                 let _ = fs::remove_file(plan_path(self.env.data_dir, &job));
                 None
             }

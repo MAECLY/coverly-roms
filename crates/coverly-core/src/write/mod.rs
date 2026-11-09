@@ -458,6 +458,9 @@ pub struct Writer {
     prior_copies: HashMap<PathBuf, (PathBuf, Option<Fingerprint>)>,
     /// Folders earlier runs of the job created (resume only).
     prior_dirs: HashSet<PathBuf>,
+    /// Target folders apply created before this job began (D19), outermost
+    /// first; empty for a resumed job (it never creates a root).
+    created_roots: Vec<PathBuf>,
 }
 
 impl Writer {
@@ -513,6 +516,7 @@ impl Writer {
             resumed: false,
             prior_copies: HashMap::new(),
             prior_dirs: HashSet::new(),
+            created_roots: meta.created_roots.clone(),
         };
         let header = Line::Header {
             job: writer.job.clone(),
@@ -601,11 +605,18 @@ impl Writer {
             resumed: true,
             prior_copies,
             prior_dirs,
+            created_roots: Vec::new(),
         })
     }
 
     pub fn job_id(&self) -> &str {
         &self.job
+    }
+
+    /// The target folders apply created before this job began (D19),
+    /// outermost first: a caller that discards the job removes them.
+    pub fn created_roots(&self) -> &[PathBuf] {
+        &self.created_roots
     }
 
     /// The library root this job writes into.

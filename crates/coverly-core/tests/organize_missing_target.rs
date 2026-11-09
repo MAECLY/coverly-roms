@@ -224,3 +224,19 @@ fn an_old_header_without_created_roots_still_undoes() {
     assert!(root.is_dir(), "a root the job did not create is kept");
     assert!(jobs.join(format!("{job}.undone.jsonl")).is_file());
 }
+
+#[test]
+fn a_run_that_changes_nothing_leaves_no_created_target_behind() {
+    // The job is discarded when nothing moved (no entries): the folders
+    // created for it would otherwise stay as empty litter no undo reaches.
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, target, plan) = pile_into_missing_target(tmp.path());
+    fs::remove_file(pile.join("Tetris (World).gb")).unwrap();
+
+    let data = tmp.path().join("data");
+    let report = apply_in(&plan, &data);
+    assert_eq!(report.moved, 0, "{report:?}");
+    assert_eq!(report.job, None, "{report:?}");
+    assert!(!target.exists(), "{report:?}");
+    assert!(!tmp.path().join("new").exists(), "{report:?}");
+}
