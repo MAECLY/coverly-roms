@@ -374,6 +374,12 @@ fn scan_system(
         if crate::consoles::is_key_material(&entry.file_name().to_string_lossy()) {
             continue;
         }
+        // Firmware, shader caches and emulator configs are not games
+        // (game folders D18): by name and the folders below the system
+        // folder only, as the organise walk does.
+        if classify::not_a_game(entry.path().strip_prefix(dir).unwrap_or(entry.path())).is_some() {
+            continue;
+        }
         if is_rom_extension(&extension(entry.path()), system, opts) {
             candidates.push(entry.into_path());
         }
