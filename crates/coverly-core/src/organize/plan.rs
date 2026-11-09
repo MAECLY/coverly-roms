@@ -1449,6 +1449,7 @@ pub fn survey(
             probe: env.probe,
             max_depth: MAX_DEPTH,
             profile: Some(&profile),
+            cache: Some(env.cache),
         },
     )
     .map_err(|e| OrganizeError::Unreadable(source_abs.clone(), e.to_string()))?;
@@ -1463,6 +1464,12 @@ pub fn survey(
             }
         }
     }
+    // Every addon stays where it is, with the reason it would have if no
+    // game took it, until the plan's link pass places it (mods spec D7).
+    walked
+        .left
+        .extend(super::addons::unlinked_rows(&walked.addons));
+    walked.left.sort_by(|a, b| a.0.cmp(&b.0));
     progress(OrganizeProgress {
         phase: OrganizePhase::Walk,
         done: walked.candidates.len(),
@@ -3392,7 +3399,7 @@ fn identify_one(
 /// 10: system titles, emulator caches and configs, and the kinds, versions
 /// and regions game folders read (game folders spec D11, D14, D18).
 /// 11: addon verdicts (mods spec D10).
-const FACTS_VERSION: u32 = 11;
+pub(crate) const FACTS_VERSION: u32 = 11;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]

@@ -583,6 +583,48 @@ pub fn sniff_mod_dir_on_disk(path: &Path) -> io::Result<ModVerdict> {
     Ok(sniff_mod_dir(&view, &|rel| read_small(path, rel)))
 }
 
+/// What [`sniff_mod_dir`] would say of the folder at `path` with its key
+/// material left out of the view (names only, never opened): whether a
+/// folder [`sniff_mod_dir_on_disk`] calls [`ModVerdict::HoldsKeys`] is a
+/// mod at all. A walk leaves such a mod whole (D18) but walks any other
+/// folder holding a key as before, so the key is left on its own.
+pub fn is_mod_dir_without_keys(path: &Path) -> io::Result<bool> {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let parent_names: Vec<String> = path
+        .ancestors()
+        .skip(1)
+        .filter_map(Path::file_name)
+        .take(2)
+        .map(|n| n.to_string_lossy().into_owned())
+        .collect();
+    let parents: Vec<&str> = parent_names.iter().map(String::as_str).collect();
+    let keep = |list: Vec<(String, bool)>| -> Vec<(String, bool)> {
+        list.into_iter()
+            .filter(|(n, _)| !is_key_material(n))
+            .collect()
+    };
+    let entries = keep(list(path)?);
+    let mut children = Vec::new();
+    for (child, is_dir) in &entries {
+        if *is_dir {
+            children.push((child.clone(), keep(list(&path.join(child))?)));
+        }
+    }
+    let view = DirView {
+        name: &name,
+        parents: &parents,
+        entries: &entries,
+        children: &children,
+    };
+    Ok(matches!(
+        sniff_mod_dir(&view, &|rel| read_small(path, rel)),
+        ModVerdict::Mod { .. }
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

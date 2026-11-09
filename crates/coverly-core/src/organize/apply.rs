@@ -1610,6 +1610,7 @@ impl<'a> Run<'a> {
             probe: &OsMetaProbe,
             max_depth: 0,
             profile: None,
+            cache: None,
         };
         let tree = tree_summary(path, &opts);
         // A link or a cloud placeholder that appeared since the plan does

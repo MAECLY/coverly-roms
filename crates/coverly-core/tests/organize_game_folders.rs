@@ -165,12 +165,14 @@ fn a_pile_game_folder_gives_roles_and_leaves_its_content() {
             rows,
             vec![
                 ("Extras".into(), FixedFolder::Extras, "Pokemon Y".into()),
-                ("Mods".into(), FixedFolder::Mods, "Pokemon Y".into()),
                 ("Saves".into(), FixedFolder::Saves, "Pokemon Y".into()),
+                // A patch filed in `Mods/` is an addon of its game (mods
+                // spec D13), left with its folder's row until linked.
+                ("m.ips".into(), FixedFolder::Mods, "Pokemon Y".into()),
             ],
             "{layout}"
         );
-        for folder in ["Mods", "Saves", "Extras"] {
+        for folder in ["Saves", "Extras"] {
             assert!(!has_entry_below(&s, folder), "{layout}: inside {folder}");
         }
     }
