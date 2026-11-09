@@ -1547,6 +1547,41 @@ fn emulator_data_given_vs_not() {
 }
 
 #[test]
+fn an_emulator_data_folder_inside_the_target_shows_as_emulator_data() {
+    // A handheld card holds the ROMs and the emulator's own folder side
+    // by side: the data folder may sit below the target root. The preview
+    // still says the cheat goes to the emulator, not to the system folder.
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_with_addons(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let cheat = format!("{MON_ID}.txt");
+    let mut opts = place_options("esde", &lib);
+    opts.emulator_data
+        .insert(EmulatorId::Azahar, lib.join("emu").join("azahar"));
+    let plan = plan_in(&pile, &opts);
+    let c = item(&plan, &cheat);
+    assert_eq!(c.action, OrganizeAction::Auto, "{c:?}");
+    assert_eq!(
+        parts(&lib.join(c.target.as_deref().unwrap())),
+        parts(&lib.join("emu").join("azahar").join("cheats").join(&cheat))
+    );
+    let view = plan
+        .translated
+        .iter()
+        .find(|v| v.system == "3ds")
+        .expect("a 3DS view");
+    assert!(
+        view.placements.iter().any(|pl| pl.to
+            == PlacementTo::EmulatorData {
+                path: ["cheats", cheat.as_str()].iter().collect()
+            }),
+        "{:?}",
+        view.placements
+    );
+}
+
+#[test]
 fn none_returns_the_master_layout() {
     // Game folders on: the master puts the cheat and the mod in the game
     // folder. `none` never sends them to the emulator, even when the run

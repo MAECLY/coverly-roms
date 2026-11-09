@@ -1008,12 +1008,12 @@ fn shown_place(
     let Some(target) = item.target.as_ref().filter(|_| item.moves_in()) else {
         return PlacementTo::Library;
     };
-    if target.is_absolute() {
-        if let Some(path) = roots.values().find_map(|r| below(target, &r.path)) {
-            return PlacementTo::EmulatorData { path };
-        }
-    }
+    // An emulator data folder may sit outside the target root (an
+    // absolute target) or below it (a handheld card holding both).
     let abs = layout.target_root.join(target);
+    if let Some(path) = roots.values().find_map(|r| below(&abs, &r.path)) {
+        return PlacementTo::EmulatorData { path };
+    }
     match below(&abs, system_dir) {
         Some(path) => PlacementTo::System { path },
         None => PlacementTo::System {
