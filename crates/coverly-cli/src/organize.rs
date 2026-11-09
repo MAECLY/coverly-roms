@@ -1447,6 +1447,14 @@ fn item_extras(item: &OrganizeItem) -> String {
     if !item.companions.is_empty() {
         extras.push(format!("with {} companion file(s)", item.companions.len()));
     }
+    for licence in item.companions.iter().filter(|c| c.licence) {
+        let name = licence
+            .source
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| slash(&licence.source));
+        extras.push(format!("licence {name} goes with it"));
+    }
     if extras.is_empty() {
         String::new()
     } else {
@@ -1668,6 +1676,32 @@ fn skip_text(r: SkipReason) -> &'static str {
     }
 }
 
+/// The items that really stay where they are: every left item except a
+/// licence that moves with its game (mods/cheats spec D22), which its
+/// game's row names instead.
+fn staying(plan: &OrganizePlan) -> Vec<(&OrganizeItem, &LeftReason)> {
+    let moving_licences: Vec<&Path> = plan
+        .items
+        .iter()
+        .filter(|i| (i.action == OrganizeAction::Auto && i.target.is_some()) || i.is_set_aside())
+        .flat_map(|i| &i.companions)
+        .filter(|c| c.licence)
+        .map(|c| c.source.as_path())
+        .collect();
+    plan.items
+        .iter()
+        .filter_map(|i| match &i.action {
+            OrganizeAction::Left { reason } => Some((i, reason)),
+            _ => None,
+        })
+        .filter(|(i, _)| {
+            i.sources
+                .first()
+                .is_none_or(|s| !moving_licences.contains(&s.as_path()))
+        })
+        .collect()
+}
+
 fn render_table(
     plan: &OrganizePlan,
     db: &SystemDb,
@@ -1785,14 +1819,7 @@ fn render_table(
         }
     }
 
-    let left: Vec<(&OrganizeItem, &LeftReason)> = plan
-        .items
-        .iter()
-        .filter_map(|i| match &i.action {
-            OrganizeAction::Left { reason } => Some((i, reason)),
-            _ => None,
-        })
-        .collect();
+    let left = staying(plan);
     if !left.is_empty() {
         let _ = writeln!(out, "\nStaying where they are ({})", left.len());
         for (item, reason) in left {
@@ -2469,6 +2496,130 @@ mod tests {
             }),
             "12.0 GB will be written to the target; you will be asked to confirm"
         );
+    }
+
+    fn test_item(id: usize, name: &str) -> OrganizeItem {
+        OrganizeItem {
+            id,
+            sources: vec![name.into()],
+            kind: ItemKind::File,
+            size: 1,
+            fps: Vec::new(),
+            target: None,
+            set_targets: Vec::new(),
+            system_id: None,
+            folder: None,
+            confidence: 0.95,
+            method: None,
+            why: Vec::new(),
+            alternatives: Vec::new(),
+            rename: None,
+            notes: Vec::new(),
+            companions: Vec::new(),
+            catalogue_name: None,
+            transfer: Transfer::AsIs,
+            disc: None,
+            title_id: None,
+            content_id: None,
+            playlist: None,
+            title_source: None,
+            game: None,
+            action: OrganizeAction::Auto,
+        }
+    }
+
+    fn plan_with_items(items: Vec<OrganizeItem>) -> OrganizePlan {
+        OrganizePlan {
+            source_root: PathBuf::from("pile"),
+            target_root: PathBuf::from("lib"),
+            roms_dir: PathBuf::from("lib"),
+            layout: "coverly-library".into(),
+            mode: TransferMode::Move,
+            names: NameMode::Keep,
+            items,
+            counts: Default::default(),
+            sorted_folders: Vec::new(),
+            deep_folders: Vec::new(),
+            other_files: Vec::new(),
+            warnings: Vec::new(),
+            broad_root: false,
+            fat32: false,
+            move_allowed: true,
+            target_detected: None,
+            created_at: String::new(),
+            duplicates: Vec::new(),
+            set_aside_trash: false,
+            updates: 0,
+            integration_notices: Vec::new(),
+            target_anchor: None,
+        }
+    }
+
+    #[test]
+    fn a_licence_that_moves_with_its_game_is_not_staying() {
+        use coverly_core::organize::Companion;
+        let p = std::path::Path::new;
+        let mut game = test_item(0, "Resistance.pkg");
+        game.action = OrganizeAction::Auto;
+        game.target = Some(p("PS3").join("Resistance").join("Resistance.pkg"));
+        game.companions.push(Companion {
+            source: p("BLUS30001.rap").into(),
+            target: p("PS3").join("Resistance").join("BLUS30001.rap"),
+            licence: true,
+        });
+        let mut rap = test_item(1, "BLUS30001.rap");
+        rap.action = OrganizeAction::Left {
+            reason: LeftReason::LicenceOf {
+                of: p("Resistance.pkg").into(),
+            },
+        };
+        let mut key = test_item(2, "prod.keys");
+        key.action = OrganizeAction::Left {
+            reason: LeftReason::KeyMaterial,
+        };
+        let plan = plan_with_items(vec![game, rap, key]);
+        let names: Vec<String> = staying(&plan)
+            .iter()
+            .map(|(i, _)| source_label(i))
+            .collect();
+        assert_eq!(names, vec!["prod.keys".to_string()]);
+        let table = render_table(
+            &plan,
+            &SystemDb::builtin(),
+            &OrganizeOptions::default(),
+            true,
+        );
+        assert!(
+            table.contains("licence BLUS30001.rap goes with it"),
+            "{table}"
+        );
+        assert!(table.contains("Staying where they are (1)"), "{table}");
+        assert!(!table.contains("licence of Resistance.pkg"), "{table}");
+    }
+
+    #[test]
+    fn a_licence_whose_game_stays_is_still_listed_as_staying() {
+        use coverly_core::organize::Companion;
+        let p = std::path::Path::new;
+        let mut game = test_item(0, "Resistance.pkg");
+        game.action = OrganizeAction::Review;
+        game.companions.push(Companion {
+            source: p("BLUS30001.rap").into(),
+            target: p("PS3").join("Resistance").join("BLUS30001.rap"),
+            licence: true,
+        });
+        let mut rap = test_item(1, "BLUS30001.rap");
+        rap.action = OrganizeAction::Left {
+            reason: LeftReason::LicenceOf {
+                of: p("Resistance.pkg").into(),
+            },
+        };
+        let plan = plan_with_items(vec![game, rap]);
+        let names: Vec<String> = staying(&plan)
+            .iter()
+            .map(|(i, _)| source_label(i))
+            .collect();
+        assert_eq!(names, vec!["BLUS30001.rap".to_string()]);
     }
 
     #[test]
