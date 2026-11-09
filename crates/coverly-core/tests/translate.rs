@@ -326,9 +326,8 @@ fn es_de_dir_as_game_names_the_folder_after_the_base_file() {
 
 #[test]
 fn dir_as_game_also_follows_an_emulator_translator() {
-    // The frontend pass runs after the emulator's: with no translator
-    // rules yet the emulator keeps the master layout and the folder is
-    // still named after the base file.
+    // The frontend pass runs after the emulator's: RPCS3 keeps the base
+    // in its game folder, and that folder is named after the base file.
     let g = fixtures::game_pkg();
     let t = translate(
         &g,
@@ -419,4 +418,706 @@ fn retroarch_covers_every_retro_system_of_the_database() {
         );
     }
     assert_eq!(EmulatorId::RetroArch.systems(), RETROARCH_SYSTEMS);
+}
+
+// Translators (D15): shadPS4, RPCS3, Azahar, Cemu and Vita3K. One table
+// per translator; every path by component.
+
+mod emulators {
+    use super::fixtures::{addon, entry};
+    use super::*;
+    use coverly_core::addons::{AddonKind, HeaderFit};
+    use coverly_core::translate::{NotSupportedWhy, TranslateNote};
+
+    pub fn full(e: EmulatorId) -> TranslateTarget {
+        target(Some(e), FrontendMode::Plain, false, TranslateScope::Full)
+    }
+
+    pub fn conservative(e: EmulatorId) -> TranslateTarget {
+        target(
+            Some(e),
+            FrontendMode::Plain,
+            false,
+            TranslateScope::Conservative,
+        )
+    }
+
+    pub fn emu(emulator: EmulatorId, parts: &[&str]) -> Destination {
+        Destination::EmulatorData {
+            emulator,
+            path: pb(parts),
+        }
+    }
+
+    pub fn tid(id: &str) -> AddonKey {
+        AddonKey::TitleId { id: id.into() }
+    }
+
+    fn versioned(path: &[&str], form: EntryForm, version: &str, newest: bool) -> MasterEntry {
+        MasterEntry {
+            version: Some(version.into()),
+            newest,
+            ..entry(path, form == EntryForm::Extracted, form)
+        }
+    }
+
+    /// A PS4 folder game: base `CUSA00900/`, two extracted updates
+    /// (v1.09 newest), one extracted DLC, the `-mods` overlay, a cheat
+    /// and an XML patch.
+    pub fn bloodborne() -> MasterGame {
+        let t = "Bloodborne";
+        MasterGame {
+            system: "ps4".into(),
+            title: t.into(),
+            ids: GameIds {
+                title_id: Some("CUSA00900".into()),
+                serial: None,
+                game_id: None,
+            },
+            base: entry(&[t, "CUSA00900"], true, EntryForm::Extracted),
+            updates: vec![
+                versioned(
+                    &[t, "Updates", "v1.09"],
+                    EntryForm::Extracted,
+                    "01.09",
+                    true,
+                ),
+                versioned(
+                    &[t, "Updates", "v1.08"],
+                    EntryForm::Extracted,
+                    "01.08",
+                    false,
+                ),
+            ],
+            dlc: vec![entry(&[t, "DLC", "dlc"], true, EntryForm::Extracted)],
+            mods: vec![addon(
+                &[t, "Mods", "CUSA00900-mods"],
+                true,
+                AddonFormat::Shadps4Mods,
+                tid("CUSA00900"),
+            )],
+            cheats: vec![
+                addon(
+                    &[t, "Cheats", "CUSA00900_01.09.json"],
+                    false,
+                    AddonFormat::Shadps4Cheat,
+                    AddonKey::SerialVersion {
+                        serial: "CUSA00900".into(),
+                        version: "01.09".into(),
+                    },
+                ),
+                addon(
+                    &[t, "Cheats", "Bloodborne.xml"],
+                    false,
+                    AddonFormat::Shadps4Patch,
+                    tid("CUSA00900"),
+                ),
+            ],
+            taken_in_emulator: vec![],
+        }
+    }
+
+    /// The same game as packages: nothing extracted.
+    pub fn bloodborne_pkg() -> MasterGame {
+        let t = "Bloodborne";
+        MasterGame {
+            base: entry(&[t, "Bloodborne.pkg"], false, EntryForm::Package),
+            updates: vec![versioned(
+                &[t, "Updates", "Bloodborne (v1.09).pkg"],
+                EntryForm::Package,
+                "01.09",
+                true,
+            )],
+            dlc: vec![entry(
+                &[t, "DLC", "Bloodborne (The Old Hunters).pkg"],
+                false,
+                EntryForm::Package,
+            )],
+            mods: vec![],
+            cheats: vec![],
+            ..bloodborne()
+        }
+    }
+
+    /// A PS3 game: folder base, a package update and DLC, a mod folder,
+    /// a per-title patch file and an xdelta translation.
+    pub fn demons_souls() -> MasterGame {
+        let t = "Demon's Souls (USA)";
+        MasterGame {
+            system: "ps3".into(),
+            title: t.into(),
+            ids: GameIds {
+                title_id: Some("BLUS30443".into()),
+                serial: Some("BLUS-30443".into()),
+                game_id: None,
+            },
+            base: entry(&[t, "Demon's Souls (USA)"], true, EntryForm::Extracted),
+            updates: vec![versioned(
+                &[t, "Updates", "BLUS30443 (v1.04).pkg"],
+                EntryForm::Package,
+                "01.04",
+                true,
+            )],
+            dlc: vec![entry(
+                &[t, "DLC", "BLUS30443 (Pack).pkg"],
+                false,
+                EntryForm::Package,
+            )],
+            mods: vec![
+                addon(
+                    &[t, "Mods", "USRDIR mod"],
+                    true,
+                    AddonFormat::TexturePack,
+                    tid("BLUS30443"),
+                ),
+                addon(
+                    &[t, "Mods", "eboot fix.xdelta"],
+                    false,
+                    AddonFormat::Xdelta,
+                    AddonKey::None,
+                ),
+            ],
+            cheats: vec![addon(
+                &[t, "Cheats", "BLUS30443_patch.yml"],
+                false,
+                AddonFormat::Rpcs3Patch,
+                tid("BLUS30443"),
+            )],
+            taken_in_emulator: vec![],
+        }
+    }
+
+    /// A 3DS game: base, update and DLC packages, a LayeredFS mod, a
+    /// texture pack and a cheat file.
+    pub fn pokemon_y_full() -> MasterGame {
+        let mut g = super::fixtures::pokemon_y();
+        let t = g.title.clone();
+        g.dlc = vec![entry(
+            &[&t, "DLC", "Pokemon Y (World) (DLC).cia"],
+            false,
+            EntryForm::Package,
+        )];
+        g.mods.push(addon(
+            &[&t, "Mods", "HD textures"],
+            true,
+            AddonFormat::TexturePack,
+            tid("0004000000055D00"),
+        ));
+        g
+    }
+
+    /// A Wii U game: base, update and DLC packages, a graphic pack mod
+    /// and a graphic pack cheat.
+    pub fn botw() -> MasterGame {
+        let t = "Zelda BotW (USA)";
+        let mut cheat = addon(
+            &[t, "Cheats", "BotW_InfiniteStamina"],
+            true,
+            AddonFormat::CemuGraphicPack,
+            AddonKey::TitleIds {
+                ids: vec!["00050000101C9400".into()],
+            },
+        );
+        cheat.kind = AddonKind::Cheat;
+        MasterGame {
+            system: "wiiu".into(),
+            title: t.into(),
+            ids: GameIds {
+                title_id: Some("00050000101C9400".into()),
+                serial: None,
+                game_id: None,
+            },
+            base: entry(&[t, "Zelda BotW (USA).wua"], false, EntryForm::Package),
+            updates: vec![versioned(
+                &[t, "Updates", "Zelda BotW (USA) (v208)"],
+                EntryForm::Extracted,
+                "208",
+                true,
+            )],
+            dlc: vec![entry(
+                &[t, "DLC", "Zelda BotW (USA) (DLC)"],
+                true,
+                EntryForm::Extracted,
+            )],
+            mods: vec![
+                addon(
+                    &[t, "Mods", "BotW_FPS++"],
+                    true,
+                    AddonFormat::CemuGraphicPack,
+                    AddonKey::TitleIds {
+                        ids: vec!["00050000101C9400".into()],
+                    },
+                ),
+                addon(
+                    &[t, "Mods", "Zelda (Translation).xdelta"],
+                    false,
+                    AddonFormat::Xdelta,
+                    AddonKey::None,
+                ),
+            ],
+            cheats: vec![cheat],
+            taken_in_emulator: vec![],
+        }
+    }
+
+    /// A Vita game: base, update and DLC packages, a rePatch mod and a
+    /// Vita3K patch.
+    pub fn persona4() -> MasterGame {
+        let t = "Persona 4 Golden (USA)";
+        MasterGame {
+            system: "psvita".into(),
+            title: t.into(),
+            ids: GameIds {
+                title_id: Some("PCSE00120".into()),
+                serial: None,
+                game_id: None,
+            },
+            base: entry(
+                &[t, "Persona 4 Golden (USA).vpk"],
+                false,
+                EntryForm::Package,
+            ),
+            updates: vec![versioned(
+                &[t, "Updates", "PCSE00120 (v1.01).pkg"],
+                EntryForm::Package,
+                "01.01",
+                true,
+            )],
+            dlc: vec![entry(
+                &[t, "DLC", "PCSE00120 (Costume).pkg"],
+                false,
+                EntryForm::Package,
+            )],
+            mods: vec![addon(
+                &[t, "Mods", "PCSE00120"],
+                true,
+                AddonFormat::VitaRepatch,
+                tid("PCSE00120"),
+            )],
+            cheats: vec![addon(
+                &[t, "Cheats", "PCSE00120_60FPS.txt"],
+                false,
+                AddonFormat::Vita3kPatch,
+                tid("PCSE00120"),
+            )],
+            taken_in_emulator: vec![],
+        }
+    }
+
+    /// Base, update and DLC placements of `t` equal the master layout's
+    /// (Conservative never moves them).
+    pub fn games_as_master(g: &MasterGame, t: &TranslatedGame) {
+        let master = master_layout(g);
+        let paths: Vec<&PathBuf> = std::iter::once(&g.base.path)
+            .chain(g.updates.iter().map(|e| &e.path))
+            .chain(g.dlc.iter().map(|e| &e.path))
+            .collect();
+        for from in paths {
+            let want = master.entries.iter().find(|p| &p.from == from).unwrap();
+            let got = t.entries.iter().find(|p| &p.from == from).unwrap();
+            assert_eq!(got.to, want.to, "{}", from.display());
+        }
+    }
+
+    /// One placement per master entry, in the master order.
+    pub fn same_entries(g: &MasterGame, t: &TranslatedGame) {
+        let master = master_layout(g);
+        let want: Vec<&Path> = master.entries.iter().map(|p| p.from.as_path()).collect();
+        let got: Vec<&Path> = t.entries.iter().map(|p| p.from.as_path()).collect();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn shadps4() {
+        let e = EmulatorId::Shadps4;
+        let g = bloodborne();
+        let t = translate(&g, &full(e));
+        same_entries(&g, &t);
+        assert_eq!(
+            dest(&t, "CUSA00900"),
+            Destination::System(pb(&["CUSA00900"]))
+        );
+        assert_eq!(placement(&t, "CUSA00900").note, None);
+        assert_eq!(
+            dest(&t, "v1.09"),
+            Destination::System(pb(&["CUSA00900-UPDATE"]))
+        );
+        assert_eq!(placement(&t, "v1.09").note, None);
+        assert_eq!(placement(&t, "v1.08").to, Destination::Library);
+        assert_eq!(
+            placement(&t, "v1.08").note,
+            Some(TranslateNote::NotSupported {
+                emulator: e,
+                why: NotSupportedWhy::OlderUpdate
+            })
+        );
+        assert_eq!(
+            dest(&t, "dlc"),
+            Destination::System(pb(&["addcont", "CUSA00900", "dlc"]))
+        );
+        assert_eq!(
+            placement(&t, "dlc").note,
+            Some(TranslateNote::PointEmulatorHere {
+                emulator: e,
+                folder: pb(&["addcont"])
+            })
+        );
+        assert_eq!(
+            dest(&t, "CUSA00900-mods"),
+            Destination::System(pb(&["CUSA00900-mods"]))
+        );
+        assert_eq!(
+            dest(&t, "CUSA00900_01.09.json"),
+            emu(e, &["cheats", "CUSA00900_01.09.json"])
+        );
+        assert_eq!(
+            dest(&t, "Bloodborne.xml"),
+            emu(e, &["patches", "Bloodborne.xml"])
+        );
+
+        // With game folders on, the base and its overlays stay together
+        // in the game folder; DLC keeps the system-level `addcont`.
+        let mut folders = full(e);
+        folders.game_folders = true;
+        let t = translate(&g, &folders);
+        assert_eq!(
+            dest(&t, "CUSA00900"),
+            Destination::System(pb(&["Bloodborne", "CUSA00900"]))
+        );
+        assert_eq!(
+            dest(&t, "v1.09"),
+            Destination::System(pb(&["Bloodborne", "CUSA00900-UPDATE"]))
+        );
+        assert_eq!(
+            dest(&t, "CUSA00900-mods"),
+            Destination::System(pb(&["Bloodborne", "CUSA00900-mods"]))
+        );
+        assert_eq!(
+            dest(&t, "dlc"),
+            Destination::System(pb(&["addcont", "CUSA00900", "dlc"]))
+        );
+
+        // An update already named `-patch` keeps that name.
+        let mut patch = bloodborne();
+        patch.updates[0].path = pb(&["Bloodborne", "Updates", "CUSA00900-patch"]);
+        let t = translate(&patch, &full(e));
+        assert_eq!(
+            dest(&t, "CUSA00900-patch"),
+            Destination::System(pb(&["CUSA00900-patch"]))
+        );
+
+        // Packages: ExtractFirst, left in the library; never extracted.
+        let g = bloodborne_pkg();
+        let t = translate(&g, &full(e));
+        for name in [
+            "Bloodborne.pkg",
+            "Bloodborne (v1.09).pkg",
+            "Bloodborne (The Old Hunters).pkg",
+        ] {
+            assert_eq!(placement(&t, name).to, Destination::Library, "{name}");
+            assert_eq!(
+                placement(&t, name).note,
+                Some(TranslateNote::ExtractFirst),
+                "{name}"
+            );
+        }
+
+        // An extracted update of a package base has no folder to sit
+        // beside: the base has to be extracted first.
+        let mut mixed = bloodborne();
+        mixed.base = entry(&["Bloodborne", "Bloodborne.pkg"], false, EntryForm::Package);
+        let t = translate(&mixed, &full(e));
+        assert_eq!(placement(&t, "v1.09").to, Destination::Library);
+        assert_eq!(
+            placement(&t, "v1.09").note,
+            Some(TranslateNote::ExtractFirst)
+        );
+        assert_eq!(placement(&t, "CUSA00900-mods").to, Destination::Library);
+        // DLC only needs the title id.
+        assert_eq!(
+            dest(&t, "dlc"),
+            Destination::System(pb(&["addcont", "CUSA00900", "dlc"]))
+        );
+
+        // Conservative: base, update and DLC exactly as the master; the
+        // overlay is not placed; cheats and patches still are.
+        let g = bloodborne();
+        let t = translate(&g, &conservative(e));
+        same_entries(&g, &t);
+        games_as_master(&g, &t);
+        assert_eq!(placement(&t, "dlc").note, None);
+        assert_eq!(placement(&t, "v1.08").note, None);
+        assert_eq!(placement(&t, "CUSA00900-mods").to, Destination::Library);
+        assert_eq!(
+            dest(&t, "CUSA00900_01.09.json"),
+            emu(e, &["cheats", "CUSA00900_01.09.json"])
+        );
+        let t = translate(&bloodborne_pkg(), &conservative(e));
+        assert_eq!(
+            placement(&t, "Bloodborne.pkg").note,
+            Some(TranslateNote::ExtractFirst)
+        );
+    }
+
+    #[test]
+    fn shadps4_without_a_valid_title_id_leaves_dlc_in_the_library() {
+        let mut g = bloodborne();
+        g.ids.title_id = Some("../x".into());
+        let t = translate(&g, &full(EmulatorId::Shadps4));
+        assert_eq!(placement(&t, "dlc").to, Destination::Library);
+        assert_eq!(placement(&t, "dlc").note, None);
+    }
+
+    #[test]
+    fn shadps4_places_one_overlay_only() {
+        let mut g = bloodborne();
+        g.mods.push(addon(
+            &["Bloodborne", "Mods", "Other mod"],
+            true,
+            AddonFormat::Shadps4Mods,
+            tid("CUSA00900"),
+        ));
+        let t = translate(&g, &full(EmulatorId::Shadps4));
+        assert_eq!(placement(&t, "CUSA00900-mods").to, Destination::Library);
+        assert_eq!(placement(&t, "Other mod").to, Destination::Library);
+    }
+
+    #[test]
+    fn rpcs3() {
+        let e = EmulatorId::Rpcs3;
+        let g = demons_souls();
+        let t = translate(&g, &full(e));
+        same_entries(&g, &t);
+        assert_eq!(
+            dest(&t, "Demon's Souls (USA)"),
+            Destination::System(pb(&["Demon's Souls (USA)"]))
+        );
+        assert_eq!(placement(&t, "Demon's Souls (USA)").note, None);
+        for name in ["BLUS30443 (v1.04).pkg", "BLUS30443 (Pack).pkg"] {
+            assert_eq!(placement(&t, name).to, Destination::Library, "{name}");
+            assert_eq!(
+                placement(&t, name).note,
+                Some(TranslateNote::InstallInEmulator { emulator: e }),
+                "{name}"
+            );
+        }
+        assert_eq!(placement(&t, "USRDIR mod").to, Destination::Library);
+        assert_eq!(
+            placement(&t, "USRDIR mod").note,
+            Some(TranslateNote::NotSupported {
+                emulator: e,
+                why: NotSupportedWhy::Rpcs3Mods
+            })
+        );
+        assert_eq!(placement(&t, "eboot fix.xdelta").to, Destination::Library);
+        assert_eq!(placement(&t, "eboot fix.xdelta").note, None);
+        assert_eq!(
+            dest(&t, "BLUS30443_patch.yml"),
+            emu(e, &["patches", "BLUS30443_patch.yml"])
+        );
+
+        // RPCS3's own patch files are never written over.
+        for own in ["patch.yml", "imported_patch.yml", "cheats.yml"] {
+            let mut g = demons_souls();
+            g.cheats[0].path = pb(&[&g.title.clone(), "Cheats", own]);
+            let t = translate(&g, &full(e));
+            assert_eq!(placement(&t, own).to, Destination::Library, "{own}");
+        }
+
+        // A patch file the emulator folder already has stays.
+        let mut g = demons_souls();
+        g.taken_in_emulator = vec![pb(&["patches", "BLUS30443_patch.yml"])];
+        let t = translate(&g, &full(e));
+        assert_eq!(
+            placement(&t, "BLUS30443_patch.yml").to,
+            Destination::Library
+        );
+        assert_eq!(
+            placement(&t, "BLUS30443_patch.yml").note,
+            Some(TranslateNote::NotSupported {
+                emulator: e,
+                why: NotSupportedWhy::ConfigExists
+            })
+        );
+
+        // Game folders on: the base stays in its game folder.
+        let mut folders = full(e);
+        folders.game_folders = true;
+        let t = translate(&demons_souls(), &folders);
+        assert_eq!(
+            dest(&t, "Demon's Souls (USA)"),
+            Destination::System(pb(&["Demon's Souls (USA)", "Demon's Souls (USA)"]))
+        );
+
+        // Conservative: as the master, with the install note.
+        let g = demons_souls();
+        let t = translate(&g, &conservative(e));
+        games_as_master(&g, &t);
+        assert_eq!(
+            placement(&t, "BLUS30443 (v1.04).pkg").note,
+            Some(TranslateNote::InstallInEmulator { emulator: e })
+        );
+        assert_eq!(
+            dest(&t, "BLUS30443_patch.yml"),
+            emu(e, &["patches", "BLUS30443_patch.yml"])
+        );
+    }
+
+    #[test]
+    fn azahar() {
+        let e = EmulatorId::Azahar;
+        let g = pokemon_y_full();
+        let t = translate(&g, &full(e));
+        same_entries(&g, &t);
+        assert_eq!(
+            dest(&t, "Pokemon Y (World).cia"),
+            Destination::System(pb(&["Pokemon Y (World).cia"]))
+        );
+        for name in [
+            "Pokemon Y (World) (v1.4).cia",
+            "Pokemon Y (World) (DLC).cia",
+        ] {
+            assert_eq!(placement(&t, name).to, Destination::Library, "{name}");
+            assert_eq!(
+                placement(&t, name).note,
+                Some(TranslateNote::InstallInEmulator { emulator: e }),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            dest(&t, "0004000000055D00"),
+            emu(e, &["load", "mods", "0004000000055D00"])
+        );
+        assert_eq!(
+            dest(&t, "HD textures"),
+            emu(e, &["load", "textures", "0004000000055D00"])
+        );
+        assert_eq!(
+            dest(&t, "0004000000055D00.txt"),
+            emu(e, &["cheats", "0004000000055D00.txt"])
+        );
+
+        // A mod keyed by nothing uses the game's title id; a crafted one
+        // is never a path.
+        let mut g = pokemon_y_full();
+        g.mods[0].key = AddonKey::None;
+        let t = translate(&g, &full(e));
+        assert_eq!(
+            dest(&t, "0004000000055D00"),
+            emu(e, &["load", "mods", "0004000000055D00"])
+        );
+        let mut g = pokemon_y_full();
+        g.mods[0].key = tid("../../x");
+        g.ids.title_id = None;
+        let t = translate(&g, &full(e));
+        assert_eq!(placement(&t, "0004000000055D00").to, Destination::Library);
+        assert_eq!(placement(&t, "0004000000055D00").note, None);
+
+        // Conservative: games as the master, addons still placed.
+        let g = pokemon_y_full();
+        let t = translate(&g, &conservative(e));
+        games_as_master(&g, &t);
+        assert_eq!(
+            placement(&t, "Pokemon Y (World) (v1.4).cia").note,
+            Some(TranslateNote::InstallInEmulator { emulator: e })
+        );
+        assert_eq!(
+            dest(&t, "HD textures"),
+            emu(e, &["load", "textures", "0004000000055D00"])
+        );
+    }
+
+    #[test]
+    fn cemu() {
+        let e = EmulatorId::Cemu;
+        let g = botw();
+        let t = translate(&g, &full(e));
+        same_entries(&g, &t);
+        assert_eq!(
+            dest(&t, "Zelda BotW (USA).wua"),
+            Destination::System(pb(&["Zelda BotW (USA).wua"]))
+        );
+        for name in ["Zelda BotW (USA) (v208)", "Zelda BotW (USA) (DLC)"] {
+            assert_eq!(placement(&t, name).to, Destination::Library, "{name}");
+            assert_eq!(
+                placement(&t, name).note,
+                Some(TranslateNote::InstallInEmulator { emulator: e }),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            dest(&t, "BotW_FPS++"),
+            emu(e, &["graphicPacks", "BotW_FPS++"])
+        );
+        assert_eq!(
+            dest(&t, "BotW_InfiniteStamina"),
+            emu(e, &["graphicPacks", "BotW_InfiniteStamina"])
+        );
+        assert_eq!(
+            placement(&t, "Zelda (Translation).xdelta").to,
+            Destination::Library
+        );
+
+        // A graphic pack that is a file (a zip) is not a pack folder.
+        let mut g = botw();
+        g.mods[0].is_dir = false;
+        let t = translate(&g, &full(e));
+        assert_eq!(placement(&t, "BotW_FPS++").to, Destination::Library);
+    }
+
+    #[test]
+    fn vita3k() {
+        let e = EmulatorId::Vita3k;
+        let g = persona4();
+        let t = translate(&g, &full(e));
+        same_entries(&g, &t);
+        assert_eq!(
+            dest(&t, "Persona 4 Golden (USA).vpk"),
+            Destination::System(pb(&["Persona 4 Golden (USA).vpk"]))
+        );
+        for name in ["PCSE00120 (v1.01).pkg", "PCSE00120 (Costume).pkg"] {
+            assert_eq!(placement(&t, name).to, Destination::Library, "{name}");
+            assert_eq!(
+                placement(&t, name).note,
+                Some(TranslateNote::InstallInEmulator { emulator: e }),
+                "{name}"
+            );
+        }
+        assert_eq!(placement(&t, "PCSE00120").to, Destination::Library);
+        assert_eq!(
+            placement(&t, "PCSE00120").note,
+            Some(TranslateNote::NotSupported {
+                emulator: e,
+                why: NotSupportedWhy::VitaRepatch
+            })
+        );
+        assert_eq!(
+            dest(&t, "PCSE00120_60FPS.txt"),
+            emu(e, &["patch", "PCSE00120_60FPS.txt"])
+        );
+
+        // The global patch list is never written over.
+        let mut g = persona4();
+        g.cheats[0].path = pb(&[&g.title.clone(), "Cheats", "patchlist.txt"]);
+        let t = translate(&g, &full(e));
+        assert_eq!(placement(&t, "patchlist.txt").to, Destination::Library);
+    }
+
+    #[test]
+    fn a_header_note_is_never_invented_by_these_translators() {
+        // Header fit is a retro-ROM concern (RetroArch, Task 16).
+        let mut g = demons_souls();
+        g.mods[1].header = Some(HeaderFit::NeedsHeaderless);
+        let t = translate(&g, &full(EmulatorId::Rpcs3));
+        assert_eq!(placement(&t, "eboot fix.xdelta").note, None);
+    }
+
+    #[test]
+    fn crafted_names_never_become_emulator_paths() {
+        // A cheat whose name is not one safe component stays.
+        let mut g = bloodborne();
+        g.cheats[0].path = pb(&["Bloodborne", "Cheats", "CON"]);
+        let t = translate(&g, &full(EmulatorId::Shadps4));
+        assert_eq!(placement(&t, "CON").to, Destination::Library);
+    }
 }

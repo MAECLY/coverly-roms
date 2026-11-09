@@ -19,10 +19,17 @@ use std::path::{Component, Path, PathBuf};
 use serde::de::{self, Deserializer, IntoDeserializer};
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::addons::{one_component, AddonFormat, AddonKey, AddonKind, HeaderFit};
+use crate::addons::{
+    one_component, valid_sony_serial, valid_title_id16, AddonFormat, AddonKey, AddonKind, HeaderFit,
+};
 use crate::game_folder::FixedFolder;
 
+mod azahar;
+mod cemu;
 mod frontend;
+mod rpcs3;
+mod shadps4;
+mod vita3k;
 
 /// Systems a dedicated emulator runs that RetroArch is never the default
 /// for (D16): the sixth generation on and every modern console.
@@ -526,21 +533,23 @@ pub fn translate(game: &MasterGame, to: &TranslateTarget) -> TranslatedGame {
 
 /// One emulator's layout. An emulator that does not run the game's
 /// system, or whose translator has no rules yet, keeps the master layout.
+/// Every translator lays out the full scope; [`conservative`] then takes
+/// back what a profile default may not do (D16).
 fn emulator_layout(
     emulator: EmulatorId,
     game: &MasterGame,
-    _to: &TranslateTarget,
+    to: &TranslateTarget,
 ) -> TranslatedGame {
     if !emulator.systems().contains(&game.system.as_str()) {
         return master_layout(game);
     }
-    match emulator {
-        EmulatorId::Shadps4
-        | EmulatorId::Rpcs3
-        | EmulatorId::Azahar
-        | EmulatorId::Cemu
-        | EmulatorId::Vita3k
-        | EmulatorId::Ryujinx
+    let laid = match emulator {
+        EmulatorId::Shadps4 => shadps4::translate(game, to),
+        EmulatorId::Rpcs3 => rpcs3::translate(game, to),
+        EmulatorId::Azahar => azahar::translate(game, to),
+        EmulatorId::Cemu => cemu::translate(game, to),
+        EmulatorId::Vita3k => vita3k::translate(game, to),
+        EmulatorId::Ryujinx
         | EmulatorId::YuzuFamily
         | EmulatorId::RetroArch
         | EmulatorId::DuckStation
@@ -549,8 +558,180 @@ fn emulator_layout(
         | EmulatorId::Ppsspp
         | EmulatorId::Xenia
         | EmulatorId::Flycast
-        | EmulatorId::Mesen => master_layout(game),
+        | EmulatorId::Mesen => return master_layout(game),
+    };
+    match to.scope {
+        TranslateScope::Full => laid,
+        TranslateScope::Conservative => conservative(game, laid),
     }
+}
+
+/// What a profile default may do (D16, Q11): a base, update or DLC goes
+/// exactly where the master layout puts it, keeping only the notes that
+/// say what the user has to do (`InstallInEmulator`, `ExtractFirst`); an
+/// addon is placed only in the emulator's data folder, never beside the
+/// game (that would change how the game boots).
+fn conservative(game: &MasterGame, laid: TranslatedGame) -> TranslatedGame {
+    let master = master_layout(game);
+    let is_game = |from: &Path| {
+        from == game.base.path || game.updates.iter().chain(&game.dlc).any(|e| e.path == from)
+    };
+    let entries = laid
+        .entries
+        .into_iter()
+        .map(|p| {
+            if is_game(&p.from) {
+                let to = master
+                    .entries
+                    .iter()
+                    .find(|m| m.from == p.from)
+                    .map_or(Destination::Library, |m| m.to.clone());
+                let note = p.note.filter(|n| {
+                    matches!(
+                        n,
+                        TranslateNote::InstallInEmulator { .. } | TranslateNote::ExtractFirst
+                    )
+                });
+                Placement {
+                    from: p.from,
+                    to,
+                    note,
+                }
+            } else if matches!(p.to, Destination::System(_)) {
+                Placement {
+                    from: p.from,
+                    to: Destination::Library,
+                    note: None,
+                }
+            } else {
+                p
+            }
+        })
+        .collect();
+    TranslatedGame { entries }
+}
+
+/// A placement and its note, as a translator rule returns them.
+type Rule = (Destination, Option<TranslateNote>);
+
+/// Stays in the library with nothing to say (no place, or a key that is
+/// not a safe component: the caller reports it).
+const STAYS: Rule = (Destination::Library, None);
+
+fn placed(from: &Path, (to, note): Rule) -> Placement {
+    Placement {
+        from: from.to_path_buf(),
+        to,
+        note,
+    }
+}
+
+/// The folder parts a translator puts the base in: the game folder when
+/// the run has game folders on, else the system folder itself.
+fn base_parent<'a>(game: &'a MasterGame, to: &TranslateTarget) -> Vec<&'a str> {
+    if to.game_folders {
+        vec![game.title.as_str()]
+    } else {
+        Vec::new()
+    }
+}
+
+/// `parent` joined with `name` under the device's system folder, or the
+/// library when a part is not one safe component.
+fn on_system(parent: &[&str], name: &str) -> Destination {
+    let mut parts = parent.to_vec();
+    parts.push(name);
+    safe_join(&parts).map_or(Destination::Library, Destination::System)
+}
+
+/// `parts` under `emulator`'s data folder. A name the folder already has
+/// is never written over (D15, Q5): it stays with `ConfigExists`.
+fn in_emulator(game: &MasterGame, emulator: EmulatorId, parts: &[&str]) -> Rule {
+    let Some(path) = safe_join(parts) else {
+        return STAYS;
+    };
+    let lower = |p: &Path| -> Vec<String> {
+        p.components()
+            .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+            .collect()
+    };
+    let want = lower(&path);
+    if game.taken_in_emulator.iter().any(|t| lower(t) == want) {
+        return (
+            Destination::Library,
+            Some(TranslateNote::NotSupported {
+                emulator,
+                why: NotSupportedWhy::ConfigExists,
+            }),
+        );
+    }
+    (Destination::EmulatorData { emulator, path }, None)
+}
+
+/// A Sony title id in its compact form (`CUSA00900`, `BLUS30443`,
+/// `PCSE00120`), whatever separator the text had.
+fn sony_title_id(s: &str) -> Option<String> {
+    valid_sony_serial(s).map(|serial| serial.replace('-', ""))
+}
+
+/// The game's Sony title id: its title id, else its serial.
+fn game_sony_title_id(game: &MasterGame) -> Option<String> {
+    game.ids
+        .title_id
+        .as_deref()
+        .or(game.ids.serial.as_deref())
+        .and_then(sony_title_id)
+}
+
+/// The 16-hex title id an addon is for: its own key when it carries a
+/// title id (never replaced when that key is not valid), else the game's.
+fn addon_title_id16(game: &MasterGame, addon: &MasterAddon) -> Option<String> {
+    match &addon.key {
+        AddonKey::TitleId { id } => valid_title_id16(id),
+        _ => game.ids.title_id.as_deref().and_then(valid_title_id16),
+    }
+}
+
+/// `name` ends with `suffix`, ignoring ASCII case.
+fn ends_with_ci(name: &str, suffix: &str) -> bool {
+    name.len() >= suffix.len()
+        && name
+            .get(name.len() - suffix.len()..)
+            .is_some_and(|t| t.eq_ignore_ascii_case(suffix))
+}
+
+/// The layout of an emulator that installs updates and DLC itself
+/// (RPCS3, Azahar, Cemu, Vita3K, D15): the base where the profile puts
+/// it, updates and DLC kept in the library with `InstallInEmulator`, and
+/// each addon by `addon`.
+fn installed_layout(
+    game: &MasterGame,
+    to: &TranslateTarget,
+    emulator: EmulatorId,
+    addon: impl Fn(&MasterAddon) -> Rule,
+) -> TranslatedGame {
+    let parent = base_parent(game, to);
+    let base = file_name(&game.base.path).map_or(STAYS, |name| (on_system(&parent, name), None));
+    let mut entries = vec![placed(&game.base.path, base)];
+    let install = || {
+        (
+            Destination::Library,
+            Some(TranslateNote::InstallInEmulator { emulator }),
+        )
+    };
+    entries.extend(
+        game.updates
+            .iter()
+            .chain(&game.dlc)
+            .map(|e| placed(&e.path, install())),
+    );
+    entries.extend(
+        game.mods
+            .iter()
+            .chain(&game.cheats)
+            .map(|a| placed(&a.path, addon(a))),
+    );
+    TranslatedGame { entries }
 }
 
 /// The master layout (identity for `coverly-library`): base →
