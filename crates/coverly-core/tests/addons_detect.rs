@@ -5,9 +5,10 @@ use std::fs;
 use std::io::{self, Cursor, Read, Seek, SeekFrom};
 use std::sync::Mutex;
 
+use coverly_core::addons::mods::{sniff_mod_dir_on_disk, ModVerdict};
 use coverly_core::addons::patch::{read_patch, read_patch_from};
 use coverly_core::addons::testing as t;
-use coverly_core::addons::{AddonFormat, AddonKey};
+use coverly_core::addons::{AddonFormat, AddonKey, AddonKind};
 use coverly_core::consoles::{start_open_log, take_open_log};
 use tempfile::TempDir;
 
@@ -192,4 +193,91 @@ fn key_material_is_never_opened() {
     for key in &keys {
         assert!(!opened.iter().any(|p| p == key), "{key:?} was opened");
     }
+}
+
+/// D18: a Switch mod folder holding a ticket is left whole and the ticket
+/// is never opened; nothing in it is read at all.
+#[test]
+fn a_mod_folder_with_a_key_is_left_and_the_key_never_opened() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = TempDir::new().unwrap();
+    let title = dir
+        .path()
+        .join("atmosphere")
+        .join("contents")
+        .join("0100000000010000");
+    fs::create_dir_all(title.join("romfs")).unwrap();
+    fs::write(title.join("romfs").join("data.bin"), b"mod").unwrap();
+    fs::write(title.join("title.tik"), b"not a real ticket").unwrap();
+    // A pack whose key file sits two levels down.
+    let deep = dir.path().join("graphicPacks").join("Pack");
+    fs::create_dir_all(deep.join("content").join("sys")).unwrap();
+    fs::write(
+        deep.join("rules.txt"),
+        "[Definition]\ntitleIds = 00050000101C9400\n",
+    )
+    .unwrap();
+    fs::write(deep.join("content").join("sys").join("prod.keys"), b"x").unwrap();
+
+    start_open_log();
+    assert_eq!(
+        sniff_mod_dir_on_disk(&title).unwrap(),
+        ModVerdict::HoldsKeys
+    );
+    assert_eq!(sniff_mod_dir_on_disk(&deep).unwrap(), ModVerdict::HoldsKeys);
+    let opened = take_open_log();
+    assert!(opened.is_empty(), "{opened:?}");
+    for p in &opened {
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+        assert!(!ext.eq_ignore_ascii_case("tik"), "{p:?} was opened");
+    }
+}
+
+/// A mod folder is told from its listing and the one manifest it names:
+/// only `rules.txt` is opened for a Cemu graphic pack.
+#[test]
+fn a_mod_folder_on_disk_reads_only_its_manifest() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = TempDir::new().unwrap();
+    let pack = dir.path().join("graphicPacks").join("BotW_60FPS");
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(
+        pack.join("rules.txt"),
+        "[Definition]\ntitleIds = 00050000101C9400,00050000101C9500\nname = \"60 FPS\"\n",
+    )
+    .unwrap();
+    fs::write(pack.join("patches.txt"), "[x]\n").unwrap();
+    let serial = dir.path().join("textures").join("SLUS-00594");
+    fs::create_dir_all(serial.join("replacements")).unwrap();
+    let plain = dir.path().join("Some Folder");
+    fs::create_dir_all(plain.join("USRDIR")).unwrap();
+
+    start_open_log();
+    assert_eq!(
+        sniff_mod_dir_on_disk(&pack).unwrap(),
+        ModVerdict::Mod {
+            format: AddonFormat::CemuGraphicPack,
+            kind: AddonKind::Mod,
+            key: AddonKey::TitleIds {
+                ids: vec!["00050000101C9400".into(), "00050000101C9500".into()]
+            }
+        }
+    );
+    assert_eq!(
+        sniff_mod_dir_on_disk(&serial).unwrap(),
+        ModVerdict::Mod {
+            format: AddonFormat::TexturePack,
+            kind: AddonKind::Mod,
+            key: AddonKey::Serial {
+                serial: "SLUS-00594".into()
+            }
+        }
+    );
+    assert_eq!(sniff_mod_dir_on_disk(&plain).unwrap(), ModVerdict::NotAMod);
+    let opened = take_open_log();
+    assert_eq!(opened.len(), 1, "{opened:?}");
+    assert_eq!(
+        opened[0].file_name().and_then(|n| n.to_str()),
+        Some("rules.txt")
+    );
 }
