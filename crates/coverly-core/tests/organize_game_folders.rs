@@ -2013,3 +2013,69 @@ fn children_of_a_base_kept_flat_in_the_library_are_never_left_as_in_it() {
         "flat beside it (D19): {update:?}"
     );
 }
+
+/// The whole layout in one plan: a World base with two updates (TMD
+/// 1040 and 1056) and a DLC, a demo by its header, and the same game's
+/// European base under its own title ID.
+#[test]
+fn a_full_game_folder_layout_plans_versions_demo_and_two_regions() {
+    const EU_BASE: u64 = 0x0004_0000_0005_5E00;
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    let files: Vec<(&str, Vec<u8>)> = vec![
+        (
+            "Pokemon Y.cia",
+            ct::cia_with_code(PY_BASE, "CTR-P-EK2A", false, false).head_bytes(),
+        ),
+        ("update-a.cia", with_tail(&cia_update(PY_UPDATE, 1040), 1)),
+        ("update-b.cia", with_tail(&cia_update(PY_UPDATE, 1056), 2)),
+        (
+            "Pokemon Y - Extra Pack (USA).cia",
+            with_tail(&ct::cia(PY_DLC, true, false), 3),
+        ),
+        (
+            "Pokemon Y (Demo).cia",
+            ct::cia_with_code(0x0004_0002_0005_5D00, "CTR-P-EK2A", false, false).head_bytes(),
+        ),
+        (
+            "Pokemon Y (Europe).cia",
+            ct::cia_with_code(EU_BASE, "CTR-P-EK2P", false, false).head_bytes(),
+        ),
+    ];
+    for (n, (rel, bytes)) in files.iter().enumerate() {
+        put(&pile, rel, bytes, n as u64);
+    }
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+
+    let world = "Pokemon Y (World)";
+    let base = item(&plan, "Pokemon Y.cia");
+    assert_eq!(below_system(base), p(&[world, "Pokemon Y (World).cia"]));
+    let a = item(&plan, "update-a.cia");
+    let b = item(&plan, "update-b.cia");
+    assert_eq!(
+        below_system(a),
+        p(&[world, "Updates", "Pokemon Y (World) (v1.1.0).cia"])
+    );
+    assert_eq!(
+        below_system(b),
+        p(&[world, "Updates", "Pokemon Y (World) (v1.2.0).cia"])
+    );
+    let (la, lb) = (a.game.as_ref().unwrap(), b.game.as_ref().unwrap());
+    assert_eq!((la.of, lb.of), (Some(base.id), Some(base.id)));
+    assert!(lb.newest_here && !la.newest_here);
+    let dlc = item(&plan, "Pokemon Y - Extra Pack (USA).cia");
+    assert_eq!(below_system(dlc)[..2], p(&[world, "DLC"]));
+    let demo = item(&plan, "Pokemon Y (Demo).cia");
+    assert_eq!(demo.game.as_ref().map(|g| g.role), Some(GameRole::Demo));
+    assert!(!demo
+        .target
+        .as_deref()
+        .unwrap()
+        .components()
+        .any(|c| c.as_os_str() == world));
+    let eu = item(&plan, "Pokemon Y (Europe).cia");
+    assert_eq!(eu.game.as_ref().map(|g| g.role), Some(GameRole::Base));
+    assert_ne!(below_system(eu)[0], world);
+    insta::assert_json_snapshot!("game_folders_full_layout_plan", rows(&plan));
+}
