@@ -1938,3 +1938,94 @@ fn wii_wads_of_one_title_id_are_versions() {
     assert_eq!(a.key_string(), c.key_string(), "one title, two versions");
     assert_eq!(c.console_version.as_deref(), Some("2"));
 }
+
+// --- Xbox 360 STFS versions and media ids (game folders spec D11, D14 i) ---
+
+use coverly_core::consoles::testing::stfs_head;
+
+/// An Xbox 360 STFS package at `root/xbox360/<name>`; `pad` extra bytes
+/// keep the payloads apart.
+fn x360_stfs(root: &Path, name: &str, ctype: u32, media_id: u32, version: u32, pad: usize) -> Unit {
+    let mut bytes = stfs_head(ctype, 0x4D53_07E6, media_id, version).bytes();
+    bytes.extend(std::iter::repeat_n(0x5A, pad));
+    let p = put(root, &format!("xbox360/{name}"), &bytes);
+    raw("xbox360", &p)
+}
+
+const X360_TU: u32 = 0x000B_0000;
+const X360_DLC: u32 = 0x0000_0002;
+
+#[test]
+fn x360_dlc_packs_of_one_title_never_act_on_their_title_key() {
+    // Every DLC of a title shares its title id; with a version now read
+    // from the header, two different packs must stay report-only, as they
+    // were while no version was read.
+    let dir = TempDir::new().unwrap();
+    let units = numbered(vec![
+        x360_stfs(dir.path(), "MAP PACK 1", X360_DLC, 0, 1, 0),
+        x360_stfs(dir.path(), "MAP PACK 2", X360_DLC, 0, 1, 16),
+    ]);
+    let keys = keys_of(&units);
+    assert!(matches!(
+        exact(&keys[0]),
+        ExactKey::Title {
+            kind: TitleKind::Dlc,
+            ..
+        }
+    ));
+    assert!(!exact(&keys[0]).acts_unconfirmed(), "{:?}", exact(&keys[0]));
+    assert!(!exact(&keys[1]).acts_unconfirmed());
+}
+
+#[test]
+fn x360_title_updates_of_other_media_ids_never_meet() {
+    let dir = TempDir::new().unwrap();
+    let units = numbered(vec![
+        x360_stfs(dir.path(), "TU A", X360_TU, 0x1111_1111, 0x2000_0C00, 0),
+        x360_stfs(dir.path(), "TU B", X360_TU, 0x2222_2222, 0x2000_0C00, 16),
+        x360_stfs(
+            dir.path(),
+            "TU A old",
+            X360_TU,
+            0x1111_1111,
+            0x2000_0800,
+            32,
+        ),
+    ]);
+    let keys = keys_of(&units);
+    assert_ne!(
+        keys[0].group_key("xbox360"),
+        keys[1].group_key("xbox360"),
+        "another disc build's update is no copy"
+    );
+    let v = level_two(&units, &keys, &NoDats);
+    let (a, b, old) = (
+        v[0].as_ref().unwrap(),
+        v[1].as_ref().unwrap(),
+        v[2].as_ref().unwrap(),
+    );
+    assert_ne!(a.key_string(), b.key_string(), "nor a version of it");
+    assert_eq!(a.key_string(), old.key_string(), "one build, two versions");
+    assert_eq!(a.console_version.as_deref(), Some("20000C00"));
+}
+
+#[test]
+fn vita_dlc_of_one_title_keep_no_version_in_their_title_key() {
+    // Vita `ac` (game folders spec D14 f): every DLC of a game carries the
+    // game's TITLE_ID, so a version must not let two packs act.
+    use coverly_core::consoles::testing::param_sfo;
+    use coverly_core::consoles::{psf, sony};
+    use coverly_core::dedupe::keys::title_key_string;
+    let raw = param_sfo(&[
+        ("APP_VER", "01.00"),
+        ("CATEGORY", "ac"),
+        ("TITLE", "Test DLC"),
+        ("TITLE_ID", "PCSE00844"),
+    ]);
+    let id = sony::from_psf(&psf::parse(&raw).unwrap(), "psvita", "PARAM.SFO");
+    assert_eq!(id.kind, TitleKind::Dlc);
+    assert_eq!(
+        title_key_string(&id, "psvita").as_deref(),
+        Some("l1:psvita:title:PCSE00844:Dlc:")
+    );
+}

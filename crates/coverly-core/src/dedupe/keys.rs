@@ -1461,7 +1461,12 @@ pub fn title_key_string(id: &ConsoleId, system: &str) -> Option<String> {
 /// so another region or another DLC label is another key (systems batch 3
 /// D14). Xbox One/Series: the GDK `TitleId` (the reader drops
 /// `FFFFFFFF`), else an XVC's ContentId GUID, else the `StoreId` or ERA
-/// `Identity Name`.
+/// `Identity Name`. Xbox 360 (game folders spec D11, D14 i): a title
+/// update keys by its title id and media id (`4D5307E6+1111ABCD`), so the
+/// updates of two disc builds are neither copies nor versions of each
+/// other. A PS3, Vita or Xbox 360 DLC keeps no version: every pack of a
+/// game carries the game's title id, so only a version would let two
+/// different packs act (D14 f, i); they stay report-only.
 fn title_of(id: &ConsoleId, system: &str) -> Option<ExactKey> {
     if id.system != system {
         return None;
@@ -1483,10 +1488,21 @@ fn title_of(id: &ConsoleId, system: &str) -> Option<ExactKey> {
     // content; only the title id may be a name's.
     let by_name =
         id.id_source == Some(consoles::IdSource::FileName) && key_id == id.title_id.as_deref();
+    let mut title_id = title_id.to_ascii_uppercase();
+    let mut version = id.version.clone();
+    match (system, id.kind) {
+        ("xbox360", TitleKind::Update) => {
+            if let Some(media) = id.media_id.as_deref().filter(|m| !m.is_empty()) {
+                title_id = format!("{title_id}+{}", media.to_ascii_uppercase());
+            }
+        }
+        ("ps3" | "psvita" | "xbox360", TitleKind::Dlc) => version = None,
+        _ => {}
+    }
     Some(ExactKey::Title {
-        title_id: title_id.to_ascii_uppercase(),
+        title_id,
         kind: id.kind,
-        version: id.version.clone(),
+        version,
         disc: id.disc_no,
         by_name,
     })
