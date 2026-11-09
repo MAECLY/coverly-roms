@@ -220,3 +220,20 @@ fn the_game_folders_override_follows_a_renamed_profile() {
     st.delete_profile("mine-2").unwrap();
     assert!(st.settings().organize.game_folders.is_empty());
 }
+
+#[test]
+fn a_game_folders_override_for_an_unknown_profile_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let st = state(&dir);
+    let out = st
+        .update_settings(&json!({"organize": {"game_folders": {"nope": true}}}))
+        .unwrap();
+    assert_eq!(
+        out.errors
+            .iter()
+            .map(|e| e.field.as_str())
+            .collect::<Vec<_>>(),
+        ["organize.game_folders.nope"]
+    );
+    assert!(st.settings().organize.game_folders.is_empty());
+}
