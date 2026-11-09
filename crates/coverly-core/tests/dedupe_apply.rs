@@ -50,6 +50,7 @@ impl Lib {
             JobMeta {
                 kind: JobKind::Dedupe,
                 source_root: None,
+                ..JobMeta::default()
             },
         )
         .unwrap()

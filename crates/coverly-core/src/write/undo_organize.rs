@@ -720,6 +720,37 @@ fn remove_created_dir(ctx: &Ctx<'_>, dir: &Path, report: &mut UndoReport) {
     }
 }
 
+/// The target folders apply created before the job began (D19), removed
+/// innermost first when they hold nothing of the user's. Only the job root
+/// and its ancestors count: anything else in the header is ignored.
+pub(super) fn remove_created_roots(ctx: &Ctx<'_>, created: &[PathBuf], report: &mut UndoReport) {
+    for dir in created.iter().rev() {
+        if dir.is_absolute() && ctx.root.starts_with(dir) {
+            remove_created_root(ctx, dir, report);
+        }
+    }
+}
+
+/// [`remove_created_dir`] for a created target root, which lies at or
+/// above the job root (checked by the caller) instead of inside it.
+fn remove_created_root(ctx: &Ctx<'_>, dir: &Path, report: &mut UndoReport) {
+    if !fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir()) {
+        return;
+    }
+    clean_job_temps(ctx.job, &[dir.to_path_buf()]);
+    if !only_litter(dir, LITTER_DEPTH) {
+        report.dirs_kept.push(dir.to_path_buf());
+        return;
+    }
+    remove_litter(dir);
+    if fs::remove_dir(dir).is_ok() {
+        if let Some(sidecar) = apple_double(dir) {
+            let _ = fs::remove_file(sidecar);
+        }
+        report.dirs_removed.push(dir.to_path_buf());
+    }
+}
+
 /// Puts each manual identity the job rekeyed from `from` to `to` back
 /// under `from`, after the files were undone: an identity follows its
 /// file, so one whose file is still at `to` (changed after the job, or its

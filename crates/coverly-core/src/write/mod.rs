@@ -267,6 +267,12 @@ pub struct JobMeta {
     /// Where an organise job takes files from (absolute); `None` means the
     /// job root.
     pub source_root: Option<PathBuf>,
+    /// Target folders apply created before the job began (mods/cheats/
+    /// translators spec D19), outermost first: undo removes them last,
+    /// innermost first, when empty.
+    pub created_roots: Vec<PathBuf>,
+    /// Emulator data folders this job may write into (spec D17).
+    pub extra_roots: Vec<PathBuf>,
 }
 
 /// One line of a job journal. Fields added after the first format are all
@@ -282,6 +288,13 @@ enum Line {
         #[serde(default)]
         kind: JobKind,
         created_at: String,
+        /// Target folders apply created before the job began (D19),
+        /// outermost first.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        created_roots: Vec<PathBuf>,
+        /// Emulator data folders this job may write into (D17).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        extra_roots: Vec<PathBuf>,
     },
     Entry {
         target: PathBuf,
@@ -464,6 +477,14 @@ impl Writer {
         if let Some(source) = meta.source_root.as_deref().filter(|s| !s.is_absolute()) {
             return Err(WriteError::OutsideRoot(source.to_path_buf()));
         }
+        if let Some(dir) = meta.created_roots.iter().find(|d| !d.is_absolute()) {
+            return Err(WriteError::OutsideRoot(dir.clone()));
+        }
+        let extra_roots = meta
+            .extra_roots
+            .iter()
+            .map(|d| fs::canonicalize(d).map_err(|_| WriteError::OutsideRoot(d.clone())))
+            .collect::<Result<Vec<_>, _>>()?;
         let jobs = data_dir.join("jobs");
         fs::create_dir_all(&jobs).map_err(|e| map_io(e, &jobs))?;
         let (job, journal, journal_path) = loop {
@@ -499,6 +520,8 @@ impl Writer {
             source_root: meta.source_root,
             kind: meta.kind,
             created_at: rfc3339_utc(SystemTime::now()),
+            created_roots: meta.created_roots,
+            extra_roots,
         };
         writer.append(&header)?;
         Ok(writer)
@@ -1488,6 +1511,32 @@ fn job_entries(data_dir: &Path, job: &str) -> Result<(PathBuf, Vec<Line>), Write
     Ok((source_root.unwrap_or(root), entries))
 }
 
+/// The folders job `job`'s header says apply created before it began
+/// (D19, outermost first) and the emulator data folders it may write into
+/// (D17). Empty for journals written before these fields existed.
+pub fn job_header_roots(
+    data_dir: &Path,
+    job: &str,
+) -> Result<(Vec<PathBuf>, Vec<PathBuf>), WriteError> {
+    if !valid_job_id(job) {
+        return Err(WriteError::Journal(format!("not a job id: {job}")));
+    }
+    let journal = journals(data_dir)?
+        .into_iter()
+        .find(|j| j.job == job)
+        .ok_or(WriteError::NothingToUndo)?;
+    let (header, _, _) = parse(&journal.path)?;
+    let Line::Header {
+        created_roots,
+        extra_roots,
+        ..
+    } = header
+    else {
+        unreachable!("parse returns a header first")
+    };
+    Ok((created_roots, extra_roots))
+}
+
 /// `from` made absolute against the source root (journals written by
 /// hand or by a later format may keep it relative).
 fn absolute_from(source_root: &Path, from: PathBuf) -> PathBuf {
@@ -1704,7 +1753,10 @@ fn undo_journal(
 ) -> Result<UndoReport, WriteError> {
     let (header, entries, _) = parse(&journal.path)?;
     let Line::Header {
-        root, source_root, ..
+        root,
+        source_root,
+        created_roots,
+        ..
     } = header
     else {
         unreachable!("parse returns a header first")
@@ -1853,6 +1905,9 @@ fn undo_journal(
         }
     }
     undo_organize::restore_overrides(&mut ctx)?;
+    // Target folders apply created before the job began (D19): last, once
+    // everything the job put in them is gone.
+    undo_organize::remove_created_roots(&ctx, &created_roots, &mut report);
     let undone = journal
         .path
         .with_file_name(format!("{}.undone.jsonl", journal.job));

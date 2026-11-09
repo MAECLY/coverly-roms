@@ -30,6 +30,7 @@ fn organise_job(root: &Path, data: &Path, source: &Path) -> Writer {
         JobMeta {
             kind: JobKind::Organize,
             source_root: Some(source.to_path_buf()),
+            ..JobMeta::default()
         },
     )
     .unwrap()
@@ -681,6 +682,7 @@ fn dedupe_job_undo_moves_files_back() {
         JobMeta {
             kind: JobKind::Dedupe,
             source_root: None,
+            ..JobMeta::default()
         },
     )
     .unwrap();

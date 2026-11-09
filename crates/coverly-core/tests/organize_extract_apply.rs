@@ -55,6 +55,7 @@ impl Env {
             JobMeta {
                 kind: JobKind::Organize,
                 source_root: Some(self.src.clone()),
+                ..JobMeta::default()
             },
         )
         .unwrap()

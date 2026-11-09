@@ -24,6 +24,7 @@ fn organise_job(root: &Path, data: &Path, source: &Path) -> Writer {
         JobMeta {
             kind: JobKind::Organize,
             source_root: Some(source.to_path_buf()),
+            ..JobMeta::default()
         },
     )
     .unwrap()

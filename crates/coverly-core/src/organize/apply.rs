@@ -343,19 +343,33 @@ pub fn apply_organize(plan: &OrganizePlan, env: &ApplyEnv) -> Result<OrganizeRep
     if pending.is_empty() {
         return Ok(report);
     }
-    if let Some(reason) = roots_gone(plan) {
-        pause(&mut report, reason, &pending);
-        return Ok(report);
-    }
-    check_space(plan, &pending, 0)?;
-    let writer = Writer::begin_with(
-        &plan.target_root,
-        env.data_dir,
-        JobMeta {
-            kind: JobKind::Organize,
-            source_root: Some(plan.source_root.clone()),
-        },
-    )?;
+    let created = match prepare_roots(plan, false) {
+        Ok(created) => created,
+        Err(reason) => {
+            pause(&mut report, reason, &pending);
+            return Ok(report);
+        }
+    };
+    let begun = check_space(plan, &pending, 0).and_then(|()| {
+        Writer::begin_with(
+            &plan.target_root,
+            env.data_dir,
+            JobMeta {
+                kind: JobKind::Organize,
+                source_root: Some(plan.source_root.clone()),
+                created_roots: created.clone(),
+                ..JobMeta::default()
+            },
+        )
+        .map_err(ApplyError::from)
+    });
+    let writer = match begun {
+        Ok(writer) => writer,
+        Err(e) => {
+            remove_created(&created);
+            return Err(e);
+        }
+    };
     if let Err(e) = save_plan(env.data_dir, writer.job_id(), plan) {
         let _ = writer.discard();
         return Err(e.into());
@@ -426,7 +440,7 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
         }
     }
     let done = applicable.len() - pending.len();
-    if let Some(reason) = roots_gone(&plan) {
+    if let Err(reason) = prepare_roots(&plan, true) {
         report.job = Some(job.to_string());
         pause(&mut report, reason, &pending);
         return Ok(report);
@@ -497,6 +511,51 @@ fn pause_as(
     report.paused = Some(kind);
     report.pause_reason = Some(reason);
     report.resumable_items = rest.iter().map(|i| i.id).collect();
+}
+
+/// Makes the target root exist when D19 allows it: the folders created,
+/// outermost first, for the journal header; `Err` pauses as volume gone.
+/// A resumed job never creates its root (plan P-4): its writer already
+/// began, so a root missing now vanished.
+fn prepare_roots(plan: &OrganizePlan, resumed: bool) -> Result<Vec<PathBuf>, ItemErrorKind> {
+    use super::roots::{roots_state, OsRootProbe, RootsState};
+    let state = roots_state(
+        &plan.source_root,
+        &plan.target_root,
+        plan.target_anchor.as_ref(),
+        &crate::volumes::mount_parents(),
+        &OsRootProbe,
+    );
+    match state {
+        RootsState::Ready => Ok(Vec::new()),
+        RootsState::VolumeGone => Err(ItemErrorKind::VolumeGone),
+        RootsState::CreateTarget { .. } if resumed => Err(ItemErrorKind::VolumeGone),
+        RootsState::CreateTarget { missing } => {
+            let mut made = Vec::new();
+            for dir in missing {
+                // One level at a time, never `create_dir_all`: a volume
+                // pulled meanwhile fails here instead of being recreated
+                // on the system disk.
+                match fs::create_dir(&dir) {
+                    Ok(()) => made.push(dir),
+                    Err(e) if e.kind() == ErrorKind::AlreadyExists && dir.is_dir() => {}
+                    Err(_) => {
+                        remove_created(&made);
+                        return Err(ItemErrorKind::VolumeGone);
+                    }
+                }
+            }
+            Ok(made)
+        }
+    }
+}
+
+/// Removes the target folders [`prepare_roots`] created, innermost first,
+/// when the job did not start after all (only empty ones go).
+fn remove_created(created: &[PathBuf]) {
+    for dir in created.iter().rev() {
+        let _ = fs::remove_dir(dir);
+    }
 }
 
 /// `volume-gone` when the source or the target root is not there.

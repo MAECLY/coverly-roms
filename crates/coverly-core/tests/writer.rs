@@ -381,6 +381,7 @@ fn an_organise_header_round_trips() {
         JobMeta {
             kind: JobKind::Organize,
             source_root: Some(src.clone()),
+            ..JobMeta::default()
         },
     )
     .unwrap();
@@ -411,6 +412,7 @@ fn begin_with_requires_an_absolute_source_root() {
             JobMeta {
                 kind: JobKind::Organize,
                 source_root: Some(PathBuf::from("relative/pile")),
+                ..JobMeta::default()
             },
         ),
         Err(WriteError::OutsideRoot(_))
@@ -492,6 +494,7 @@ fn extract_setup() -> (TempDir, PathBuf, PathBuf, PathBuf, Writer) {
         JobMeta {
             kind: JobKind::Organize,
             source_root: Some(src.clone()),
+            ..JobMeta::default()
         },
     )
     .unwrap();
@@ -898,6 +901,7 @@ fn dedupe_job(root: &Path, data: &Path) -> Writer {
         JobMeta {
             kind: JobKind::Dedupe,
             source_root: None,
+            ..JobMeta::default()
         },
     )
     .unwrap()
