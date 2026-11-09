@@ -7,7 +7,7 @@ expression: rows(&plan)
     "action": "auto",
     "folder": "3DS",
     "game": {
-      "demo_of": "Pokemon Y (Europe)",
+      "demo_of": "Pokemon Y",
       "folder": "3DS/Pokemon Y (Demo)",
       "role": "demo"
     },

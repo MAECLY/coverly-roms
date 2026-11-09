@@ -982,6 +982,120 @@ fn a_demo_finds_its_base_in_the_library_by_name() {
     );
 }
 
+#[test]
+fn a_region_less_demo_links_to_the_usa_base_not_the_first_by_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    // "(Japan)" sorts before "(USA)": the old code took Japan.
+    put(
+        &pile,
+        "Pokemon Y (Japan).cia",
+        &ct::cia(0x0004_0000_0005_5E00, true, false).head_bytes(),
+        1,
+    );
+    put(
+        &pile,
+        "Pokemon Y (USA).cia",
+        &ct::cia(0x0004_0000_0005_5D00, true, false).head_bytes(),
+        2,
+    );
+    // A 3DS demo by header: no region (a child's product code is not
+    // trusted, part A D10).
+    put(
+        &pile,
+        "Pokemon Y.cia",
+        &ct::cia_with_code(0x0004_0002_0005_5D00, "CTR-P-EK2A", false, false).head_bytes(),
+        3,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let demo = item(&plan, "Pokemon Y.cia");
+    assert_eq!(
+        demo.game.as_ref().and_then(|g| g.demo_of.as_deref()),
+        Some("Pokemon Y (USA)")
+    );
+    assert!(has_note(
+        demo,
+        &ItemNote::DemoOf {
+            of: "Pokemon Y (USA)".into()
+        }
+    ));
+}
+
+#[test]
+fn a_demo_with_a_region_links_to_the_base_of_that_region() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(
+        &pile,
+        "Resistance (Japan).pkg",
+        &ps3_pkg("JP9000-BCJS30001_00-RESISTANCE000001", 1),
+        1,
+    );
+    put(
+        &pile,
+        "Resistance (USA).pkg",
+        &ps3_pkg("UP9000-BCUS98107_00-RESISTANCE000001", 2),
+        2,
+    );
+    put(
+        &pile,
+        "Resistance (Europe) (Demo).pkg",
+        &ps3_pkg("EP9000-NPEA00001_00-RESISTANCEDEMO01", 3),
+        3,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let demo_of = |plan: &OrganizePlan| {
+        item(plan, "Resistance (Europe) (Demo).pkg")
+            .game
+            .as_ref()
+            .and_then(|g| g.demo_of.clone())
+    };
+    // No European base: the preference order (World, USA, Europe, Japan).
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    assert_eq!(demo_of(&plan).as_deref(), Some("Resistance (USA)"));
+
+    // A European base: the demo's own region wins.
+    put(
+        &pile,
+        "Resistance (Europe).pkg",
+        &ps3_pkg("EP9000-BCES00001_00-RESISTANCE000001", 4),
+        4,
+    );
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    assert_eq!(demo_of(&plan).as_deref(), Some("Resistance (Europe)"));
+}
+
+#[test]
+fn a_library_demo_lookup_uses_the_same_order() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(
+        &pile,
+        "Pokemon Y.cia",
+        &ct::cia_with_code(0x0004_0002_0005_5D00, "CTR-P-EK2A", false, false).head_bytes(),
+        3,
+    );
+    put(
+        &lib,
+        "3DS/Pokemon Y (Japan)/Pokemon Y (Japan).cia",
+        &ct::cia(0x0004_0000_0005_5E00, true, false).head_bytes(),
+        1,
+    );
+    put(
+        &lib,
+        "3DS/Pokemon Y (USA)/Pokemon Y (USA).cia",
+        &ct::cia(0x0004_0000_0005_5D00, true, false).head_bytes(),
+        2,
+    );
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let demo = item(&plan, "Pokemon Y.cia");
+    assert_eq!(
+        demo.game.as_ref().and_then(|g| g.demo_of.as_deref()),
+        Some("Pokemon Y (USA)")
+    );
+}
+
 /// The Pokemon Y update alone in `pile` (no base): TMD 1040, encrypted,
 /// no title in its header.
 fn orphan_update(pile: &Path) {
@@ -2068,6 +2182,12 @@ fn a_full_game_folder_layout_plans_versions_demo_and_two_regions() {
     assert_eq!(below_system(dlc)[..2], p(&[world, "DLC"]));
     let demo = item(&plan, "Pokemon Y (Demo).cia");
     assert_eq!(demo.game.as_ref().map(|g| g.role), Some(GameRole::Demo));
+    // A region-less demo links to the World base, not the European one
+    // (mods spec D20).
+    assert_eq!(
+        demo.game.as_ref().and_then(|g| g.demo_of.as_deref()),
+        Some("Pokemon Y")
+    );
     assert!(!demo
         .target
         .as_deref()

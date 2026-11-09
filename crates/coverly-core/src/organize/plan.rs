@@ -48,7 +48,8 @@ use crate::organize::inspect::{
     Container, Inspection, Payload, ZipEntryInfo, NOTE_TOOL_FAILED,
 };
 use crate::organize::library_bases::{
-    demo_free_key, has_demo_tag, library_bases, LibraryIndex, LookupBudget,
+    demo_free_key, has_demo_tag, library_bases, pick_by_region, single_name_region, LibraryIndex,
+    LookupBudget,
 };
 use crate::organize::target::{
     assign_targets_in, attach_set_aside_companions, default_companion_exts, dlc_target,
@@ -2658,8 +2659,18 @@ fn link_demos_and_orphans(
         libraries.insert(system, found);
     }
 
-    // Demos (D12).
-    let mut plan_bases: HashMap<(String, String), String> = HashMap::new();
+    // Demos (D12): every base of a title key with its region (header of
+    // the same system, else the single name-tag region), so a demo links
+    // to the base of its region (mods spec D20).
+    let header_region = |i: usize, system: &str| {
+        entries
+            .get(i)
+            .and_then(|e| e.console.as_ref())
+            .filter(|c| c.system == system)
+            .and_then(|c| c.region)
+    };
+    type Bases = HashMap<(String, String), Vec<(String, Option<Region>)>>;
+    let mut plan_bases: Bases = HashMap::new();
     for (i, item) in items.iter().enumerate() {
         let (Some(system), Some(entry)) = (item.system_id.clone(), entries.get(i)) else {
             continue;
@@ -2676,7 +2687,11 @@ fn link_demos_and_orphans(
         let stem = item_stem(item);
         let key = parse_tags(&stem).title_key;
         if !key.is_empty() {
-            plan_bases.entry((system, key)).or_insert(stem);
+            let region = header_region(i, &system).or_else(|| single_name_region(&stem));
+            plan_bases
+                .entry((system, key))
+                .or_default()
+                .push((stem, region));
         }
     }
     for i in demos {
@@ -2685,14 +2700,21 @@ fn link_demos_and_orphans(
         };
         let stem = item_stem(&items[i]);
         let key = demo_free_key(&stem);
+        let demo_region = header_region(i, &system).or_else(|| single_name_region(&stem));
         let of = plan_bases
             .get(&(system.clone(), key.clone()))
-            .cloned()
+            .and_then(|cands| pick_by_region(cands, demo_region, |c| c.1, |c| &c.0))
+            .map(|c| c.0.clone())
             .or_else(|| {
-                libraries
-                    .get(&system)
-                    .and_then(|l| l.by_title_key(&key))
+                libraries.get(&system).and_then(|l| {
+                    pick_by_region(
+                        l.by_title_key_all(&key),
+                        demo_region,
+                        |b| b.region,
+                        |b| b.title.as_deref().unwrap_or(""),
+                    )
                     .and_then(|b| b.title.clone())
+                })
             });
         if let Some(of) = &of {
             let note = ItemNote::DemoOf { of: of.clone() };
