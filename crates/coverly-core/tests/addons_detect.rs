@@ -281,3 +281,30 @@ fn a_mod_folder_on_disk_reads_only_its_manifest() {
         Some("rules.txt")
     );
 }
+
+/// D18: a sub-folder whose names cannot be listed may hide key material,
+/// so the folder is not taken for a mod (it stays where it is).
+#[cfg(unix)]
+#[test]
+fn a_mod_folder_with_an_unreadable_sub_folder_is_not_a_mod() {
+    use std::os::unix::fs::PermissionsExt;
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = TempDir::new().unwrap();
+    let title = dir
+        .path()
+        .join("atmosphere")
+        .join("contents")
+        .join("0100000000010000");
+    fs::create_dir_all(title.join("romfs")).unwrap();
+    let locked = title.join("romfs").join("locked");
+    fs::create_dir_all(&locked).unwrap();
+    fs::write(locked.join("data.bin"), b"x").unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    // Running as root can still list it: then the check is moot.
+    let listable = fs::read_dir(&locked).is_ok();
+    let verdict = sniff_mod_dir_on_disk(&title).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    if !listable {
+        assert_eq!(verdict, ModVerdict::NotAMod);
+    }
+}

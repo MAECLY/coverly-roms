@@ -499,13 +499,12 @@ fn list(path: &Path) -> io::Result<Vec<(String, bool)>> {
 }
 
 /// Whether any name in the tree under `path` is key material, by name
-/// only (nothing is opened). `None` past [`MAX_NAMES`] names.
+/// only (nothing is opened). `None` past [`MAX_NAMES`] names, or when a
+/// part of the tree cannot be listed (it may hide key material, D18).
 fn tree_holds_keys(path: &Path) -> Option<bool> {
     let mut seen = 0usize;
     for entry in walkdir::WalkDir::new(path).min_depth(1).follow_links(false) {
-        let Ok(entry) = entry else {
-            continue;
-        };
+        let entry = entry.ok()?;
         seen += 1;
         if seen > MAX_NAMES {
             return None;
