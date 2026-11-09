@@ -2536,7 +2536,7 @@ fn link_demos_and_orphans(
                     entries.get(*j).map(effective_kind),
                     Some(TitleKind::Update | TitleKind::Dlc)
                 ) && item.game.is_none()
-                    && !entries.get(*j).is_some_and(&base_in_plan)
+                    && !entries.get(*j).is_some_and(base_in_plan)
                     && item.system_id.as_deref().is_some_and(is_game_folder_system)
                     && matches!(
                         item.kind,
