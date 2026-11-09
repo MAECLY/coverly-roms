@@ -39,7 +39,8 @@ export function LibrarySection() {
       : null;
   // Game folders (spec §9.2): the switch edits the override for the default
   // layout profile of Ajustes → Organizar; a value equal to the profile's own
-  // is not kept as an override.
+  // is not kept as an override. Until the profiles load (or if the default
+  // names no profile) the default is unknown, so the switch waits.
   const layoutId = organize.default_layout;
   const layout = profiles.find((p) => p.profile.id === layoutId)?.profile;
   const layoutDefault = layout?.game_folders ?? false;
@@ -89,6 +90,7 @@ export function LibrarySection() {
         })}
         more={t('settings.library.gameFoldersDetails')}
         checked={gameFolders}
+        disabled={!layout}
         onCheckedChange={(on) =>
           void update({
             organize: {

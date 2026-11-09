@@ -775,6 +775,19 @@ describe('settings sections', () => {
     expect(sw).not.toBeChecked();
   });
 
+  it('library: game folders waits for the profiles before it can be changed', async () => {
+    await backend.updateSettings({
+      organize: { default_layout: 'coverly-library' },
+    });
+    // The profile list never arrives: the switch cannot know the default.
+    vi.spyOn(backend, 'listProfiles').mockReturnValue(new Promise(() => {}));
+    const panel = await open('library');
+    const sw = within(panel).getByRole('switch', { name: GAME_FOLDERS });
+    expect(sw).toBeDisabled();
+    await userEvent.click(sw);
+    expect((await saved()).organize.game_folders ?? {}).toEqual({});
+  });
+
   it('library: game folders tells the on-disk names behind More information', async () => {
     const panel = await open('library');
     const sw = within(panel).getByRole('switch', { name: GAME_FOLDERS });
