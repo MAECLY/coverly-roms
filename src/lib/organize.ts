@@ -773,6 +773,17 @@ export function targetDir(item: OrganizeItem): string {
   return slash < 0 ? (item.folder ?? '') : target.slice(0, slash);
 }
 
+/**
+ * The system folder a group of moving items sits in (`ROMS/3DS`): an
+ * item in a game folder lands one level down, so its folder's parent.
+ */
+export function systemDir(item: OrganizeItem): string {
+  const folder = item.game?.folder;
+  if (!folder) return targetDir(item);
+  const slash = Math.max(folder.lastIndexOf('/'), folder.lastIndexOf('\\'));
+  return slash < 0 ? (item.folder ?? '') : folder.slice(0, slash);
+}
+
 /** Rename and note lines of one row; data, never markup. */
 export function itemNotes(
   t: Translate,

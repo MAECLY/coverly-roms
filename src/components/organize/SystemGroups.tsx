@@ -29,7 +29,7 @@ import {
   licenceLine,
   playlistKey,
   rowNotes,
-  targetDir,
+  systemDir,
   whyKey,
   type SystemGroup,
 } from '@/lib/organize';
@@ -114,7 +114,7 @@ function Group({
   const [visible, setVisible] = useState(ROWS_PER_GROUP);
   const rows = group.items.slice(0, visible);
   const rest = group.items.length - rows.length;
-  const dir = targetDir(group.items[0]!);
+  const dir = systemDir(group.items[0]!);
   const isNew = row.isNew;
   const fresh = isNew ? group.items.filter(isNew).length : 0;
   const noEmulator =

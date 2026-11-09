@@ -802,6 +802,13 @@ describe('SystemGroups game folders (spec §9.1)', () => {
     expect(within(dlc).queryByText(/^versión/)).toBeNull();
   });
 
+  it('names the group after the system folder, not the game folder', () => {
+    renderEs(pokemon());
+    expect(
+      screen.getByRole('group', { name: /^ROMS\/3DS\/ \(3\)/ }),
+    ).toBeInTheDocument();
+  });
+
   it('the base row offers the folder preview', async () => {
     renderEs(pokemon());
     const button = screen.getByRole('button', {
