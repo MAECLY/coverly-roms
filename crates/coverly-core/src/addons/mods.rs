@@ -106,6 +106,17 @@ fn is_tex1(name: &str) -> bool {
         && ext_is(name, &["png", "dds"])
 }
 
+/// `tex1_…` files directly in the folder or one sub-folder down (packs
+/// are often sorted into `HUD/`, `Characters/`…).
+fn holds_tex1(dir: &DirView<'_>) -> bool {
+    let tex1 = |e: &[(String, bool)]| e.iter().any(|(n, d)| !d && is_tex1(n));
+    tex1(dir.entries)
+        || dir
+            .children
+            .iter()
+            .any(|(n, e)| has_dir(dir.entries, n) && tex1(e))
+}
+
 fn one_or_many(ids: BTreeSet<String>, one: impl FnOnce(String) -> AddonKey) -> AddonKey {
     match ids.len() {
         0 => AddonKey::None,
@@ -243,7 +254,7 @@ pub fn sniff_mod_dir(dir: &DirView<'_>, small: SmallFiles<'_>) -> ModVerdict {
     }
     // Dolphin `<GAMEID>/tex1_*`, Flycast `textures/<GAMEID>/*.png`.
     if let Some(id) = valid_game_id(name).filter(|id| id.len() != 9) {
-        let dolphin = entries.iter().any(|(n, dir)| !dir && is_tex1(n));
+        let dolphin = holds_tex1(dir);
         let flycast = under_textures
             && id.len() == 6
             && entries
@@ -292,7 +303,7 @@ fn title_id_dir(id: String, dir: &DirView<'_>) -> ModVerdict {
         };
     }
     if id.starts_with("0004") {
-        if entries.iter().any(|(n, dir)| !dir && is_tex1(n)) {
+        if holds_tex1(dir) {
             return verdict(AddonFormat::TexturePack, AddonKey::TitleId { id });
         }
         let layered = ["romfs", "exefs", "romfs_ext"]
