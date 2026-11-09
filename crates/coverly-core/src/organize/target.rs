@@ -1541,7 +1541,7 @@ fn safe_component(raw: &str) -> Option<String> {
 /// into and whether it was on disk: a moving folder game is its own
 /// folder; a moving base file or set its planned `game.folder`; a base
 /// already present in its game folder that folder.
-fn base_game_folder(base: &OrganizeItem) -> Option<(PathBuf, bool)> {
+pub(crate) fn base_game_folder(base: &OrganizeItem) -> Option<(PathBuf, bool)> {
     match &base.action {
         OrganizeAction::Auto | OrganizeAction::Review if base.kind == ItemKind::Folder => {
             base.target.clone().map(|t| (t, false))
@@ -1727,7 +1727,12 @@ pub fn game_children_follow(items: &mut [OrganizeItem]) {
         let Some(b) = item
             .game
             .as_ref()
-            .filter(|g| matches!(g.role, GameRole::Update | GameRole::Dlc))
+            .filter(|g| {
+                matches!(
+                    g.role,
+                    GameRole::Update | GameRole::Dlc | GameRole::Mod | GameRole::Cheat
+                )
+            })
             .and_then(|g| g.of)
             .filter(|&b| b != pos)
         else {
@@ -2196,7 +2201,7 @@ fn place_extracted(
 /// a component over 255 bytes or UTF-16 units, more than
 /// [`MAX_EXTRACT_DEPTH`] components below `dir`, or, with
 /// `windows_paths`, the path or the temp file beside it over 259 units.
-fn check_lengths(dir: &Path, path: &Path, windows_paths: bool) -> Option<LeftReason> {
+pub(crate) fn check_lengths(dir: &Path, path: &Path, windows_paths: bool) -> Option<LeftReason> {
     let below = path.strip_prefix(dir).unwrap_or(path);
     let parts: Vec<String> = below
         .components()

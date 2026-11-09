@@ -522,3 +522,679 @@ fn walking_2000_text_files_and_500_patches_stays_within_budget() {
     );
     assert_eq!(again.walked.addons, s.walked.addons);
 }
+
+// --- The plan links addons and places them (mods spec D5–D13) ---
+
+use coverly_core::addons::{HeaderFit, LinkVia};
+use coverly_core::organize::{
+    apply_organize, plan_organize, ApplyEnv, GameRole, ItemNote, ItemStatus, OrganizeAction,
+    OrganizeItem, OrganizePlan,
+};
+use coverly_core::settings::OrganizeDedupeMode;
+use coverly_core::write::trash::FakeTrash;
+use coverly_core::write::undo_job;
+
+const MON: u64 = 0x0004_0000_0005_5D00;
+const MON_ID: &str = "0004000000055D00";
+const CTR_CHEAT: &[u8] = b"[Infinite money]\nD3000000 00000000\n";
+
+fn place_options(layout: &str, target: &Path) -> OrganizeOptions {
+    OrganizeOptions {
+        layout: layout.to_string(),
+        target: Some(target.to_path_buf()),
+        flat: true,
+        offline: true,
+        duplicates: OrganizeDedupeMode::Off,
+        ..OrganizeOptions::default()
+    }
+}
+
+fn plan_in(pile: &Path, opts: &OrganizeOptions) -> OrganizePlan {
+    let db = SystemDb::builtin();
+    let profiles = builtin_profiles();
+    let cache = Cache::in_memory().unwrap();
+    let env = OrganizeEnv {
+        db: &db,
+        profiles: &profiles,
+        cache: &cache,
+        dats: None,
+        probe: &NoCloud,
+        online: None,
+        titles: None,
+        now: now(),
+    };
+    plan_organize(pile, opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap()
+}
+
+fn lib_plan(pile: &Path, lib: &Path) -> OrganizePlan {
+    plan_in(pile, &place_options("coverly-library", lib))
+}
+
+/// `rel`'s components as strings (never slash text: Windows CI).
+fn parts(rel: &Path) -> Vec<String> {
+    rel.components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect()
+}
+
+fn p(s: &[&str]) -> Vec<String> {
+    s.iter().map(|c| c.to_string()).collect()
+}
+
+fn item<'a>(plan: &'a OrganizePlan, name: &str) -> &'a OrganizeItem {
+    plan.items
+        .iter()
+        .find(|i| i.sources[0].file_name().is_some_and(|n| n == name))
+        .unwrap_or_else(|| panic!("no item {name}: {:#?}", plan.items))
+}
+
+fn target_parts(it: &OrganizeItem) -> Vec<String> {
+    parts(
+        it.target
+            .as_deref()
+            .unwrap_or_else(|| panic!("{:?} has no target: {:?}", it.sources, it.action)),
+    )
+}
+
+fn left(it: &OrganizeItem) -> LeftReason {
+    match &it.action {
+        OrganizeAction::Left { reason } => reason.clone(),
+        other => panic!("{:?} is not left: {other:?}", it.sources),
+    }
+}
+
+/// The game folder (by component) the base `name` was planned into.
+fn folder_of(plan: &OrganizePlan, name: &str) -> Vec<String> {
+    let base = item(plan, name);
+    parts(
+        base.game
+            .as_ref()
+            .and_then(|g| g.folder.as_deref())
+            .unwrap_or_else(|| panic!("{name} has no game folder: {base:?}")),
+    )
+}
+
+fn under(folder: &[String], rest: &[&str]) -> Vec<String> {
+    folder.iter().cloned().chain(p(rest)).collect()
+}
+
+/// Every file below `dir`, by component, sorted.
+fn files_below(dir: &Path) -> Vec<Vec<String>> {
+    if !dir.exists() {
+        return Vec::new();
+    }
+    let mut out: Vec<Vec<String>> = walkdir::WalkDir::new(dir)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .map(|e| parts(e.path().strip_prefix(dir).unwrap()))
+        .collect();
+    out.sort();
+    out
+}
+
+fn dirs_below(dir: &Path) -> Vec<Vec<String>> {
+    let mut out: Vec<Vec<String>> = walkdir::WalkDir::new(dir)
+        .min_depth(1)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_dir())
+        .map(|e| parts(e.path().strip_prefix(dir).unwrap()))
+        .collect();
+    out.sort();
+    out
+}
+
+/// A pile with a 3DS base, its LayeredFS mod folder and its cheats.
+fn pokemon_with_addons(pile: &Path) {
+    put(
+        pile,
+        "Pokemon Y (World).cia",
+        &ct::cia(MON, true, false).head_bytes(),
+        1,
+    );
+    put(pile, &format!("{MON_ID}/romfs/a.bin"), &[1u8; 64], 2);
+    put(pile, &format!("{MON_ID}.txt"), CTR_CHEAT, 3);
+}
+
+#[test]
+fn coverly_library_places_mods_and_cheats_in_the_game_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_with_addons(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = lib_plan(&pile, &lib);
+    let base = item(&plan, "Pokemon Y (World).cia");
+    assert_eq!(base.action, OrganizeAction::Auto, "{base:?}");
+    let folder = folder_of(&plan, "Pokemon Y (World).cia");
+    assert_eq!(folder[0], "3DS");
+
+    let m = item(&plan, MON_ID);
+    assert_eq!(m.action, OrganizeAction::Auto, "{m:?}");
+    assert_eq!(target_parts(m), under(&folder, &["Mods", MON_ID]));
+    let link = m.game.as_ref().unwrap();
+    assert_eq!(link.role, GameRole::Mod);
+    assert_eq!(link.of, Some(base.id));
+    let addon = link.addon.as_ref().unwrap();
+    assert_eq!(addon.key_text, MON_ID);
+    assert_eq!(addon.via, LinkVia::Key);
+    assert_eq!(addon.format, AddonFormat::LayeredFs);
+
+    let c = item(&plan, &format!("{MON_ID}.txt"));
+    assert_eq!(
+        target_parts(c),
+        under(&folder, &["Cheats", &format!("{MON_ID}.txt")])
+    );
+    let link = c.game.as_ref().unwrap();
+    assert_eq!(link.role, GameRole::Cheat);
+    assert_eq!(link.of, Some(base.id));
+    assert_eq!(link.addon.as_ref().unwrap().via, LinkVia::Key);
+    assert_eq!(m.system_id.as_deref(), Some("3ds"));
+}
+
+#[test]
+fn no_mods_folder_without_mods() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("lib"),
+        tmp.path().join("data"),
+    );
+    put(
+        &pile,
+        "Pokemon Y (World).cia",
+        &ct::cia(MON, true, false).head_bytes(),
+        1,
+    );
+    put(&pile, &format!("{MON_ID}.txt"), CTR_CHEAT, 2);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = lib_plan(&pile, &lib);
+    let folder = folder_of(&plan, "Pokemon Y (World).cia");
+    for it in &plan.items {
+        if let Some(t) = &it.target {
+            assert!(!parts(t).contains(&"Mods".to_string()), "{it:?}");
+        }
+    }
+    let report = apply_in(&plan, &data);
+    assert!(report.paused.is_none(), "{report:?}");
+    let dirs = dirs_below(&lib);
+    assert!(dirs.contains(&under(&folder, &["Cheats"])), "{dirs:?}");
+    assert!(
+        !dirs.iter().any(|d| d.contains(&"Mods".to_string())),
+        "{dirs:?}"
+    );
+}
+
+const DAYS_GONE: &str = "UP9000-CUSA07023_00-BENDGAME00000000";
+const BLOODBORNE_PLAN: &str = "UP9000-CUSA00900_00-BLOODBORNE000000";
+
+#[test]
+fn a_ps4_cheat_json_goes_to_cheats() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    ct::ps4_app(&pile.join("CUSA07023"), "CUSA07023", "gd", DAYS_GONE);
+    put(&pile, "CUSA07023_01.03.json", b"{\"name\":\"x\"}", 1);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = lib_plan(&pile, &lib);
+    let base = item(&plan, "CUSA07023");
+    assert!(base.moves_in(), "{base:?}");
+    let game = target_parts(base);
+    let c = item(&plan, "CUSA07023_01.03.json");
+    assert_eq!(
+        target_parts(c),
+        under(&game, &["Cheats", "CUSA07023_01.03.json"])
+    );
+    let link = c.game.as_ref().unwrap();
+    assert_eq!(link.role, GameRole::Cheat);
+    assert_eq!(link.of, Some(base.id));
+}
+
+#[test]
+fn the_shadps4_mods_overlay_follows_its_base() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    ct::ps4_app(&pile.join("CUSA00900"), "CUSA00900", "gd", BLOODBORNE_PLAN);
+    put(&pile, "CUSA00900-mods/eboot.bin", &[1u8; 64], 1);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = lib_plan(&pile, &lib);
+    let base = item(&plan, "CUSA00900");
+    let game = target_parts(base);
+    let m = item(&plan, "CUSA00900-mods");
+    assert_eq!(m.kind, coverly_core::organize::ItemKind::Folder);
+    assert_eq!(target_parts(m), under(&game, &["Mods", "CUSA00900-mods"]));
+    assert_eq!(m.game.as_ref().unwrap().of, Some(base.id));
+}
+
+#[test]
+fn filed_pile_mods_move_with_their_base() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_pile(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = lib_plan(&pile, &lib);
+    let folder = folder_of(&plan, "Pokemon Y.cia");
+    let m = item(&plan, "m.ips");
+    assert_eq!(target_parts(m), under(&folder, &["Mods", "m.ips"]));
+    let link = m.game.as_ref().unwrap();
+    assert_eq!(link.role, GameRole::Mod);
+    assert_eq!(link.addon.as_ref().unwrap().via, LinkVia::Folder);
+    let c = item(&plan, "0004000000055E00.txt");
+    assert_eq!(
+        target_parts(c),
+        under(&folder, &["Cheats", "0004000000055E00.txt"])
+    );
+    // What the sniff does not know keeps its folder's row.
+    assert!(matches!(
+        left(item(&plan, "notes.bin")),
+        LeftReason::GameFolderContent { .. }
+    ));
+}
+
+#[test]
+fn a_retro_patch_has_no_place_in_coverly_library() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    let rom = vec![0x11u8; 1 << 20];
+    put(&pile, "Chrono Trigger (USA).sfc", &rom, 1);
+    put(
+        &pile,
+        "Chrono Trigger (USA) [T-Es].bps",
+        &at::bps(1 << 20, crc32fast::hash(&rom)),
+        2,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let plan = lib_plan(&pile, &lib);
+    let rom_item = item(&plan, "Chrono Trigger (USA).sfc");
+    assert!(rom_item.moves_in(), "{rom_item:?}");
+    let patch = item(&plan, "Chrono Trigger (USA) [T-Es].bps");
+    assert_eq!(
+        left(patch),
+        LeftReason::AddonNoPlace {
+            kind: AddonKind::Patch
+        }
+    );
+    let link = patch.game.as_ref().unwrap();
+    assert_eq!(link.role, GameRole::Mod);
+    assert_eq!(link.of, Some(rom_item.id));
+    let addon = link.addon.as_ref().unwrap();
+    assert_eq!(addon.via, LinkVia::SourceCrc);
+    assert_eq!(addon.header, Some(HeaderFit::Matches));
+    assert_eq!(
+        addon.key_text,
+        format!("CRC32 {:08X}", crc32fast::hash(&rom))
+    );
+}
+
+#[test]
+fn a_same_name_in_cheats_is_taken_not_numbered() {
+    for same in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+        pokemon_with_addons(&pile);
+        let existing: &[u8] = if same { CTR_CHEAT } else { b"[Other]\n" };
+        put(
+            &lib,
+            &format!("3DS/Pokemon Y (World)/Cheats/{MON_ID}.txt"),
+            existing,
+            9,
+        );
+        let plan = lib_plan(&pile, &lib);
+        let folder = folder_of(&plan, "Pokemon Y (World).cia");
+        assert_eq!(folder, p(&["3DS", "Pokemon Y (World)"]));
+        let c = item(&plan, &format!("{MON_ID}.txt"));
+        let at = under(&folder, &["Cheats"]);
+        match left(c) {
+            LeftReason::AddonNameTaken { at: got } if !same => assert_eq!(parts(&got), at),
+            LeftReason::AlreadyPresent { at: got } if same => {
+                assert_eq!(parts(&got), under(&at, &[&format!("{MON_ID}.txt")]))
+            }
+            other => panic!("same = {same}: {other:?}"),
+        }
+        // The mod folder still goes in.
+        assert_eq!(
+            target_parts(item(&plan, MON_ID)),
+            under(&folder, &["Mods", MON_ID])
+        );
+    }
+}
+
+#[test]
+fn an_addon_already_in_place_is_no_item() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = tmp.path().join("lib");
+    let game = "3DS/Pokemon Y (World)";
+    put(
+        &lib,
+        &format!("{game}/Pokemon Y (World).cia"),
+        &ct::cia(MON, true, false).head_bytes(),
+        1,
+    );
+    put(
+        &lib,
+        &format!("{game}/Mods/{MON_ID}/romfs/a.bin"),
+        &[1u8; 64],
+        2,
+    );
+    put(&lib, &format!("{game}/Cheats/{MON_ID}.txt"), CTR_CHEAT, 3);
+    let opts = OrganizeOptions {
+        layout: "coverly-library".to_string(),
+        offline: true,
+        duplicates: OrganizeDedupeMode::Off,
+        ..OrganizeOptions::default()
+    };
+    let plan = plan_in(&lib, &opts);
+    for it in &plan.items {
+        let names = parts(&it.sources[0]);
+        assert!(
+            !names.iter().any(|n| n == "Mods" || n == "Cheats"),
+            "an addon in place became an item: {it:?}"
+        );
+    }
+}
+
+#[test]
+fn unlinked_addons_stay_with_their_reason() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(&pile, "random.ips", &at::ips(), 1);
+    put(
+        &pile,
+        "patch.yml",
+        b"BLUS30001: x\nBLES00001: y\nNPUA80001: z\n",
+        2,
+    );
+    ct::wiiu_folder(
+        &pile.join("Zelda US"),
+        "0005000010101D00",
+        "WUP-P-ALZE",
+        "Zelda",
+    );
+    ct::wiiu_folder(
+        &pile.join("Zelda EU"),
+        "0005000010101E00",
+        "WUP-P-ALZP",
+        "Zelda",
+    );
+    put(
+        &pile,
+        "HD Pack/rules.txt",
+        b"[Definition]\ntitleIds = 0005000010101D00,0005000010101E00\nname = HD\nversion = 6\n",
+        3,
+    );
+    let mut pcm = b"MSU1".to_vec();
+    pcm.extend([0u8; 60]);
+    put(&pile, "Lone/lone-1.pcm", &pcm, 4);
+    put(
+        &pile,
+        "A1B2C3D4E5F60718.txt",
+        b"{Master}\n04000000 00000000\n",
+        5,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let plan = lib_plan(&pile, &lib);
+    let why = |name: &str| match left(item(&plan, name)) {
+        LeftReason::AddonUnlinked { why, .. } => why,
+        other => panic!("{name}: {other:?}"),
+    };
+    assert_eq!(why("random.ips"), UnlinkedWhy::NoMatch);
+    assert_eq!(why("patch.yml"), UnlinkedWhy::Many { count: 3 });
+    assert_eq!(why("HD Pack"), UnlinkedWhy::Several { count: 2 });
+    assert_eq!(why("lone-1.pcm"), UnlinkedWhy::Partial);
+    assert_eq!(why("A1B2C3D4E5F60718.txt"), UnlinkedWhy::NoKey);
+}
+
+fn ps3_pkg(content_id: &str, tail: u8) -> Vec<u8> {
+    let mut b = ct::pkg(1, content_id).head_bytes();
+    b.extend([tail; 16]);
+    b
+}
+
+const RESISTANCE: &str = "UP9000-BLUS30001_00-RESISTANCE000001";
+
+#[test]
+fn a_library_base_receives_its_addon_by_serial() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(
+        &lib,
+        "PS3/Resistance (USA)/Resistance (USA).pkg",
+        &ps3_pkg(RESISTANCE, 1),
+        1,
+    );
+    put(&pile, "BLUS30001_patch.yml", b"Version: 1.2\n", 2);
+    let plan = lib_plan(&pile, &lib);
+    let c = item(&plan, "BLUS30001_patch.yml");
+    assert_eq!(
+        target_parts(c),
+        p(&["PS3", "Resistance (USA)", "Cheats", "BLUS30001_patch.yml"])
+    );
+    assert!(
+        c.notes.contains(&ItemNote::CheatOf {
+            of: "Resistance (USA)".into()
+        }),
+        "{c:?}"
+    );
+    let link = c.game.as_ref().unwrap();
+    assert_eq!(link.role, GameRole::Cheat);
+    assert_eq!(link.of, None);
+    assert!(link.folder_exists);
+    assert_eq!(link.addon.as_ref().unwrap().key_text, "BLUS30001");
+}
+
+#[test]
+fn a_bps_hashes_only_same_size_candidates() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    let disc = put(
+        &pile,
+        "Zelda (USA).iso",
+        &ct::gc_disc("GALE01", false).head_bytes(),
+        1,
+    );
+    let f = fs::OpenOptions::new().write(true).open(&disc).unwrap();
+    f.set_len(1_400_000_000).unwrap();
+    drop(f);
+    pin_mtime(&disc, 1);
+    let rom = vec![0x13u8; 1 << 20];
+    put(&pile, "Game (USA).sfc", &rom, 2);
+    put(&pile, "hack.bps", &at::bps(1 << 20, 0xDEAD_BEEF), 3);
+    put(
+        &pile,
+        "translation.bps",
+        &at::bps(1 << 20, crc32fast::hash(&rom)),
+        4,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    coverly_core::organize::addons::take_addon_hashes();
+    let plan = lib_plan(&pile, &lib);
+    let hashed = coverly_core::organize::addons::take_addon_hashes();
+    assert!(
+        !hashed.iter().any(|h| h.ends_with("Zelda (USA).iso")),
+        "{hashed:?}"
+    );
+    assert!(matches!(
+        left(item(&plan, "hack.bps")),
+        LeftReason::AddonUnlinked {
+            why: UnlinkedWhy::NoMatch,
+            ..
+        }
+    ));
+    // The ROM of the declared size is compared, and links.
+    let linked = item(&plan, "translation.bps");
+    assert_eq!(
+        linked
+            .game
+            .as_ref()
+            .and_then(|g| g.addon.as_ref())
+            .map(|a| a.via),
+        Some(LinkVia::SourceCrc),
+        "{linked:?}"
+    );
+    assert_eq!(
+        linked.game.as_ref().and_then(|g| g.of),
+        Some(item(&plan, "Game (USA).sfc").id)
+    );
+}
+
+#[test]
+fn same_stem_companions_go_to_fixed_folders_with_game_folders_on() {
+    for on in [true, false] {
+        let tmp = tempfile::tempdir().unwrap();
+        let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+        put(
+            &pile,
+            "Game.cia",
+            &ct::cia(MON, true, false).head_bytes(),
+            1,
+        );
+        put(&pile, "Game.cht", b"cheats = 1\n", 2);
+        put(&pile, "Game.ips", &at::ips(), 3);
+        fs::create_dir_all(&lib).unwrap();
+        let mut opts = place_options("coverly-library", &lib);
+        opts.game_folders = Some(on);
+        let plan = plan_in(&pile, &opts);
+        let base = item(&plan, "Game.cia");
+        assert!(base.moves_in(), "{base:?}");
+        let target = parts(base.target.as_deref().unwrap());
+        let dir = &target[..target.len() - 1];
+        let stem = Path::new(target.last().unwrap())
+            .file_stem()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        for (name, fixed, ext) in [("Game.cht", "Cheats", "cht"), ("Game.ips", "Mods", "ips")] {
+            let comp = base
+                .companions
+                .iter()
+                .find(|c| c.source.file_name().is_some_and(|n| n == name))
+                .unwrap_or_else(|| panic!("no companion {name}: {base:?}"));
+            if on {
+                assert_eq!(dir.len(), 2, "{target:?}");
+                assert_eq!(parts(&comp.target), under(dir, &[fixed, name]));
+            } else {
+                assert_eq!(parts(&comp.target), under(dir, &[&format!("{stem}.{ext}")]));
+            }
+        }
+    }
+}
+
+#[test]
+fn addons_are_never_dedupe_units() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(
+        &pile,
+        "Pokemon Y/Pokemon Y.cia",
+        &ct::cia(MON, true, false).head_bytes(),
+        1,
+    );
+    put(&pile, "Pokemon Y/Cheats/same.txt", CTR_CHEAT, 2);
+    put(
+        &pile,
+        "Pokemon X/Pokemon X.cia",
+        &ct::cia(MON + 0x100, true, false).head_bytes(),
+        3,
+    );
+    put(&pile, "Pokemon X/Cheats/same.txt", CTR_CHEAT, 4);
+    fs::create_dir_all(&lib).unwrap();
+    let mut opts = place_options("coverly-library", &lib);
+    opts.duplicates = OrganizeDedupeMode::Report;
+    let plan = plan_in(&pile, &opts);
+    let json = serde_json::to_string(&plan.duplicates).unwrap();
+    assert!(!json.contains("same.txt"), "{json}");
+    for it in plan
+        .items
+        .iter()
+        .filter(|i| i.sources[0].ends_with("same.txt"))
+    {
+        assert!(!it.is_set_aside(), "{it:?}");
+    }
+}
+
+fn apply_in(plan: &OrganizePlan, data: &Path) -> coverly_core::organize::OrganizeReport {
+    apply_organize(
+        plan,
+        &ApplyEnv {
+            data_dir: data,
+            progress: &|_| {},
+            cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn apply_and_undo_round_trip_with_addons() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("lib"),
+        tmp.path().join("data"),
+    );
+    ct::ps3_jb(&pile.join("Resistance"), "BLUS30001", "DG");
+    let rap = put(
+        &pile,
+        "UP9000-BLUS30001_00-RESISTANCE000001.rap",
+        &[0xA5; 16],
+        2,
+    );
+    put(&pile, "BLUS30001_patch.yml", b"Version: 1.2\n", 3);
+    pokemon_with_addons(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let before = files_below(&pile);
+    let bytes: Vec<(Vec<String>, Vec<u8>)> = before
+        .iter()
+        .map(|f| {
+            (
+                f.clone(),
+                fs::read(f.iter().fold(pile.clone(), |p, c| p.join(c))).unwrap(),
+            )
+        })
+        .collect();
+
+    let _turn = log_turn();
+    start_open_log();
+    let plan = lib_plan(&pile, &lib);
+    let report = apply_in(&plan, &data);
+    assert!(report.paused.is_none(), "{report:?}");
+    assert!(
+        report
+            .items
+            .iter()
+            .all(|o| matches!(o.status, ItemStatus::Moved)),
+        "{report:?}"
+    );
+    let ps3 = target_parts(item(&plan, "Resistance"));
+    let mon = folder_of(&plan, "Pokemon Y (World).cia");
+    let after = files_below(&lib);
+    for want in [
+        under(&ps3, &["Cheats", "BLUS30001_patch.yml"]),
+        under(&mon, &["Cheats", &format!("{MON_ID}.txt")]),
+        under(&mon, &["Mods", MON_ID, "romfs", "a.bin"]),
+    ] {
+        assert!(after.contains(&want), "{want:?} not in {after:?}");
+    }
+    let job = report.job.clone().unwrap();
+    undo_job(&data, &job).unwrap();
+    let opened = take_open_log();
+    assert!(!opened.contains(&rap), "the licence was opened: {opened:?}");
+    assert!(
+        !opened.iter().any(|o| o
+            .file_name()
+            .is_some_and(|n| coverly_core::consoles::is_key_material(&n.to_string_lossy()))),
+        "{opened:?}"
+    );
+
+    assert_eq!(files_below(&pile), before);
+    for (f, b) in &bytes {
+        assert_eq!(
+            &fs::read(f.iter().fold(pile.clone(), |p, c| p.join(c))).unwrap(),
+            b,
+            "{f:?}"
+        );
+    }
+    assert_eq!(files_below(&lib), Vec::<Vec<String>>::new());
+    assert_eq!(fs::read_dir(&lib).unwrap().count(), 0, "every folder gone");
+}

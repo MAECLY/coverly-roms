@@ -8,6 +8,7 @@
 //! 4 KiB of an xdelta header), at most 1 MiB of a cheat's text, the small
 //! manifests a mod folder names; never a whole patch.
 
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -15,19 +16,30 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::addons::cheat::{is_global_cheat_db, may_be_cheat, sniff_cheat};
+use crate::addons::link::{
+    resolve, resolve_by_readme, wanted_sizes, Candidate, Candidates, GameRef, Resolution,
+};
 use crate::addons::mods::{
     is_mod_dir_without_keys, n64_htc_name, sniff_mod_dir_on_disk, ModVerdict, SMALL_FILE_CAP,
 };
 use crate::addons::patch::{ips_chain_index, read_patch};
 use crate::addons::{
     valid_game_id, valid_sony_serial, valid_title_id16, AddonFormat, AddonKey, AddonKind,
-    UnlinkedWhy,
+    AddonLink, HeaderFit, LinkVia, UnlinkedWhy,
 };
 use crate::cache::Cache;
 use crate::consoles::is_key_material;
+use crate::consoles::{base_title_id, TitleKind};
 use crate::game_folder::FixedFolder;
+use crate::identify::names::parse_tags;
+use crate::systems::SystemDb;
 
-use super::plan::LeftReason;
+use super::library_bases::{LibraryBase, LibraryIndex};
+use super::plan::{
+    effective_kind, GameLink, GameRole, ItemKind, ItemNote, LeftReason, OrganizeAction,
+    OrganizeItem, SurveyEntry, Transfer,
+};
+use super::target::{DirIndex, Subdir, TargetLayout};
 
 /// A file or a folder of the pile the walk took for an addon (D2–D4).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -477,38 +489,745 @@ pub fn unlinked_why(c: &AddonCandidate) -> UnlinkedWhy {
 pub fn unlinked_rows(addons: &[AddonCandidate]) -> Vec<(PathBuf, LeftReason)> {
     let mut out = Vec::new();
     for c in addons {
-        let reason = match &c.filed_under {
-            Some(base) if base.parent() == c.path.parent() => {
-                LeftReason::GameOverlay { of: name_of(base) }
-            }
-            Some(base) => {
-                let folder = c
-                    .path
-                    .parent()
-                    .and_then(Path::file_name)
-                    .and_then(|n| FixedFolder::from_dir_name(&n.to_string_lossy()))
-                    .unwrap_or(c.kind.fixed_folder());
-                // A folder game is its own game folder; a file base names
-                // it by its stem.
-                let of = if c.path.parent().and_then(Path::parent) == Some(base.as_path()) {
-                    name_of(base)
-                } else {
-                    base.file_stem()
-                        .map_or_else(|| name_of(base), |s| s.to_string_lossy().into_owned())
-                };
-                LeftReason::GameFolderContent { folder, of }
-            }
-            None => LeftReason::AddonUnlinked {
-                kind: c.kind,
-                format: c.format,
-                why: unlinked_why(c),
-            },
-        };
+        let reason = unlinked_reason(c);
         let dir = c.path.parent().unwrap_or(Path::new(""));
         out.extend(c.members.iter().map(|m| (dir.join(m), reason.clone())));
         out.push((c.path.clone(), reason));
     }
     out
+}
+
+/// The reason a candidate stays where it is until the plan links it (see
+/// [`unlinked_rows`]).
+fn unlinked_reason(c: &AddonCandidate) -> LeftReason {
+    match &c.filed_under {
+        Some(base) if base.parent() == c.path.parent() => {
+            LeftReason::GameOverlay { of: name_of(base) }
+        }
+        Some(base) => {
+            let folder = c
+                .path
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|n| FixedFolder::from_dir_name(&n.to_string_lossy()))
+                .unwrap_or(c.kind.fixed_folder());
+            // A folder game is its own game folder; a file base names it
+            // by its stem.
+            let of = if c.path.parent().and_then(Path::parent) == Some(base.as_path()) {
+                name_of(base)
+            } else {
+                base.file_stem()
+                    .map_or_else(|| name_of(base), |s| s.to_string_lossy().into_owned())
+            };
+            LeftReason::GameFolderContent { folder, of }
+        }
+        None => LeftReason::AddonUnlinked {
+            kind: c.kind,
+            format: c.format,
+            why: unlinked_why(c),
+        },
+    }
+}
+
+/// One survey entry per candidate (mods spec D10): a mod folder is one
+/// [`ItemKind::Folder`], an MSU-1 set one [`ItemKind::Set`] (the `.msu`
+/// first, then its members), any other addon one [`ItemKind::File`]; each
+/// with the reason it stays until the plan's link pass takes it.
+pub fn unlinked_entries(addons: &[AddonCandidate]) -> Vec<(Vec<PathBuf>, ItemKind, LeftReason)> {
+    addons
+        .iter()
+        .map(|c| {
+            let dir = c.path.parent().unwrap_or(Path::new(""));
+            let mut sources = vec![c.path.clone()];
+            sources.extend(c.members.iter().map(|m| dir.join(m)));
+            let kind = if c.is_dir {
+                ItemKind::Folder
+            } else if sources.len() > 1 {
+                ItemKind::Set
+            } else {
+                ItemKind::File
+            };
+            (sources, kind, unlinked_reason(c))
+        })
+        .collect()
+}
+
+// --- The plan's link pass (D5, D6, D8, D9, D13) ---
+
+#[cfg(any(test, feature = "test-util"))]
+thread_local! {
+    static HASHED: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Every ROM the link pass hashed on this thread since the last call
+/// (tests: a BPS never hashes a ROM of another size, D5).
+#[cfg(any(test, feature = "test-util"))]
+pub fn take_addon_hashes() -> Vec<PathBuf> {
+    HASHED.with(|h| std::mem::take(&mut *h.borrow_mut()))
+}
+
+/// The largest ROM hashed to test a patch's source CRC (D5).
+pub const SOURCE_HASH_MAX: u64 = 512 << 20;
+
+/// The systems an addon of `format` can belong to (its emulator's), or
+/// none when the format says nothing (patches, RetroArch cheats).
+pub fn systems_of(format: AddonFormat) -> &'static [&'static str] {
+    use AddonFormat as F;
+    match format {
+        F::DuckStationCht => &["psx"],
+        F::Pnach => &["ps2"],
+        F::DolphinIni | F::DolphinGraphicMod | F::Riivolution => &["gamecube", "wii"],
+        F::PpssppIni => &["psp"],
+        F::CtrCheats | F::LayeredFs => &["3ds"],
+        F::SwitchCheats | F::Pchtxt | F::SwitchMod | F::ExefsPatches => &["switch"],
+        F::Rpcs3Patch => &["ps3"],
+        F::Shadps4Cheat | F::Shadps4Patch | F::Shadps4Mods => &["ps4"],
+        F::XeniaPatch | F::XeniaPlugin => &["xbox360"],
+        F::Vita3kPatch | F::VitaRepatch => &["psvita"],
+        F::MelonDsCheats | F::DesmumeCheats => &["nds"],
+        F::MgbaCheats => &["gba", "gb", "gbc"],
+        F::CemuGraphicPack => &["wiiu"],
+        F::MesenHdPack | F::FceuxCht => &["nes"],
+        F::Msu1 => &["snes"],
+        F::N64HiresTextures => &["n64"],
+        F::Bps
+        | F::Ups
+        | F::Ips
+        | F::Xdelta
+        | F::Ppf
+        | F::Aps
+        | F::RetroArchCht
+        | F::CodeText
+        | F::TexturePack => &[],
+    }
+}
+
+/// The key as a row shows it (mono): «SLUS-00594», «0004000000055D00»,
+/// «CRC32 1A2B3C4D».
+pub fn key_text(key: &AddonKey) -> String {
+    match key {
+        AddonKey::SourceCrc { crc32, .. } => format!("CRC32 {crc32:08X}"),
+        AddonKey::SourceName { name } | AddonKey::RomName { name } | AddonKey::N64Name { name } => {
+            name.clone()
+        }
+        AddonKey::Serial { serial } => serial.clone(),
+        AddonKey::GameId { id } | AddonKey::TitleId { id } | AddonKey::N64Id { id } => id.clone(),
+        AddonKey::TitleIds { ids } => ids.join(", "),
+        AddonKey::SerialVersion { serial, version } => format!("{serial} {version}"),
+        AddonKey::BuildId { build_id, title_id } => match title_id {
+            Some(t) => format!("{t} {build_id}"),
+            None => build_id.clone(),
+        },
+        AddonKey::Many { .. } | AddonKey::None => String::new(),
+    }
+}
+
+fn role_of(kind: AddonKind) -> GameRole {
+    match kind {
+        AddonKind::Cheat => GameRole::Cheat,
+        AddonKind::Patch | AddonKind::Mod => GameRole::Mod,
+    }
+}
+
+/// What the link pass needs of the plan around it.
+pub(crate) struct LinkWorld<'a> {
+    pub layout: &'a TargetLayout,
+    pub db: &'a SystemDb,
+    /// Bytes the pass may hash to test source CRCs (the plan's head
+    /// budget).
+    pub hash_budget: u64,
+    /// The library bases of a target system folder, with their header ids
+    /// (D9), asked only for systems with an addon the plan did not link.
+    pub library: &'a mut dyn FnMut(&str) -> LibraryIndex,
+}
+
+/// Whether an item is still the row the survey gave an addon.
+fn untouched(item: &OrganizeItem) -> bool {
+    matches!(
+        &item.action,
+        OrganizeAction::Left {
+            reason: LeftReason::AddonUnlinked { .. }
+                | LeftReason::GameOverlay { .. }
+                | LeftReason::GameFolderContent { .. }
+        }
+    )
+}
+
+fn hex_crc(s: &str) -> Option<u32> {
+    u32::from_str_radix(s.trim(), 16).ok()
+}
+
+/// A plan item as a game an addon may link to.
+fn plan_candidate(
+    i: usize,
+    item: &OrganizeItem,
+    entry: &SurveyEntry,
+    system: String,
+    wanted: &BTreeSet<u64>,
+    budget: &mut u64,
+    w: &LinkWorld<'_>,
+) -> Candidate {
+    let file_name = item
+        .sources
+        .first()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stem = match item.kind {
+        ItemKind::Folder => file_name.clone(),
+        _ => Path::new(&file_name)
+            .file_stem()
+            .map_or_else(|| file_name.clone(), |s| s.to_string_lossy().into_owned()),
+    };
+    let tags = parse_tags(&stem);
+    let console = entry.console.as_ref().filter(|c| c.system == system);
+    let mut serials: Vec<String> = item
+        .disc
+        .as_ref()
+        .map(|d| d.serials.clone())
+        .unwrap_or_default();
+    serials.extend(console.and_then(|c| c.serial.clone()));
+    let raw_id = console.and_then(|c| c.title_id.clone());
+    let mut cand = Candidate {
+        game: GameRef::Item(i),
+        system: system.clone(),
+        file_name,
+        stem,
+        title_key: tags.title_key,
+        regions: tags.regions,
+        catalogue_name: item.catalogue_name.clone(),
+        size: item.size,
+        title_id: console.and_then(base_title_id),
+        game_id: raw_id.filter(|_| matches!(system.as_str(), "gamecube" | "wii" | "psp")),
+        serials,
+        ..Candidate::default()
+    };
+    // Digests the survey already has (D5), else a fresh hash of a ROM of
+    // a wanted size, within the budget.
+    if let Some(facts) = entry.facts.as_ref().filter(|f| !f.raw_crcs.is_empty()) {
+        cand.crc_full = facts.raw_crcs.first().and_then(|(c, _)| hex_crc(c));
+        cand.crc_headerless = facts.raw_crcs.get(1).and_then(|(c, _)| hex_crc(c));
+        cand.has_header = cand.crc_headerless.is_some();
+        return cand;
+    }
+    let raw = item.kind == ItemKind::File
+        && matches!(item.transfer, Transfer::AsIs)
+        && entry
+            .facts
+            .as_ref()
+            .is_none_or(|f| !f.inspection.container.is_archive());
+    if !raw || !wanted.contains(&item.size) || item.size > SOURCE_HASH_MAX || *budget < item.size {
+        return cand;
+    }
+    let Some(path) = entry.sources.first() else {
+        return cand;
+    };
+    *budget -= item.size;
+    let rule = w.db.get(&system).map(|s| s.header).unwrap_or_default();
+    #[cfg(any(test, feature = "test-util"))]
+    HASHED.with(|h| h.borrow_mut().push(path.clone()));
+    let hashed = crate::consoles::open_rom(path)
+        .and_then(|f| crate::identify::hash::hash_stream(f, item.size, rule));
+    if let Ok(h) = hashed {
+        cand.crc_full = hex_crc(&h.full.crc32);
+        cand.crc_headerless = h.headerless.as_ref().and_then(|d| hex_crc(&d.crc32));
+        cand.has_header = h.headerless.is_some();
+    }
+    cand
+}
+
+/// A library base as a game an addon may link to (D9).
+fn library_candidate(system: &str, base: &LibraryBase) -> Candidate {
+    let title = base.title.clone().unwrap_or_default();
+    let tags = parse_tags(&title);
+    let file_name = base
+        .path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Candidate {
+        game: GameRef::Library(base.path.clone()),
+        system: system.to_string(),
+        file_name,
+        stem: title,
+        title_key: tags.title_key,
+        regions: tags.regions,
+        title_id: base.title_id.clone(),
+        serials: base.serial.iter().cloned().collect(),
+        game_id: base
+            .raw_id
+            .clone()
+            .filter(|_| matches!(system, "gamecube" | "wii" | "psp")),
+        ..Candidate::default()
+    }
+}
+
+/// The readme beside a keyless patch, at most [`README_MAX`] bytes.
+fn read_readme(path: &Path) -> Option<String> {
+    let file = crate::consoles::open_rom(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(README_MAX).read_to_end(&mut bytes).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// D5's order for one addon against `list`: its key, then a keyless
+/// patch's readme, then a patch's name.
+fn resolve_addon(
+    c: &AddonCandidate,
+    own_stem: &str,
+    list: &[Candidate],
+    budget_out: bool,
+) -> Resolution {
+    let none = |_: u32| Vec::new();
+    let cands = Candidates {
+        list,
+        dat_by_crc: &none,
+        budget_out,
+    };
+    let first = resolve(&c.key, None, own_stem, &cands);
+    if matches!(first, Resolution::One { .. } | Resolution::Several(_))
+        || c.kind != AddonKind::Patch
+    {
+        return first;
+    }
+    if c.key == AddonKey::None {
+        if let Some(text) = c.readme.as_deref().and_then(read_readme) {
+            let by_readme = resolve_by_readme(&text, &cands);
+            if !matches!(by_readme, Resolution::None) {
+                return by_readme;
+            }
+        }
+        return first;
+    }
+    // A patch whose key found nothing: its name (D5 name fallback).
+    match resolve(&AddonKey::None, None, own_stem, &cands) {
+        Resolution::None => first,
+        other => other,
+    }
+}
+
+/// The link pass (D5, D6, D8, D9, D13), after demos and orphans and
+/// before targets: every addon the survey left is linked to exactly one
+/// game, a plan base first, then a library base of its system, or stays
+/// with why. A linked addon moves in (`Auto`) as a [`GameRole::Mod`] or
+/// [`GameRole::Cheat`] child ([`Subdir::Child`]: no target here) with its
+/// [`AddonLink`]; one linked to a library base names it by
+/// [`ItemNote::ModOf`], [`ItemNote::PatchOf`] or [`ItemNote::CheatOf`].
+/// With game folders off, a user's own filing (a pile game folder's
+/// `Mods/`, a shadPS4 `-mods` overlay) keeps part A's row.
+pub(crate) fn link_addons(
+    items: &mut [OrganizeItem],
+    entries: &[SurveyEntry],
+    addons: &[AddonCandidate],
+    subdirs: &mut [Option<Subdir>],
+    w: &mut LinkWorld<'_>,
+) {
+    if addons.is_empty() {
+        return;
+    }
+    let by_path: HashMap<&Path, usize> = entries
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| Some((e.sources.first()?.as_path(), i)))
+        .collect();
+    let todo: Vec<(usize, &AddonCandidate)> = addons
+        .iter()
+        .filter_map(|c| {
+            let i = *by_path.get(c.path.as_path())?;
+            items.get(i).filter(|it| untouched(it)).map(|_| (i, c))
+        })
+        .collect();
+    if todo.is_empty() {
+        return;
+    }
+    let is_addon: HashSet<usize> = todo.iter().map(|(i, _)| *i).collect();
+    let wanted: BTreeSet<u64> = todo
+        .iter()
+        .filter_map(|(_, c)| match c.key {
+            AddonKey::SourceCrc { size, .. } => Some(wanted_sizes(size)),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    let mut budget = w.hash_budget;
+    let mut plan: Vec<Candidate> = Vec::new();
+    for (i, item) in items.iter().enumerate() {
+        let (Some(system), Some(entry)) = (item.system_id.clone(), entries.get(i)) else {
+            continue;
+        };
+        let child = matches!(
+            effective_kind(entry),
+            TitleKind::Update | TitleKind::Dlc | TitleKind::System
+        ) || item.game.as_ref().is_some_and(|g| g.role != GameRole::Base);
+        if is_addon.contains(&i) || !item.moves_in() || child {
+            continue;
+        }
+        plan.push(plan_candidate(
+            i,
+            item,
+            entry,
+            system,
+            &wanted,
+            &mut budget,
+            w,
+        ));
+    }
+    let mut libraries: HashMap<String, (Vec<Candidate>, bool)> = HashMap::new();
+    for (pos, c) in todo {
+        let link = AddonLink {
+            kind: c.kind,
+            format: c.format,
+            key_text: key_text(&c.key),
+            via: LinkVia::Key,
+            header: None,
+        };
+        // D13: the user's own filing, or a shadPS4 overlay beside its base.
+        if let Some(base_path) = &c.filed_under {
+            if !w.layout.game_folders {
+                continue;
+            }
+            let Some(&b) = by_path.get(base_path.as_path()) else {
+                continue;
+            };
+            // A folder game's own fixed folder travels inside it.
+            if !items[b].moves_in()
+                || (items[b].kind == ItemKind::Folder && c.path.starts_with(base_path))
+            {
+                continue;
+            }
+            let overlay = base_path.parent() == c.path.parent();
+            let via = if overlay {
+                LinkVia::Key
+            } else {
+                LinkVia::Folder
+            };
+            link_to_item(items, pos, b, AddonLink { via, ..link });
+            subdirs[pos] = Some(Subdir::Child);
+            continue;
+        }
+        let systems = systems_of(c.format);
+        let own = c
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let own_stem = if c.is_dir {
+            own.clone()
+        } else {
+            Path::new(&own)
+                .file_stem()
+                .map_or_else(|| own.clone(), |s| s.to_string_lossy().into_owned())
+        };
+        let in_systems =
+            |cand: &&Candidate| systems.is_empty() || systems.contains(&cand.system.as_str());
+        let list: Vec<Candidate> = plan.iter().filter(in_systems).cloned().collect();
+        let mut res = resolve_addon(c, &own_stem, &list, false);
+        if !matches!(res, Resolution::One { .. } | Resolution::Several(_)) && !systems.is_empty() {
+            let mut list = list;
+            let mut out = false;
+            for system in systems {
+                let (cands, incomplete) =
+                    libraries.entry((*system).to_string()).or_insert_with(|| {
+                        let index = (w.library)(system);
+                        let cands = index
+                            .bases()
+                            .iter()
+                            .map(|b| library_candidate(system, b))
+                            .collect();
+                        (cands, index.incomplete)
+                    });
+                list.extend(cands.iter().cloned());
+                out |= *incomplete;
+            }
+            res = resolve_addon(c, &own_stem, &list, out);
+        }
+        match res {
+            Resolution::One {
+                game: GameRef::Item(b),
+                via,
+                header,
+            } => {
+                link_to_item(
+                    items,
+                    pos,
+                    b,
+                    AddonLink {
+                        via,
+                        header,
+                        ..link
+                    },
+                );
+                subdirs[pos] = Some(Subdir::Child);
+            }
+            Resolution::One {
+                game: GameRef::Library(path),
+                via,
+                header,
+            } => {
+                let Some((system, base)) = systems.iter().find_map(|s| {
+                    let found = libraries
+                        .get(*s)?
+                        .0
+                        .iter()
+                        .find(|cand| cand.game == GameRef::Library(path.clone()))?;
+                    Some((*s, found.stem.clone()))
+                }) else {
+                    continue;
+                };
+                let in_game_folder = fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir());
+                let (system_dir, choice) = super::target::folder_dir(w.layout, w.db, system);
+                let it = &mut items[pos];
+                it.action = OrganizeAction::Auto;
+                it.system_id = Some(system.to_string());
+                it.folder = system_dir
+                    .file_name()
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .or(Some(choice.folder));
+                let mut game = GameLink::new(role_of(c.kind));
+                if in_game_folder {
+                    game.folder = Some(
+                        path.strip_prefix(&w.layout.target_root)
+                            .map_or_else(|_| path.clone(), Path::to_path_buf),
+                    );
+                    game.folder_exists = true;
+                }
+                game.addon = Some(AddonLink {
+                    via,
+                    header,
+                    ..link
+                });
+                it.game = Some(game);
+                let note = match c.kind {
+                    AddonKind::Mod => ItemNote::ModOf { of: base },
+                    AddonKind::Patch => ItemNote::PatchOf { of: base },
+                    AddonKind::Cheat => ItemNote::CheatOf { of: base },
+                };
+                it.notes.push(note);
+                header_note(it, header);
+                subdirs[pos] = Some(Subdir::Child);
+            }
+            Resolution::Several(count) => {
+                items[pos].leave(LeftReason::AddonUnlinked {
+                    kind: c.kind,
+                    format: c.format,
+                    why: UnlinkedWhy::Several { count },
+                });
+            }
+            Resolution::Budget => {
+                items[pos].leave(LeftReason::AddonUnlinked {
+                    kind: c.kind,
+                    format: c.format,
+                    why: UnlinkedWhy::Budget,
+                });
+            }
+            Resolution::None => {}
+        }
+    }
+}
+
+/// The row says when a patch expects the ROM with or without its header
+/// (D8).
+fn header_note(item: &mut OrganizeItem, header: Option<HeaderFit>) {
+    if let Some(needs @ (HeaderFit::NeedsHeaderless | HeaderFit::NeedsHeadered)) = header {
+        item.notes.push(ItemNote::HeaderMismatch { needs });
+    }
+}
+
+fn link_to_item(items: &mut [OrganizeItem], pos: usize, b: usize, link: AddonLink) {
+    let system = items[b].system_id.clone();
+    let region = items[b].game.as_ref().and_then(|g| g.region);
+    let header = link.header;
+    let it = &mut items[pos];
+    it.action = OrganizeAction::Auto;
+    it.system_id = system;
+    let mut game = GameLink::new(role_of(link.kind));
+    game.of = Some(b);
+    game.region = region;
+    game.addon = Some(link);
+    it.game = Some(game);
+    header_note(it, header);
+}
+
+/// Master placement (D11, D12), after the game folders' children: every
+/// linked addon goes to `<game folder>/Mods/<own name>` or
+/// `<game folder>/Cheats/<own name>`, never renamed (its name is often
+/// its key). The fixed folder is reused under its spelling on disk; a
+/// name taken there is *already present* (same bytes) or
+/// [`LeftReason::AddonNameTaken`], never ` (2)`. No game folder (game
+/// folders off, a flat or retro base): [`LeftReason::AddonNoPlace`]. A
+/// base that stays leaves its addons with its reason.
+pub(crate) fn addon_targets(
+    items: &mut [OrganizeItem],
+    layout: &TargetLayout,
+    index: &mut DirIndex,
+    src: &Path,
+    same_content: &dyn Fn(&Path, &OrganizeItem) -> bool,
+) {
+    for pos in 0..items.len() {
+        let Some(link) = items[pos].game.clone() else {
+            continue;
+        };
+        if !matches!(link.role, GameRole::Mod | GameRole::Cheat)
+            || !items[pos].moves_in()
+            || items[pos].target.is_some()
+        {
+            continue;
+        }
+        let kind = link.addon.as_ref().map_or(AddonKind::Mod, |a| a.kind);
+        let no_place = LeftReason::AddonNoPlace { kind };
+        if !layout.game_folders {
+            items[pos].leave(no_place);
+            continue;
+        }
+        let (system_folder, folder, folder_exists) = match link.of {
+            Some(b) => {
+                let Some(base) = items.get(b) else {
+                    continue;
+                };
+                match super::target::base_game_folder(base) {
+                    Some((folder, exists)) => (base.folder.clone(), folder, exists),
+                    None => {
+                        let reason = match &base.action {
+                            OrganizeAction::Left { reason } => reason.clone(),
+                            OrganizeAction::SetAside { .. } => LeftReason::Unknown,
+                            _ => no_place,
+                        };
+                        items[pos].leave(reason);
+                        continue;
+                    }
+                }
+            }
+            None => match link.folder.clone() {
+                Some(folder) => (items[pos].folder.clone(), folder, link.folder_exists),
+                None => {
+                    items[pos].leave(no_place);
+                    continue;
+                }
+            },
+        };
+        let folder_abs = layout.target_root.join(&folder);
+        let fixed = kind.fixed_folder();
+        let fixed_dir = match index.existing_first(&folder_abs, fixed.dir_name()) {
+            Some(existing) => {
+                if !fs::symlink_metadata(&existing).is_ok_and(|m| m.is_dir()) {
+                    items[pos].leave(LeftReason::UnsafeTarget);
+                    continue;
+                }
+                existing
+            }
+            None => folder_abs.join(fixed.dir_name()),
+        };
+        let item = &items[pos];
+        let names: Vec<String> = item.sources.iter().map(|s| name_of(s)).collect();
+        let rel = |p: &Path| {
+            p.strip_prefix(&layout.target_root)
+                .map_or_else(|_| p.to_path_buf(), Path::to_path_buf)
+        };
+        // Already where it belongs (a library organised in place): it
+        // stays, it is no move.
+        if layout.target_root.join(rel(&fixed_dir.join(&names[0]))) == src.join(&item.sources[0]) {
+            let at = rel(&fixed_dir.join(&names[0]));
+            items[pos].leave(LeftReason::AlreadyPresent { at });
+            continue;
+        }
+        let mut outcome: Option<LeftReason> = None;
+        for name in &names {
+            let path = fixed_dir.join(name);
+            if let Some(r) =
+                super::target::check_lengths(&layout.target_root, &path, layout.windows_paths)
+            {
+                outcome = Some(r);
+                break;
+            }
+            if index.taken(&fixed_dir, name) {
+                let present = item.kind == ItemKind::File
+                    && index
+                        .existing(&fixed_dir, name)
+                        .is_some_and(|e| same_content(&e, item));
+                outcome = Some(if present {
+                    LeftReason::AlreadyPresent { at: rel(&path) }
+                } else {
+                    LeftReason::AddonNameTaken {
+                        at: rel(&fixed_dir),
+                    }
+                });
+                break;
+            }
+        }
+        if let Some(reason) = outcome {
+            items[pos].leave(reason);
+            continue;
+        }
+        index.claim(&folder_abs, &name_of(&fixed_dir));
+        for name in &names {
+            index.claim(&fixed_dir, name);
+        }
+        let item = &mut items[pos];
+        let mut targets = names.iter().map(|n| rel(&fixed_dir.join(n)));
+        item.target = targets.next();
+        item.set_targets = targets.collect();
+        item.companions.clear();
+        item.rename = None;
+        item.folder = system_folder;
+        if let Some(game) = item.game.as_mut() {
+            game.folder = Some(folder);
+            game.folder_exists = folder_exists;
+        }
+    }
+}
+
+/// D11, Q13: with game folders on, a base's same-stem cheats (`.cht`) go
+/// in its game folder's `Cheats/` and its same-stem patches in `Mods/`,
+/// under their own names, instead of the folder's root. A name taken
+/// there keeps today's place.
+pub(crate) fn fixed_folder_companions(
+    items: &mut [OrganizeItem],
+    layout: &TargetLayout,
+    index: &mut DirIndex,
+) {
+    for item in items.iter_mut() {
+        let Some(folder) = item
+            .game
+            .as_ref()
+            .filter(|g| g.role == GameRole::Base)
+            .and_then(|g| g.folder.clone())
+        else {
+            continue;
+        };
+        if !item.moves_in() || item.target.is_none() || item.kind == ItemKind::Folder {
+            continue;
+        }
+        let folder_abs = layout.target_root.join(&folder);
+        for comp in item.companions.iter_mut().filter(|c| !c.licence) {
+            let name = name_of(&comp.source);
+            let fixed = if ext_lower(&name).as_deref() == Some("cht") {
+                FixedFolder::Cheats
+            } else if is_patch_name(&name) {
+                FixedFolder::Mods
+            } else {
+                continue;
+            };
+            let dir = match index.existing_first(&folder_abs, fixed.dir_name()) {
+                Some(existing) if fs::symlink_metadata(&existing).is_ok_and(|m| m.is_dir()) => {
+                    existing
+                }
+                Some(_) => continue,
+                None => folder_abs.join(fixed.dir_name()),
+            };
+            if index.taken(&dir, &name) {
+                continue;
+            }
+            index.claim(&folder_abs, &name_of(&dir));
+            index.claim(&dir, &name);
+            comp.target = dir
+                .join(&name)
+                .strip_prefix(&layout.target_root)
+                .map_or_else(
+                    |_| folder.join(fixed.dir_name()).join(&name),
+                    Path::to_path_buf,
+                );
+        }
+    }
 }
 
 fn name_of(path: &Path) -> String {

@@ -66,6 +66,14 @@ pub struct LibraryBase {
     pub title: Option<String>,
     /// The single region its name tags (`(USA)`), if exactly one.
     pub region: Option<Region>,
+    /// What its header says (read only when the caller asks for ids):
+    /// the base title id, upper-case (mods spec D9).
+    pub title_id: Option<String>,
+    /// The header's serial or product code, as read.
+    pub serial: Option<String>,
+    /// The header's raw title id (a GameCube/Wii game id, a PSP disc
+    /// id), as read.
+    pub raw_id: Option<String>,
 }
 
 /// The top-level bases of one target system folder.
@@ -74,6 +82,9 @@ pub struct LibraryIndex {
     ids: HashMap<String, LibraryBase>,
     /// Every base by title key, in bytes order of the name.
     keys: HashMap<String, Vec<LibraryBase>>,
+    /// Every base, demos excluded, in bytes order of the name (mods spec
+    /// D9: what an addon may link to).
+    all: Vec<LibraryBase>,
     /// The budget ran out before every header was read: a title id not
     /// found may still be there (never guessed, D13).
     pub incomplete: bool,
@@ -99,6 +110,12 @@ impl LibraryIndex {
     /// Every base whose name has the title key `key`.
     pub fn by_title_key_all(&self, key: &str) -> &[LibraryBase] {
         self.keys.get(key).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Every base of the folder, with the ids its header gave (mods spec
+    /// D9), in bytes order of the name.
+    pub fn bases(&self) -> &[LibraryBase] {
+        &self.all
     }
 }
 
@@ -241,9 +258,16 @@ pub fn library_bases(
     read: &mut dyn FnMut(&Path, &fs::Metadata) -> Option<Option<ConsoleId>>,
 ) -> LibraryIndex {
     let mut index = LibraryIndex::default();
+    // Weak extensions too (a PS3 `.pkg`): the header decides what it is.
     let exts: Vec<String> = db
         .get(system)
-        .map(|s| s.extensions.clone())
+        .map(|s| {
+            s.extensions
+                .iter()
+                .chain(s.weak_extensions.iter())
+                .cloned()
+                .collect()
+        })
         .unwrap_or_default();
     let Ok(listing) = fs::read_dir(system_dir) else {
         return index;
@@ -264,7 +288,7 @@ pub fn library_bases(
     // A spent budget (`incomplete`) stops every later read.
     let mut read_one =
         |path: &Path, meta: &fs::Metadata, index: &mut LibraryIndex| match read(path, meta) {
-            Some(console) => console.as_ref().and_then(base_id),
+            Some(console) => console,
             None => {
                 index.incomplete = true;
                 None
@@ -278,19 +302,7 @@ pub fn library_bases(
         } else {
             continue;
         };
-        let base = LibraryBase {
-            path: path.clone(),
-            in_game_folder: dir,
-            title: Some(shown.clone()),
-            region: single_name_region(&shown),
-        };
-        if !has_demo_tag(&shown) {
-            let key = parse_tags(&shown).title_key;
-            if !key.is_empty() {
-                index.keys.entry(key).or_default().push(base.clone());
-            }
-        }
-        let id = if !read_ids || index.incomplete {
+        let console = if !read_ids || index.incomplete {
             // Names only (demos), or the budget ran out: no header, so no
             // listing of the folder either.
             None
@@ -318,6 +330,34 @@ pub fn library_bases(
         } else {
             read_one(&path, &meta, &mut index)
         };
+        let id = console.as_ref().and_then(base_id);
+        // An addon links to a header that names no kind too (a PS3 PKG):
+        // only an update's, a DLC's or a system title's is no base.
+        let console = console.filter(|c| {
+            !matches!(
+                link_kind(c),
+                TitleKind::Update | TitleKind::Dlc | TitleKind::System
+            )
+        });
+        let base = LibraryBase {
+            path: path.clone(),
+            in_game_folder: dir,
+            title: Some(shown.clone()),
+            region: single_name_region(&shown),
+            title_id: console
+                .as_ref()
+                .and_then(base_title_id)
+                .map(|t| t.trim().to_ascii_uppercase()),
+            serial: console.as_ref().and_then(|c| c.serial.clone()),
+            raw_id: console.as_ref().and_then(|c| c.title_id.clone()),
+        };
+        if !has_demo_tag(&shown) {
+            let key = parse_tags(&shown).title_key;
+            if !key.is_empty() {
+                index.keys.entry(key).or_default().push(base.clone());
+            }
+            index.all.push(base.clone());
+        }
         if let Some(id) = id {
             index.ids.entry(id).or_insert(base);
         }

@@ -1464,11 +1464,6 @@ pub fn survey(
             }
         }
     }
-    // Every addon stays where it is, with the reason it would have if no
-    // game took it, until the plan's link pass places it (mods spec D7).
-    walked
-        .left
-        .extend(super::addons::unlinked_rows(&walked.addons));
     walked.left.sort_by(|a, b| a.0.cmp(&b.0));
     progress(OrganizeProgress {
         phase: OrganizePhase::Walk,
@@ -1495,6 +1490,40 @@ pub fn survey(
                 inspection: None,
                 facts: None,
                 tree: None,
+                console: None,
+                disc_set: None,
+                role_hint: None,
+                game_dir: None,
+            },
+            candidate: None,
+            set_sniff: None,
+        });
+    }
+    // Every addon stays where it is, with the reason it would have if no
+    // game took it, until the plan's link pass places it (mods spec D7):
+    // a mod folder as one folder, an MSU-1 set as one set (D10).
+    for (sources, kind, reason) in super::addons::unlinked_entries(&walked.addons) {
+        let (fps, tree) = if kind == ItemKind::Folder {
+            let tree = super::walk::tree_now(&sources[0]);
+            let fp = SourceFp {
+                size: tree.bytes,
+                mtime_ns: tree.newest_mtime_ns,
+            };
+            (vec![fp], Some(tree))
+        } else {
+            (sources.iter().map(|p| fp_of(p)).collect::<Vec<_>>(), None)
+        };
+        entries.push(Pending {
+            entry: SurveyEntry {
+                size: fps.iter().map(|f| f.size).sum(),
+                fps,
+                sources,
+                kind,
+                left: Some(reason),
+                identification: None,
+                inspection: None,
+                facts: None,
+                tree,
                 console: None,
                 disc_set: None,
                 role_hint: None,
@@ -3915,6 +3944,31 @@ pub fn plan_from_survey(
         &mut index,
         &mut dlc_names,
     );
+    // Mods, patches and cheats to their game (mods spec D5–D9, D13).
+    {
+        let mut budget =
+            LookupBudget::new(opts.limits.plan_head_budget, opts.limits.plan_wall_time);
+        let mut library = |system: &str| {
+            let (system_dir, _) = folder_dir(&layout, env.db, system);
+            let mut read = |path: &Path, meta: &fs::Metadata| {
+                library_header(path, meta, env, &opts.limits, &mut budget)
+            };
+            library_bases(&system_dir, system, env.db, true, &mut read)
+        };
+        let mut world = super::addons::LinkWorld {
+            layout: &layout,
+            db: env.db,
+            hash_budget: opts.limits.plan_head_budget,
+            library: &mut library,
+        };
+        super::addons::link_addons(
+            &mut items,
+            &survey.entries,
+            &survey.walked.addons,
+            &mut subdirs,
+            &mut world,
+        );
+    }
     let mut left_companions = assign_targets_in(
         &mut items,
         &shapes,
@@ -3932,7 +3986,9 @@ pub fn plan_from_survey(
         game_children_targets(&mut items, &layout, &mut index, &same_content, &|j| {
             dlc_names.get(&j).cloned()
         });
+        super::addons::fixed_folder_companions(&mut items, &layout, &mut index);
     }
+    super::addons::addon_targets(&mut items, &layout, &mut index, src, &same_content);
     // A folder game's deepest member must fit below its target (D27).
     for item in items.iter_mut().filter(|i| i.moves_in()) {
         let (Some(target), Some(tree)) = (
@@ -4155,7 +4211,14 @@ fn duplicates_step(
     let mut by_primary: HashMap<PathBuf, usize> = HashMap::new();
     let mut listed: HashMap<PathBuf, Vec<ListedEntry>> = HashMap::new();
     let mut discs: HashMap<PathBuf, Option<DiscId>> = HashMap::new();
-    for item in items.iter().filter(|i| i.moves_in()) {
+    // Mods and cheats are never units (mods spec D10): they belong to
+    // their game.
+    let addon = |i: &OrganizeItem| {
+        i.game
+            .as_ref()
+            .is_some_and(|g| matches!(g.role, GameRole::Mod | GameRole::Cheat))
+    };
+    for item in items.iter().filter(|i| i.moves_in() && !addon(i)) {
         let (Some(system), Some(entry)) = (&item.system_id, survey.entries.get(item.id)) else {
             continue;
         };

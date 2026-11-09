@@ -808,7 +808,13 @@ fn game_overlay_names_the_base_title() {
         "{:#?}",
         p.items
     );
-    let base = only_folder(&p);
+    // The overlay is one folder row of its own (mods spec D10).
+    assert_eq!(mods.kind, ItemKind::Folder);
+    let base = p
+        .items
+        .iter()
+        .find(|i| i.sources[0] == Path::new("CUSA00900"))
+        .expect("the base row");
     assert_eq!(base.action, OrganizeAction::Auto);
 }
 

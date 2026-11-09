@@ -291,7 +291,7 @@ expression: value
         }
       ],
       "id": 4,
-      "kind": "file",
+      "kind": "folder",
       "method": null,
       "notes": [],
       "reason": {
