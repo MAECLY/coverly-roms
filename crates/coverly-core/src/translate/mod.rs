@@ -20,16 +20,26 @@ use serde::de::{self, Deserializer, IntoDeserializer};
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::addons::{
-    one_component, valid_sony_serial, valid_title_id16, AddonFormat, AddonKey, AddonKind, HeaderFit,
+    one_component, valid_game_id, valid_sony_serial, valid_title_id16, AddonFormat, AddonKey,
+    AddonKind, HeaderFit,
 };
 use crate::game_folder::FixedFolder;
 
 mod azahar;
 mod cemu;
+mod dolphin;
+mod duckstation;
+mod flycast;
 mod frontend;
+mod mesen;
+mod pcsx2;
+mod ppsspp;
+mod retroarch;
 mod rpcs3;
 mod shadps4;
+mod switch;
 mod vita3k;
+mod xenia;
 
 /// Systems a dedicated emulator runs that RetroArch is never the default
 /// for (D16): the sixth generation on and every modern console.
@@ -582,20 +592,19 @@ fn emulator_layout(
         EmulatorId::Azahar => azahar::translate(game, to),
         EmulatorId::Cemu => cemu::translate(game, to),
         EmulatorId::Vita3k => vita3k::translate(game, to),
-        EmulatorId::Ryujinx
-        | EmulatorId::YuzuFamily
-        | EmulatorId::RetroArch
-        | EmulatorId::DuckStation
-        | EmulatorId::Pcsx2
-        | EmulatorId::Dolphin
-        | EmulatorId::Ppsspp
-        | EmulatorId::Xenia
-        | EmulatorId::Flycast
-        | EmulatorId::Mesen => return master_layout(game),
+        EmulatorId::Ryujinx | EmulatorId::YuzuFamily => switch::translate(emulator, game, to),
+        EmulatorId::RetroArch => retroarch::translate(game, to),
+        EmulatorId::DuckStation => duckstation::translate(game, to),
+        EmulatorId::Pcsx2 => pcsx2::translate(game, to),
+        EmulatorId::Dolphin => dolphin::translate(game, to),
+        EmulatorId::Ppsspp => ppsspp::translate(game, to),
+        EmulatorId::Xenia => xenia::translate(game, to),
+        EmulatorId::Flycast => flycast::translate(game, to),
+        EmulatorId::Mesen => mesen::translate(game, to),
     };
     match to.scope {
         TranslateScope::Full => laid,
-        TranslateScope::Conservative => conservative(game, laid),
+        TranslateScope::Conservative => conservative(emulator, game, laid),
     }
 }
 
@@ -603,11 +612,18 @@ fn emulator_layout(
 /// exactly where the master layout puts it, keeping only the notes that
 /// say what the user has to do (`InstallInEmulator`, `ExtractFirst`); an
 /// addon is placed only in the emulator's data folder, never beside the
-/// game (that would change how the game boots).
-fn conservative(game: &MasterGame, laid: TranslatedGame) -> TranslatedGame {
+/// game (that would change how the game boots). A patch the emulator
+/// would soft-patch once renamed beside the game stays with
+/// `PatchNotApplied` (Q11).
+fn conservative(emulator: EmulatorId, game: &MasterGame, laid: TranslatedGame) -> TranslatedGame {
     let master = master_layout(game);
     let is_game = |from: &Path| {
         from == game.base.path || game.updates.iter().chain(&game.dlc).any(|e| e.path == from)
+    };
+    let is_patch = |from: &Path| {
+        game.mods
+            .iter()
+            .any(|a| a.path == from && a.kind == AddonKind::Patch)
     };
     let entries = laid
         .entries
@@ -631,10 +647,11 @@ fn conservative(game: &MasterGame, laid: TranslatedGame) -> TranslatedGame {
                     note,
                 }
             } else if matches!(p.to, Destination::System(_)) {
+                let note = is_patch(&p.from).then_some(TranslateNote::PatchNotApplied { emulator });
                 Placement {
                     from: p.from,
                     to: Destination::Library,
-                    note: None,
+                    note,
                 }
             } else {
                 p
@@ -735,6 +752,43 @@ fn addon_title_id16(game: &MasterGame, addon: &MasterAddon) -> Option<String> {
     }
 }
 
+/// A disc serial in its canonical `AAAA-NNNNN` form: the addon's own
+/// serial key when it carries one (never replaced when that key is not
+/// valid), else the game's serial.
+fn addon_serial(game: &MasterGame, addon: &MasterAddon) -> Option<String> {
+    match &addon.key {
+        AddonKey::Serial { serial } => valid_sony_serial(serial),
+        _ => game.ids.serial.as_deref().and_then(valid_sony_serial),
+    }
+}
+
+/// A game id (GameCube/Wii, PSP, Dreamcast product id): the addon's own
+/// game id key when it carries one (never replaced when that key is not
+/// valid), else the game's.
+fn addon_game_id(game: &MasterGame, addon: &MasterAddon) -> Option<String> {
+    match &addon.key {
+        AddonKey::GameId { id } => valid_game_id(id),
+        _ => game.ids.game_id.as_deref().and_then(valid_game_id),
+    }
+}
+
+/// The base file's stem (`Chrono Trigger (USA)`), when the base is a file
+/// with an extension: the name an emulator looks a companion up by.
+fn base_stem(game: &MasterGame) -> Option<&str> {
+    if game.base.is_dir {
+        return None;
+    }
+    let name = file_name(&game.base.path)?;
+    let (stem, ext) = name.rsplit_once('.')?;
+    (!stem.is_empty() && !ext.is_empty()).then_some(stem)
+}
+
+/// The lower-case extension of `path`'s file name.
+fn ext_lower(path: &Path) -> Option<String> {
+    let (_, ext) = file_name(path)?.rsplit_once('.')?;
+    Some(ext.to_ascii_lowercase())
+}
+
 /// `name` as the emulator looks it up: its leading `id` as `id` is
 /// written (upper case) and its ending `tail` in lower case
 /// (`pcse00120_60fps.TXT` → `PCSE00120_60fps.txt`). `None` when `name`
@@ -780,6 +834,34 @@ fn installed_layout(
             .chain(&game.dlc)
             .map(|e| placed(&e.path, install())),
     );
+    entries.extend(
+        game.mods
+            .iter()
+            .chain(&game.cheats)
+            .map(|a| placed(&a.path, addon(a))),
+    );
+    TranslatedGame { entries }
+}
+
+/// The layout of an emulator that only adds files of its own (the
+/// disc-era emulators and Mesen, D15): the base where the profile puts
+/// it, updates and DLC where the master keeps them, and each addon by
+/// `addon`.
+fn addon_layout(
+    game: &MasterGame,
+    to: &TranslateTarget,
+    addon: impl Fn(&MasterAddon) -> Rule,
+) -> TranslatedGame {
+    let parent = base_parent(game, to);
+    let base = file_name(&game.base.path).map_or(STAYS, |name| (on_system(&parent, name), None));
+    let master = master_layout(game);
+    let mut entries = vec![placed(&game.base.path, base)];
+    entries.extend(master.entries.into_iter().filter(|p| {
+        game.updates
+            .iter()
+            .chain(&game.dlc)
+            .any(|e| e.path == p.from)
+    }));
     entries.extend(
         game.mods
             .iter()

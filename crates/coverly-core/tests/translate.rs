@@ -1200,3 +1200,891 @@ mod emulators {
         assert_eq!(placement(&t, "CON").to, Destination::Library);
     }
 }
+
+// Translators (D15): Switch (Ryujinx, yuzu family), RetroArch and the
+// disc-era emulators. Same helpers, every path by component.
+
+mod more_emulators {
+    use super::emulators::{conservative, emu, full, games_as_master, same_entries, tid};
+    use super::fixtures::{addon, entry};
+    use super::*;
+    use coverly_core::addons::HeaderFit;
+    use coverly_core::translate::{NotSupportedWhy, TranslateNote};
+
+    fn serial(s: &str) -> AddonKey {
+        AddonKey::Serial { serial: s.into() }
+    }
+
+    fn game_id(s: &str) -> AddonKey {
+        AddonKey::GameId { id: s.into() }
+    }
+
+    fn rom_name(s: &str) -> AddonKey {
+        AddonKey::RomName { name: s.into() }
+    }
+
+    fn game(system: &str, title: &str, ids: GameIds, base: MasterEntry) -> MasterGame {
+        MasterGame {
+            system: system.into(),
+            title: title.into(),
+            ids,
+            base,
+            updates: vec![],
+            dlc: vec![],
+            mods: vec![],
+            cheats: vec![],
+            taken_in_emulator: vec![],
+        }
+    }
+
+    const ZELDA_ID: &str = "01007EF00011E000";
+    const BUILD_ID: &str = "A1B2C3D4E5F60718";
+
+    /// A Switch game: base, update and DLC files, a bare title id mod, a
+    /// user-named mod folder, a cheat file and an exefs patch set.
+    fn zelda() -> MasterGame {
+        let t = "Zelda";
+        let mut g = game(
+            "switch",
+            t,
+            GameIds {
+                title_id: Some(ZELDA_ID.into()),
+                serial: None,
+                game_id: None,
+            },
+            entry(&[t, "Zelda.nsp"], false, EntryForm::Package),
+        );
+        g.updates = vec![entry(
+            &[t, "Updates", "Zelda (v131072).nsp"],
+            false,
+            EntryForm::Package,
+        )];
+        g.dlc = vec![entry(
+            &[t, "DLC", "Zelda (Expansion Pass).nsp"],
+            false,
+            EntryForm::Package,
+        )];
+        g.mods = vec![
+            addon(
+                &[t, "Mods", ZELDA_ID],
+                true,
+                AddonFormat::SwitchMod,
+                tid(ZELDA_ID),
+            ),
+            addon(
+                &[t, "Mods", "Zelda 60fps", ZELDA_ID],
+                true,
+                AddonFormat::SwitchMod,
+                tid(ZELDA_ID),
+            ),
+            addon(
+                &[t, "Mods", "Better HUD"],
+                true,
+                AddonFormat::SwitchMod,
+                tid(ZELDA_ID),
+            ),
+            addon(
+                &[t, "Mods", "Res patch"],
+                true,
+                AddonFormat::ExefsPatches,
+                AddonKey::BuildId {
+                    build_id: BUILD_ID.into(),
+                    title_id: None,
+                },
+            ),
+        ];
+        g.cheats = vec![addon(
+            &[t, "Cheats", "a1b2c3d4e5f60718.txt"],
+            false,
+            AddonFormat::SwitchCheats,
+            AddonKey::BuildId {
+                build_id: BUILD_ID.into(),
+                title_id: Some(ZELDA_ID.into()),
+            },
+        )];
+        g
+    }
+
+    #[test]
+    fn switch_ryujinx_and_yuzu_family() {
+        let g = zelda();
+        let low = ZELDA_ID.to_ascii_lowercase();
+        for e in [EmulatorId::Ryujinx, EmulatorId::YuzuFamily] {
+            let t = translate(&g, &full(e));
+            same_entries(&g, &t);
+            assert_eq!(
+                dest(&t, "Zelda.nsp"),
+                Destination::System(pb(&["Zelda.nsp"]))
+            );
+            assert_eq!(placement(&t, "Zelda.nsp").note, None);
+            assert_eq!(
+                dest(&t, "Zelda (v131072).nsp"),
+                Destination::System(pb(&["Updates", "Zelda (v131072).nsp"]))
+            );
+            assert_eq!(
+                placement(&t, "Zelda (v131072).nsp").note,
+                Some(TranslateNote::PointEmulatorHere {
+                    emulator: e,
+                    folder: pb(&["Updates"])
+                })
+            );
+            assert_eq!(
+                dest(&t, "Zelda (Expansion Pass).nsp"),
+                Destination::System(pb(&["DLC", "Zelda (Expansion Pass).nsp"]))
+            );
+            assert_eq!(
+                placement(&t, "Zelda (Expansion Pass).nsp").note,
+                Some(TranslateNote::PointEmulatorHere {
+                    emulator: e,
+                    folder: pb(&["DLC"])
+                })
+            );
+        }
+
+        let t = translate(&g, &full(EmulatorId::Ryujinx));
+        let r = EmulatorId::Ryujinx;
+        // The bare id folder becomes the `Coverly mod` level.
+        assert_eq!(
+            t.entries[3].to,
+            emu(r, &["mods", "contents", &low, "Coverly mod"])
+        );
+        // A user-named folder above the id keeps its name as the level.
+        assert_eq!(
+            t.entries[4].to,
+            emu(r, &["mods", "contents", &low, "Zelda 60fps"])
+        );
+        assert_eq!(
+            dest(&t, "Better HUD"),
+            emu(r, &["mods", "contents", &low, "Better HUD"])
+        );
+        assert_eq!(
+            dest(&t, "Res patch"),
+            emu(r, &["mods", "exefs_patches", "Res patch"])
+        );
+        assert_eq!(
+            dest(&t, "a1b2c3d4e5f60718.txt"),
+            emu(
+                r,
+                &["mods", "contents", &low, "cheats", "A1B2C3D4E5F60718.txt"]
+            )
+        );
+
+        let y = EmulatorId::YuzuFamily;
+        let t = translate(&g, &full(y));
+        assert_eq!(t.entries[3].to, emu(y, &["load", ZELDA_ID, "Coverly mod"]));
+        assert_eq!(t.entries[4].to, emu(y, &["load", ZELDA_ID, "Zelda 60fps"]));
+        assert_eq!(
+            dest(&t, "Res patch"),
+            emu(y, &["load", ZELDA_ID, "Res patch", "exefs"])
+        );
+        // yuzu reads cheats one mod level down.
+        assert_eq!(
+            dest(&t, "a1b2c3d4e5f60718.txt"),
+            emu(
+                y,
+                &[
+                    "load",
+                    ZELDA_ID,
+                    "Coverly cheats",
+                    "cheats",
+                    "A1B2C3D4E5F60718.txt"
+                ]
+            )
+        );
+
+        // Conservative (Q8, Q11): base, update and DLC as the master,
+        // mods and cheats still placed in the emulator's folder.
+        for e in [EmulatorId::Ryujinx, EmulatorId::YuzuFamily] {
+            let t = translate(&g, &conservative(e));
+            same_entries(&g, &t);
+            games_as_master(&g, &t);
+            assert_eq!(placement(&t, "Zelda (v131072).nsp").note, None);
+            assert!(matches!(
+                dest(&t, "a1b2c3d4e5f60718.txt"),
+                Destination::EmulatorData { .. }
+            ));
+            assert!(matches!(
+                dest(&t, "Better HUD"),
+                Destination::EmulatorData { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn switch_never_builds_a_path_from_a_bad_id() {
+        let mut g = zelda();
+        g.ids.title_id = None;
+        g.mods[2].key = tid("../../x");
+        g.cheats[0].key = AddonKey::BuildId {
+            build_id: "../x".into(),
+            title_id: Some(ZELDA_ID.into()),
+        };
+        let t = translate(&g, &full(EmulatorId::Ryujinx));
+        assert_eq!(placement(&t, "Better HUD").to, Destination::Library);
+        assert_eq!(
+            placement(&t, "a1b2c3d4e5f60718.txt").to,
+            Destination::Library
+        );
+        // yuzu needs the game's title id for an exefs set.
+        let t = translate(&g, &full(EmulatorId::YuzuFamily));
+        assert_eq!(placement(&t, "Res patch").to, Destination::Library);
+    }
+
+    /// A SNES game for RetroArch: one BPS translation, a cheat and an
+    /// MSU-1 set.
+    fn chrono() -> MasterGame {
+        let t = "Chrono Trigger (USA)";
+        let mut g = game(
+            "snes",
+            t,
+            GameIds::default(),
+            entry(&[t, "Chrono Trigger (USA).sfc"], false, EntryForm::Image),
+        );
+        let mut bps = addon(
+            &[t, "Mods", "Chrono Trigger Retranslation.bps"],
+            false,
+            AddonFormat::Bps,
+            AddonKey::SourceCrc {
+                crc32: 0x2D20_6BF7,
+                size: 4_194_304,
+            },
+        );
+        bps.header = Some(HeaderFit::Matches);
+        g.mods = vec![
+            bps,
+            addon(
+                &[t, "Mods", "ct.msu"],
+                false,
+                AddonFormat::Msu1,
+                rom_name("ct"),
+            ),
+            addon(
+                &[t, "Mods", "ct-1.pcm"],
+                false,
+                AddonFormat::Msu1,
+                rom_name("ct"),
+            ),
+            addon(
+                &[t, "Mods", "ct-12.pcm"],
+                false,
+                AddonFormat::Msu1,
+                rom_name("ct"),
+            ),
+            addon(
+                &[t, "Mods", "HD"],
+                true,
+                AddonFormat::TexturePack,
+                AddonKey::None,
+            ),
+        ];
+        g.cheats = vec![addon(
+            &[t, "Cheats", "Chrono Trigger (USA).cht"],
+            false,
+            AddonFormat::RetroArchCht,
+            rom_name("Chrono Trigger (USA)"),
+        )];
+        g
+    }
+
+    #[test]
+    fn retroarch() {
+        let e = EmulatorId::RetroArch;
+        let g = chrono();
+        let stem = "Chrono Trigger (USA)";
+        let t = translate(&g, &full(e));
+        same_entries(&g, &t);
+        assert_eq!(
+            dest(&t, "Chrono Trigger (USA).sfc"),
+            Destination::System(pb(&["Chrono Trigger (USA).sfc"]))
+        );
+        assert_eq!(
+            dest(&t, "Chrono Trigger Retranslation.bps"),
+            Destination::System(pb(&["Chrono Trigger (USA).bps"]))
+        );
+        assert_eq!(placement(&t, "Chrono Trigger Retranslation.bps").note, None);
+        assert_eq!(
+            dest(&t, "Chrono Trigger (USA).cht"),
+            emu(
+                e,
+                &[
+                    "cheats",
+                    "Nintendo - Super Nintendo Entertainment System",
+                    "Chrono Trigger (USA).cht"
+                ]
+            )
+        );
+        // MSU-1: every piece renamed to the ROM stem, beside the ROM.
+        assert_eq!(
+            dest(&t, "ct.msu"),
+            Destination::System(pb(&[&format!("{stem}.msu")]))
+        );
+        assert_eq!(
+            dest(&t, "ct-1.pcm"),
+            Destination::System(pb(&[&format!("{stem}-1.pcm")]))
+        );
+        assert_eq!(
+            dest(&t, "ct-12.pcm"),
+            Destination::System(pb(&[&format!("{stem}-12.pcm")]))
+        );
+        // Other mods stay.
+        assert_eq!(placement(&t, "HD").to, Destination::Library);
+        assert_eq!(placement(&t, "HD").note, None);
+
+        // With game folders on, beside the ROM in its folder.
+        let mut folders = full(e);
+        folders.game_folders = true;
+        let t = translate(&g, &folders);
+        assert_eq!(
+            dest(&t, "Chrono Trigger Retranslation.bps"),
+            Destination::System(pb(&[stem, "Chrono Trigger (USA).bps"]))
+        );
+
+        // Conservative: never renamed, the patch says why.
+        let t = translate(&g, &conservative(e));
+        same_entries(&g, &t);
+        games_as_master(&g, &t);
+        assert_eq!(
+            placement(&t, "Chrono Trigger Retranslation.bps").to,
+            Destination::Library
+        );
+        assert_eq!(
+            placement(&t, "Chrono Trigger Retranslation.bps").note,
+            Some(TranslateNote::PatchNotApplied { emulator: e })
+        );
+        assert_eq!(placement(&t, "ct.msu").to, Destination::Library);
+        assert_eq!(placement(&t, "ct.msu").note, None);
+        assert!(matches!(
+            dest(&t, "Chrono Trigger (USA).cht"),
+            Destination::EmulatorData { .. }
+        ));
+    }
+
+    #[test]
+    fn retroarch_header_mismatch_and_several_patches() {
+        let e = EmulatorId::RetroArch;
+        let mut g = chrono();
+        g.mods[0].header = Some(HeaderFit::NeedsHeaderless);
+        let t = translate(&g, &full(e));
+        assert_eq!(
+            placement(&t, "Chrono Trigger Retranslation.bps").to,
+            Destination::Library
+        );
+        assert_eq!(
+            placement(&t, "Chrono Trigger Retranslation.bps").note,
+            Some(TranslateNote::HeaderMismatch {
+                needs: HeaderFit::NeedsHeaderless
+            })
+        );
+        // The mismatch note survives the conservative scope.
+        let t = translate(&g, &conservative(e));
+        assert_eq!(
+            placement(&t, "Chrono Trigger Retranslation.bps").note,
+            Some(TranslateNote::HeaderMismatch {
+                needs: HeaderFit::NeedsHeaderless
+            })
+        );
+
+        // No fit to check (IPS) places it.
+        let mut g = chrono();
+        g.mods[0] = addon(
+            &[&g.title.clone(), "Mods", "Hack.ips"],
+            false,
+            AddonFormat::Ips,
+            AddonKey::None,
+        );
+        let t = translate(&g, &full(e));
+        assert_eq!(
+            dest(&t, "Hack.ips"),
+            Destination::System(pb(&["Chrono Trigger (USA).ips"]))
+        );
+
+        // Two patches for one ROM (Q6): neither is renamed.
+        let mut g = chrono();
+        let title = g.title.clone();
+        g.mods.push(addon(
+            &[&title, "Mods", "Other.ups"],
+            false,
+            AddonFormat::Ups,
+            AddonKey::None,
+        ));
+        let t = translate(&g, &full(e));
+        for name in ["Chrono Trigger Retranslation.bps", "Other.ups"] {
+            assert_eq!(placement(&t, name).to, Destination::Library, "{name}");
+            assert_eq!(
+                placement(&t, name).note,
+                Some(TranslateNote::NotSupported {
+                    emulator: e,
+                    why: NotSupportedWhy::SeveralPatches
+                }),
+                "{name}"
+            );
+        }
+
+        // An IPS chain keeps its order by its own extensions.
+        let mut g = chrono();
+        g.mods.remove(0);
+        for name in ["Fix.ips1", "Base.ips", "More.IPS2"] {
+            g.mods.push(addon(
+                &[&title, "Mods", name],
+                false,
+                AddonFormat::Ips,
+                AddonKey::None,
+            ));
+        }
+        let t = translate(&g, &full(e));
+        assert_eq!(
+            dest(&t, "Base.ips"),
+            Destination::System(pb(&["Chrono Trigger (USA).ips"]))
+        );
+        assert_eq!(
+            dest(&t, "Fix.ips1"),
+            Destination::System(pb(&["Chrono Trigger (USA).ips1"]))
+        );
+        assert_eq!(
+            dest(&t, "More.IPS2"),
+            Destination::System(pb(&["Chrono Trigger (USA).ips2"]))
+        );
+        // A chain with a gap is several patches.
+        let mut g = chrono();
+        g.mods.remove(0);
+        for name in ["Base.ips", "More.ips2"] {
+            g.mods.push(addon(
+                &[&title, "Mods", name],
+                false,
+                AddonFormat::Ips,
+                AddonKey::None,
+            ));
+        }
+        let t = translate(&g, &full(e));
+        assert_eq!(placement(&t, "Base.ips").to, Destination::Library);
+        assert_eq!(placement(&t, "More.ips2").to, Destination::Library);
+    }
+
+    #[test]
+    fn a_lone_numbered_ips_is_named_as_the_first_of_a_chain() {
+        // RetroArch only tries `.ips1` after `.ips`: a lone `.ips1` beside
+        // the ROM would never be applied.
+        let e = EmulatorId::RetroArch;
+        let mut g = chrono();
+        let title = g.title.clone();
+        g.mods[0] = addon(
+            &[&title, "Mods", "Hack.ips1"],
+            false,
+            AddonFormat::Ips,
+            AddonKey::None,
+        );
+        let t = translate(&g, &full(e));
+        assert_eq!(
+            dest(&t, "Hack.ips1"),
+            Destination::System(pb(&["Chrono Trigger (USA).ips"]))
+        );
+    }
+
+    #[test]
+    fn yuzu_places_an_exefs_set_by_its_own_title_id() {
+        let mut g = zelda();
+        g.ids.title_id = None;
+        g.mods[3].key = AddonKey::BuildId {
+            build_id: BUILD_ID.into(),
+            title_id: Some(ZELDA_ID.to_ascii_lowercase()),
+        };
+        let y = EmulatorId::YuzuFamily;
+        let t = translate(&g, &full(y));
+        assert_eq!(
+            dest(&t, "Res patch"),
+            emu(y, &["load", ZELDA_ID, "Res patch", "exefs"])
+        );
+    }
+
+    #[test]
+    fn ppsspp_takes_the_disc_id_from_a_serial() {
+        let e = EmulatorId::Ppsspp;
+        let t0 = "Monster Hunter Freedom Unite (USA)";
+        let mut g = game(
+            "psp",
+            t0,
+            GameIds {
+                title_id: None,
+                serial: Some("ULUS-10391".into()),
+                game_id: None,
+            },
+            entry(
+                &[t0, "Monster Hunter Freedom Unite (USA).iso"],
+                false,
+                EntryForm::Image,
+            ),
+        );
+        g.mods = vec![
+            addon(
+                &[t0, "Mods", "HD pack"],
+                true,
+                AddonFormat::TexturePack,
+                AddonKey::None,
+            ),
+            addon(
+                &[t0, "Mods", "Other pack"],
+                true,
+                AddonFormat::TexturePack,
+                serial("ULUS_103.91"),
+            ),
+        ];
+        let other = g.mods.pop().expect("two packs");
+        let t = translate(&g, &full(e));
+        assert_eq!(
+            dest(&t, "HD pack"),
+            emu(e, &["PSP", "TEXTURES", "ULUS10391"])
+        );
+        // The addon's own serial key gives the same id: two packs never
+        // share one place, so both stay.
+        g.mods.push(other);
+        let t = translate(&g, &full(e));
+        assert_eq!(placement(&t, "HD pack").to, Destination::Library);
+        assert_eq!(placement(&t, "Other pack").to, Destination::Library);
+        // An addon's own key that is not an id is never replaced.
+        g.mods.truncate(1);
+        g.mods[0].key = game_id("../x");
+        let t = translate(&g, &full(e));
+        assert_eq!(placement(&t, "HD pack").to, Destination::Library);
+    }
+
+    #[test]
+    fn retroarch_leaves_formats_it_does_not_read() {
+        let e = EmulatorId::RetroArch;
+        let mut g = chrono();
+        let title = g.title.clone();
+        g.mods = vec![addon(
+            &[&title, "Mods", "Fix.ppf"],
+            false,
+            AddonFormat::Ppf,
+            AddonKey::None,
+        )];
+        g.cheats = vec![addon(
+            &[&title, "Cheats", "Chrono Trigger (USA).cht"],
+            false,
+            AddonFormat::FceuxCht,
+            rom_name("Chrono Trigger (USA)"),
+        )];
+        let t = translate(&g, &full(e));
+        assert_eq!(placement(&t, "Fix.ppf").to, Destination::Library);
+        assert_eq!(
+            placement(&t, "Chrono Trigger (USA).cht").to,
+            Destination::Library
+        );
+    }
+
+    /// A PS1 game for DuckStation: a texture pack, a cheat and a PPF.
+    fn mgs() -> MasterGame {
+        let t = "Metal Gear Solid (USA) (Disc 1)";
+        let mut g = game(
+            "psx",
+            t,
+            GameIds {
+                title_id: None,
+                serial: Some("SLUS-00594".into()),
+                game_id: None,
+            },
+            entry(
+                &[t, "Metal Gear Solid (USA) (Disc 1).cue"],
+                false,
+                EntryForm::Image,
+            ),
+        );
+        g.mods = vec![
+            addon(
+                &[t, "Mods", "SLUS-00594"],
+                true,
+                AddonFormat::TexturePack,
+                serial("SLUS-00594"),
+            ),
+            addon(
+                &[t, "Mods", "Undub.ppf"],
+                false,
+                AddonFormat::Ppf,
+                AddonKey::None,
+            ),
+        ];
+        g.cheats = vec![addon(
+            &[t, "Cheats", "SLUS-00594.cht"],
+            false,
+            AddonFormat::DuckStationCht,
+            serial("SLUS-00594"),
+        )];
+        g
+    }
+
+    #[test]
+    fn duckstation() {
+        let e = EmulatorId::DuckStation;
+        let g = mgs();
+        let t = translate(&g, &full(e));
+        same_entries(&g, &t);
+        assert_eq!(dest(&t, "SLUS-00594"), emu(e, &["textures", "SLUS-00594"]));
+        assert_eq!(
+            dest(&t, "SLUS-00594.cht"),
+            emu(e, &["cheats", "SLUS-00594.cht"])
+        );
+        assert_eq!(
+            dest(&t, "Undub.ppf"),
+            Destination::System(pb(&["Metal Gear Solid (USA) (Disc 1).ppf"]))
+        );
+        // A cheat named by another spelling of the serial is named as
+        // DuckStation looks it up.
+        let mut g = mgs();
+        g.cheats[0].path = pb(&[&g.title.clone(), "Cheats", "slus_005.94.cht"]);
+        let t = translate(&g, &full(e));
+        assert_eq!(
+            dest(&t, "slus_005.94.cht"),
+            emu(e, &["cheats", "SLUS-00594.cht"])
+        );
+        // Conservative: the PPF is not renamed.
+        let t = translate(&mgs(), &conservative(e));
+        assert_eq!(placement(&t, "Undub.ppf").to, Destination::Library);
+        assert_eq!(
+            placement(&t, "Undub.ppf").note,
+            Some(TranslateNote::PatchNotApplied { emulator: e })
+        );
+        assert_eq!(dest(&t, "SLUS-00594"), emu(e, &["textures", "SLUS-00594"]));
+    }
+
+    #[test]
+    fn pcsx2() {
+        let e = EmulatorId::Pcsx2;
+        let t0 = "Kingdom Hearts (USA)";
+        let mut g = game(
+            "ps2",
+            t0,
+            GameIds {
+                title_id: None,
+                serial: Some("SLUS-20370".into()),
+                game_id: None,
+            },
+            entry(&[t0, "Kingdom Hearts (USA).iso"], false, EntryForm::Image),
+        );
+        g.mods = vec![addon(
+            &[t0, "Mods", "HD pack"],
+            true,
+            AddonFormat::TexturePack,
+            AddonKey::None,
+        )];
+        g.cheats = vec![addon(
+            &[t0, "Cheats", "SLUS-20370_AFBA4BB6.pnach"],
+            false,
+            AddonFormat::Pnach,
+            serial("SLUS-20370"),
+        )];
+        let t = translate(&g, &full(e));
+        same_entries(&g, &t);
+        assert_eq!(dest(&t, "HD pack"), emu(e, &["textures", "SLUS-20370"]));
+        assert_eq!(
+            dest(&t, "SLUS-20370_AFBA4BB6.pnach"),
+            emu(e, &["cheats", "SLUS-20370_AFBA4BB6.pnach"])
+        );
+        // No serial anywhere: the pack stays.
+        g.ids.serial = None;
+        let t = translate(&g, &full(e));
+        assert_eq!(placement(&t, "HD pack").to, Destination::Library);
+    }
+
+    fn mario_kart() -> MasterGame {
+        let t0 = "Mario Kart Wii (USA)";
+        let mut g = game(
+            "wii",
+            t0,
+            GameIds {
+                title_id: None,
+                serial: None,
+                game_id: Some("RMCE01".into()),
+            },
+            entry(&[t0, "Mario Kart Wii (USA).rvz"], false, EntryForm::Image),
+        );
+        g.mods = vec![
+            addon(
+                &[t0, "Mods", "RMCE01"],
+                true,
+                AddonFormat::TexturePack,
+                game_id("RMCE01"),
+            ),
+            addon(
+                &[t0, "Mods", "CTGP"],
+                true,
+                AddonFormat::Riivolution,
+                game_id("RMC"),
+            ),
+        ];
+        g.cheats = vec![addon(
+            &[t0, "Cheats", "RMCE01.ini"],
+            false,
+            AddonFormat::DolphinIni,
+            game_id("RMCE01"),
+        )];
+        g
+    }
+
+    #[test]
+    fn dolphin() {
+        let e = EmulatorId::Dolphin;
+        let g = mario_kart();
+        let t = translate(&g, &full(e));
+        same_entries(&g, &t);
+        assert_eq!(dest(&t, "RMCE01"), emu(e, &["Load", "Textures", "RMCE01"]));
+        assert_eq!(dest(&t, "CTGP"), emu(e, &["Load", "Riivolution"]));
+        assert_eq!(
+            dest(&t, "RMCE01.ini"),
+            emu(e, &["GameSettings", "RMCE01.ini"])
+        );
+        // Q5: an existing settings file is never merged into.
+        let mut g = mario_kart();
+        g.taken_in_emulator = vec![pb(&["GameSettings", "rmce01.ini"])];
+        let t = translate(&g, &full(e));
+        assert_eq!(placement(&t, "RMCE01.ini").to, Destination::Library);
+        assert_eq!(
+            placement(&t, "RMCE01.ini").note,
+            Some(TranslateNote::NotSupported {
+                emulator: e,
+                why: NotSupportedWhy::ConfigExists
+            })
+        );
+        // GameCube too.
+        let mut g = mario_kart();
+        g.system = "gamecube".into();
+        assert_eq!(
+            dest(&translate(&g, &full(e)), "RMCE01"),
+            emu(e, &["Load", "Textures", "RMCE01"])
+        );
+    }
+
+    #[test]
+    fn ppsspp() {
+        let e = EmulatorId::Ppsspp;
+        let t0 = "Monster Hunter Freedom Unite (USA)";
+        let mut g = game(
+            "psp",
+            t0,
+            GameIds {
+                title_id: None,
+                serial: None,
+                game_id: Some("ULUS10391".into()),
+            },
+            entry(
+                &[t0, "Monster Hunter Freedom Unite (USA).iso"],
+                false,
+                EntryForm::Image,
+            ),
+        );
+        g.mods = vec![addon(
+            &[t0, "Mods", "ULUS10391"],
+            true,
+            AddonFormat::TexturePack,
+            game_id("ULUS10391"),
+        )];
+        g.cheats = vec![addon(
+            &[t0, "Cheats", "ULUS10391.ini"],
+            false,
+            AddonFormat::PpssppIni,
+            game_id("ULUS10391"),
+        )];
+        let t = translate(&g, &full(e));
+        same_entries(&g, &t);
+        assert_eq!(
+            dest(&t, "ULUS10391"),
+            emu(e, &["PSP", "TEXTURES", "ULUS10391"])
+        );
+        assert_eq!(
+            dest(&t, "ULUS10391.ini"),
+            emu(e, &["PSP", "Cheats", "ULUS10391.ini"])
+        );
+        g.taken_in_emulator = vec![pb(&["PSP", "Cheats", "ULUS10391.ini"])];
+        let t = translate(&g, &full(e));
+        assert_eq!(placement(&t, "ULUS10391.ini").to, Destination::Library);
+    }
+
+    #[test]
+    fn xenia_flycast_and_mesen() {
+        let e = EmulatorId::Xenia;
+        let t0 = "Blue Dragon (USA)";
+        let mut g = game(
+            "xbox360",
+            t0,
+            GameIds {
+                title_id: Some("4D5307DF".into()),
+                serial: None,
+                game_id: None,
+            },
+            entry(&[t0, "Blue Dragon (USA).iso"], false, EntryForm::Image),
+        );
+        g.mods = vec![addon(
+            &[t0, "Mods", "4D5307DF"],
+            true,
+            AddonFormat::XeniaPlugin,
+            tid("4D5307DF"),
+        )];
+        g.cheats = vec![addon(
+            &[t0, "Cheats", "4D5307DF - Blue Dragon.patch.toml"],
+            false,
+            AddonFormat::XeniaPatch,
+            tid("4D5307DF"),
+        )];
+        let t = translate(&g, &full(e));
+        same_entries(&g, &t);
+        assert_eq!(dest(&t, "4D5307DF"), emu(e, &["plugins", "4D5307DF"]));
+        assert_eq!(
+            dest(&t, "4D5307DF - Blue Dragon.patch.toml"),
+            emu(e, &["patches", "4D5307DF - Blue Dragon.patch.toml"])
+        );
+        // A crafted plugin id is never a path.
+        g.mods[0].key = tid("../../x");
+        let t = translate(&g, &full(e));
+        assert_eq!(placement(&t, "4D5307DF").to, Destination::Library);
+
+        let e = EmulatorId::Flycast;
+        let t0 = "Shenmue (USA) (Disc 1)";
+        let mut g = game(
+            "dreamcast",
+            t0,
+            GameIds {
+                title_id: None,
+                serial: None,
+                game_id: Some("51059N".into()),
+            },
+            entry(&[t0, "Shenmue (USA) (Disc 1).gdi"], false, EntryForm::Image),
+        );
+        g.mods = vec![addon(
+            &[t0, "Mods", "51059N"],
+            true,
+            AddonFormat::TexturePack,
+            game_id("51059N"),
+        )];
+        let t = translate(&g, &full(e));
+        assert_eq!(dest(&t, "51059N"), emu(e, &["textures", "51059N"]));
+
+        let e = EmulatorId::Mesen;
+        let t0 = "Super Mario Bros. (World)";
+        let mut g = game(
+            "nes",
+            t0,
+            GameIds::default(),
+            entry(
+                &[t0, "Super Mario Bros. (World).nes"],
+                false,
+                EntryForm::Image,
+            ),
+        );
+        g.mods = vec![addon(
+            &[t0, "Mods", "SMB HD"],
+            true,
+            AddonFormat::MesenHdPack,
+            rom_name("SMB HD"),
+        )];
+        let t = translate(&g, &full(e));
+        assert_eq!(
+            dest(&t, "SMB HD"),
+            emu(e, &["HdPacks", "Super Mario Bros. (World)"])
+        );
+        // Conservative keeps it: it is in the emulator's own folder.
+        let t = translate(&g, &conservative(e));
+        assert_eq!(
+            dest(&t, "SMB HD"),
+            emu(e, &["HdPacks", "Super Mario Bros. (World)"])
+        );
+    }
+}
