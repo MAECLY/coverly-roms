@@ -22,7 +22,7 @@ use walkdir::WalkDir;
 
 use crate::consoles::{identify_dir_on_disk, is_key_material};
 use crate::game_folder::{classify_listing, ChildRole, DirShape, FixedFolder, GameBase};
-use crate::identify::names::parse_tags;
+use crate::identify::names::{parse_tags, ReleaseClass};
 use crate::organize::target::strip_suffix_ignoring_case;
 use crate::organize::walk::{
     list_dir, tree_summary_excluding, OsMetaProbe, WalkOptions, MAX_DEPTH, SHEET_EXTS, TRACK_EXTS,
@@ -568,16 +568,25 @@ fn attach_children(
     roms: &mut Vec<RomEntry>,
     warnings: &mut Vec<ScanWarning>,
 ) {
+    if child_dirs.is_empty() {
+        return;
+    }
+    // One index of the entries by (path, is_dir): a library of many game
+    // folders looks each base up once, not by a walk over every entry.
+    let index: HashMap<(PathBuf, bool), usize> = roms
+        .iter()
+        .enumerate()
+        .map(|(i, r)| ((r.path.clone(), r.is_dir), i))
+        .collect();
     let mut orphans: Vec<RomEntry> = Vec::new();
     for (fixed_dir, role, game_dir) in child_dirs {
         let children = list_children(dir, &fixed_dir, role, system, opts);
         let base = game_dirs.get(&game_dir).and_then(|base| {
-            roms.iter().position(|r| match base {
-                GameBase::SelfIsFolderGame => r.is_dir && r.path == game_dir,
-                GameBase::File(name) | GameBase::Sheet(name) => {
-                    !r.is_dir && r.path == game_dir.join(name)
-                }
-            })
+            let key = match base {
+                GameBase::SelfIsFolderGame => (game_dir.clone(), true),
+                GameBase::File(name) | GameBase::Sheet(name) => (game_dir.join(name), false),
+            };
+            index.get(&key).copied()
         });
         match base {
             Some(i) => roms[i].children.extend(children),
@@ -664,8 +673,9 @@ fn list_children(
 }
 
 /// Fills [`RomEntry::version_group`] and [`RomEntry::revision`] from the
-/// title stem's tags (D15): system + title key (revision tags stripped)
-/// + the regions, as written in order.
+/// title stem's tags (D15): system, title key (revision tags stripped),
+/// the regions as written in order, and the release class when it is not
+/// retail.
 fn set_version_group(rom: &mut RomEntry, system_id: &str) {
     let tags = parse_tags(rom.title_stem());
     rom.revision = tags.revision_text.clone();
@@ -673,15 +683,28 @@ fn set_version_group(rom: &mut RomEntry, system_id: &str) {
         return;
     }
     let regions: Vec<&str> = tags.regions.iter().map(|r| r.no_intro_word()).collect();
-    rom.version_group = Some(if regions.is_empty() {
-        format!("{system_id}:{}", tags.title_key)
-    } else {
-        format!(
-            "{system_id}:{} ({})",
-            tags.title_key,
-            regions.join(", ").to_lowercase()
-        )
-    });
+    let mut group = format!("{system_id}:{}", tags.title_key);
+    if !regions.is_empty() {
+        group.push_str(&format!(" ({})", regions.join(", ").to_lowercase()));
+    }
+    // `parse_tags` drops the release class from the title key, but a demo
+    // is its own game (D12) and a beta or prototype is not a revision of
+    // the release: the class stays part of the group.
+    if let Some(class) = release_class_word(tags.class) {
+        group.push_str(&format!(" [{class}]"));
+    }
+    rom.version_group = Some(group);
+}
+
+/// The word a non-retail release class adds to a version group.
+fn release_class_word(class: ReleaseClass) -> Option<&'static str> {
+    match class {
+        ReleaseClass::Retail => None,
+        ReleaseClass::Beta => Some("beta"),
+        ReleaseClass::Proto => Some("proto"),
+        ReleaseClass::Demo => Some("demo"),
+        ReleaseClass::Sample => Some("sample"),
+    }
 }
 
 /// Whether a console probe proves `dir`, listed once as `listed` (the

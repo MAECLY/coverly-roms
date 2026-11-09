@@ -338,3 +338,49 @@ fn retro_revisions_share_a_version_group() {
     );
     assert_eq!(md.roms.len(), 4, "revisions stay separate entries");
 }
+
+#[test]
+fn demos_betas_and_protos_are_not_revisions_of_the_game() {
+    let lib = TempDir::new().unwrap();
+    for (i, name) in [
+        "Sonic the Hedgehog (USA, Europe).md",
+        "Sonic the Hedgehog (USA, Europe) (Rev 1).md",
+        "Sonic the Hedgehog (USA, Europe) (Demo).md",
+        "Sonic the Hedgehog (USA, Europe) (Beta).md",
+        "Sonic the Hedgehog (USA, Europe) (Proto).md",
+        "Sonic the Hedgehog (USA, Europe) (Proto) (Rev 1).md",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        put(lib.path(), &format!("ROMS/MD/{name}"), &[i as u8; 16]);
+    }
+    let s = scan(lib.path(), "coverly-library");
+    let md = system(&s, "MD");
+    let group = |name: &str| {
+        md.roms
+            .iter()
+            .find(|r| r.path.file_name().unwrap() == name)
+            .unwrap_or_else(|| panic!("{name} in {:?}", md.roms))
+            .version_group
+            .clone()
+            .unwrap_or_else(|| panic!("{name} has no version group"))
+    };
+    let retail = group("Sonic the Hedgehog (USA, Europe).md");
+    assert_eq!(retail, group("Sonic the Hedgehog (USA, Europe) (Rev 1).md"));
+    let demo = group("Sonic the Hedgehog (USA, Europe) (Demo).md");
+    let beta = group("Sonic the Hedgehog (USA, Europe) (Beta).md");
+    let proto = group("Sonic the Hedgehog (USA, Europe) (Proto).md");
+    // A demo is its own game (D12) and a beta or prototype is not a
+    // revision of the release: none folds under the retail game.
+    for other in [&demo, &beta, &proto] {
+        assert_ne!(&retail, other);
+    }
+    assert_ne!(demo, beta);
+    assert_ne!(beta, proto);
+    // Revisions of the prototype still group with it.
+    assert_eq!(
+        proto,
+        group("Sonic the Hedgehog (USA, Europe) (Proto) (Rev 1).md")
+    );
+}
