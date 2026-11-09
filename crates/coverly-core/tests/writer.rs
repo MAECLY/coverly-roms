@@ -1216,3 +1216,36 @@ fn a_swapped_extra_root_link_does_not_redirect_writes() {
     assert_eq!(fs::read(a.join("cheats/SLUS-00594.cht")).unwrap(), b"cheat");
     assert!(fs::read_dir(&b).unwrap().next().is_none());
 }
+
+#[test]
+fn a_target_under_an_extra_root_keeps_its_folders_as_folders() {
+    // On Windows the resolved root is verbatim (`\\?\C:\…`), where `/` is
+    // no separator: a target named with `/` must still land in `cheats`.
+    let (tmp, _root, src, emu, mut w) = extra_root_setup();
+    let got = w
+        .ensure_within_any(&emu.join("cheats/SLUS-00594.cht"))
+        .unwrap();
+    assert_eq!(got.file_name().unwrap(), "SLUS-00594.cht");
+    let parent = got.parent().unwrap();
+    assert_eq!(parent.file_name().unwrap(), "cheats");
+    assert_eq!(
+        parent.parent().unwrap().canonicalize().unwrap(),
+        emu.canonicalize().unwrap()
+    );
+
+    let from = src.join("SLUS-00594.cht");
+    fs::write(&from, b"cheat").unwrap();
+    w.move_file(
+        &from,
+        &emu.join("cheats/SLUS-00594.cht"),
+        Collision::Rename,
+        None,
+    )
+    .unwrap();
+    w.finish().unwrap();
+    assert_eq!(
+        fs::read(emu.join("cheats").join("SLUS-00594.cht")).unwrap(),
+        b"cheat"
+    );
+    drop(tmp);
+}

@@ -717,7 +717,10 @@ impl Writer {
             {
                 continue;
             }
-            let rebased = canon.join(rel);
+            // One name at a time: a verbatim Windows root (`\\?\C:\…`)
+            // takes `/` as part of a name, not as a separator.
+            let mut rebased = canon.clone();
+            rebased.extend(rel.components());
             if within_resolved(canon, &rebased)? {
                 return Ok((rebased, canon.clone()));
             }
