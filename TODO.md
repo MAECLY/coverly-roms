@@ -301,7 +301,7 @@ Juego/Extras/
 
 Tareas:
 
-- [ ] Crear y respetar las carpetas fijas en Organizar y en la biblioteca, con deshacer.
+- [x] Crear y respetar las carpetas fijas en Organizar y en la biblioteca, con deshacer. Hecho en la parte A (PR #45).
 - [ ] Detectar y colocar mods, parches de traducción, trucos, licencias y extras oficiales por sistema (según la investigación de abajo).
 - [ ] CRUD de `Extras/` en la ficha del juego: categorías sugeridas y propias, etiquetas, arrastrar y soltar, deshacer.
 - [ ] `extras.json` con tipo, origen y etiquetas; reproductor de audio y vídeo y visor de imágenes y PDF en la app.
@@ -386,13 +386,13 @@ Hecha el 2026-11-01 (4 investigadores y un verificador crítico por grupo, que a
 
 ### Tareas
 
-- [ ] Opción de perfil «carpeta por juego con `DLC/` y `Updates/`» para la biblioteca y los perfiles que la acepten.
-- [ ] Organizar: mover base, actualizaciones y DLC a la carpeta del juego con deshacer; demos a su carpeta `(Demo)`.
-- [ ] Nombres con versión y región sacadas de las cabeceras.
+- [x] Opción de perfil «carpeta por juego con `DLC/` y `Updates/`» para la biblioteca y los perfiles que la acepten.
+- [x] Organizar: mover base, actualizaciones y DLC a la carpeta del juego con deshacer; demos a su carpeta `(Demo)`.
+- [x] Nombres con versión y región sacadas de las cabeceras.
 - [ ] Traductores por emulador (shadPS4, RPCS3, Azahar, Cemu, Vita3K, Switch, ES-DE) usados por Organizar con perfil y por la sincronización del bloque 4.
-- [ ] Extender la detección a todos los sistemas con actualizaciones o DLC (Tandas 1–3 y PSP, Wii/WiiWare…).
-- [ ] Revisiones retro agrupadas como versiones de un juego en la biblioteca y en duplicados.
-- [ ] Interfaz: el juego con sus actualizaciones y DLC plegados debajo, versión instalada y la más nueva disponible.
+- [x] Extender la detección a todos los sistemas con actualizaciones o DLC (Tandas 1–3 y PSP, Wii/WiiWare…).
+- [x] Revisiones retro agrupadas como versiones de un juego en la biblioteca y en duplicados.
+- [ ] Interfaz: el juego con sus actualizaciones y DLC plegados debajo, versión instalada y la más nueva disponible. Hecho a medias en la parte A (PR #45): Organizar pliega actualizaciones y DLC bajo su juego con la versión; falta la ficha y «la más nueva disponible» (parte C).
 
 ## 3. Biblioteca
 

@@ -675,3 +675,21 @@ Spec: [`2026-10-18-duplicates-design.md`](superpowers/specs/2026-10-18-duplicate
   - la web muestra 0.4.0 en es y en.
 - **Pendiente para Miguel:** probar la actualización desde la app 0.3.0 con interfaz.
 
+
+### 2026-11-09 — 2.1 parte A: el juego como carpeta (base, Updates/, DLC/, demos, versiones y revisiones)
+
+- **PR #45** mergeado en `main` (merge `5e93c002`), rama `feat/game-folders` (62 commits). Spec `docs/superpowers/specs/2026-10-26-game-folders.md`, plan `docs/superpowers/plans/2026-10-26-game-folders.md`.
+- **Qué entra:**
+  - opción de perfil `game_folders` («Carpeta por juego con DLC y actualizaciones»): activa en el perfil nuevo `coverly-library` («Coverly»), apagada en Anbernic stock, GarlicOS, Onion, muOS, MinUI, ES-DE, Batocera, RetroArch y personalizados; interruptor en Ajustes → Biblioteca y `coverly organize --game-folders / --no-game-folders`;
+  - carpetas fijas en inglés en disco (`Updates/`, `DLC/`, `Mods/`, `Cheats/`, `Extras/`, `Saves/`), traducidas en la interfaz; solo se crean las que reciben algo; escaneo, Organizar y Duplicados las respetan siempre;
+  - Organizar mueve base, actualizaciones y DLC a `<Sistema>/<Juego>/` (`Updates/<Juego> (vX.YY)`, `DLC/<Juego> - <DLC>`), demos a `<Juego> (Demo)/`, huérfanos buscados en la biblioteca o a revisión; deshacer completo (solo borra las carpetas vacías que creó), plan en seco, sin sobrescribir, mismo volumen, volumen desconectado;
+  - versión y región leídas de cabeceras sin claves (3DS, Switch, Wii U, Wii/WiiWare, PS3, Vita, PSP, PS4/PS5, Xbox 360, Xbox One/Series); una carpeta por región;
+  - licencias y claves solo por nombre, nunca abiertas, y solo se mueven con su juego por renombrado cuando la relación es única; firmware, cachés de shaders y configuraciones por juego quedan como «no es un juego»;
+  - revisiones retro `(Rev 1)`, `(v1.1)`, `(Rev A)` como versiones de un juego en el escaneo y en Duplicados (se sugiere la más nueva, nunca se borran todas); en disco siguen sueltas.
+- **Evidencia:**
+  - CI verde (run 42630821424 sobre `7384fb21`): macOS (5m46s), Ubuntu (11m24s), Windows (17m28s) y Frontend (4m2s);
+  - gates locales: 2063 tests de Vitest (160 archivos), 3322 tests de Rust (19 ignorados), fmt, clippy y clippy de Windows limpios, `pnpm build` correcto;
+  - datos reales en solo lectura (`/Volumes/TinyExt/Roms` y `ROMs-Downloaded`) copiados a `target/game-folders-sample/` (0 archivos `._`, borrada después): los 3DS se anidan con la opción activa y el plan con `--no-game-folders` es idéntico al anterior;
+  - E2E en el navegador con el mock (pila de carpetas de juego, vista previa de la carpeta, interruptor de Ajustes).
+- **Para Miguel (en el PR, con valor por defecto):** Q1–Q13 de la spec (reagrupar una biblioteca ya ordenada, renombrar hijos aunque se conserven nombres, región siempre, versión de Switch en bruto, `.media/` en la carpeta del juego, `keys.txt` como clave, autodetección de `coverly-library`, retro sin carpeta, licencias en modo copia, «la más nueva» solo entre las presentes, nombre «Coverly», sin fusiones de hosts, Duplicados nunca borra un base con hijos); letras de región de 3DS con confianza media; región añadida a un nombre que ya acaba en `USA` sin paréntesis; una pila con carpeta de juego y la opción apagada deja `Mods/` y `Saves/` en la carpeta sin base.
+- **Falta (otras partes):** B (detectar `Mods/` y `Cheats/` y traductores por emulador), C (las seis vistas y el arte de actualizaciones y DLC, con investigación y diseño aprobado), D (CRUD de `Extras/`, `extras.json` y visor).
