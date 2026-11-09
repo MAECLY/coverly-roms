@@ -2,7 +2,7 @@
 //! folder per system in the chosen layout, and show the plan (dry run).
 //! Applying the plan is `--apply` (organise jobs, undone by `coverly undo`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::io::{self, IsTerminal};
 use std::path::{Component, Path, PathBuf};
@@ -1530,13 +1530,18 @@ fn via_text(via: LinkVia, key: &str) -> String {
 }
 
 /// An addon's base, when it moves in this plan into the same system
-/// folder: the addon is then printed under it.
-fn nested_base<'a>(plan: &'a OrganizePlan, item: &OrganizeItem) -> Option<&'a OrganizeItem> {
+/// folder: the addon is then printed under it. `by_id` indexes the
+/// plan's items by id (built once per render: a pile can hold tens of
+/// thousands of items).
+fn nested_base<'a>(
+    by_id: &HashMap<usize, &'a OrganizeItem>,
+    item: &OrganizeItem,
+) -> Option<&'a OrganizeItem> {
     let link = item.game.as_ref()?;
     if !matches!(link.role, GameRole::Mod | GameRole::Cheat) {
         return None;
     }
-    let base = plan.items.iter().find(|i| Some(i.id) == link.of)?;
+    let base = *by_id.get(&link.of?)?;
     (base.action == OrganizeAction::Auto && system_dir(base) == system_dir(item)).then_some(base)
 }
 
@@ -2162,6 +2167,7 @@ fn render_table(
     }
 
     // Moving items, grouped by their system folder.
+    let by_id: HashMap<usize, &OrganizeItem> = plan.items.iter().map(|i| (i.id, i)).collect();
     let mut groups: BTreeMap<String, Vec<&OrganizeItem>> = BTreeMap::new();
     for item in &plan.items {
         if item.action != OrganizeAction::Auto {
@@ -2177,8 +2183,15 @@ fn render_table(
             .map(|s| format!("  {}", s.name))
             .unwrap_or_default();
         let _ = writeln!(out, "\n{folder}/  ({}){system}", items.len());
+        // Addons printed under their base, in plan order.
+        let mut addons_of: HashMap<usize, Vec<&OrganizeItem>> = HashMap::new();
         for item in items {
-            if nested_base(plan, item).is_some() {
+            if let Some(base) = nested_base(&by_id, item) {
+                addons_of.entry(base.id).or_default().push(item);
+            }
+        }
+        for item in items {
+            if nested_base(&by_id, item).is_some() {
                 continue;
             }
             let why = item.why.first().map(why_text).unwrap_or_default();
@@ -2190,10 +2203,7 @@ fn render_table(
                 version_column(item),
                 item_extras(item)
             );
-            for addon in items
-                .iter()
-                .filter(|a| nested_base(plan, a).is_some_and(|b| b.id == item.id))
-            {
+            for addon in addons_of.get(&item.id).into_iter().flatten() {
                 let _ = writeln!(out, "{}", addon_row(addon, item));
             }
         }
