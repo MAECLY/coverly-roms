@@ -144,10 +144,14 @@ function Contents({ preview }: { preview: Preview }) {
         <li key={f.folder} className="grid gap-0.5">
           <span className="text-caption text-cr-text-secondary">
             <span className="text-cr-text">
-              {t('organize.gameFolder.count', {
-                folder: t(fixedFolderLabel(f.folder).key),
-                count: f.count,
-              })}
+              {tr(
+                'organize.gameFolder.count',
+                {
+                  folder: t(fixedFolderLabel(f.folder).key),
+                  count: f.count,
+                },
+                ['count'],
+              )}
             </span>{' '}
             <span aria-hidden>·</span>{' '}
             <span>
@@ -162,7 +166,7 @@ function Contents({ preview }: { preview: Preview }) {
             ))}
             {f.more > 0 && (
               <li className={hintText}>
-                {t('organize.gameFolder.more', { count: f.more })}
+                {tr('organize.gameFolder.more', { count: f.more })}
               </li>
             )}
           </ul>

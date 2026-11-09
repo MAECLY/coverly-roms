@@ -31,6 +31,14 @@ function pokemon(extra: { exists?: boolean; dlc?: number } = {}) {
   return { base, items: [base, update, ...dlc] as OrganizeItem[] };
 }
 
+/** Text split across elements (a mono count): the innermost element
+ * whose whole text it is. */
+const whole =
+  (text: string) =>
+  (_: string, el: Element | null): boolean =>
+    el?.textContent === text &&
+    ![...el.children].some((c) => c.textContent === text);
+
 function renderPreview(
   base: OrganizeItem,
   items: OrganizeItem[],
@@ -78,9 +86,11 @@ describe('GameFolderPreview', () => {
     });
     expect(within(tree).getByText('Pokemon Y (World)/')).toBeInTheDocument();
     expect(within(tree).getByText('Pokemon Y (World).cia')).toBeInTheDocument();
-    expect(within(tree).getByText('Actualizaciones (1)')).toBeInTheDocument();
     expect(
-      within(tree).getByText('Contenido descargable (2)'),
+      within(tree).getByText(whole('Actualizaciones (1)')),
+    ).toBeInTheDocument();
+    expect(
+      within(tree).getByText(whole('Contenido descargable (2)')),
     ).toBeInTheDocument();
     expect(within(tree).getByText('Updates/')).toBeInTheDocument();
     expect(within(tree).getByText('DLC/')).toBeInTheDocument();
@@ -106,13 +116,33 @@ describe('GameFolderPreview', () => {
       name: 'Folder of Pokemon Y (World)',
     });
     expect(
-      within(tree).getByText('Downloadable content (25)'),
+      within(tree).getByText(whole('Downloadable content (25)')),
     ).toBeInTheDocument();
-    expect(within(tree).getByText('and 5 more')).toBeInTheDocument();
+    expect(within(tree).getByText(whole('and 5 more'))).toBeInTheDocument();
     expect(
       within(tree).queryByText('Pokemon Y (World) - Pack 21.cia'),
     ).toBeNull();
     expect(within(tree).getByText('already there')).toBeInTheDocument();
+  });
+
+  it('sets the counts in mono, like every number (brand §7.6)', async () => {
+    const { base, items } = pokemon({ dlc: 25 });
+    renderPreview(base, items, 'en');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Show the folder' }),
+    );
+    const tree = screen.getByRole('list', {
+      name: 'Folder of Pokemon Y (World)',
+    });
+    for (const n of ['1', '25', '5']) {
+      const nodes = within(tree).getAllByText(n);
+      expect(
+        nodes.some((el) => el.closest('.mono')),
+        `count ${n} in mono`,
+      ).toBe(true);
+    }
+    // The translated folder name stays in the body face.
+    expect(within(tree).getByText('Updates').closest('.mono')).toBeNull();
   });
 
   it('remembers the open state per base for the session', async () => {
