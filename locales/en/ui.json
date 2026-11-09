@@ -1310,7 +1310,9 @@
       "dlcFolder": "Goes to the DLC folder, where {layout} looks for downloadable content",
       "homebrew": "Homebrew",
       "vita7z": "Vita3K only installs .zip, .vpk or .vci",
-      "missingDisc": "Disc {n} is missing"
+      "missingDisc": "Disc {n} is missing",
+      "demoOf": "Demo of {title}",
+      "baseMissing": "Its game is not here or in the library; check where it goes"
     },
     "pause": {
       "diskFull": "Disk full: {needed} more needed; the half-extracted game was undone"
@@ -1398,6 +1400,7 @@
       "emulatorData": "Inside an emulator's data ({folder}); left as it is",
       "gameOverlay": "Mods or patch folder of {title}: left where it is",
       "notConfirmed": "Not confirmed; stays where it is",
+      "gameFolderContent": "The {folder} folder of {title} stays where it is for now",
       "title": "Staying where they are",
       "inLibrary": "Already in your library as {path}",
       "gamePart": "Part of a game; not moved on its own",
@@ -1410,6 +1413,15 @@
     "summaryUpdatesOne": "Includes 1 update or DLC",
     "item": {
       "folder": "Game folder"
+    },
+    "gameFolder": {
+      "show": "Show the folder",
+      "hide": "Hide the folder",
+      "label": "Folder of {title}",
+      "count": "{folder} ({count})",
+      "exists": "already there",
+      "onDisk": "on disk: {name}",
+      "more": "and {count} more"
     },
     "empty": {
       "title": "Nothing to file away",
@@ -1461,6 +1473,9 @@
     },
     "renamed": "Will be saved as {name} because a different file already exists",
     "renamedFrom": "Renamed; it was {name}",
+    "renamedForFolder": "Renamed for its folder; it was {name}",
+    "version": "version {version}",
+    "newestHere": "newest here",
     "renamedShort": "Name shortened to fit the path length limit",
     "multiRomZip": "Holds {count} ROMs; the console will load only the first.",
     "noFolderOnDevice": "{layout} has no folder for {system}; {folder} will be created.",
@@ -1522,6 +1537,10 @@
     "copiedNotRemoved": "Copied; the original couldn't be removed",
     "copiedNotRemovedCount": "Copied without removing the original: {count}",
     "licenceLeft": "The licence stayed where it was: Coverly only moves it by renaming it",
+    "licenceStays": "Its licence stays where it was; Coverly does not open it",
+    "companion": {
+      "licence": "Its licence goes with it; Coverly does not open it"
+    },
     "stopped": "Stopped. What was already organised stays; Undo puts it back.",
     "details": "What happened to each file",
     "outcome": {
@@ -1615,6 +1634,14 @@
     },
     "encryptedLabel": "Encrypted",
     "encryptedUnresolved": "The name cannot be read without decrypting it"
+  },
+  "gameFolder": {
+    "updates": "Updates",
+    "dlc": "Downloadable content",
+    "mods": "Mods",
+    "cheats": "Cheats",
+    "extras": "Extras",
+    "saves": "Saves"
   },
   "ui": {
     "close": "Close",

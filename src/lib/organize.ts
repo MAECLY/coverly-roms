@@ -8,6 +8,7 @@ import type {
   DupGroupView,
   DiscId,
   Evidence,
+  FixedFolder,
   ItemNote,
   IdSource,
   LeftReason,
@@ -86,8 +87,11 @@ function baseNames(item: OrganizeItem): string[] {
 /**
  * Puts every update and DLC row right under its base (spec §9.1), keeping
  * the order of everything else; the core already sends them so, this only
- * holds the rule when a group is built from another order. A row whose
- * base is not in the group keeps its place.
+ * holds the rule when a group is built from another order. A child that
+ * carries a game link (`game.of`, game folders P-5) goes under that base,
+ * so two bases with one name keep their own children; a row without a
+ * link (plans made before game folders, or the option off) is matched by
+ * name. A row whose base is not in the group keeps its place.
  */
 export function updatesUnderBases(items: OrganizeItem[]): OrganizeItem[] {
   const children = new Map<OrganizeItem, OrganizeItem[]>();
@@ -95,17 +99,28 @@ export function updatesUnderBases(items: OrganizeItem[]): OrganizeItem[] {
   // One pass over the bases, then one lookup per update: a library with
   // thousands of updates must not match every update against every base.
   let byName: Map<string, OrganizeItem> | null = null;
+  let byId: Map<number, OrganizeItem> | null = null;
   for (const item of items) {
-    const of = childOf(item)?.toLowerCase();
-    if (of === undefined) continue;
-    if (!byName) {
-      byName = new Map();
-      for (const b of items) {
-        if (childOf(b) !== null) continue;
-        for (const n of baseNames(b)) if (!byName.has(n)) byName.set(n, b);
+    let base: OrganizeItem | undefined;
+    if (item.game && item.game.role !== 'base' && item.game.role !== 'demo') {
+      const of = item.game.of;
+      if (of === undefined) continue;
+      byId ??= new Map(items.map((b) => [b.id, b]));
+      base = byId.get(of);
+      if (base === item) continue;
+    } else {
+      if (item.game) continue;
+      const of = childOf(item)?.toLowerCase();
+      if (of === undefined) continue;
+      if (!byName) {
+        byName = new Map();
+        for (const b of items) {
+          if (childOf(b) !== null) continue;
+          for (const n of baseNames(b)) if (!byName.has(n)) byName.set(n, b);
+        }
       }
+      base = byName.get(of);
     }
-    const base = byName.get(of);
     if (!base) continue;
     children.set(base, [...(children.get(base) ?? []), item]);
     placed.add(item);
@@ -115,6 +130,169 @@ export function updatesUnderBases(items: OrganizeItem[]): OrganizeItem[] {
   for (const item of items) {
     if (placed.has(item)) continue;
     out.push(item, ...(children.get(item) ?? []));
+  }
+  return out;
+}
+
+/** A fixed folder's name on disk: English, whatever the UI says (D4). */
+export const FIXED_FOLDER_DISK: Record<FixedFolder, string> = {
+  updates: 'Updates',
+  dlc: 'DLC',
+  mods: 'Mods',
+  cheats: 'Cheats',
+  extras: 'Extras',
+  saves: 'Saves',
+};
+
+/** A fixed folder's name in the UI language. */
+export function fixedFolderLabel(folder: FixedFolder): KeyedText {
+  return { key: `gameFolder.${folder}`, vars: {} };
+}
+
+/** At most this many names per fixed folder in the preview (§9.1). */
+export const PREVIEW_NAMES = 20;
+
+export interface GameFolderPreview {
+  /** The game folder's name (its last path part). */
+  name: string;
+  /** The folder was already on disk. */
+  exists: boolean;
+  /** Files at the folder's root: the base, then its companions. */
+  files: string[];
+  /** Fixed folders this plan fills, in on-disk order (Updates, DLC…). */
+  folders: {
+    folder: FixedFolder;
+    disk: string;
+    count: number;
+    /** The first `PREVIEW_NAMES` names, sorted. */
+    names: string[];
+    more: number;
+  }[];
+}
+
+const pathParts = (p: string) => p.split(/[\\/]/).filter((x) => x !== '');
+
+const DISK_FOLDER = new Map(
+  (Object.entries(FIXED_FOLDER_DISK) as [FixedFolder, string][]).map(
+    ([f, disk]) => [disk.toLowerCase(), f],
+  ),
+);
+
+/**
+ * How `base`'s game folder will look once applied (spec §9.1, plan P-5),
+ * from the plan's own targets: its root files and each fixed folder its
+ * linked children fill. `null` when the base has no folder or no child.
+ */
+export function gameFolderPreview(
+  items: readonly OrganizeItem[],
+  base: OrganizeItem,
+): GameFolderPreview | null {
+  const folder = base.game?.role === 'base' ? base.game.folder : undefined;
+  if (!folder) return null;
+  const root = pathParts(folder);
+  const kids = items.filter(
+    (i) => i !== base && i.game?.of === base.id && i.target,
+  );
+  if (kids.length === 0) return null;
+  const below = (target: string): string[] | null => {
+    const parts = pathParts(target);
+    if (parts.length <= root.length) return null;
+    for (let k = 0; k < root.length; k += 1)
+      if (parts[k]!.toLowerCase() !== root[k]!.toLowerCase()) return null;
+    return parts.slice(root.length);
+  };
+  const files: string[] = [];
+  const byFolder = new Map<FixedFolder, string[]>();
+  const add = (target: string | null | undefined) => {
+    const rest = target ? below(target) : null;
+    if (!rest) return;
+    const fixed =
+      rest.length === 2 ? DISK_FOLDER.get(rest[0]!.toLowerCase()) : undefined;
+    if (fixed) byFolder.set(fixed, [...(byFolder.get(fixed) ?? []), rest[1]!]);
+    else if (rest.length === 1) files.push(rest[0]!);
+  };
+  add(base.target);
+  for (const c of base.companions) add(c.target);
+  for (const k of kids) add(k.target);
+  const order = Object.keys(FIXED_FOLDER_DISK) as FixedFolder[];
+  return {
+    name: root[root.length - 1]!,
+    exists: base.game?.folder_exists === true,
+    files,
+    folders: order.flatMap((f) => {
+      const all = byFolder.get(f);
+      if (!all) return [];
+      const sorted = [...all].sort(collator.compare);
+      return [
+        {
+          folder: f,
+          disk: FIXED_FOLDER_DISK[f],
+          count: sorted.length,
+          names: sorted.slice(0, PREVIEW_NAMES),
+          more: Math.max(0, sorted.length - PREVIEW_NAMES),
+        },
+      ];
+    }),
+  };
+}
+
+/**
+ * A linked update's or DLC's target shortened to its fixed folder and
+ * name (`…/Updates/<name>`, spec §9.1); the whole target otherwise.
+ */
+export function childTarget(item: OrganizeItem): string | null {
+  const target = item.target;
+  const role = item.game?.role;
+  if (!target || (role !== 'update' && role !== 'dlc')) return target;
+  const sep = target.includes('\\') && !target.includes('/') ? '\\' : '/';
+  const parts = pathParts(target);
+  if (
+    parts.length < 3 ||
+    !DISK_FOLDER.has(parts[parts.length - 2]!.toLowerCase())
+  )
+    return target;
+  return `…${sep}${parts.slice(-2).join(sep)}`;
+}
+
+/** The licence line of a row: its licence goes with it (a companion), or
+ * the core left it where it was (`staying`, from `licencesStaying`). */
+export function licenceLine(
+  item: OrganizeItem,
+  staying: ReadonlySet<number>,
+): KeyedText | null {
+  if (item.companions.some((c) => c.licence))
+    return { key: 'organize.companion.licence', vars: {} };
+  return staying.has(item.id)
+    ? { key: 'organize.licenceStays', vars: {} }
+    : null;
+}
+
+/**
+ * Moving items whose licence the core left in place (`key-material`):
+ * matched by the licence's file name only (its stem is the item's title
+ * id, content id or own stem), never by its contents (keys rule).
+ */
+export function licencesStaying(
+  plan: Pick<OrganizePlan, 'items'>,
+): Set<number> {
+  const stems = new Set<string>();
+  for (const i of plan.items) {
+    if (i.action !== 'left' || i.reason.kind !== 'key-material') continue;
+    const name = baseName(i.sources[0] ?? '');
+    const dot = name.lastIndexOf('.');
+    if (dot > 0) stems.add(name.slice(0, dot).toLowerCase());
+  }
+  const out = new Set<number>();
+  if (stems.size === 0) return out;
+  for (const i of plan.items) {
+    if (i.action === 'left' || i.action === 'set-aside') continue;
+    const own = baseName(i.sources[0] ?? '');
+    const names = [
+      i.title_id?.id,
+      i.content_id,
+      i.kind === 'folder' ? own : own.replace(/\.[^.]+$/, ''),
+    ];
+    if (names.some((n) => n && stems.has(n.toLowerCase()))) out.add(i.id);
   }
   return out;
 }
@@ -399,10 +577,11 @@ export function leftReasonKey(
       return k('gameOverlay', { title: r.of });
     case 'not-confirmed':
       return k('notConfirmed');
-    // Placeholder until the game folder copy lands (game folders plan
-    // Task 18): the nearest existing sentence.
     case 'game-folder-content':
-      return k('gameOverlay', { title: r.of });
+      return k('gameFolderContent', {
+        folder: fixedFolderLabel(r.folder).key,
+        title: r.of,
+      });
     // A Vita backup is its own sentence; every other part stays alike.
     case 'game-part':
       return r.part === 'backup' ? k('backup') : k('gamePart');
@@ -432,7 +611,10 @@ export function leftReasonText(
   const resolved: TranslateVars = {};
   for (const [name, v] of Object.entries(vars)) {
     resolved[name] =
-      typeof v === 'string' && v.startsWith('organize.') ? t(v) : v;
+      typeof v === 'string' &&
+      (v.startsWith('organize.') || v.startsWith('gameFolder.'))
+        ? t(v)
+        : v;
   }
   return t(key, resolved);
 }
@@ -666,12 +848,11 @@ function renameText(t: Translate, r: RenameReason): string {
   switch (r.kind) {
     case 'collision':
       return t('organize.renamed', { name: r.name });
-    // `game-folder`: placeholder until `organize.renamedForFolder` (game
-    // folders plan Task 18).
     case 'safe-name':
     case 'catalogue':
-    case 'game-folder':
       return t('organize.renamedFrom', { name: r.from });
+    case 'game-folder':
+      return t('organize.renamedForFolder', { name: r.from });
     case 'path-length':
       return t('organize.renamedShort');
   }
@@ -785,10 +966,10 @@ export function noteKey(n: ItemNote): KeyedText | null {
     case 'catalogue-missing':
     case 'encrypted':
       return null;
-    // Worded with the game folder copy (game folders plan Task 18).
     case 'demo-of':
+      return k('demoOf', { title: n.of });
     case 'base-missing':
-      return null;
+      return k('baseMissing');
   }
 }
 

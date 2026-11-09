@@ -18,11 +18,15 @@ import { autoItem } from '@/test/organizeFixtures';
 
 import {
   actionOf,
+  childTarget,
   confidenceKey,
   contentIdKey,
   duplicateCounts,
   extractDetail,
   extractSummary,
+  FIXED_FOLDER_DISK,
+  fixedFolderLabel,
+  gameFolderPreview,
   groupBySystem,
   itemKey,
   encryptedName,
@@ -31,6 +35,8 @@ import {
   leftItems,
   leftReasonKey,
   leftReasonText,
+  licenceLine,
+  licencesStaying,
   lostTrashedCopies,
   noteKey,
   organizeDupGroups,
@@ -1449,5 +1455,305 @@ describe('adjustments copy (spec §10)', () => {
     }
     // `organize.encrypted` (the older note) is still its own string.
     expect(has(es, 'organize.encrypted')).toBe(true);
+  });
+});
+
+describe('game folders (spec §9.1, §10)', () => {
+  const t = (key: string, vars?: TranslateVars) =>
+    translate('es', key, vars ?? {});
+  const tEn = (key: string, vars?: TranslateVars) =>
+    translate('en', key, vars ?? {});
+  const both = (k: { key: string; vars: TranslateVars }) => [
+    t(k.key, k.vars),
+    tEn(k.key, k.vars),
+  ];
+  const ds = (id: number, name: string, extra: Partial<OrganizeItem> = {}) =>
+    autoItem(id, name, '3ds', 'ROMS/3DS', extra);
+  const names = (items: OrganizeItem[]) => items.map((i) => i.sources[0]);
+
+  it('folds children under the base they link to, even with two bases of one name', () => {
+    const a = ds(0, 'Tetris (USA).cia', {
+      game: { role: 'base', folder: 'ROMS/3DS/Tetris (USA)' },
+    });
+    const b = ds(1, 'Tetris (Japan).cia', {
+      game: { role: 'base', folder: 'ROMS/3DS/Tetris (Japan)' },
+    });
+    const updB = ds(2, 'upd-b.cia', {
+      notes: [{ kind: 'update', of: 'Tetris' }],
+      game: { role: 'update', of: 1, version: '1.1.0' },
+    });
+    const updA = ds(3, 'upd-a.cia', {
+      notes: [{ kind: 'update', of: 'Tetris' }],
+      game: { role: 'update', of: 0, version: '1.0.1' },
+    });
+    expect(names(updatesUnderBases([updB, a, updA, b]))).toEqual([
+      'Tetris (USA).cia',
+      'upd-a.cia',
+      'Tetris (Japan).cia',
+      'upd-b.cia',
+    ]);
+  });
+
+  it('a legacy plan without links still folds by name; an orphan link keeps its place', () => {
+    const base = ds(0, 'Pokemon Y.cia');
+    const upd = ds(1, 'patch.cia', {
+      notes: [{ kind: 'update', of: 'Pokemon Y' }],
+    });
+    expect(names(updatesUnderBases([upd, base]))).toEqual([
+      'Pokemon Y.cia',
+      'patch.cia',
+    ]);
+    const orphan = ds(2, 'orphan.cia', {
+      notes: [{ kind: 'update', of: 'Pokemon Y' }],
+      game: { role: 'update' },
+    });
+    const items = [orphan, base];
+    expect(updatesUnderBases(items)).toBe(items);
+  });
+
+  it('previews the folder a base and its children make', () => {
+    const base = ds(0, 'Pokemon Y.cia', {
+      target: 'ROMS/3DS/Pokemon Y (World)/Pokemon Y (World).cia',
+      game: { role: 'base', folder: 'ROMS/3DS/Pokemon Y (World)' },
+      companions: [
+        {
+          source: 'Pokemon Y.tik',
+          target: 'ROMS/3DS/Pokemon Y (World)/Pokemon Y.tik',
+          licence: true,
+        },
+      ],
+    });
+    const upd = ds(1, '0004000E00055D00.cia', {
+      target:
+        'ROMS/3DS/Pokemon Y (World)/Updates/Pokemon Y (World) (v1.1.0).cia',
+      game: { role: 'update', of: 0, version: '1.1.0', newest_here: true },
+    });
+    const dlc = (id: number, name: string) =>
+      ds(id, `${name}.cia`, {
+        target: `ROMS\\3DS\\Pokemon Y (World)\\DLC\\Pokemon Y (World) - ${name}.cia`,
+        game: { role: 'dlc', of: 0 },
+      });
+    const other = ds(9, 'Other.cia', { game: { role: 'update', of: 5 } });
+    const p = gameFolderPreview(
+      [base, upd, dlc(2, 'Pack 2'), dlc(3, 'Pack 1'), other],
+      base,
+    )!;
+    expect(p.name).toBe('Pokemon Y (World)');
+    expect(p.exists).toBe(false);
+    expect(p.files).toEqual(['Pokemon Y (World).cia', 'Pokemon Y.tik']);
+    expect(p.folders).toEqual([
+      {
+        folder: 'updates',
+        disk: 'Updates',
+        count: 1,
+        names: ['Pokemon Y (World) (v1.1.0).cia'],
+        more: 0,
+      },
+      {
+        folder: 'dlc',
+        disk: 'DLC',
+        count: 2,
+        names: [
+          'Pokemon Y (World) - Pack 1.cia',
+          'Pokemon Y (World) - Pack 2.cia',
+        ],
+        more: 0,
+      },
+    ]);
+    // No children, or no folder: nothing to preview.
+    expect(gameFolderPreview([base], base)).toBeNull();
+    expect(gameFolderPreview([upd], ds(0, 'Pokemon Y.cia'))).toBeNull();
+  });
+
+  it('caps a folder at 20 names and says how many more, and marks a folder already there', () => {
+    const base = ds(0, 'Rock Band 4.pkg', {
+      target: 'ROMS/PS4/Rock Band 4 (USA)/Rock Band 4 (USA).pkg',
+      game: {
+        role: 'base',
+        folder: 'ROMS/PS4/Rock Band 4 (USA)',
+        folder_exists: true,
+      },
+    });
+    const dlc = Array.from({ length: 25 }, (_, i) =>
+      ds(i + 1, `song ${i}.pkg`, {
+        target: `ROMS/PS4/Rock Band 4 (USA)/DLC/Rock Band 4 (USA) - Song ${String(i + 1).padStart(2, '0')}.pkg`,
+        game: { role: 'dlc', of: 0 },
+      }),
+    );
+    const p = gameFolderPreview([base, ...dlc], base)!;
+    expect(p.exists).toBe(true);
+    expect(p.folders[0]!.count).toBe(25);
+    expect(p.folders[0]!.names).toHaveLength(20);
+    expect(p.folders[0]!.more).toBe(5);
+    expect(
+      both({ key: 'organize.gameFolder.more', vars: { count: 5 } }),
+    ).toEqual(['y 5 más', 'and 5 more']);
+  });
+
+  it('names fixed folders in the UI language and on disk in English', () => {
+    expect(fixedFolderLabel('updates')).toEqual({
+      key: 'gameFolder.updates',
+      vars: {},
+    });
+    expect(
+      (['updates', 'dlc', 'mods', 'cheats', 'extras', 'saves'] as const).map(
+        (f) => [t(fixedFolderLabel(f).key), FIXED_FOLDER_DISK[f]],
+      ),
+    ).toEqual([
+      ['Actualizaciones', 'Updates'],
+      ['Contenido descargable', 'DLC'],
+      ['Mods', 'Mods'],
+      ['Trucos', 'Cheats'],
+      ['Extras', 'Extras'],
+      ['Partidas', 'Saves'],
+    ]);
+  });
+
+  it('words demos, missing bases, folder renames and fixed folder content', () => {
+    expect(both(noteKey({ kind: 'demo-of', of: 'Resistance (USA)' })!)).toEqual(
+      ['Demo de Resistance (USA)', 'Demo of Resistance (USA)'],
+    );
+    expect(both(noteKey({ kind: 'base-missing' })!)).toEqual([
+      'Su juego no está aquí ni en la biblioteca; revisa dónde va',
+      'Its game is not here or in the library; check where it goes',
+    ]);
+    const renamed = ds(0, 'Pokemon Y.cia', {
+      rename: { kind: 'game-folder', from: 'Pokemon Y.cia' },
+    });
+    expect(itemNotes(t, renamed, 'Coverly', (s) => s)).toEqual([
+      'Renombrado para su carpeta; antes era Pokemon Y.cia',
+    ]);
+    const content: LeftReason = {
+      kind: 'game-folder-content',
+      folder: 'mods',
+      of: 'Xenoblade Chronicles 3 (World)',
+    };
+    expect([leftReasonText(t, content), leftReasonText(tEn, content)]).toEqual([
+      'La carpeta Mods de Xenoblade Chronicles 3 (World) se queda donde está por ahora',
+      'The Mods folder of Xenoblade Chronicles 3 (World) stays where it is for now',
+    ]);
+    expect(leftReasonText(t, { ...content, folder: 'saves' })).toBe(
+      'La carpeta Partidas de Xenoblade Chronicles 3 (World) se queda donde está por ahora',
+    );
+    const cache: LeftReason = { kind: 'not-a-rom', what: 'emulator-cache' };
+    const config: LeftReason = { kind: 'not-a-rom', what: 'emulator-config' };
+    expect([leftReasonText(t, cache), leftReasonText(tEn, config)]).toEqual([
+      'No es una ROM (caché de un emulador)',
+      'Not a ROM (emulator settings)',
+    ]);
+  });
+
+  it('a licence goes with its base, or stays when the core left it', () => {
+    const base = ds(0, 'Resistance (USA).pkg', {
+      title_id: { id: 'BLUS30001', source: 'param-sfo' },
+      companions: [
+        {
+          source: 'BLUS30001.rap',
+          target: 'ROMS/PS3/x/BLUS30001.rap',
+          licence: true,
+        },
+      ],
+    });
+    expect(licenceLine(base, new Set())).toEqual({
+      key: 'organize.companion.licence',
+      vars: {},
+    });
+    expect(both(licenceLine(base, new Set())!)).toEqual([
+      'Su licencia va con él; Coverly no la abre',
+      'Its licence goes with it; Coverly does not open it',
+    ]);
+    const bare = { ...base, companions: [] };
+    expect(licenceLine(bare, new Set())).toBeNull();
+    expect(both(licenceLine(bare, new Set([0]))!)).toEqual([
+      'Su licencia se queda donde estaba; Coverly no la abre',
+      'Its licence stays where it was; Coverly does not open it',
+    ]);
+    // By name only: a left licence named by the base's title id, content
+    // id or stem; global key files never match.
+    const left = (id: number, name: string) =>
+      item(id, {
+        action: 'left',
+        sources: [name],
+        reason: { kind: 'key-material' },
+      } as Partial<OrganizeItem> & Pick<OrganizeItem, 'action'>);
+    const withContent = ds(1, 'Gravity.pkg', {
+      content_id: 'EP0002-CUSA04447_00-GRAVITYRUSH00000',
+    });
+    const stays = licencesStaying(
+      plan([
+        bare,
+        withContent,
+        ds(2, 'Other.pkg'),
+        left(3, 'blus30001.RAP'),
+        left(4, 'EP0002-CUSA04447_00-GRAVITYRUSH00000.rif'),
+        left(5, 'prod.keys'),
+      ]),
+    );
+    expect([...stays].sort()).toEqual([0, 1]);
+  });
+
+  it('versions read as words and the newest mark is text', () => {
+    expect(
+      both({ key: 'organize.version', vars: { version: '1.1.0' } }),
+    ).toEqual(['versión 1.1.0', 'version 1.1.0']);
+    expect([t('organize.newestHere'), tEn('organize.newestHere')]).toEqual([
+      'la más nueva aquí',
+      'newest here',
+    ]);
+  });
+
+  it('shortens a child target to its fixed folder and name', () => {
+    expect(
+      childTarget(
+        ds(1, 'u.cia', {
+          target:
+            'ROMS/3DS/Pokemon Y (World)/Updates/Pokemon Y (World) (v1.1.0).cia',
+          game: { role: 'update', of: 0 },
+        }),
+      ),
+    ).toBe('…/Updates/Pokemon Y (World) (v1.1.0).cia');
+    expect(
+      childTarget(
+        ds(1, 'd.cia', {
+          target: 'ROMS\\3DS\\P\\DLC\\P - Pack 1.cia',
+          game: { role: 'dlc', of: 0 },
+        }),
+      ),
+    ).toBe('…\\DLC\\P - Pack 1.cia');
+    // Flat (option off) or not a child: the whole target.
+    const flat = ds(1, 'u.cia', { notes: [{ kind: 'update', of: 'P' }] });
+    expect(childTarget(flat)).toBe(flat.target);
+  });
+
+  it('the game folder copy exists in both locales with the same placeholders', () => {
+    for (const key of [
+      'gameFolder.updates',
+      'gameFolder.dlc',
+      'gameFolder.mods',
+      'gameFolder.cheats',
+      'gameFolder.extras',
+      'gameFolder.saves',
+      'organize.gameFolder.show',
+      'organize.gameFolder.hide',
+      'organize.gameFolder.label',
+      'organize.gameFolder.count',
+      'organize.gameFolder.exists',
+      'organize.gameFolder.onDisk',
+      'organize.gameFolder.more',
+      'organize.version',
+      'organize.note.demoOf',
+      'organize.note.baseMissing',
+      'organize.renamedForFolder',
+      'organize.left.gameFolderContent',
+      'organize.newestHere',
+      'organize.licenceStays',
+      'organize.companion.licence',
+    ]) {
+      expect(has(es, key) && has(en, key), key).toBe(true);
+      expect(placeholders(lookup(en, key)), key).toEqual(
+        placeholders(lookup(es, key)),
+      );
+      expect(lookup(es, key), key).not.toMatch(/[!¡]/);
+    }
   });
 });
