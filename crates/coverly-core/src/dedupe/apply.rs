@@ -627,6 +627,12 @@ fn check_unit(m: &Member) -> Check {
         // rewritten since keeps it where it is (spec D19).
         return match fs::symlink_metadata(&m.unit.primary) {
             Ok(meta) if meta.is_dir() => {
+                // A fixed folder that appeared since the plan (Organizar
+                // filled `Updates/`) is left out of the measure below, yet
+                // would leave with the folder: the copy changed (D9).
+                if !m.unit.holds_children && holds_fixed_folder(&m.unit.primary) {
+                    return Check::Changed;
+                }
                 // A library folder game was measured without its fixed
                 // folders (game folders spec D5), a pile one whole.
                 let now = if m.unit.in_library {
@@ -667,6 +673,19 @@ fn check_unit(m: &Member) -> Check {
     } else {
         Check::Changed
     }
+}
+
+/// Whether the folder `dir` holds a real folder named like a fixed
+/// folder (`Updates/`, `DLC/`, `Mods/`, `Cheats/`, `Extras/`, `Saves/`):
+/// one listing, one `symlink_metadata` per such name.
+fn holds_fixed_folder(dir: &Path) -> bool {
+    fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|e| {
+            crate::game_folder::FixedFolder::from_dir_name(&e.file_name().to_string_lossy())
+                .is_some()
+                && fs::symlink_metadata(e.path()).is_ok_and(|m| m.is_dir())
+        })
+    })
 }
 
 /// The finished journal record of `from` for `item`: a finished move whose

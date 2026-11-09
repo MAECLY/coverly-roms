@@ -553,3 +553,36 @@ fn the_has_children_note_and_flag_keep_their_wire_names() {
         "{units:?}"
     );
 }
+
+#[test]
+fn a_folder_game_given_a_fixed_folder_after_the_plan_is_never_set_aside() {
+    let card = Card::new("coverly-library");
+    let a = card.at("ROMS/PS3/Game A");
+    let b = card.at("ROMS/PS3/Game B");
+    ct::ps3_jb(&a, "BLUS30001", "DG");
+    ct::ps3_jb(&b, "BLUS30001", "DG");
+    let plan = card.plan(&card.opts());
+    let grp = group_with(&plan, &a).expect("the two trees group");
+    assert_eq!(grp.action, GroupAction::Act, "{grp:#?}");
+    let extra = grp
+        .members
+        .iter()
+        .find(|m| m.dest.is_some())
+        .expect("one copy is set aside")
+        .unit
+        .primary
+        .clone();
+    // Organizar puts an update into the copy's folder after the plan: the
+    // fixed folders are left out of its measure, so only this check keeps
+    // the update from leaving with the folder.
+    let update = card.put(
+        &format!(
+            "ROMS/PS3/{}/Updates/Game (v1.01).pkg",
+            extra.file_name().unwrap().to_string_lossy()
+        ),
+        &[9u8; 4096],
+    );
+    card.apply(&plan).unwrap();
+    assert!(update.is_file(), "the update left with its game folder");
+    assert!(extra.is_dir());
+}
