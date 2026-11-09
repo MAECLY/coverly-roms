@@ -335,6 +335,8 @@ fn sce_self(b: &mut Budgeted, eboot: bool) -> Option<ConsoleId> {
                 .title_id
                 .as_deref()
                 .and_then(|t| normalise_console_serial("ps3", t));
+            // The content id's first letter (game folders spec D10).
+            id.region = super::region_from_content_id(&cid);
             id.content_id = Some(cid);
         }
     }
@@ -591,6 +593,15 @@ mod tests {
         assert_eq!(id.title_id.as_deref(), Some("NPUB30001"));
         assert_eq!(id.id_source, Some(IdSource::SelfHeader));
         assert_eq!(id.kind, TitleKind::Unknown);
+        // The content id's first letter is the region (game folders D10).
+        assert_eq!(id.region, Some(crate::identify::names::Region::Usa));
+        let eu = run(
+            &ct::ps3_npdrm_self("EP0001-NPEB00001_00-0000000000000001"),
+            "self",
+            "a.self",
+        )
+        .unwrap();
+        assert_eq!(eu.region, Some(crate::identify::names::Region::Europe));
     }
 
     #[test]
