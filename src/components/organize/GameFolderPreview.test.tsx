@@ -110,7 +110,7 @@ describe('GameFolderPreview', () => {
     const { base, items } = pokemon({ exists: true, dlc: 25 });
     renderPreview(base, items, 'en');
     await userEvent.click(
-      screen.getByRole('button', { name: 'Show the folder' }),
+      screen.getByRole('button', { name: 'Show how the folder will look' }),
     );
     const tree = screen.getByRole('list', {
       name: 'Folder of Pokemon Y (World)',
@@ -129,7 +129,7 @@ describe('GameFolderPreview', () => {
     const { base, items } = pokemon({ dlc: 25 });
     renderPreview(base, items, 'en');
     await userEvent.click(
-      screen.getByRole('button', { name: 'Show the folder' }),
+      screen.getByRole('button', { name: 'Show how the folder will look' }),
     );
     const tree = screen.getByRole('list', {
       name: 'Folder of Pokemon Y (World)',

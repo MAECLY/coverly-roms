@@ -1419,7 +1419,7 @@
       "folder": "Game folder"
     },
     "gameFolder": {
-      "show": "Show the folder",
+      "show": "Show how the folder will look",
       "hide": "Hide the folder",
       "label": "Folder of {title}",
       "count": "{folder} ({count})",
