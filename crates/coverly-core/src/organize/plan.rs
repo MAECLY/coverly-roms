@@ -2197,7 +2197,17 @@ fn link_game_folders(
     let bases: Vec<usize> = items
         .iter()
         .enumerate()
-        .filter(|(i, item)| base_kind(*i, item) && (item.moves_in() || item.is_left()))
+        .filter(|(i, item)| {
+            base_kind(*i, item)
+                && (item.moves_in() || item.is_left())
+                && library_keeper(item).is_none()
+        })
+        .map(|(i, _)| i)
+        .collect();
+    let kept_bases: Vec<usize> = items
+        .iter()
+        .enumerate()
+        .filter(|(i, item)| base_kind(*i, item) && library_keeper(item).is_some())
         .map(|(i, _)| i)
         .collect();
     let mut by_id: HashMap<(String, String), usize> = HashMap::new();
@@ -2252,6 +2262,41 @@ fn link_game_folders(
             by_dir.entry(dir).or_insert(i);
         }
     }
+    // A base whose copy in the library stays (reported in the library,
+    // or set aside for it): its children go into that copy's game folder
+    // when it has one, else they are placed on their own (flat beside it,
+    // D19), never left as if they were in the library themselves.
+    let mut in_library: HashMap<usize, Option<PathBuf>> = HashMap::new();
+    for i in kept_bases {
+        let Some(keeper) = library_keeper(&items[i]) else {
+            continue;
+        };
+        let entry = &entries[i];
+        let Some(c) = entry.console.as_ref() else {
+            continue;
+        };
+        let (system_dir, _) = folder_dir(layout, db, &c.system);
+        let abs = layout.target_root.join(keeper);
+        let folder = abs
+            .parent()
+            .filter(|dir| {
+                abs.symlink_metadata().is_ok_and(|m| !m.is_dir())
+                    && *dir != system_dir
+                    && dir.parent() == Some(system_dir.as_path())
+            })
+            .map(|dir| rel(&layout.target_root, dir));
+        in_library.insert(i, folder);
+        if let Some(id) = base_title_id(c) {
+            by_id.entry((c.system.clone(), id)).or_insert(i);
+        }
+        if let Some(primary) = entry.sources.first() {
+            let dir = match items[i].kind {
+                ItemKind::Folder => primary.clone(),
+                _ => primary.parent().map(Path::to_path_buf).unwrap_or_default(),
+            };
+            by_dir.entry(dir).or_insert(i);
+        }
+    }
     if by_id.is_empty() && by_dir.is_empty() {
         return HashMap::new();
     }
@@ -2289,8 +2334,19 @@ fn link_game_folders(
             continue;
         }
         let mut link = GameLink::new(role);
-        link.of = Some(b);
-        link.region = items[b].game.as_ref().and_then(|g| g.region);
+        match in_library.get(&b) {
+            None => link.of = Some(b),
+            // Flat in the library, or no copy found there: on its own.
+            Some(None) => continue,
+            Some(Some(folder)) => {
+                link.folder = Some(folder.clone());
+                link.folder_exists = true;
+            }
+        }
+        link.region = match in_library.get(&b) {
+            None => items[b].game.as_ref().and_then(|g| g.region),
+            Some(_) => entries[b].console.as_ref().and_then(|c| c.region),
+        };
         if role == GameRole::Update {
             link.version = console.and_then(crate::consoles::display_version_of);
         }
@@ -2300,7 +2356,7 @@ fn link_game_folders(
             }
         }
         let base_left = match &items[b].action {
-            OrganizeAction::Left { reason } => Some(reason.clone()),
+            OrganizeAction::Left { reason } if !in_library.contains_key(&b) => Some(reason.clone()),
             _ => None,
         };
         let child = &mut items[j];
@@ -2346,6 +2402,19 @@ fn link_game_folders(
 
 /// The name a demo and its base are matched by (D12): a folder's own
 /// name, a file's stem.
+/// The library copy that stays instead of `item` (relative to the target
+/// root): a pile copy reported as already in the library, or set aside
+/// for a keeper there.
+fn library_keeper(item: &OrganizeItem) -> Option<&Path> {
+    match &item.action {
+        OrganizeAction::Left {
+            reason: LeftReason::InLibrary { path, .. },
+        } => Some(path),
+        OrganizeAction::SetAside { keeper, .. } => Some(keeper),
+        _ => None,
+    }
+}
+
 fn item_stem(item: &OrganizeItem) -> String {
     let name = item
         .sources

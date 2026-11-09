@@ -1941,3 +1941,75 @@ fn a_folder_game_s_licence_moves_as_planned_or_its_outcome_says_it_stayed() {
         "{outcome:?}"
     );
 }
+
+#[test]
+fn children_of_a_base_kept_in_the_library_go_into_its_game_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_flat(&pile);
+    let first = plan_of(&pile, &options("coverly-library", &lib));
+    let kept = lib.join(item(&first, "Pokemon Y.cia").target.as_ref().unwrap());
+    fs::create_dir_all(kept.parent().unwrap()).unwrap();
+    fs::copy(pile.join("Pokemon Y.cia"), &kept).unwrap();
+    for mode in [OrganizeDedupeMode::Report, OrganizeDedupeMode::SetAside] {
+        let mut opts = options("coverly-library", &lib);
+        opts.duplicates = mode;
+        let plan = plan_of(&pile, &opts);
+        let update = item(&plan, "0004000E00055D00.cia");
+        assert!(update.moves_in(), "{mode:?} {update:?}");
+        assert_eq!(
+            below_system(update),
+            p(&[
+                "Pokemon Y (World)",
+                "Updates",
+                "Pokemon Y (World) (v1.1.0).cia"
+            ]),
+            "{mode:?}"
+        );
+        assert!(update.game.as_ref().unwrap().folder_exists, "{mode:?}");
+        let dlc = item(&plan, "Pokemon Y - Extra Pack (USA).cia");
+        assert!(dlc.moves_in(), "{mode:?} {dlc:?}");
+        assert_eq!(
+            below_system(dlc),
+            p(&[
+                "Pokemon Y (World)",
+                "DLC",
+                "Pokemon Y (World) - Extra Pack.cia"
+            ]),
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
+fn children_of_a_base_kept_flat_in_the_library_are_never_left_as_in_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_flat(&pile);
+    fs::create_dir_all(lib.join("3DS")).unwrap();
+    fs::copy(
+        pile.join("Pokemon Y.cia"),
+        lib.join("3DS").join("Pokemon Y.cia"),
+    )
+    .unwrap();
+    let mut opts = options("coverly-library", &lib);
+    opts.duplicates = OrganizeDedupeMode::Report;
+    let plan = plan_of(&pile, &opts);
+    let base = item(&plan, "Pokemon Y.cia");
+    assert!(
+        matches!(
+            &base.action,
+            OrganizeAction::Left {
+                reason: LeftReason::InLibrary { .. }
+            }
+        ),
+        "{base:?}"
+    );
+    let update = item(&plan, "0004000E00055D00.cia");
+    assert!(update.moves_in(), "{update:?}");
+    assert_eq!(
+        target_parts(update).len(),
+        2,
+        "flat beside it (D19): {update:?}"
+    );
+}
