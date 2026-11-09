@@ -1146,3 +1146,56 @@ fn the_library_is_read_only_for_systems_with_an_orphan() {
     assert!(memoised(&base));
     assert!(many.iter().all(|m| !memoised(m)));
 }
+
+/// `pile/name` as a zip of `files`, mtime pinned.
+fn put_zip(pile: &Path, name: &str, files: &[(&str, Vec<u8>)]) -> PathBuf {
+    use std::io::Write;
+    fs::create_dir_all(pile).unwrap();
+    let path = pile.join(name);
+    let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for (n, bytes) in files {
+        zip.start_file(*n, opts).unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.finish().unwrap();
+    pin_mtime(&path, 7);
+    path
+}
+
+#[test]
+fn a_child_whose_base_is_in_the_plan_is_no_orphan() {
+    // The base is in the pile but cannot take a game folder as it is (a
+    // zipped PS3 folder game to extract): its update is no orphan (D13 is
+    // for a base neither in the plan nor in the library), so no
+    // base-missing note, no review and no folder made for it.
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib, raw) = (
+        tmp.path().join("pile"),
+        tmp.path().join("lib"),
+        tmp.path().join("raw"),
+    );
+    ct::ps3_jb(&raw.join("Resistance"), "BLUS30001", "DG");
+    let files: Vec<(String, Vec<u8>)> = walk_files(&raw)
+        .into_iter()
+        .map(|f| {
+            let rel = parts(f.strip_prefix(&raw).unwrap()).join("/");
+            (rel, fs::read(&f).unwrap())
+        })
+        .collect();
+    let named: Vec<(&str, Vec<u8>)> = files.iter().map(|(n, b)| (n.as_str(), b.clone())).collect();
+    put_zip(&pile, "Resistance.zip", &named);
+    ct::ps3_hdd(&pile.join("BLUS30001 Patch"), "BLUS30001", "GD");
+    for f in walk_files(&pile.join("BLUS30001 Patch")) {
+        pin_mtime(&f, 8);
+    }
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let update = item(&plan, "BLUS30001 Patch");
+    assert!(!has_note(update, &ItemNote::BaseMissing), "{update:?}");
+    assert_eq!(update.action, OrganizeAction::Auto, "{update:?}");
+    // Flat beside where its base goes, as before game folders.
+    assert_eq!(below_system(update), p(&["BLUS30001 Patch"]), "{update:?}");
+    assert_eq!(update.game.as_ref().and_then(|g| g.folder.clone()), None);
+}

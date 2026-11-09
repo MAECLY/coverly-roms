@@ -2489,6 +2489,44 @@ fn link_demos_and_orphans(
         .filter(|(i, item)| item.moves_in() && entries.get(*i).is_some_and(|e| is_demo(e, item)))
         .map(|(i, _)| i)
         .collect();
+    // Every base of the plan, placeable in a game folder or not (a zip to
+    // extract, a frontend's own rule): a child of one is no orphan (D13),
+    // it stays where the link pass left it.
+    let mut plan_ids: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut plan_dirs: BTreeSet<PathBuf> = BTreeSet::new();
+    for (i, item) in items.iter().enumerate() {
+        let Some(entry) = entries.get(i) else {
+            continue;
+        };
+        let Some(c) = entry.console.as_ref() else {
+            continue;
+        };
+        if item.system_id.as_deref() != Some(c.system.as_str())
+            || link_kind(c) != TitleKind::Base
+            || is_demo(entry, item)
+        {
+            continue;
+        }
+        if let Some(id) = base_title_id(c) {
+            plan_ids.insert((c.system.clone(), id));
+        }
+        if let Some(primary) = entry.sources.first() {
+            plan_dirs.insert(match item.kind {
+                ItemKind::Folder => primary.clone(),
+                _ => primary.parent().map(Path::to_path_buf).unwrap_or_default(),
+            });
+        }
+    }
+    let base_in_plan = |entry: &SurveyEntry| {
+        let by_id = entry.console.as_ref().is_some_and(|c| {
+            base_title_id(c).is_some_and(|id| plan_ids.contains(&(c.system.clone(), id)))
+        });
+        by_id
+            || entry
+                .game_dir
+                .as_ref()
+                .is_some_and(|d| plan_dirs.contains(d))
+    };
     let orphans: Vec<usize> = if layout.game_folders {
         items
             .iter()
@@ -2498,6 +2536,7 @@ fn link_demos_and_orphans(
                     entries.get(*j).map(effective_kind),
                     Some(TitleKind::Update | TitleKind::Dlc)
                 ) && item.game.is_none()
+                    && !entries.get(*j).is_some_and(&base_in_plan)
                     && item.system_id.as_deref().is_some_and(is_game_folder_system)
                     && matches!(
                         item.kind,
