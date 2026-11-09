@@ -336,8 +336,11 @@ fn rpcs3(lower: &str, stem: &str, text: &str) -> Option<(AddonFormat, AddonKey)>
     if let Some(id) = stem
         .len()
         .checked_sub("_patch".len())
-        .filter(|&n| stem[n..].eq_ignore_ascii_case("_patch"))
-        .and_then(|n| compact_serial(&stem[..n]))
+        .filter(|&n| {
+            stem.get(n..)
+                .is_some_and(|tail| tail.eq_ignore_ascii_case("_patch"))
+        })
+        .and_then(|n| stem.get(..n).and_then(compact_serial))
     {
         return Some((AddonFormat::Rpcs3Patch, AddonKey::TitleId { id }));
     }
@@ -420,6 +423,14 @@ fn xenia_title_line(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_multibyte_yml_stem_does_not_panic() {
+        // "€é€" is 8 bytes; 8 - "_patch".len() lands inside the first "€".
+        for stem in ["€é€", "a€€€", "ñ_patch€"] {
+            assert_eq!(rpcs3(&format!("{stem}.yml"), stem, ""), None);
+        }
+    }
 
     #[test]
     fn every_cheat_format_gives_its_key() {
@@ -712,6 +723,32 @@ mod tests {
         ] {
             assert_eq!(sniff_cheat(n, &[], "SXIOPO\n"), None, "{n}");
         }
+    }
+
+    #[test]
+    fn names_with_non_ascii_letters_never_panic() {
+        // Byte offsets that fall inside a multi-byte letter must not be
+        // sliced: every suffix check works on whole characters.
+        for n in [
+            "éabcde.yml",
+            "ñ_patch.yml",
+            "Pokémon.json",
+            "ゲーム.patch.toml",
+            "ゼルダの伝説.txt",
+            "é.patch",
+            "Ünïcødé_01.03.json",
+        ] {
+            let _ = sniff_cheat(n, &["ゲーム"], "[ゲーム]\nSXIOPO\n");
+        }
+        assert_eq!(
+            sniff_cheat("Pokémon (Japan).txt", &[], "SXIOPO\n"),
+            Some((
+                AddonFormat::CodeText,
+                AddonKey::RomName {
+                    name: "Pokémon (Japan)".into()
+                }
+            ))
+        );
     }
 
     #[test]
