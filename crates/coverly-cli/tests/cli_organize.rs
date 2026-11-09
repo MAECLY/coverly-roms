@@ -389,6 +389,31 @@ fn apply_moves_and_undo_restores() {
 }
 
 #[test]
+fn undo_names_a_created_folder_it_keeps() {
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--offline", "--apply"],
+    )
+    .arg(p.path())
+    .assert()
+    .success();
+    // The user adds a save to a folder the job created.
+    write_old(&p.path().join("ROMS/GB/Game B.sav"), b"save");
+    undo(data.path(), &[])
+        .assert()
+        .success()
+        .stdout(contains("moved back 2"))
+        .stdout(contains(format!(
+            "kept folder {}; it holds files that are not the job's",
+            p.path().join("ROMS").join("GB").display()
+        )));
+    assert!(p.path().join("ROMS/GB/Game B.sav").is_file());
+    assert!(p.path().join("Game B.gb").is_file());
+}
+
+#[test]
 fn apply_json_report_carries_the_job() {
     let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
     let out = coverly(
