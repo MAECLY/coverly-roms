@@ -219,7 +219,8 @@ fn organize_failure(e: OrganizeError) -> Failure {
         OrganizeError::SourceMissing(_) => 3,
         OrganizeError::UnknownLayout(_)
         | OrganizeError::UnknownSystem(_)
-        | OrganizeError::UnknownItem(_) => 2,
+        | OrganizeError::UnknownItem(_)
+        | OrganizeError::EmulatorData { .. } => 2,
         OrganizeError::Unreadable(..) | OrganizeError::Cancelled => 1,
     };
     Failure {
@@ -2686,6 +2687,7 @@ mod tests {
             integration_notices: Vec::new(),
             target_anchor: None,
             translated: Vec::new(),
+            emulator_roots: Vec::new(),
         }
     }
 

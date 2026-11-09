@@ -2623,6 +2623,7 @@ mod tests {
             integration_notices: Vec::new(),
             target_anchor: None,
             translated: Vec::new(),
+            emulator_roots: Vec::new(),
         };
         let id = st.organize.next_id();
         st.organize.store(

@@ -134,6 +134,137 @@ export function mockArtSvg(e: EntryView, media: Media): string {
   );
 }
 
+/** `translate::RETROARCH_SYSTEMS`: the retro systems RetroArch is the
+ * default emulator for (mods spec D16). */
+const RETROARCH_SYSTEMS = [
+  'a2600',
+  'a5200',
+  'a7800',
+  'a800',
+  'amiga',
+  'atarist',
+  'atomiswave',
+  'c64',
+  'cps1',
+  'cps2',
+  'cps3',
+  'dos',
+  'dreamcast',
+  'easyrpg',
+  'fbneo',
+  'nes',
+  'fds',
+  'gb',
+  'gba',
+  'gbc',
+  'gamegear',
+  'gw',
+  'hbmame',
+  'lynx',
+  'mame',
+  'megadrive',
+  'segacd',
+  'msx',
+  'n64',
+  'naomi',
+  'nds',
+  'neocd',
+  'neogeo',
+  'ngp',
+  'ngpc',
+  'pcengine',
+  'pcenginecd',
+  'pgm2',
+  'pokemini',
+  'psx',
+  'psp',
+  'saturn',
+  'scummvm',
+  'sega32x',
+  'snes',
+  'mastersystem',
+  'varcade',
+  'virtualboy',
+  'vic20',
+  'wonderswan',
+  'wonderswancolor',
+  '3do',
+  'pcfx',
+  'cdi',
+  'amigacd32',
+  'cdtv',
+  'colecovision',
+  'intellivision',
+  'vectrex',
+  'odyssey2',
+  'channelf',
+  'arcadia',
+  'scv',
+  'jaguar',
+  'sg1000',
+  'pico',
+  'supergrafx',
+  'n64dd',
+  'satellaview',
+  'sufami',
+  'supervision',
+  'gamecom',
+  'zxspectrum',
+  'zx81',
+  'amstradcpc',
+  'thomson',
+  'x68000',
+  'x1',
+  'pc98',
+  'pc88',
+  'plus4',
+  'pet',
+  'atarixe',
+  'msx2',
+  'tic80',
+  'wasm4',
+  'arduboy',
+  'lowresnx',
+  'vircon32',
+  'doom',
+  'quake',
+  'cavestory',
+  'wolf3d',
+  'mrboom',
+  'dinothawr',
+  'lutro',
+  'flashback',
+  'xrick',
+  'model2',
+  'model3',
+  'naomi2',
+];
+
+/** RetroArch for every retro system: RetroArch and the handheld
+ * firmwares' default emulators (`profiles/builtin.rs`). */
+const RETRO_EMULATORS: Record<string, string> = Object.fromEntries(
+  RETROARCH_SYSTEMS.map((s) => [s, 'retroarch']),
+);
+
+/** ES-DE and Batocera: a dedicated emulator per modern or disc system,
+ * RetroArch for the other retro systems (mods spec D16, Q9). */
+const FRONTEND_EMULATORS: Record<string, string> = {
+  ...RETRO_EMULATORS,
+  ps4: 'shadps4',
+  ps3: 'rpcs3',
+  '3ds': 'azahar',
+  wiiu: 'cemu',
+  psvita: 'vita3k',
+  switch: 'ryujinx',
+  psx: 'duckstation',
+  ps2: 'pcsx2',
+  gamecube: 'dolphin',
+  wii: 'dolphin',
+  psp: 'ppsspp',
+  xbox360: 'xenia',
+  dreamcast: 'flycast',
+};
+
 const handheld = (
   id: string,
   name: string,
@@ -149,6 +280,7 @@ const handheld = (
     art_dirs: ['Imgs'],
     gamelist: false,
     host_folders: { ngpc: 'ngp', ...hosts, wonderswancolor: 'wonderswan' },
+    emulators: RETRO_EMULATORS,
     slots: {
       cover: {
         template: '{system_dir}/{rel_dir}/Imgs/{stem}.png',
@@ -399,6 +531,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'muos',
+      emulators: RETRO_EMULATORS,
       folder_names: MUOS_FOLDERS,
       name: 'muOS',
       roms_root: 'ROMS',
@@ -418,6 +551,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'minui',
+      emulators: RETRO_EMULATORS,
       accepts_containers: ['zip'],
       disc_layout: { kind: 'game-folder', m3u_for_multi: true },
       folder_names: MINUI_FOLDERS,
@@ -434,6 +568,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'esde',
+      emulators: FRONTEND_EMULATORS,
       folder_game_suffix: { ps3: '.ps3' },
       folder_stem_keeps_suffix: true,
       disc_layout: { kind: 'game-folder', m3u_for_multi: true },
@@ -461,6 +596,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'batocera',
+      emulators: FRONTEND_EMULATORS,
       folder_game_suffix: { ps3: '.ps3', ps4: '.ps4' },
       dlc_folder: { ps4: 'DLC/{title_id}' },
       disc_layout: { kind: 'flat', m3u_for_multi: true },
@@ -482,6 +618,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'retroarch',
+      emulators: RETRO_EMULATORS,
       disc_layout: { kind: 'flat', m3u_for_multi: true },
       name: 'RetroArch',
       roms_root: '',

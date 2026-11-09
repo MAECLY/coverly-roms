@@ -730,7 +730,14 @@ fn remove_created_dir(ctx: &Ctx<'_>, dir: &Path, report: &mut UndoReport) {
 /// and its ancestors count: anything else in the header is ignored.
 pub(super) fn remove_created_roots(ctx: &Ctx<'_>, created: &[PathBuf], report: &mut UndoReport) {
     for dir in created.iter().rev() {
-        if dir.is_absolute() && ctx.root.starts_with(dir) {
+        // A created emulator data folder (or a parent of one, D17): the
+        // header keeps its resolved form.
+        let resolved = fs::canonicalize(dir).unwrap_or_else(|_| dir.clone());
+        let extra = ctx
+            .extra_roots
+            .iter()
+            .any(|r| r.starts_with(dir) || r.starts_with(&resolved));
+        if dir.is_absolute() && (ctx.root.starts_with(dir) || extra) {
             remove_created_root(ctx, dir, report);
         }
     }

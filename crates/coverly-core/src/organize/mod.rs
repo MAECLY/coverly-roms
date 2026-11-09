@@ -12,6 +12,7 @@ pub mod online;
 pub mod plan;
 pub mod roots;
 pub mod target;
+pub mod translate_plan;
 pub mod walk;
 
 pub use crate::translate::{

@@ -553,3 +553,64 @@ fn only_the_library_profile_has_game_folders_on() {
         assert_eq!(p.game_folders, p.id == "coverly-library", "{}", p.id);
     }
 }
+
+// --- Default emulators per system (mods spec D16, Q9) ---
+
+#[test]
+fn frontends_default_to_a_dedicated_emulator_per_modern_system() {
+    use coverly_core::translate::EmulatorId as E;
+    for id in ["esde", "batocera"] {
+        let p = builtin(id);
+        for (system, want) in [
+            ("ps4", E::Shadps4),
+            ("ps3", E::Rpcs3),
+            ("3ds", E::Azahar),
+            ("wiiu", E::Cemu),
+            ("psvita", E::Vita3k),
+            ("switch", E::Ryujinx),
+            ("psx", E::DuckStation),
+            ("ps2", E::Pcsx2),
+            ("gamecube", E::Dolphin),
+            ("wii", E::Dolphin),
+            ("psp", E::Ppsspp),
+            ("xbox360", E::Xenia),
+            ("dreamcast", E::Flycast),
+            ("snes", E::RetroArch),
+            ("nes", E::RetroArch),
+        ] {
+            assert_eq!(p.emulators.get(system), Some(&want), "{id} {system}");
+        }
+        assert_eq!(p.emulators.get("ps5"), None, "{id}");
+        for (system, e) in &p.emulators {
+            assert!(e.systems().contains(&system.as_str()), "{id} {system} {e}");
+        }
+    }
+}
+
+#[test]
+fn the_library_has_no_default_emulator_and_handhelds_run_retroarch_for_retro_systems() {
+    use coverly_core::translate::{EmulatorId, MODERN_SYSTEMS};
+    assert!(builtin("coverly-library").emulators.is_empty());
+    for id in [
+        "retroarch",
+        "anbernic-stock",
+        "garlicos",
+        "onion",
+        "muos",
+        "minui",
+    ] {
+        let p = builtin(id);
+        assert_eq!(
+            p.emulators.get("snes"),
+            Some(&EmulatorId::RetroArch),
+            "{id}"
+        );
+        assert!(
+            p.emulators.values().all(|e| *e == EmulatorId::RetroArch),
+            "{id}"
+        );
+        for modern in MODERN_SYSTEMS {
+            assert_eq!(p.emulators.get(*modern), None, "{id} {modern}");
+        }
+    }
+}

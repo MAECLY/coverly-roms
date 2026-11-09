@@ -1235,3 +1235,483 @@ fn a_mod_folder_with_a_link_inside_stays() {
     let plan = lib_plan(&pile, &lib);
     assert_eq!(left(item(&plan, MON_ID)), LeftReason::Symlink);
 }
+
+// --- Organizar uses the translators (mods spec D16) ---
+
+use coverly_core::organize::translate_plan::EmulatorDataWhy;
+use coverly_core::organize::{EmulatorChoice, EmulatorId, OrganizeError, PlacementTo};
+
+const MON_UPDATE: u64 = 0x0004_000E_0005_5D00;
+
+fn plan_result(pile: &Path, opts: &OrganizeOptions) -> Result<OrganizePlan, OrganizeError> {
+    let db = SystemDb::builtin();
+    let profiles = builtin_profiles();
+    let cache = Cache::in_memory().unwrap();
+    let env = OrganizeEnv {
+        db: &db,
+        profiles: &profiles,
+        cache: &cache,
+        dats: None,
+        probe: &NoCloud,
+        online: None,
+        titles: None,
+        now: now(),
+    };
+    plan_organize(pile, opts, &env, &|_| {}, &AtomicBool::new(false))
+}
+
+fn choose(opts: &mut OrganizeOptions, system: &str, choice: EmulatorChoice) {
+    opts.emulators.insert(system.to_string(), choice);
+}
+
+/// A PS4 game folder with its update beside it and a DLC folder.
+fn bloodborne_pile(pile: &Path) {
+    let sfo = |category: &str, content_id: &str, title: &str| {
+        ct::param_sfo_with(
+            &[
+                ("APP_VER", "01.09"),
+                ("CATEGORY", category),
+                ("CONTENT_ID", content_id),
+                ("TITLE", title),
+                ("TITLE_ID", "CUSA00900"),
+                ("VERSION", "01.00"),
+            ],
+            &[("APP_TYPE", 1), ("PUBTOOLVER", 0x0289_0000)],
+        )
+    };
+    let base = pile.join("CUSA00900");
+    ct::ps4_app(&base, "CUSA00900", "gd", BLOODBORNE_PLAN);
+    ct::put_file(
+        &base,
+        "sce_sys/param.sfo",
+        &sfo("gd", BLOODBORNE_PLAN, "Bloodborne"),
+    );
+    ct::ps4_app(
+        &pile.join("CUSA00900-UPDATE"),
+        "CUSA00900",
+        "gp",
+        BLOODBORNE_PLAN,
+    );
+    let dlc = pile.join("CUSA00900-DLC-ABC");
+    ct::put_file(
+        &dlc,
+        "sce_sys/param.sfo",
+        &sfo(
+            "ac",
+            "UP9000-CUSA00900_00-OLDHUNTERS000000",
+            "The Old Hunters",
+        ),
+    );
+    ct::put_file(&dlc, "content.dat", &[7u8; 64]);
+    for f in walkdir::WalkDir::new(pile)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+    {
+        pin_mtime(f.path(), 1);
+    }
+}
+
+/// A 3DS base with its update, its LayeredFS mod, its cheats, and a
+/// SNES ROM with a BPS made for it.
+fn mixed_pile(pile: &Path) {
+    pokemon_with_addons(pile);
+    put(
+        pile,
+        "Pokemon Y Update.cia",
+        &ct::cia(MON_UPDATE, true, false).head_bytes(),
+        4,
+    );
+    let rom = vec![0x11u8; 1 << 20];
+    put(pile, "Chrono Trigger (USA).sfc", &rom, 5);
+    put(
+        pile,
+        "Chrono Trigger (USA) [T-Es].bps",
+        &at::bps(1 << 20, crc32fast::hash(&rom)),
+        6,
+    );
+}
+
+fn is_addon(it: &OrganizeItem) -> bool {
+    it.game
+        .as_ref()
+        .is_some_and(|g| matches!(g.role, GameRole::Mod | GameRole::Cheat))
+}
+
+#[test]
+fn profile_defaults_keep_every_existing_target() {
+    // D16, Q11: with no emulator in the request, every built-in profile
+    // plans every base, update and DLC exactly as with no translator at
+    // all (every system `none`); only addon rows and notes may change.
+    let tmp = tempfile::tempdir().unwrap();
+    let pile = tmp.path().join("pile");
+    mixed_pile(&pile);
+    bloodborne_pile(&pile);
+    for (profile, game_folders) in builtin_profiles()
+        .into_iter()
+        .flat_map(|p| [(p.clone(), None), (p, Some(true))])
+    {
+        let lib = tmp
+            .path()
+            .join(format!("lib-{}-{game_folders:?}", profile.id));
+        fs::create_dir_all(&lib).unwrap();
+        let opts = OrganizeOptions {
+            game_folders,
+            ..place_options(&profile.id, &lib)
+        };
+        let mut off = opts.clone();
+        for system in SystemDb::builtin().all().iter().map(|s| s.id.clone()) {
+            choose(&mut off, &system, EmulatorChoice::None);
+        }
+        let with = plan_in(&pile, &opts);
+        let without = plan_in(&pile, &off);
+        assert!(without.translated.is_empty(), "{}", profile.id);
+        assert_eq!(with.items.len(), without.items.len(), "{}", profile.id);
+        for (a, b) in with.items.iter().zip(&without.items) {
+            assert_eq!(a.sources, b.sources, "{}", profile.id);
+            if is_addon(b) {
+                continue;
+            }
+            assert_eq!(a.target, b.target, "{} {:?}", profile.id, a.sources);
+            assert_eq!(a.action, b.action, "{} {:?}", profile.id, a.sources);
+            assert_eq!(a.companions, b.companions, "{} {:?}", profile.id, a.sources);
+            for note in &b.notes {
+                assert!(a.notes.contains(note), "{} {:?}", profile.id, a.sources);
+            }
+        }
+    }
+}
+
+#[test]
+fn choosing_shadps4_uses_the_full_translator() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    bloodborne_pile(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    // The ES-DE default (conservative): today's places, no `addcont`.
+    let plan = plan_in(&pile, &place_options("esde", &lib));
+    assert_eq!(
+        target_parts(item(&plan, "CUSA00900-DLC-ABC")),
+        p(&["ps4", "CUSA00900-DLC-ABC"])
+    );
+    assert!(plan.translated.is_empty(), "{:?}", plan.translated);
+
+    let mut opts = place_options("esde", &lib);
+    choose(
+        &mut opts,
+        "ps4",
+        EmulatorChoice::Emulator(EmulatorId::Shadps4),
+    );
+    let plan = plan_in(&pile, &opts);
+    let base = item(&plan, "CUSA00900");
+    assert_eq!(target_parts(base), p(&["ps4", "CUSA00900"]));
+    assert_eq!(
+        target_parts(item(&plan, "CUSA00900-UPDATE")),
+        p(&["ps4", "CUSA00900-UPDATE"])
+    );
+    let dlc = item(&plan, "CUSA00900-DLC-ABC");
+    assert_eq!(dlc.action, OrganizeAction::Auto, "{dlc:?}");
+    assert_eq!(
+        target_parts(dlc),
+        p(&["ps4", "addcont", "CUSA00900", "CUSA00900-DLC-ABC"])
+    );
+    assert!(
+        dlc.notes.contains(&ItemNote::PointEmulatorHere {
+            emulator: "shadPS4".into(),
+            folder: "addcont".into(),
+        }),
+        "{:?}",
+        dlc.notes
+    );
+    assert_eq!(plan.translated.len(), 1, "{:?}", plan.translated);
+    let view = &plan.translated[0];
+    assert_eq!(view.system, "ps4");
+    assert_eq!(view.emulator, EmulatorId::Shadps4);
+    assert_eq!(view.base, Some(base.id));
+    let to: Vec<(Vec<String>, PlacementTo)> = view
+        .placements
+        .iter()
+        .map(|pl| (parts(&pl.from), pl.to.clone()))
+        .collect();
+    let system = |s: &[&str]| PlacementTo::System {
+        path: s.iter().collect(),
+    };
+    assert_eq!(
+        to,
+        vec![
+            (p(&["CUSA00900"]), system(&["CUSA00900"])),
+            (p(&["CUSA00900-UPDATE"]), system(&["CUSA00900-UPDATE"])),
+            (
+                p(&["CUSA00900-DLC-ABC"]),
+                system(&["addcont", "CUSA00900", "CUSA00900-DLC-ABC"])
+            ),
+        ]
+    );
+}
+
+#[test]
+fn azahar_keeps_the_update_beside_its_base_and_says_install() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    mixed_pile(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let mut off = place_options("esde", &lib);
+    choose(&mut off, "3ds", EmulatorChoice::None);
+    let before = plan_in(&pile, &off);
+    let plan = plan_in(&pile, &place_options("esde", &lib));
+    let update = item(&plan, "Pokemon Y Update.cia");
+    assert_eq!(
+        update.target,
+        item(&before, "Pokemon Y Update.cia").target,
+        "{update:?}"
+    );
+    assert!(update.moves_in(), "{update:?}");
+    assert!(
+        update.notes.contains(&ItemNote::InstallFirst {
+            emulator: "Azahar".into()
+        }),
+        "{:?}",
+        update.notes
+    );
+}
+
+#[test]
+fn emulator_data_given_vs_not() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("lib"),
+        tmp.path().join("data"),
+    );
+    pokemon_with_addons(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let cheat = format!("{MON_ID}.txt");
+    // Not given: the cheat and the mod stay, saying where they go.
+    let plan = plan_in(&pile, &place_options("esde", &lib));
+    match left(item(&plan, &cheat)) {
+        LeftReason::AddonForEmulator { emulator, path } => {
+            assert_eq!(emulator, "Azahar");
+            assert_eq!(parts(&path), p(&["cheats", &cheat]));
+        }
+        other => panic!("{other:?}"),
+    }
+    match left(item(&plan, MON_ID)) {
+        LeftReason::AddonForEmulator { path, .. } => {
+            assert_eq!(parts(&path), p(&["load", "mods", MON_ID]));
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(plan.emulator_roots.is_empty());
+    let view = plan
+        .translated
+        .iter()
+        .find(|v| v.system == "3ds")
+        .expect("a 3DS view");
+    assert!(view.placements.iter().any(|pl| pl.to
+        == PlacementTo::EmulatorData {
+            path: ["cheats", cheat.as_str()].iter().collect()
+        }));
+
+    // Given (and not there yet): under it, journaled, undone.
+    let emu = tmp.path().join("azahar");
+    let mut opts = place_options("esde", &lib);
+    opts.emulator_data.insert(EmulatorId::Azahar, emu.clone());
+    let plan = plan_in(&pile, &opts);
+    let c = item(&plan, &cheat);
+    assert_eq!(c.action, OrganizeAction::Auto, "{c:?}");
+    assert_eq!(
+        c.target.as_deref(),
+        Some(emu.join("cheats").join(&cheat).as_path())
+    );
+    let m = item(&plan, MON_ID);
+    assert_eq!(
+        m.target.as_deref(),
+        Some(emu.join("load").join("mods").join(MON_ID).as_path())
+    );
+    assert_eq!(plan.emulator_roots.len(), 1);
+    assert_eq!(plan.emulator_roots[0].path, emu);
+    assert!(plan.emulator_roots[0].anchor.is_some());
+    let before = files_below(&pile);
+    let report = apply_in(&plan, &data);
+    assert!(report.paused.is_none(), "{report:?}");
+    assert_eq!(report.failed, 0, "{report:?}");
+    let written = files_below(&emu);
+    assert!(written.contains(&p(&["cheats", &cheat])), "{written:?}");
+    assert!(
+        written.contains(&p(&["load", "mods", MON_ID, "romfs", "a.bin"])),
+        "{written:?}"
+    );
+    undo_job(&data, report.job.as_deref().unwrap()).unwrap();
+    assert_eq!(files_below(&pile), before);
+    assert!(!emu.exists(), "the emulator folder it made is gone");
+}
+
+#[test]
+fn none_returns_the_master_layout() {
+    // Game folders on: the master puts the cheat and the mod in the game
+    // folder. `none` never sends them to the emulator, even when the run
+    // names its folder; the default does, and keeps the master place when
+    // no folder is named (Q11).
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_with_addons(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let cheat = format!("{MON_ID}.txt");
+    let mut opts = place_options("esde", &lib);
+    opts.game_folders = Some(true);
+    let plan = plan_in(&pile, &opts);
+    let folder = folder_of(&plan, "Pokemon Y (World).cia");
+    assert_eq!(
+        target_parts(item(&plan, &cheat)),
+        under(&folder, &["Cheats", &cheat])
+    );
+    assert!(!plan.translated.is_empty());
+    let emu = tmp.path().join("azahar");
+    opts.emulator_data.insert(EmulatorId::Azahar, emu.clone());
+    let plan = plan_in(&pile, &opts);
+    assert_eq!(
+        item(&plan, &cheat).target.as_deref(),
+        Some(emu.join("cheats").join(&cheat).as_path())
+    );
+    choose(&mut opts, "3ds", EmulatorChoice::None);
+    let plan = plan_in(&pile, &opts);
+    let folder = folder_of(&plan, "Pokemon Y (World).cia");
+    assert_eq!(
+        target_parts(item(&plan, &cheat)),
+        under(&folder, &["Cheats", &cheat])
+    );
+    assert_eq!(
+        target_parts(item(&plan, MON_ID)),
+        under(&folder, &["Mods", MON_ID])
+    );
+    assert!(plan.translated.is_empty(), "{:?}", plan.translated);
+    assert!(plan.emulator_roots.is_empty());
+}
+
+#[test]
+fn a_linked_retro_patch_under_the_retroarch_default_is_patch_not_applied() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    mixed_pile(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let patch = "Chrono Trigger (USA) [T-Es].bps";
+    let plan = plan_in(&pile, &place_options("esde", &lib));
+    assert_eq!(
+        left(item(&plan, patch)),
+        LeftReason::PatchNotApplied {
+            emulator: "RetroArch".into()
+        }
+    );
+    let rom = target_parts(item(&plan, "Chrono Trigger (USA).sfc"));
+    let mut opts = place_options("esde", &lib);
+    choose(
+        &mut opts,
+        "snes",
+        EmulatorChoice::Emulator(EmulatorId::RetroArch),
+    );
+    let plan = plan_in(&pile, &opts);
+    let it = item(&plan, patch);
+    assert_eq!(it.action, OrganizeAction::Auto, "{it:?}");
+    let mut beside = rom.clone();
+    *beside.last_mut().unwrap() = "Chrono Trigger (USA).bps".into();
+    assert_eq!(target_parts(it), beside);
+    assert_eq!(
+        target_parts(item(&plan, "Chrono Trigger (USA).sfc")),
+        rom,
+        "the ROM never moves"
+    );
+}
+
+#[test]
+fn emulator_data_inside_the_source_or_holding_keys_is_refused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_with_addons(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let keys = tmp.path().join("keys");
+    put(&keys, "prod.keys", &[9u8; 32], 7);
+    for (path, want) in [
+        (lib.clone(), EmulatorDataWhy::IsTarget),
+        (pile.join("emu"), EmulatorDataWhy::InsideSource),
+        (keys.clone(), EmulatorDataWhy::HoldsKeys),
+        (PathBuf::from("relative/emu"), EmulatorDataWhy::Relative),
+    ] {
+        let mut opts = place_options("esde", &lib);
+        opts.emulator_data.insert(EmulatorId::Azahar, path.clone());
+        let _turn = log_turn();
+        start_open_log();
+        match plan_result(&pile, &opts) {
+            Err(OrganizeError::EmulatorData { emulator, why, .. }) => {
+                assert_eq!(emulator, EmulatorId::Azahar);
+                assert_eq!(why, want, "{path:?}");
+            }
+            other => panic!("{path:?}: {other:?}"),
+        }
+        let opened = take_open_log();
+        assert!(
+            !opened.iter().any(|o| o.starts_with(&keys)),
+            "a key was opened: {opened:?}"
+        );
+    }
+}
+
+#[test]
+fn es_de_with_game_folders_names_the_folder_after_the_base_file() {
+    // D15 frontend: ES-DE «directories interpreted as files», only with
+    // game folders on and an emulator chosen in the run (full scope). The
+    // update follows the folder, still with Azahar's install note.
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(
+        &pile,
+        "Pokemon Y (World).cia",
+        &ct::cia(MON, true, false).head_bytes(),
+        1,
+    );
+    put(
+        &pile,
+        "Pokemon Y Update.cia",
+        &ct::cia(MON_UPDATE, true, false).head_bytes(),
+        2,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let mut opts = place_options("esde", &lib);
+    opts.game_folders = Some(true);
+    // The default (conservative) keeps the part A folder name.
+    let plan = plan_in(&pile, &opts);
+    assert_eq!(
+        folder_of(&plan, "Pokemon Y (World).cia")
+            .last()
+            .map(String::as_str),
+        Some("Pokemon Y (World)")
+    );
+    choose(
+        &mut opts,
+        "3ds",
+        EmulatorChoice::Emulator(EmulatorId::Azahar),
+    );
+    let plan = plan_in(&pile, &opts);
+    let base = item(&plan, "Pokemon Y (World).cia");
+    let t = target_parts(base);
+    let n = t.len();
+    assert_eq!(
+        t[n - 2..],
+        p(&["Pokemon Y (World).cia", "Pokemon Y (World).cia"]),
+        "{t:?}"
+    );
+    let folder = folder_of(&plan, "Pokemon Y (World).cia");
+    assert_eq!(
+        folder.last().map(String::as_str),
+        Some("Pokemon Y (World).cia")
+    );
+    let update = item(&plan, "Pokemon Y Update.cia");
+    let u = target_parts(update);
+    assert!(u.starts_with(&folder), "{u:?} not under {folder:?}");
+    assert!(update.notes.contains(&ItemNote::InstallFirst {
+        emulator: "Azahar".into()
+    }));
+    // Without game folders nothing is renamed.
+    let plan = plan_in(&pile, &place_options("esde", &lib));
+    let t = target_parts(item(&plan, "Pokemon Y (World).cia"));
+    assert_eq!(t.len(), 2, "{t:?}");
+}

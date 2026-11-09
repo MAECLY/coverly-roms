@@ -749,6 +749,10 @@ export interface ProfileFile {
   /** Organise puts a modern game's base, updates and DLC in one folder
    * (game folders spec D1); absent = off. */
   game_folders?: boolean;
+  /** The emulator Organizar lays each system out for by default (system id
+   * → emulator id, `ps4 → shadps4` on ES-DE; mods spec D16); absent =
+   * none. */
+  emulators?: Record<string, string>;
 }
 
 /** `profiles::DiscLayout`. */

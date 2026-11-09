@@ -358,7 +358,7 @@ pub fn apply_organize(plan: &OrganizePlan, env: &ApplyEnv) -> Result<OrganizeRep
                 kind: JobKind::Organize,
                 source_root: Some(plan.source_root.clone()),
                 created_roots: created.clone(),
-                ..JobMeta::default()
+                extra_roots: plan.emulator_roots.iter().map(|r| r.path.clone()).collect(),
             },
         )
         .map_err(ApplyError::from)
@@ -521,35 +521,40 @@ fn pause_as(
 /// began, so a root missing now vanished.
 fn prepare_roots(plan: &OrganizePlan, resumed: bool) -> Result<Vec<PathBuf>, ItemErrorKind> {
     use super::roots::{roots_state, OsRootProbe, RootsState};
-    let state = roots_state(
-        &plan.source_root,
-        &plan.target_root,
-        plan.target_anchor.as_ref(),
-        &crate::volumes::mount_parents(),
-        &OsRootProbe,
+    let mounts = crate::volumes::mount_parents();
+    // The target root, then each emulator data folder the plan writes
+    // into (mods spec D17): the same D19 rule with its own anchor.
+    let roots = std::iter::once((&plan.target_root, plan.target_anchor.as_ref())).chain(
+        plan.emulator_roots
+            .iter()
+            .map(|r| (&r.path, r.anchor.as_ref())),
     );
-    match state {
-        RootsState::Ready => Ok(Vec::new()),
-        RootsState::VolumeGone => Err(ItemErrorKind::VolumeGone),
-        RootsState::CreateTarget { .. } if resumed => Err(ItemErrorKind::VolumeGone),
-        RootsState::CreateTarget { missing } => {
-            let mut made = Vec::new();
-            for dir in missing {
-                // One level at a time, never `create_dir_all`: a volume
-                // pulled meanwhile fails here instead of being recreated
-                // on the system disk.
-                match fs::create_dir(&dir) {
-                    Ok(()) => made.push(dir),
-                    Err(e) if e.kind() == ErrorKind::AlreadyExists && dir.is_dir() => {}
-                    Err(_) => {
-                        remove_created(&made);
-                        return Err(ItemErrorKind::VolumeGone);
-                    }
+    let mut made = Vec::new();
+    for (root, anchor) in roots {
+        let state = roots_state(&plan.source_root, root, anchor, &mounts, &OsRootProbe);
+        let missing = match state {
+            RootsState::Ready => continue,
+            RootsState::CreateTarget { missing } if !resumed => missing,
+            RootsState::VolumeGone | RootsState::CreateTarget { .. } => {
+                remove_created(&made);
+                return Err(ItemErrorKind::VolumeGone);
+            }
+        };
+        for dir in missing {
+            // One level at a time, never `create_dir_all`: a volume
+            // pulled meanwhile fails here instead of being recreated on
+            // the system disk.
+            match fs::create_dir(&dir) {
+                Ok(()) => made.push(dir),
+                Err(e) if e.kind() == ErrorKind::AlreadyExists && dir.is_dir() => {}
+                Err(_) => {
+                    remove_created(&made);
+                    return Err(ItemErrorKind::VolumeGone);
                 }
             }
-            Ok(made)
         }
     }
+    Ok(made)
 }
 
 /// Removes the target folders [`prepare_roots`] created, innermost first,

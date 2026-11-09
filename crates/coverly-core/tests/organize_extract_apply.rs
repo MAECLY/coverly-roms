@@ -870,6 +870,7 @@ mod apply_phases {
             integration_notices: Vec::new(),
             target_anchor: None,
             translated: Vec::new(),
+            emulator_roots: Vec::new(),
         }
     }
 

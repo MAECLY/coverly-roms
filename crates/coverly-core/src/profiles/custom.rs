@@ -18,6 +18,7 @@ pub use super::{default_accepts_containers, default_container_overrides};
 use crate::archive::ContainerKind;
 use crate::settings::{FieldError, FieldErrorCode};
 use crate::systems::SystemDb;
+use crate::translate::EmulatorId;
 
 /// Folder (inside the config dir) holding the profiles by default.
 pub const PROFILES_DIR: &str = "profiles";
@@ -111,6 +112,11 @@ pub struct ProfileFile {
     /// the file unchanged; files from before it load with `false`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub game_folders: bool,
+    /// The emulator Organizar lays each system out for by default (system
+    /// id → emulator id, `ps4 = "shadps4"`; mods spec D16). Files from
+    /// before it load with none; older builds ignore the key.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub emulators: BTreeMap<String, String>,
 }
 
 fn is_default_layout(l: &DiscLayout) -> bool {
@@ -184,6 +190,11 @@ impl ProfileFile {
             folder_stem_keeps_suffix: p.folder_stem_keeps_suffix,
             dlc_folder: p.dlc_folder.clone(),
             game_folders: p.game_folders,
+            emulators: p
+                .emulators
+                .iter()
+                .map(|(system, e)| (system.clone(), e.id().to_string()))
+                .collect(),
         }
     }
 
@@ -239,6 +250,18 @@ impl ProfileFile {
             folder_stem_keeps_suffix: self.folder_stem_keeps_suffix,
             dlc_folder: self.dlc_folder.clone(),
             game_folders: self.game_folders,
+            // Only pairs that validate: an unknown emulator, or one that
+            // does not run the system, never reaches a plan.
+            emulators: self
+                .emulators
+                .iter()
+                .filter_map(|(system, e)| {
+                    let e = EmulatorId::from_id(e)?;
+                    e.systems()
+                        .contains(&system.as_str())
+                        .then(|| (system.clone(), e))
+                })
+                .collect(),
         }
     }
 
@@ -477,6 +500,17 @@ pub fn validate_profile(p: &ProfileFile, builtin_ids: &[String]) -> Vec<FieldErr
                 format!("folder_game_suffix.{system_id}"),
                 Invalid,
             ));
+        }
+    }
+    for (system_id, emulator) in &p.emulators {
+        let known = db.get(system_id).is_some_and(|s| s.id == *system_id);
+        let code = match EmulatorId::from_id(emulator) {
+            None => Some(Unknown),
+            Some(e) if !known || !e.systems().contains(&system_id.as_str()) => Some(Invalid),
+            Some(_) => None,
+        };
+        if let Some(code) = code {
+            out.push(FieldError::new(format!("emulators.{system_id}"), code));
         }
     }
     for (system_id, template) in &p.dlc_folder {

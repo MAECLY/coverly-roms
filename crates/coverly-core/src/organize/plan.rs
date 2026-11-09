@@ -973,6 +973,14 @@ pub enum OrganizeError {
     Cancelled,
     #[error("item {0} is not in the plan")]
     UnknownItem(usize),
+    /// The run's emulator data folder for `emulator` cannot be written
+    /// into (mods spec D16).
+    #[error("emulator data folder for {emulator} refused ({why}): {}", path.display())]
+    EmulatorData {
+        emulator: EmulatorId,
+        path: PathBuf,
+        why: super::translate_plan::EmulatorDataWhy,
+    },
 }
 
 /// The user's answer for one item.
@@ -1103,6 +1111,11 @@ pub struct OrganizePlan {
     /// D16), for the preview. Left out of the JSON when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub translated: Vec<TranslatedGameView>,
+    /// Emulator data folders the plan writes into (D16, D17), with their
+    /// anchor when apply has to create them. Left out of the JSON when
+    /// empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emulator_roots: Vec<super::translate_plan::EmulatorRoot>,
 }
 
 /// One future plan item as the survey found it.
@@ -1891,7 +1904,7 @@ fn group_loose_discs(entries: Vec<SurveyEntry>, db: &SystemDb) -> Vec<SurveyEntr
 const NO_PLAYLIST: [&str; 3] = ["ps2", "xbox", "xbox360"];
 
 /// The base title id and kind of an entry's console header (D11).
-fn title_group(entry: &SurveyEntry) -> Option<((String, String), TitleKind)> {
+pub(crate) fn title_group(entry: &SurveyEntry) -> Option<((String, String), TitleKind)> {
     let c = entry.console.as_ref()?;
     Some(((c.system.clone(), base_title_id(c)?), link_kind(c)))
 }
@@ -3605,6 +3618,7 @@ pub fn plan_from_survey(
     };
     let roms_dir = roms_dir_of(&target_root, &profile, opts.flat);
     let src = &survey.source_root;
+    super::translate_plan::check_emulator_data(opts, src, &target_root)?;
 
     // Switch names from the optional catalogue (adjustments D7, plan P-1).
     let named = with_switch_names(survey, env.titles);
@@ -4019,6 +4033,20 @@ pub fn plan_from_survey(
         super::addons::fixed_folder_companions(&mut items, &layout, &mut index);
     }
     super::addons::addon_targets(&mut items, &layout, &mut index, src, &same_content);
+    // Each system laid out for its emulator (mods spec D16).
+    let translated = super::translate_plan::apply(
+        &mut items,
+        &super::translate_plan::TranslateWorld {
+            layout: &layout,
+            db: env.db,
+            opts,
+            entries: &survey.entries,
+            addons: &survey.walked.addons,
+            src,
+        },
+        &mut index,
+        &same_content,
+    );
     // A folder game's deepest member must fit below its target (D27).
     for item in items.iter_mut().filter(|i| i.moves_in()) {
         let (Some(target), Some(tree)) = (
@@ -4180,7 +4208,8 @@ pub fn plan_from_survey(
         updates,
         integration_notices: Vec::new(),
         target_anchor,
-        translated: Vec::new(),
+        translated: translated.views,
+        emulator_roots: translated.roots,
     };
     // Informational: the gate runs on the decided plan at apply time; a
     // folder game extraction under the threshold is asked then, with no

@@ -480,9 +480,9 @@ impl From<OrganizeError> for IpcError {
             OrganizeError::Unreadable(p, _) => IpcError::Unreadable(p.display().to_string()),
             OrganizeError::UnknownLayout(id) => IpcError::UnknownProfile(id),
             OrganizeError::Cancelled => IpcError::Cancelled,
-            other @ (OrganizeError::UnknownSystem(_) | OrganizeError::UnknownItem(_)) => {
-                IpcError::BadRequest(other.to_string())
-            }
+            other @ (OrganizeError::UnknownSystem(_)
+            | OrganizeError::UnknownItem(_)
+            | OrganizeError::EmulatorData { .. }) => IpcError::BadRequest(other.to_string()),
         }
     }
 }
