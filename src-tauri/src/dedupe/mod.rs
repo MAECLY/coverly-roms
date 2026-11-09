@@ -598,9 +598,9 @@ impl From<DedupeError> for IpcError {
             DedupeError::QuarantineInSystemFolder(p) => {
                 IpcError::QuarantineInSystemFolder(p.display().to_string())
             }
-            e @ (DedupeError::NotAKeeper { .. } | DedupeError::EveryMemberMoves(_)) => {
-                IpcError::KeeperRequired(e.to_string())
-            }
+            e @ (DedupeError::NotAKeeper { .. }
+            | DedupeError::EveryMemberMoves(_)
+            | DedupeError::RemovesGameFolder(_)) => IpcError::KeeperRequired(e.to_string()),
             e => IpcError::BadRequest(e.to_string()),
         }
     }
@@ -628,6 +628,10 @@ mod tests {
         ));
         assert!(matches!(
             IpcError::from(DedupeError::EveryMemberMoves(4)),
+            IpcError::KeeperRequired(_)
+        ));
+        assert!(matches!(
+            IpcError::from(DedupeError::RemovesGameFolder(4)),
             IpcError::KeeperRequired(_)
         ));
         assert!(matches!(

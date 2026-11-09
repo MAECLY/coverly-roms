@@ -132,6 +132,10 @@ pub enum ReportWhy {
     /// batch 2 D28). No longer given since folder games act (adjustments
     /// spec D19); kept so plans written before still read.
     FolderGame,
+    /// A copy the keeper rules would set aside is a game whose folder
+    /// holds updates, DLC or another fixed folder (game folders spec D9,
+    /// Q13): trashing it would take them along, so nothing moves.
+    HasChildren,
 }
 
 /// What happens to a group's extras.
@@ -166,6 +170,10 @@ pub struct UnitRef {
     /// file could not be read.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mtimes_ns: Vec<i64>,
+    /// A game whose folder holds updates, DLC or a fixed folder (game
+    /// folders spec D9): apply refuses any plan that would remove it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub holds_children: bool,
 }
 
 /// One copy in a group.
@@ -495,6 +503,7 @@ mod tests {
                 mtime_ns: 1_700_000_000_000_000_000,
                 in_library: true,
                 mtimes_ns: Vec::new(),
+                holds_children: false,
             },
             relation,
             size: 512 * 1024 * 1024,

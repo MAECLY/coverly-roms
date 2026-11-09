@@ -85,6 +85,8 @@ fn unit_of(system: &str, kind: UnitKind, files: &[PathBuf], payload_size: Option
         in_library: true,
         tree_digest: None,
         tree_title: None,
+        role: None,
+        holds_children: false,
     }
 }
 
@@ -769,6 +771,8 @@ fn paper_unit(id: usize, system: &str, path: &str, kind: UnitKind) -> Unit {
         in_library: true,
         tree_digest: None,
         tree_title: None,
+        role: None,
+        holds_children: false,
     }
 }
 
@@ -784,6 +788,7 @@ fn keyed_with_crc(unit: usize, crcs: &[(u32, u64)]) -> KeyedUnit {
         chd_raw: None,
         dat_crcs: crcs.to_vec(),
         tree: None,
+        title: None,
     }
 }
 
@@ -1758,7 +1763,7 @@ fn another_systems_answer_or_an_archive_is_never_remembered() {
 use coverly_core::dedupe::keys::folder_tree_digest;
 
 #[test]
-fn facts_of_version_two_are_a_miss() {
+fn facts_of_an_older_version_are_a_miss() {
     let dir = TempDir::new().unwrap();
     let rom = rom_bytes(40, 64 * 1024);
     let a = put(dir.path(), "GB/A.gb", &rom);
@@ -1778,14 +1783,15 @@ fn facts_of_version_two_are_a_miss() {
             .content_row("VOL-1", &u.primary, u.size, u.mtime_ns)
             .unwrap()
             .expect("a row");
-        assert!(row.keys_json.contains("\"v\":3"), "{}", row.keys_json);
-        row.keys_json = row.keys_json.replace("\"v\":3", "\"v\":2");
+        // `4`: game folders spec D22 (roles, new kinds and versions).
+        assert!(row.keys_json.contains("\"v\":4"), "{}", row.keys_json);
+        row.keys_json = row.keys_json.replace("\"v\":4", "\"v\":3");
         cache.put_content_row(&row).unwrap();
     }
     let warm = CountingBytes::new();
     ctx.bytes = &warm;
     run(&units, &ctx);
-    assert!(warm.opens() > 0, "facts v2 are read again");
+    assert!(warm.opens() > 0, "facts v3 are read again");
 }
 
 #[test]

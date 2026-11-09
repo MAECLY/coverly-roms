@@ -227,6 +227,40 @@ pub fn tree_digest(dir: &Path) -> Option<String> {
     tree_now(dir).digest
 }
 
+/// [`tree_now`] without the fixed folders (`Updates/`, `DLC/`, `Mods/`,
+/// `Cheats/`, `Extras/`, `Saves/`) directly inside `dir` (game folders
+/// spec D5): what a library scan measures a folder game as.
+pub fn tree_now_without_fixed(dir: &Path) -> TreeSummary {
+    let fixed: Vec<PathBuf> = fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|e| {
+                    crate::game_folder::FixedFolder::from_dir_name(&e.file_name().to_string_lossy())
+                        .is_some()
+                        && fs::symlink_metadata(e.path()).is_ok_and(|m| m.is_dir())
+                })
+                .map(|e| e.path())
+                .collect()
+        })
+        .unwrap_or_default();
+    if fixed.is_empty() {
+        return tree_now(dir);
+    }
+    let opts = WalkOptions {
+        skip_dirs: Vec::new(),
+        roms_root: None,
+        art_dirs: &[],
+        ignored_dirs: &[],
+        now: UNIX_EPOCH,
+        recent: Duration::ZERO,
+        probe: &OsMetaProbe,
+        max_depth: MAX_DEPTH,
+        profile: None,
+    };
+    tree_summary_excluding(dir, &opts, &fixed)
+}
+
 /// [`tree_summary`] of the folder game `dir` with the defaults a scan
 /// uses (no recent window): what a plan measured, measured again.
 pub fn tree_now(dir: &Path) -> TreeSummary {

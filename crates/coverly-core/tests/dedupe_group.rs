@@ -39,6 +39,8 @@ fn unit(id: usize, system: &str, path: &str, kind: UnitKind) -> Unit {
         in_library: true,
         tree_digest: None,
         tree_title: None,
+        role: None,
+        holds_children: false,
     }
 }
 
@@ -53,6 +55,7 @@ fn keyed(unit: usize, exact: Option<ExactKey>) -> KeyedUnit {
         chd_raw: None,
         dat_crcs: Vec::new(),
         tree: None,
+        title: None,
     }
 }
 

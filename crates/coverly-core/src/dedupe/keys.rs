@@ -28,6 +28,7 @@ use sha1::{Digest, Sha1};
 
 use crate::cache::{Cache, ContentRow};
 use crate::consoles::{self, Budgeted, ConsoleId, TitleKind};
+use crate::game_folder::ChildRole;
 use crate::identify::dat::normalise_serial;
 use crate::identify::hash::{
     hash_stream, hex_upper, n64_to_z64, HashOutcome, HeaderRule, N64Order, RomHashes,
@@ -49,8 +50,10 @@ pub const SLOW_VOLUME_WORKERS: usize = 2;
 
 /// Version of the facts stored in `content_keys.keys_json`; other versions
 /// are a miss. `3`: title keys say whether their id came from the file
-/// name, and folder trees key folder games (adjustments spec D19).
-const FACTS_VERSION: u32 = 3;
+/// name, and folder trees key folder games (adjustments spec D19). `4`:
+/// units carry their role in a game folder, and Switch DataPatch, Xbox 360
+/// STFS versions and media ids are read (game folders spec D22).
+pub const FACTS_VERSION: u32 = 4;
 /// The largest header any rule takes off (SNES/SMS copier).
 const MAX_HEADER: usize = 512;
 /// Bytes read from a CHD for its header (v5 is 124).
@@ -242,6 +245,23 @@ pub struct KeyedUnit {
     /// when another unit of its system may have one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree: Option<ExactKey>,
+    /// The console title key of a unit whose bytes a key in `exact`
+    /// proves, for level 2 only: two updates of one game with other bytes
+    /// of one size are still versions of each other (game folders spec
+    /// D9). `None` when `exact` is the title key itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<ExactKey>,
+}
+
+impl KeyedUnit {
+    /// The console title key level 2 reads: `exact` when it is one, else
+    /// [`title`](Self::title).
+    pub fn title_key(&self) -> Option<&ExactKey> {
+        match &self.exact {
+            Some(t @ ExactKey::Title { .. }) => Some(t),
+            _ => self.title.as_ref(),
+        }
+    }
 }
 
 impl KeyedUnit {
@@ -443,11 +463,19 @@ pub fn level_one(
         // Nothing proved equal bytes: a console dump falls back on its
         // title id (plan P-6). Never stored as the unit's facts, so a byte
         // proof found later still wins.
-        let exact = match &f.exact {
-            Some(e) if e.is_confirmed() => Some(e.clone()),
-            other if !cancel.load(Ordering::Relaxed) => title_key(u, ctx).or_else(|| other.clone()),
-            other => other.clone(),
+        let live = !cancel.load(Ordering::Relaxed);
+        let (exact, title) = match &f.exact {
+            Some(e) if e.is_confirmed() => {
+                let title = (live && has_title_ids(&u.system))
+                    .then(|| title_key(u, ctx))
+                    .flatten();
+                (Some(e.clone()), title)
+            }
+            other if live => (title_key(u, ctx).or_else(|| other.clone()), None),
+            other => (other.clone(), None),
         };
+        let exact = exact.map(|e| kind_from_role(e, u));
+        let title = title.map(|e| kind_from_role(e, u));
         let patch_set = match &exact {
             Some(_) if !u.patches.is_empty() => patch_set(&u.patches),
             _ => Vec::new(),
@@ -464,9 +492,38 @@ pub fn level_one(
             tree: trees[i]
                 .clone()
                 .map(|digest| ExactKey::FolderTree { digest }),
+            title,
         });
     }
     out
+}
+
+/// A title key whose header gave no kind takes the kind of the game
+/// folder's `Updates/` or `DLC/` it sits in (game folders spec D9, D14):
+/// the folder never overrides a kind the header gave.
+fn kind_from_role(key: ExactKey, u: &Unit) -> ExactKey {
+    match (key, u.role) {
+        (
+            ExactKey::Title {
+                title_id,
+                kind: TitleKind::Unknown,
+                version,
+                disc,
+                by_name,
+            },
+            Some(role),
+        ) => ExactKey::Title {
+            title_id,
+            kind: match role {
+                ChildRole::Update => TitleKind::Update,
+                ChildRole::Dlc => TitleKind::Dlc,
+            },
+            version,
+            disc,
+            by_name,
+        },
+        (key, _) => key,
+    }
 }
 
 /// The folder trees of `units` (index-aligned): the digest the caller
@@ -492,7 +549,10 @@ fn folder_trees(units: &[Unit], cancel: &AtomicBool) -> Vec<Option<String>> {
             if cancel.load(Ordering::Relaxed) {
                 return None;
             }
-            crate::organize::walk::tree_digest(&u.primary)
+            // A library folder game's own tree, without the fixed folders
+            // it holds (game folders spec D5): its updates and DLC are
+            // never part of its fingerprint.
+            crate::organize::walk::tree_now_without_fixed(&u.primary).digest
         })
         .collect()
 }
@@ -1345,8 +1405,10 @@ pub const TITLE_ID_SYSTEMS: [&str; 13] = [
 /// modification time: a warm run reads no header again. `v2`: PS4/PS5
 /// keys are content ids and Xbox One/Series keys exist (systems batch 3
 /// D14); `v3`: keys say whether the id came from the file name
-/// (adjustments spec D19), so older entries are a miss.
-const TITLE_NS: &str = "dedupe-title-v3";
+/// (adjustments spec D19), so older entries are a miss; `v4`: the kinds,
+/// versions and media ids of game folders spec D14 (Switch DataPatch and
+/// Delta, Vita `ac`, Xbox 360 STFS) and system titles.
+const TITLE_NS: &str = "dedupe-title-v4";
 
 /// Whether `system` is one of [`TITLE_ID_SYSTEMS`].
 pub fn has_title_ids(system: &str) -> bool {
@@ -1567,7 +1629,7 @@ fn version_key(unit: &Unit, k: &KeyedUnit, dats: &dyn DatLookup) -> Option<Versi
     let Some(mut key) = catalogue_version_key(unit, k, dats) else {
         return title_version_key(unit, k);
     };
-    if let Some(ExactKey::Title { version, .. }) = &k.exact {
+    if let Some(ExactKey::Title { version, .. }) = k.title_key() {
         key.console_version = version.clone();
     }
     Some(key)
@@ -1582,7 +1644,7 @@ fn title_version_key(unit: &Unit, k: &KeyedUnit) -> Option<VersionKey> {
         version,
         disc,
         ..
-    }) = &k.exact
+    }) = k.title_key()
     else {
         return None;
     };

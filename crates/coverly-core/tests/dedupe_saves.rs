@@ -41,6 +41,8 @@ fn unit(id: usize, system: &str, primary: &Path, kind: UnitKind) -> Unit {
         in_library: true,
         tree_digest: None,
         tree_title: None,
+        role: None,
+        holds_children: false,
     }
 }
 

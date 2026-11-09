@@ -41,6 +41,7 @@ fn member(id: usize, primary: &str, catalogue: Option<&str>, art: Vec<ArtSeen>) 
             mtime_ns: 0,
             in_library: true,
             mtimes_ns: Vec::new(),
+            holds_children: false,
         },
         relation: Relation::Exact,
         size: 32,

@@ -872,6 +872,7 @@ fn dedupe_plan_sample() -> coverly_core::dedupe::DedupePlan {
             mtime_ns,
             in_library: true,
             mtimes_ns: Vec::new(),
+            holds_children: false,
         },
         relation: Relation::Exact,
         size: 4_194_304,

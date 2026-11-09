@@ -21,6 +21,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use crate::game_folder::ChildRole;
 use crate::systems::SystemDb;
 
 use super::keys::{ExactKey, FormatKey, FormatLink, KeyedUnit, VersionKey, VERSION_CONFIDENCE};
@@ -253,7 +254,9 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
         // The hard rule: never compare across systems (spec §8.1.1).
         let same = self.units[a].system == self.system && self.units[b].system == self.system;
         debug_assert!(same, "a link across systems");
-        if !same || a == b {
+        // Nor across roles (game folders spec D9): an update is never a
+        // copy, another format or another version of its base.
+        if !same || a == b || self.units[a].role != self.units[b].role {
             return;
         }
         self.links.push(Link {
@@ -270,12 +273,25 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
         self.keys.entry(unit).or_default().insert(key);
     }
 
+    /// The part of every bucket key that keeps roles apart (game folders
+    /// spec D9): empty for a game, so the keys of a library without game
+    /// folders are what they were; an update or DLC only ever meets a
+    /// unit of its own role.
+    fn role_tag(&self, unit: usize) -> &'static str {
+        match self.units[unit].role {
+            None => "",
+            Some(ChildRole::Update) => "+role:update",
+            Some(ChildRole::Dlc) => "+role:dlc",
+        }
+    }
+
     /// Level 1: units with an equal group key, with the arcade, header and
     /// confirmation guards of spec §5.2.
     fn copy_clusters(&mut self, members: &[usize], keyed: &[Option<&KeyedUnit>]) {
         let mut clusters: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         for &i in members {
             if let Some(key) = keyed[i].and_then(|k| k.group_key(self.system)) {
+                let key = format!("{key}{}", self.role_tag(i));
                 clusters.entry(key).or_default().push(i);
             }
         }
@@ -361,7 +377,11 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
         for &i in members {
             if let Some(tree) = keyed[i].and_then(|k| k.tree.as_ref()) {
                 by_tree
-                    .entry(tree.key_string(self.system))
+                    .entry(format!(
+                        "{}{}",
+                        tree.key_string(self.system),
+                        self.role_tag(i)
+                    ))
                     .or_default()
                     .push(i);
             }
@@ -479,7 +499,7 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
     /// CHDs with the same raw data and another combined SHA1: the same
     /// data with other track metadata, report-only.
     fn chd_raw_links(&mut self, members: &[usize], keyed: &[Option<&KeyedUnit>]) {
-        let mut by_raw: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+        let mut by_raw: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         for &i in members {
             let Some(k) = keyed[i] else { continue };
             let raw = match (&k.exact, &k.chd_raw) {
@@ -487,7 +507,10 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
                 (Some(ExactKey::ChdRaw { rawsha1 }), None) => rawsha1.as_str(),
                 _ => continue,
             };
-            by_raw.entry(raw).or_default().push(i);
+            by_raw
+                .entry(format!("{raw}{}", self.role_tag(i)))
+                .or_default()
+                .push(i);
         }
         for (raw, list) in by_raw {
             // One representative per copy cluster: units already in one
@@ -548,6 +571,9 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
         let mut keyed_units = BTreeSet::new();
         for (a, b) in pairs {
             let ((ua, ka), (ub, kb)) = (format[a], format[b]);
+            if self.units[ua].role != self.units[ub].role {
+                continue;
+            }
             let (relation, why, confidence) = match ka.link(kb) {
                 None => continue,
                 Some(FormatLink::Acts { confidence }) => (Relation::Format, None, confidence),
@@ -573,12 +599,15 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
     fn version_links(&mut self, versions: &[(usize, &VersionKey)]) {
         let mut buckets: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         for &(u, k) in versions {
-            buckets.entry(k.key_string()).or_default().push(u);
+            buckets
+                .entry(format!("{}{}", k.key_string(), self.role_tag(u)))
+                .or_default()
+                .push(u);
         }
         let title_ids: BTreeSet<String> = versions
             .iter()
             .filter(|(_, k)| k.by_title_id)
-            .map(|(_, k)| k.key_string())
+            .map(|&(u, k)| format!("{}{}", k.key_string(), self.role_tag(u)))
             .collect();
         for (key, list) in buckets {
             if list.len() < 2 {
@@ -725,8 +754,8 @@ fn rank(why: &ReportWhy) -> u8 {
         ReportWhy::ArcadeNoDat => 4,
         ReportWhy::LevelTwoOff => 3,
         ReportWhy::UserSkipped => 2,
-        // Only the planner gives it, after grouping.
-        ReportWhy::FolderGame => 1,
+        // Only the planner gives them, after grouping.
+        ReportWhy::FolderGame | ReportWhy::HasChildren => 1,
         ReportWhy::BigGroup { .. } => 0,
     }
 }

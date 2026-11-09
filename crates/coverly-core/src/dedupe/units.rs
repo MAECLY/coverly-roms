@@ -17,6 +17,7 @@ use std::time::UNIX_EPOCH;
 use serde::{Deserialize, Serialize};
 
 use crate::archive::detect::by_extension;
+use crate::game_folder::{ChildRole, FixedFolder};
 use crate::identify::dat::DatGame;
 use crate::identify::sniff::{
     sniff, sniff_switch_first, ContainerMagic, FileAt, NotARom, ReadAt, SliceAt,
@@ -26,7 +27,7 @@ use crate::organize::inspect::{ArchiveIssue, Container};
 use crate::organize::walk::FOLDER_GAME_SYSTEMS;
 use crate::profiles::Profile;
 use crate::scan::classify::{extension, is_bios_name, is_partial_download, is_skipped_entry};
-use crate::scan::{LibraryScan, RomEntry, ScanOptions};
+use crate::scan::{ChildEntry, LibraryScan, RomEntry, ScanOptions};
 use crate::systems::{System, SystemDb};
 
 use super::source::{EntryListing, ListedEntry};
@@ -116,6 +117,22 @@ pub struct Unit {
     /// act only when the title ids, if both have one, agree).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree_title: Option<String>,
+    /// What the unit is to a game whose folder holds it (game folders
+    /// spec D9): an update in `Updates/` or a DLC in `DLC/` of a game
+    /// folder, or an orphan the scan tagged so. `None` for a game. Units
+    /// of other roles never pair: an update is never a copy, another
+    /// format or another version of its base.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<ChildRole>,
+    /// A game whose folder holds updates, DLC or any fixed folder
+    /// (`<Game>/<Game>.cia` beside `Updates/`, a folder game with
+    /// `Saves/` inside): never removed by a duplicates action (D9).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub holds_children: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Unit {
@@ -143,6 +160,7 @@ impl Unit {
             mtime_ns: self.mtime_ns,
             in_library: self.in_library,
             mtimes_ns,
+            holds_children: self.holds_children,
         }
     }
 }
@@ -281,9 +299,21 @@ pub fn units_from_scan(
         };
         let mut dir_cache = DirCache::default();
         let mut found = Vec::new();
-        for rom in &sys.roms {
+        // A game's updates and DLC (game folders spec D9) are units too,
+        // tagged with their role so they never pair with their base.
+        let children: Vec<RomEntry> = sys
+            .roms
+            .iter()
+            .flat_map(|rom| rom.children.iter().map(|c| child_rom(&sys.dir, c)))
+            .collect();
+        for rom in sys.roms.iter().chain(&children) {
             match draft_from_rom(rom, (system, db, listing), opts, &mut dir_cache) {
-                Ok(draft) => found.push(draft),
+                Ok(mut draft) => {
+                    draft.unit.role = rom.role;
+                    draft.unit.holds_children =
+                        rom.role.is_none() && holds_children(rom, &mut dir_cache);
+                    found.push(draft);
+                }
                 Err(Some(why)) => {
                     if why == Exclusion::Symlink {
                         let files = std::iter::once(&rom.path).chain(&rom.companions);
@@ -298,6 +328,74 @@ pub fn units_from_scan(
         drafts.extend(merge_overlaps(found));
     }
     finish(drafts, excluded, &link_targets)
+}
+
+/// The entry a child of a game (an update or DLC in its folder) is
+/// measured as: a file, or a folder a console probe recognised, with the
+/// child's role. No header is read here.
+fn child_rom(system_dir: &Path, child: &ChildEntry) -> RomEntry {
+    let is_dir = child.path.is_dir();
+    let rel_dir = child
+        .path
+        .parent()
+        .and_then(|p| p.strip_prefix(system_dir).ok())
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    let (stem, ext) = if is_dir {
+        (file_name(&child.path), String::new())
+    } else {
+        (
+            child
+                .path
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            extension(&child.path),
+        )
+    };
+    RomEntry {
+        path: child.path.clone(),
+        rel_dir,
+        stem,
+        ext,
+        size: child.size,
+        modified: child.modified,
+        companions: Vec::new(),
+        is_dir,
+        children: Vec::new(),
+        role: Some(child.role),
+        version_group: None,
+        revision: None,
+    }
+}
+
+/// Whether the game `rom` keeps updates, DLC or any fixed folder in its
+/// game folder (spec D9): children the scan attached, or a fixed folder
+/// in the folder game itself or beside a base file in a subfolder of its
+/// system folder. One listing, cached with the patches' listings.
+fn holds_children(rom: &RomEntry, dirs: &mut DirCache) -> bool {
+    if !rom.children.is_empty() {
+        return true;
+    }
+    let dir = if rom.is_dir {
+        rom.path.as_path()
+    } else if rom.rel_dir.as_os_str().is_empty() {
+        return false;
+    } else {
+        match rom.path.parent() {
+            Some(p) => p,
+            None => return false,
+        }
+    };
+    has_fixed_folder(dirs.listing(dir))
+}
+
+/// Whether a listing holds a folder named like a fixed folder.
+fn has_fixed_folder(listing: &[PathBuf]) -> bool {
+    listing.iter().any(|p| {
+        FixedFolder::from_dir_name(&file_name(p)).is_some()
+            && fs::symlink_metadata(p).is_ok_and(|m| m.is_dir())
+    })
 }
 
 /// Units of an organise pile: `facts[i]` belongs to the system
@@ -361,6 +459,10 @@ pub fn units_from_folders(folders: &[(PathBuf, String, u64, i64)]) -> UnitSet {
                     in_library: false,
                     tree_digest: None,
                     tree_title: None,
+                    role: None,
+                    holds_children: fs::read_dir(path).is_ok_and(|entries| {
+                        has_fixed_folder(&entries.flatten().map(|e| e.path()).collect::<Vec<_>>())
+                    }),
                 },
                 sizes: vec![*size],
                 // Folders cannot be hard links: no twin to drop.
@@ -435,6 +537,8 @@ fn draft_from_set(
             in_library: false,
             tree_digest: None,
             tree_title: None,
+            role: None,
+            holds_children: false,
         },
         sizes,
         dev_ino: dev_ino(&meta),
@@ -566,6 +670,8 @@ fn draft_from_rom(
             in_library: true,
             tree_digest: None,
             tree_title: None,
+            role: None,
+            holds_children: false,
         },
         sizes,
         dev_ino: dev_ino(&meta),
@@ -604,6 +710,8 @@ fn draft_from_folder(rom: &RomEntry, system: &System) -> Result<Draft, Option<Ex
             in_library: true,
             tree_digest: None,
             tree_title: None,
+            role: None,
+            holds_children: false,
         },
         sizes: vec![rom.size],
         // Folders cannot be hard links: no twin to drop.
@@ -676,6 +784,8 @@ fn draft_from_facts(
             in_library: false,
             tree_digest: None,
             tree_title: None,
+            role: None,
+            holds_children: false,
         },
         sizes,
         dev_ino: dev_ino(&meta),
