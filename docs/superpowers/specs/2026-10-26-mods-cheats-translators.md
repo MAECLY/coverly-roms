@@ -1,0 +1,402 @@
+# Coverly ROMs — Mods/ and Cheats/ linked to their game, and per-emulator translators (Design Spec, part B)
+
+> Status: **Design, implementing on `feat/mods-cheats-translators`** (self-review §17) · Date: 2026-10-26 (roadmap date of item 2.1; brief decided with Miguel on 2026-11-01; spec written 2026-11-09) · Owner: Miguel Angel Esparza Calero (MAECLY)
+> Roadmap item: `TODO.md` §2.1 «Actualizaciones, DLC, demos y revisiones dentro de su juego», **part B only**: detection and placement of mods, translation patches and cheats; per-emulator translators; the part A follow-ups and one known bug. Part C (the six views, art slots for children) and part D (Extras/ CRUD, `extras.json`, media viewer) are later runs and are not started here.
+> Branch: `feat/mods-cheats-translators`. `docs/TRACKER.md` and `TODO.md` are updated on `main` after merge, not on this branch.
+> Builds on: game folders part A ([`2026-10-26-game-folders.md`](2026-10-26-game-folders.md), PR #45: `FixedFolder`, `classify_listing`, `GameLink`/`GameRole`, licences by name, the `coverly-library` profile, the `game_folders` option), systems batch 2/3 (`TitleKind`, `InstallFirst`, `ExtractFirst`, shadPS4 overlays D11, Batocera `dlc_folder` D16), archives spec (`HeaderRule`, `RomHashes`, `DatStore::lookup`), research [`docs/02-research/mods-cheats-extras-per-system.md`](../../02-research/mods-cheats-extras-per-system.md) and [`docs/02-research/updates-dlc-per-system.md`](../../02-research/updates-dlc-per-system.md).
+
+## 1. Purpose
+
+After part A a game is a folder with `Updates/` and `DLC/`, but its `Mods/` and `Cheats/` stay empty: a translation patch is a «no es una ROM (parche)» row, a `SLUS-00594.cht` is invisible, an Azahar `load/mods/0004000000055D00/` tree is just a folder, and a pile game folder's own `Mods/` is left where it is. Organizar also has a single target shape per profile: it cannot say «for shadPS4 the update goes beside the game as `CUSA00900-UPDATE`» or «RPCS3 installs this; keep it in the library».
+
+Part B delivers:
+
+1. **Detection and linking, without keys**, of translation patches and hacks, cheats and emulator patches, and mods and texture packs, each linked to one game by the key its format carries (source CRC32, serial, game id, title id, build id, ROM name). Unlinked ones stay where they are and are reported; nothing is ever deleted.
+2. **Placement**: Organizar with the `coverly-library` profile moves them into the game's `Mods/` or `Cheats/` (created only when something goes in), with dry run, undo and every existing safety rule; scan and Duplicados keep respecting those folders.
+3. **Per-emulator translators**: a pure module (master layout in, target plan out) with one translator per target emulator or frontend, used by Organizar when a device or emulator layout is chosen, and reused later by block 4 (sync).
+4. **Fixes**: `organize --apply` no longer pauses with `volume-gone` when the target folder does not exist yet; demo-to-base linking prefers the matching region; a bare region word already in a name is not doubled; the CLI stops listing a licence that moves with its game as «staying»; the Organizar system select gets an id and a name.
+5. **Minimal UI**: mods, patches and cheats folded under their game in Organizar with what they are, `Mods/` and `Cheats/` in the folder preview, and a translated layout preview when an emulator is chosen for a system.
+
+The three standing rules carry over unchanged: **keys are untouchable** (never read, include, download or decrypt; never link or recommend emulators, ROM or key sites), **nothing is overwritten**, **every change is undoable**.
+
+## 2. The owner's asks (verbatim from `TODO.md` §2.1)
+
+> ### Carpetas fijas y `Extras/` libre (decidido con Miguel, 2026-11-01)
+>
+> - **Carpetas fijas del juego:** `Updates/`, `DLC/`, `Mods/`, `Cheats/`, `Extras/` y `Saves/`. Siempre con ese nombre y en ese sitio, porque de ellas dependen la organización automática, la traducción a cada emulador (4) y las partidas (5). El usuario no crea carpetas nuevas a ese nivel; la interfaz las muestra traducidas.
+> - **`Mods/`:** mods y packs de texturas (p. ej. carpeta `-mods` de shadPS4, `atmosphere/contents/<id>/romfs` de Switch, LayeredFS de Azahar, Riivolution de Dolphin, texturas HD de Dolphin/PCSX2) y parches de traducción o hacks (`.ips`, `.bps`, `.ups`, `.xdelta`, `.ppf`), hoy detectados como «no es una ROM (parche)» pero sin asociar a su juego.
+> - **`Cheats/`:** trucos (`.cht`, Action Replay, Game Genie, `pnach`) y parches del emulador (`patches.yml` de RPCS3, parches de PCSX2 y Dolphin).
+> - **Licencias** (`.rap`, zRIF, `work.bin`, DLC de solo licencia `AL`): se reconocen y se dejan junto al archivo al que pertenecen, sin leerlas nunca.
+>
+> ### Investigación de mods, trucos, licencias y extras por sistema
+>
+> - **Parches de traducción y hacks** (retro): el mejor para enlazar automáticamente es **BPS** (los últimos 12 bytes guardan el CRC32 de la ROM de origen, que se compara con el DAT de No-Intro); UPS también lleva CRC32. IPS no lleva nada: se enlaza por nombre de archivo y por el `readme`. RetroArch aplica solo el parche que se llama como la ROM (`rom.bps`, `rom.ips`, `rom.ips1`…). Ojo con las cabeceras: NES (iNES) y SNES (copier) cambian si el parche espera la ROM con o sin cabecera.
+> - **Clave de enlace por emulador:** por serial del disco (DuckStation, PCSX2: `textures/<SERIAL>/replacements/`, `.cht`, `SERIAL_CRC.pnach`); por id de juego (Dolphin `Load/Textures/<GAMEID>/`, `GameSettings/<GAMEID>.ini`, Riivolution `<id game>`; Flycast; PPSSPP `PSP/TEXTURES/<GAMEID>/`, `PSP/Cheats/<GAMEID>.ini`); por title ID (Azahar `load/mods/<TitleID>/`, `<TitleID>.txt`; Cemu `titleIds` en `rules.txt`; Switch `atmosphere/contents/<id>/romfs|exefs`, `cheats/<build_id>.txt`; RPCS3 `patches.yml`; Vita rePatch `ux0:rePatch/<TITLEID>/`; shadPS4 `SERIAL_VERSION.json`; Xenia `<TITLEID> - <Juego>.patch.toml`); por nombre de archivo (RetroArch `.cht` con el nombre de No-Intro, Mesen `HdPacks/<nombre de la ROM>/hires.txt`, MSU-1 `.msu` + `-N.pcm`).
+> - **Sin sistema de mods** (Saturn, Sega CD, PC Engine CD, Xbox, PS3, PS4 salvo `dvdroot_ps4/MODS`, PS5, Xbox One): `Mods/` guarda copias del usuario enlazadas por serial.
+>
+> ### Traducción por dispositivo (al organizar para un frontend o al sincronizar)
+>
+> La estructura maestra es la de la biblioteca. Cada perfil la traduce a lo que espera su emulador:
+>
+> - **shadPS4 (PS4):** no carga `.pkg`, solo carpetas extraídas `CUSAxxxxx`, y la actualización va **al lado**: `CUSAxxxxx-UPDATE` (o `-patch`), no dentro.
+> - **RPCS3 (PS3), Azahar (3DS), Cemu (Wii U), Vita3K (Vita):** actualizaciones y DLC se **instalan** en el emulador (NAND / su carpeta de datos). Coverly los guarda en la biblioteca y muestra «Instálalo en el emulador» (nota `InstallFirst`, ya existe).
+> - **Emuladores de Switch:** cargan el base y aceptan actualizaciones/DLC desde una carpeta aparte; la estructura maestra sirve casi tal cual.
+> - **ES-DE y otros frontends:** una carpeta con subcarpetas puede verse como carpeta y no como juego; usar su modo «directorio como juego» (o la carpeta con el nombre del archivo, p. ej. `Juego.pkg/`) según el perfil.
+>
+> ### Tareas (las de la parte B)
+>
+> - [ ] Detectar y colocar mods, parches de traducción, trucos, licencias y extras oficiales por sistema (según la investigación de abajo). *(Part B: mods, patches and cheats; licences were done in part A; official extras and the Extras CRUD are part D.)*
+> - [ ] Traducir `Mods/` y `Cheats/` a la ruta de cada emulador al organizar o sincronizar.
+>
+> ### Fallos conocidos
+>
+> - [ ] **`organize --apply` se para con «paused: volume-gone» si la carpeta de destino todavía no existe.** Debería crear la carpeta de destino (o pedir confirmación) y distinguirla de un volumen desconectado de verdad.
+
+Workflow brief for this run (part B), summarised: detect and link without keys (BPS/UPS by source CRC32 against the ROM or the DAT, IPS by name or readme, minding iNES/SNES copier headers; the cheat and mod formats listed above); Organizar with `coverly-library` places them in `Mods/` or `Cheats/`, creating a folder only when it gets content, with dry run and undo; translators as a module (shadPS4, RPCS3, Azahar, Cemu, Vita3K, Switch, ES-DE and other frontends, RetroArch, and where each emulator expects mods and cheats), plan only plus apply with undo, never extracting or decrypting, a translator that would need extraction or install says so; block 4 will reuse them, so the API is pure and well tested; the volume-gone bug and the four part A follow-ups test-first; minimal UI. Not here: the six-views redesign (C), Extras CRUD (D). Anything that needs the owner: safest default, implemented, listed in §13 and the PR.
+
+## 3. What exists today (read before changing)
+
+| Layer | Where | What matters here |
+|---|---|---|
+| Fixed folders | `game_folder.rs` `FixedFolder { Updates, Dlc, Mods, Cheats, Extras, Saves }`, `dir_name`, `from_dir_name` (exact, case-insensitive), `ChildRole { Update, Dlc }`, `classify_listing → DirShape { GameFolder { base, fixed }, Loose, Plain }` | `child_role` returns `None` for `Mods`/`Cheats`. |
+| Patches today | `organize/inspect.rs` `PATCH_EXTS` (`ips bps ups xdelta vcdiff ppf aps`): an **archive** holding only patches is `LeftReason::NotARom { what: NotARom::Patch }` («parche; aplícalo a la ROM original»). A **loose** patch file is not ROM-like, so it is not a candidate at all, unless it shares a ROM's stem: then it travels as a companion (`target.rs` `DEFAULT_COMPANION_EXTS`: `sav srm rtc state* cht ips bps ups txt nfo png jpg`). `dedupe/companions.rs` and `dedupe/units.rs` know the same patch extensions. | Same-stem patches and `.cht` already follow their ROM; part B must not break that. |
+| Walk | `organize/walk.rs`: a pile game folder's `Mods/`, `Cheats/`, `Extras/`, `Saves/` → `LeftReason::GameFolderContent { folder, of }`, not descended (part A D7). Emulator data roots (`ux0`, `dev_hdd0`, `mlc01`, `nand`, `sys_modules`, `sdmc` with `Nintendo 3DS`) and shadPS4's user dir are left whole. shadPS4 overlays `-mods` / `-UPDATE` / `-patch` beside a `CUSA…` folder (`OVERLAY_SUFFIXES`, batch 3 D11). | `-mods` is already treated as an overlay of loose replacement files, never walked. |
+| Scan | `scan/mod.rs`: inside a game folder with a base, `Mods/`, `Cheats/`, `Extras/`, `Saves/` are skipped; `Updates/`/`DLC/` files are `RomEntry.children` (part A D8). | Nothing changes for placement; the scan gains no addon model in part B (§13 Q7). |
+| Duplicados | `dedupe/units.rs`: files under `Mods/`, `Cheats/`, `Extras/`, `Saves/` are never units; the has-children removal guard (part A D9). | Must keep holding once part B fills those folders. |
+| Plan model | `organize/plan.rs` `OrganizeItem { kind: ItemKind { File, Archive, Set, Folder }, game: Option<GameLink>, notes, companions: Vec<Companion { licence }>, … }`, `GameLink { role: GameRole { Base, Update, Dlc, Demo }, version, region, of, folder, folder_exists, demo_of, newest_here }`, `ItemNote::{Update, Dlc, InstallFirst { emulator }, ExtractFirst, NoEmulator, DlcFolder, FolderSuffix, DemoOf, BaseMissing, …}`, `LeftReason::{KeyMaterial, GameFolderContent, …}`, `FACTS_VERSION = 10`. | Children fold in the UI by `game.of`. |
+| Linking | `plan.rs` `updates_after_bases`, demos by `parse_tags(stem).title_key` (`plan_bases.entry((system, key)).or_insert(stem)`, ~line 2670: **first base by sort order wins**, the part A follow-up), `library_bases.rs` `LibraryIndex { ids, keys }` (title id and title key of the target system folder's top-level games, budgeted, memoised). | Library lookups exist for title ids and title keys only. |
+| Names | `target.rs` `game_folder_name` and `plan.rs` `demo_folder_stem`: add ` (<Region>)` when `parse_tags(stem).regions` is empty. `parse_tags` only reads `(…)` groups, so `New Super Mario Bros 2 USA` becomes `… USA (USA)` (part A follow-up). | |
+| Hashes and DATs | `identify/hash.rs` `HeaderRule { None, Ines, SnesCopier, SmsCopier, … }`, `RomHashes { full, headerless, payload_sha1 }` (CRC32/MD5/SHA1, upper-case hex); `identify/dat.rs` `DatStore::lookup` (headerless then full), `Cache::dat_by_crc(dat, crc)`. | A BPS/UPS source CRC32 can be compared with both digests of a ROM and with the DAT, with no new hashing code. |
+| Serials and ids | `ConsoleId { serial, title_id, … }` from batch 2/3 readers; `DiscId` (disc serials) on items; `dat.rs` `serial_keys`, `normalise_serial`. | PS1/PS2 serials, GameCube/Wii game ids, PSP disc ids, 3DS/Wii U/Switch/PS3/Vita/PS4/360 title ids are already read in plaintext. |
+| Profiles | `profiles/builtin.rs`: `anbernic-stock`, `garlicos`, `onion`, `muos`, `minui`, `esde`, `batocera`, `retroarch`, `coverly-library` (`game_folders = true`); `Profile { folder_game_suffix, folder_stem_keeps_suffix, dlc_folder, game_folders, … }`. | Existing per-profile translations (ES-DE/Batocera `.ps3` suffix, Batocera `DLC/{title_id}`, shadPS4 sibling overlays from a pile) are spread over `target.rs`. |
+| Apply | `organize/apply.rs` `roots_gone(plan)`: `!source_root.is_dir() \|\| !target_root.is_dir()` → `ItemErrorKind::VolumeGone`, checked at start (`apply_organize` ~346, resume ~429) and after errors. | **The known bug**: a target folder that does not exist yet reads as a vanished volume. `volumes.rs` has `mount_parents()`. |
+| CLI | `crates/coverly-cli/src/organize.rs` ~1797 «Staying where they are (n)»: every `OrganizeAction::Left` item. | A licence that also travels as a `Companion { licence: true }` of a moved item is still listed there (part A follow-up). |
+| UI | `src/components/organize/ReviewBuckets.tsx` (two `NativeSelect` with `organize.review.choose` «Elige un sistema…», `aria-label` but no `id`/`name`: the browser's form-field audit flags them), `SystemGroups.tsx`, `GameFolderPreview.tsx`, `src/lib/organize.ts` (`updatesUnderBases`, `gameFolderPreview`, `fixedFolderLabel`), `OptionsBar.tsx`; mock `?mockPick=…|gamefolders` (`src/ipc/mock/gameFoldersFixture.ts`). | |
+
+## 4. Decisions
+
+| # | Topic | Decision | Why |
+|---|---|---|---|
+| D1 | What an addon is | New module `crates/coverly-core/src/addons/` (`mod.rs`, `patch.rs`, `cheat.rs`, `mods.rs`, `link.rs`). An **addon** is a file or a folder that belongs to one game without being playable: `AddonKind { Patch, Cheat, Mod }` × `AddonFormat` (one variant per format of D2–D4) with `AddonKey` (D5). `Patch` and `Mod` go to `Mods/` (the owner put translation patches and hacks under `Mods/`), `Cheat` to `Cheats/` (cheats and emulator patches: `.pnach`, `patches.yml`, `patch.toml`, Dolphin ini sections). `AddonKind::fixed_folder()` returns the folder. | One model the walk, the plan, the translators and block 4 share. |
+| D2 | Patches: detection and key | By **magic first, extension second** (a renamed patch is still found; an `.ips` that is not one is not): **BPS** `BPS1`, source size varint after the magic, footer = last 12 bytes: source CRC32, target CRC32, patch CRC32 (LE) → `AddonKey::SourceCrc { crc32, size }`; **UPS** `UPS1`, varint source size, same 12-byte footer → same key; **IPS** `PATCH` … `EOF` (also `.ips1`…`.ips9` chain names) → no key in the file; **xdelta3/VCDIFF** `D6 C3 C4 00`: when the header indicator has `VCD_APPHEADER`, the app header (capped at 4 KiB, UTF-8 lossy, `source//target/` form) gives `AddonKey::SourceName(name)`; **PPF** `PPF10`/`PPF20`/`PPF30`: no key (the PPF2/3 1 KiB block check is not used: it needs reading the image at an offset per candidate, §13 Q4); **APS** `APS10` (N64): cart id + country at the documented header offset → `AddonKey::N64Id`; `APS1` (GBA) no key. Bytes read: the first 64 bytes and the last 12 (BPS/UPS), at most 4 KiB for an xdelta header; never the whole patch. Patches **inside an archive** (the existing `NotARom::Patch` case): the archive's central directory lists the entry; its last 12 bytes are read by decoding that entry only when it is ≤ 64 MiB (existing capped decoders), else the archive is linked by name/readme only. | Research: BPS is the best key; UPS also has CRC32; IPS has none; xdelta's app header usually names the source ROM. |
+| D3 | Cheats and emulator patches: detection and key | By name pattern **and** a capped content check (text files ≤ 1 MiB, read as UTF-8 lossy, never executed or fully parsed): **RetroArch `.cht`** (`cheats = N` line) → `RomName(stem)`; **FCEUX `.cht`** (address:value lines, no `cheats =`) → `RomName(stem)`; **DuckStation** `<SERIAL>.cht` / `<SERIAL>-<HASH>.cht` (`[Name]` sections with `Type =`) → `Serial`; **PCSX2** `<SERIAL>_<CRC8>.pnach` → `Serial` (+ ELF CRC kept as data); CRC-only `<CRC8>.pnach` → by its `gametitle=` line matched as a name (`RomName`), else unlinked; **Dolphin** `<GAMEID>.ini` (6 or 3 characters) with `[Gecko]`, `[ActionReplay]` or `[OnFrame]` sections → `GameId`; **PPSSPP** `<GAMEID>.ini` with `_S`/`_C`/`_L` lines → `GameId` (dash-free PSP disc id); **Azahar/Luma** `<16-hex TitleID>.txt` with `[Name]` + `XXXXXXXX YYYYYYYY` lines → `TitleId`; **Switch** `<16-hex BuildId>.txt` (`[Name]`/`{Name}` + hex words) → `BuildId`, plus `TitleId` from a parent folder named by a `0100…` id (`…/<TitleId>/cheats/<BuildId>.txt`); a lone build-id file has no title id and stays unlinked (the build id lives in the encrypted NSO); **IPSwitch `.pchtxt`** (`@nsobid-<BuildId>`) → `BuildId` as above; **RPCS3** `<TITLEID>_patch.yml` → `TitleId`; `patch.yml`, `imported_patch.yml`, `cheats.yml` hold patches for many games: line-scanned for serials (`[BN][LCP][AEJUK][SD]\d{5}`, `NP[A-Z]{2}\d{5}`); exactly one serial present → `TitleId`, several → `AddonKey::Many(n)` (never split, never linked); **shadPS4** `<SERIAL>_<VERSION>.json` (`CUSA07023_01.03.json`, optional `_2`) → `SerialVersion`; shadPS4/GoldHEN XML patches (`<TitleID><ID>…`) → `TitleId` when one, `Many` when several; **Xenia** `<TITLEID8> - <Title>.patch.toml` (and the older `<TITLEID8>.patch`) → `TitleId`; **Vita3K** `<TITLEID>*.txt` with `[TITLEID…]` headers → `TitleId`; `patchlist.txt` → `Many`; **melonDS** `.mch`, **mGBA** `.cheats`, **DeSmuME** `.dct` → `RomName(stem)`; **plain Game Genie / Action Replay text** (`.txt` whose every non-comment line is a code of a known shape) → `RomName(stem)` only when the stem equals a ROM's stem; any other `.txt` is not a cheat. | Every key is a name or a plaintext line the research names. Global databases (`usrcheat.dat`, `cheat.db`, `mupencheat.txt`, `CHEATS_JSON.txt`) are system data: recognised, left, never linked (D7). |
+| D4 | Mods and texture packs: detection and key | A mod is usually a **folder**, moved whole as one unit (like a folder game, `ItemKind::Folder`): **DuckStation/PCSX2** a folder named by a PS1/PS2 serial holding `replacements/` or `dumps/` (or found as `textures/<SERIAL>/`) → `Serial`; **Dolphin** `<GAMEID>/` holding `tex1_*.png`/`.dds` (or under `Load/Textures/`), `GraphicMods/<Name>/metadata.json` naming a game id → `GameId`; Riivolution `*.xml` with `<id game="RMC">` → `GameId` (3-character prefix); **PPSSPP** `<GAMEID>/textures.ini` or `textures.zip` → `GameId`; **Azahar** `<TitleID>/` holding `romfs/`, `exefs/`, `romfs_ext/`, `exheader.bin`, `code.bin\|ips\|bps` or `tex1_*.png` (also under `load/mods/`, `load/textures/`, `luma/titles/`) → `TitleId`; **Switch** `<0100… TitleID>/` holding `romfs/`, `exefs/`, `romfs.bin`, `exefs.nsp` or `cheats/` (under `atmosphere/contents/`, Ryujinx `mods/contents/`, or yuzu-family `load/<TitleID>/<ModName>/`) → `TitleId`; `exefs_patches/<Set>/<BuildId>.ips` → `BuildId`; **Cemu graphic pack** a folder with `rules.txt` whose `[Definition]` has `titleIds = …` → `TitleIds(Vec)`, classified `Cheat` when its `name` or `path` contains «cheat» (case-insensitive), else `Mod`; **Vita** `rePatch/<TITLEID>/` and `reAddcont/<TITLEID>/` → `TitleId`; **Mesen HD pack** a folder holding `hires.txt` with `<ver>` → `RomName(folder name)`; a zip holding `hires.txt` → `RomName(zip stem)`; **MSU-1** `<name>.msu` with one or more `<name>-<N>.pcm` (`MSU1` magic) → `RomName(name)`, the `.msu`, every `.pcm` and a same-named `.bml` travel as one set; **Xenia** `plugins/<TITLEID8>/plugins.toml` → `TitleId`; **Flycast** `textures/<GAMEID>/` → `GameId`; **N64** a folder named after an internal ROM name holding `#`-named PNGs, or `<INTERNAL>_HIRESTEXTURES.htc\|hts` → `N64Name`; **shadPS4** `<CUSA>-mods/` beside a base (batch 3 D11 overlay) → `TitleId`. A folder that mirrors a game's internal paths with no key (PS3 `USRDIR/`, PS4 `dvdroot_ps4/`, Xbox) is **not** guessed: it is not an addon (stays as today). A mod folder is never descended by the walk once recognised (its PNGs, `.ips` and `.txt` are inside the unit). | Research per system; the folder name or a plaintext manifest is the key in every case. |
+| D5 | Link keys and how they resolve | `AddonKey { SourceCrc { crc32, size }, SourceName(String), RomName(String), Serial(String), GameId(String), TitleId(String), TitleIds(Vec<String>), SerialVersion { serial, version }, BuildId { build_id, title_id: Option<String> }, N64Id(String), N64Name(String), Many(usize), None }`. Resolution order per addon, first hit wins, against **(a)** the plan's items, then **(b)** the target system folder's library (D9): `SourceCrc` = a ROM whose **full** or **headerless** CRC32 and size equal the source's (the ROM hashes the plan already computes for DAT matching; computed for retro ROMs in the same system that have none yet, under the plan budget), else the DAT game of that CRC (`dat_by_crc`, size checked) whose name equals a ROM's catalogue name; `SourceName` = a ROM file name equal (case-insensitive, NFC); `RomName` = a ROM stem equal, else equal `parse_tags(..).title_key` **and** the same region set (so `Chrono Trigger (USA).cht` does not link to the Japanese ROM), else equal catalogue name; `Serial` = `DiscId.serials` / `ConsoleId.serial` after `normalise_serial`; `GameId` = the 6-character id, or every base whose id starts with a 3-character key; `TitleId` = `base_title_id` of a base; `TitleIds` = every listed id that is a base; `SerialVersion` = serial (the version is shown, not required); `BuildId` = its `title_id`; `N64Id`/`N64Name` = the N64 header fields of `.z64/.v64/.n64` ROMs (plaintext, byte order normalised). **Readme fallback** for keyless patches (IPS, PPF, xdelta without app header, APS1): the `readme*`, `*.txt` or `*.nfo` beside it (or in the same archive), ≤ 64 KiB, is searched for a candidate ROM's exact file name, No-Intro name, or CRC32 written as 8 hex digits next to «CRC»; exactly one candidate → linked, `LinkVia::Readme`. **Name fallback**: patch stem equal to a ROM stem (`LinkVia::Name`). | The order puts the strongest proof first; every comparison uses data Coverly already reads. |
+| D6 | One game or none | An addon links only when the resolution gives **exactly one** game (its system known). Zero → unlinked; several (two regions of one game for a 3-character Dolphin key, a Cemu pack listing US and EU ids with both present, `Many`) → unlinked with the count. Never copied into several games, never split. | Safest default: a wrong link puts a mod where it breaks a game; an unlinked one only stays put. |
+| D7 | Unlinked and global files | An unlinked addon stays where it is: `LeftReason::AddonUnlinked { kind: AddonKind, format: AddonFormat, why: UnlinkedWhy { NoMatch, Several { count }, NoKey, Budget } }`, one row each, never moved, never deleted. Global cheat databases (`usrcheat.dat`, `cheat.db`, `mupencheat.txt`, `CHEATS_JSON.txt`, `patch_config.yml`) → `NotARom::EmulatorConfig` (part A D18), left. The existing `NotARom::Patch` row stays for an archive holding patches only when it cannot be linked; linked, it becomes an addon item. | Brief: unlinked ones stay where they are and are reported; nothing is ever deleted. |
+| D8 | Header-sensitive patches (iNES, SNES copier) | When a `SourceCrc` matches a ROM's **headerless** digest but the ROM file **has** a header (`RomHashes.headerless.is_some()`), or matches the full digest of a ROM that has a header the DAT does not, the link holds and the addon carries `AddonLink.header: HeaderFit { Matches, NeedsHeaderless, NeedsHeadered }`; the row says «Este parche espera la ROM sin cabecera» / «…con cabecera». Coverly never strips or adds a header (that rewrites a ROM). The RetroArch translator does **not** rename a patch to the ROM's name when the fit is not `Matches`, because soft-patching would corrupt the game; it stays in `Mods/` with the note. | Research: iNES and SNES copier headers change whether a patch applies. |
+| D9 | Library lookups | `library_bases.rs` `LibraryIndex` gains maps for serial, game id and ROM stem / title key (+ region) of the target system folder's top-level games and game folders' bases, built only for systems that have an addon to resolve, under the existing `LookupBudget` and memoised facts (size + mtime keyed); `SourceCrc` against the library uses only CRC32s already in the memoised facts or the dedupe library units (never hashes the whole library in a plan); budget out → `UnlinkedWhy::Budget` (never guessed). | Part A D13 pattern; no full-library hashing. |
+| D10 | Plan model | `GameRole` gains `Mod` and `Cheat`; `GameLink` gains `addon: Option<AddonLink { kind, format, key_text: String /* «SLUS-00594», «0004000000055D00», «CRC32 1A2B3C4D» */, via: LinkVia { SourceCrc, Dat, Name, Readme, Key }, header: Option<HeaderFit> }>`. `GameLink.of` points at the base item when the base is in the plan; a library base is named by `ItemNote::ModOf { of }`, `PatchOf { of }` or `CheatOf { of }` (title, like `Update { of }`). An MSU-1 set is `ItemKind::Set`; a mod folder `ItemKind::Folder`; a patch or cheat file `ItemKind::File`; an archive holding a linked patch `ItemKind::Archive` (moved as is, never extracted). `organize/plan.rs` `FACTS_VERSION` 10 → 11 (addon verdicts are memoised). | Folding by item id, as part A D16. |
+| D11 | Master placement (`coverly-library`, or any profile with `game_folders` on) | Linked addon → `<System>/<Game>/Mods/<name>` or `<System>/<Game>/Cheats/<name>`, where `<Game>` is the base's game folder (planned in this run, or existing in the library; a flat library base gets **no** folder built around it, part A D19: its addons follow D12's flat rule instead). `<name>` is the addon's **own name, unchanged** (file or folder): many formats are keyed by their name (`SLUS-00594.cht`, `0004000000055D00/`, `CUSA07023_01.03.json`), so renaming would break the key. A name already taken in that folder: same size and fingerprint → `AlreadyPresent`; different → left with `LeftReason::AddonNameTaken` (Review), never ` (2)`. `Mods/` and `Cheats/` are created only when an addon goes in (part A D4), each a journaled `DirCreated`, removed on undo when empty. Path length counts the deeper path (`PathTooLong` per addon). | Brief: places them in the game's Mods/ or Cheats/, create only when there is content. |
+| D12 | Profiles without game folders | With `game_folders` off and no translator rule for the system (D14), today's behaviour is kept exactly: same-stem patches and `.cht` keep travelling as companions; a linked addon with another name stays where it is with `LeftReason::AddonNoPlace { kind }` («Este perfil no tiene sitio para mods; se queda donde está»). When a translator gives a place (D14), it is used. | Existing users' plans for handheld profiles do not change unless a translator has a verified place. |
+| D13 | A pile game folder's own `Mods/` and `Cheats/` | Part A left them (`GameFolderContent`). Now, when the folder's base is planned, each **entry** directly inside its `Mods/` / `Cheats/` becomes an addon item linked to that base (`LinkVia::Key` = the folder it was in, even when the entry has no key of its own: the user already filed it), placed by D11/D14. `Extras/` and `Saves/` keep `GameFolderContent` (parts D and block 5). | The user's own filing is the strongest link. |
+| D14 | Translators: the module | New module `crates/coverly-core/src/translate/` with **pure** functions (no I/O, no clock, no settings): `pub fn translate(game: &MasterGame, to: &TranslateTarget) -> TranslatedGame`. `MasterGame { system, title, region, ids: GameIds { title_id, serial, game_id }, base: MasterEntry, updates: Vec<MasterEntry>, dlc: Vec<MasterEntry>, mods: Vec<MasterAddon>, cheats: Vec<MasterAddon> }`, `MasterEntry { path: PathBuf /* relative to the master system folder */, is_dir, form: EntryForm { Package /* .pkg .cia .nsp .wua … */, Extracted /* folder game */, Image, File }, title_id, version, content_id }`, `MasterAddon { path, is_dir, kind, format, key }`. `TranslateTarget { emulator: Option<EmulatorId>, frontend: FrontendMode { Plain, DirAsGame /* ES-DE, Batocera */ }, game_folders: bool }`. `TranslatedGame { entries: Vec<Placement { from: PathBuf, to: Destination, note: Option<TranslateNote> }> }` with `Destination { System(PathBuf) /* relative to the device's system folder */, EmulatorData { emulator, path } /* relative to the emulator's own data folder */, Library /* stays in the library, nothing written on the device */ }` and `TranslateNote { InstallInEmulator { emulator }, ExtractFirst, NotSupported { why }, HeaderMismatch, PointEmulatorHere { folder } }`. One file per translator; `EmulatorId { Shadps4, Rpcs3, Azahar, Cemu, Vita3k, Ryujinx, YuzuFamily, RetroArch, DuckStation, Pcsx2, Dolphin, Ppsspp, Xenia, Flycast, Mesen }`, each knowing its systems (`EmulatorId::systems()`). Organizar builds `MasterGame`s from the plan's linked items (the master layout of D11), calls `translate`, and turns placements into targets (D16). Block 4 will build `MasterGame`s from the library scan and call the same function. | Brief: pure API, master layout in, target plan out, reusable by sync. |
+| D15 | Translators: the rules | Each row is one translator; «Library» means `Destination::Library` (not written to the device in sync; in Organizar from a pile: placed as without a translator, flat beside the base, with the note). **shadPS4** (ps4): base must be `Extracted` (`CUSAxxxxx/`), a `Package` base → `ExtractFirst` (never extracted by Coverly); update `Extracted` → sibling `System(<base dir>-UPDATE)` (or keeps an existing `-patch` name), a `Package` update → `ExtractFirst`; DLC `Extracted` → `System(addcont/<TITLE_ID>/<dlc folder>)` with `PointEmulatorHere { folder: "addcont" }` (shadPS4 reads `addon_install_dir`, default its user dir; the note tells the user to point it here); mods → `System(<base dir>-mods/…)` (the overlay batch 3 D11 already recognises); cheats `SERIAL_VERSION.json` → `EmulatorData(shadps4, cheats/<name>)`, XML patches → `EmulatorData(shadps4, patches/<name>)`. **RPCS3** (ps3): base as the profile places it (folder suffix rules unchanged); updates and DLC → `Library` + `InstallInEmulator(RPCS3)`; mods → `NotSupported` («RPCS3 no tiene carpeta de mods: se reemplazan archivos del juego»); cheats/patches `*_patch.yml` → `EmulatorData(rpcs3, patches/<name>)`. **Azahar** (3ds): base as placed; updates and DLC → `Library` + `InstallInEmulator(Azahar)`; mods `<TitleID>/` → `EmulatorData(azahar, load/mods/<TitleID>/)`, texture packs → `load/textures/<TitleID>/`; cheats → `EmulatorData(azahar, cheats/<TitleID>.txt)`. **Cemu** (wiiu): updates and DLC → `Library` + `InstallInEmulator(Cemu)`; graphic packs (mods and cheats) → `EmulatorData(cemu, graphicPacks/<pack folder>/)`. **Vita3K** (psvita): updates and DLC → `Library` + `InstallInEmulator(Vita3K)`; rePatch/reAddcont mods → `NotSupported` («Vita3K no lee rePatch: hay que mezclar los archivos en el juego»); patches `<TITLEID>*.txt` → `EmulatorData(vita3k, patch/<name>)`. **Ryujinx** and **YuzuFamily** (switch): base `System(<Game>.<ext>)` flat; updates → `System(Updates/<file>)`, DLC → `System(DLC/<file>)` with `PointEmulatorHere { folder }` (a separate folder the emulator is pointed at, as the brief says); mods → Ryujinx `EmulatorData(ryujinx, mods/contents/<titleid>/<mod name>/…)`, yuzu-family `EmulatorData(yuzu, load/<TitleID>/<mod name>/…)` (a `<TitleID>/` mod folder becomes the `<mod name>` level, named after the user's folder or `Coverly mod` when it is the bare id); cheats `<BuildId>.txt` → `…/<titleid>/cheats/<BuildId>.txt` under the same mod root. **RetroArch** (every retro system it covers): a patch with `HeaderFit::Matches` (or no fit to check) and the only patch of its ROM → `System(<rom dir>/<rom stem>.<patch ext>)` (IPS chains keep `.ips`, `.ips1`… order when their names say it); several patches for one ROM → each stays in `Mods/` (`NotSupported` «varios parches para la misma ROM: RetroArch solo aplica uno»); `.cht` → `EmulatorData(retroarch, cheats/<No-Intro system name>/<rom stem>.cht)`; MSU-1 set → `System(<rom dir>/<rom stem>.msu`, `-N.pcm`) beside the ROM; other mods → `Library`. **DuckStation** (psx): textures → `EmulatorData(duckstation, textures/<SERIAL>/…)`, cheats → `cheats/<name>`, a `.ppf` with the image's stem → `System(<image stem>.ppf)` beside it. **PCSX2** (ps2): textures → `EmulatorData(pcsx2, textures/<SERIAL>/…)`, `.pnach` → `cheats/<name>`. **Dolphin** (gc, wii): textures → `EmulatorData(dolphin, Load/Textures/<GAMEID>/…)`, Riivolution → `Load/Riivolution/…`, ini cheats → `GameSettings/<GAMEID>.ini` only when no file of that name exists there (Dolphin keeps user settings in the same file: never merged, §13 Q5). **PPSSPP** (psp): textures → `EmulatorData(ppsspp, PSP/TEXTURES/<GAMEID>/…)`, cheats → `PSP/Cheats/<GAMEID>.ini` (same never-merge rule). **Xenia** (xbox360): `patch.toml` → `EmulatorData(xenia, patches/<name>)`, plugins → `plugins/<TITLEID>/…`. **Flycast** (dreamcast): textures → `EmulatorData(flycast, textures/<GAMEID>/…)`. **Mesen** (nes): HD packs → `EmulatorData(mesen, HdPacks/<rom stem>/…)`. **Frontend `DirAsGame`** (ES-DE, Batocera) applies **after** the emulator translator, only when `game_folders` is on for that profile: the game folder `<Game>/` is named `<Game>.<base ext>/` (the base file inside keeps `<Game>.<base ext>`), so the frontend launches the file and shows one game; a folder game keeps the existing `folder_game_suffix` rule. Systems with no translator chosen keep the master layout (with `game_folders` on) or today's placement (off). | Brief and research per emulator; every place is one the research verified. |
+| D16 | Translators in Organizar | Each profile has default emulators per system, `Profile.emulators: BTreeMap<system_id, EmulatorId>` (serde default empty; custom TOML key `emulators`): `esde` and `batocera` → ps4 `shadps4`, ps3 `rpcs3`, 3ds `azahar`, wiiu `cemu`, psvita `vita3k`, switch `ryujinx`, psx `duckstation`, ps2 `pcsx2`, gc/wii `dolphin`, psp `ppsspp`, xbox360 `xenia`, dreamcast `flycast`, and every other retro system `retroarch`; `retroarch`, `anbernic-stock`, `garlicos`, `onion`, `muos`, `minui` → every retro system they list `retroarch`; `coverly-library` → none (it is the master). The run may override per system: `OrganizeRequest.emulators: BTreeMap<system_id, EmulatorId \| "none">` (UI: §9; CLI `--emulator ps4=shadps4`, `--emulator ps4=none`). Placements become targets: `System(..)` → under the device's system folder (existing collision, safe-name, FAT32 and path-length rules); `Library` → today's placement plus `ItemNote::InstallFirst { emulator }` (exists); `EmulatorData(..)` → written only when the run names that emulator's data folder (`OrganizeRequest.emulator_data: BTreeMap<EmulatorId, PathBuf>`, CLI `--emulator-data shadps4=/path`; not in the UI in part B, §13 Q2), else the item stays: `LeftReason::AddonForEmulator { emulator, path }` («Va en la carpeta de {emulator}: {path}; Coverly no sabe dónde está») and nothing is guessed under the user's app-data folders; `ExtractFirst` / `NotSupported` → left with that reason. The plan records `OrganizePlan.translated: Vec<TranslatedGameView>` (system, base item id, emulator, each placement's from/to/note) for the preview. The existing pile shapes (shadPS4 `-UPDATE` siblings, Batocera `DLC/{title_id}`, `.ps3` suffix) keep their code and their snapshots: the translators are applied to master-shaped groups only (a base item with linked children or addons), and a test pins that the batch 2/3 snapshots do not change. | The emulator is a per-system fact of a device; the profile gives sensible defaults and the run can change them. Writing into an emulator's private folder without being told where is the one place a guess could break something. |
+| D17 | Apply and undo | No new op: `DirCreated`, `Moved`, `Copied` as today; addon folders move whole (exclusive rename, or copy + verify + remove across volumes, existing folder-game path). Undo restores addons before removing created `Mods/`, `Cheats/`, `<base>-UPDATE/`, `addcont/…`, `Updates/`, `DLC/` folders (only when empty). Emulator-data placements are journaled like any target (the root is the run's `emulator_data` folder; undo works without it being the target root). Never: extract a package, decrypt, install into an emulator, write a merged config. | Brief: plan + apply with undo; never extract or decrypt. |
+| D18 | Keys rule in addons | Addon detection reads only the bytes D2–D4 name, from files that are not key material; `consoles::is_key_material` is checked first, so a `.tik` inside `atmosphere/contents/<id>/` is never opened and a mod folder holding key material is **not** moved (left with `KeyMaterial`, like a licence, part A D17) instead of travelling inside the unit. A text cheat that looks like a key list (`prod.keys`, `title.keys`, `keys.txt` names) is never read (already key material by name). | Keys rule. |
+| D19 | Known bug: missing target folder | `roots_gone` becomes `roots_state(plan, parents) -> RootsState { Ready, CreateTarget { missing: Vec<PathBuf> }, VolumeGone }`: source missing → `VolumeGone`; target missing → walk up to the nearest existing ancestor; if that ancestor is a volume mount parent (`volumes::mount_parents()`: `/Volumes`, `/media/<user>`, `/run/media/<user>`, `/mnt`) or the path's root (a Windows drive letter that is gone) → `VolumeGone`; otherwise → `CreateTarget` with the missing components, which apply creates **before the first item**, each journaled `DirCreated` (removed by undo when empty). After that, a target root missing mid-run is a vanished volume as today. The check takes the mount parents as a parameter (pure, tested with a fake list); `apply_organize` and resume pass `volumes::mount_parents()`. Test-first: a failing test with `target = <tmp>/new/sub` that does not exist. | `TODO.md` «Fallos conocidos». Creating the folder is what the user asked for by choosing it; a missing `/Volumes/X` is still a pause. |
+| D20 | Follow-up: demo region | `plan_bases` keeps every base per `(system, title_key)`: `Vec<(stem, Option<Region>)>`. A demo links to: a base whose region equals the demo's; else, by preference, `World`, `USA`, `Europe`, `Japan`, then the rest by name (deterministic); the same order applies to library candidates (`LibraryIndex::by_title_key` returns all). | Part A follow-up (`plan.rs` ~2670 took the first by sort order). |
+| D21 | Follow-up: bare region word | New `identify/names.rs` `bare_region(stem) -> Option<Region>`: the last whitespace-separated word, trimmed of `-_.,`, matched case-insensitively against `Region::no_intro_word()` and the aliases `US`, `EU`, `EUR`, `JP`, `JPN`, `JAP`, `KOR`, `CHN`. `game_folder_name` and `demo_folder_stem` skip adding ` (<Region>)` when `bare_region(stem) == Some(region)`. A **different** bare word does not stop it (`Game USA` with a European header → `Game USA (Europe)`, rare and truthful). A word inside the title (`USA Racer`) is not the last word, so untouched. | Part A follow-up: `New Super Mario Bros 2 USA` no longer becomes `… USA (USA)`. |
+| D22 | Follow-up: CLI licences | The CLI «Staying where they are» list drops a `Left { KeyMaterial }` item whose primary source equals a `Companion { licence: true }` source of a moved or copied item; that licence is printed under its owner as «licence goes with it» (existing companion line). The plan itself is unchanged (the UI already folds it). | Part A follow-up. |
+| D23 | Follow-up: select id/name | Both `NativeSelect`s in `ReviewBuckets.tsx` get `id` (`review-system-<item id>` and `review-system-bulk`) and `name="system"`, keeping their `aria-label`. | Part A follow-up; the browser's form-field audit asks for an id or name. |
+| D24 | CLI | `coverly organize … --emulator <system>=<id\|none>` (repeatable), `--emulator-data <id>=<path>` (repeatable); English text for every new reason, note, role and translate note (exhaustive matches); the plan table shows addons under their base with kind and key. | Scriptable, and the CLI must compile. |
+| D25 | Scope limits | Not in part B: official extras and the Extras CRUD (D), the six views and addon rows in the library (C), applying or creating patched ROMs, merging into an emulator's existing config files, sync (block 4), RetroArch per-core cheat folders (the system-name folder is used), scan-side addon model (§13 Q7). | Brief. |
+
+## 5. Architecture and files touched
+
+### 5.1 Rust
+
+| File | Change |
+|---|---|
+| `addons/mod.rs` (new) | `AddonKind`, `AddonFormat`, `AddonKey`, `AddonLink`, `LinkVia`, `HeaderFit`, `UnlinkedWhy`; `fixed_folder()`. |
+| `addons/patch.rs` (new) | `sniff_patch(head: &[u8], tail12: Option<[u8; 12]>, xdelta_app: Option<&[u8]>) -> Option<(AddonFormat, AddonKey)>`; varint reader; IPS chain names. Pure over bytes. |
+| `addons/cheat.rs` (new) | `sniff_cheat(name, parent_names, text: &str) -> Option<(AddonFormat, AddonKey)>` (D3). Pure. |
+| `addons/mods.rs` (new) | `sniff_mod_dir(name, listing, small_files) -> Option<…>` (D4); `rules.txt` and `hires.txt` readers (capped). Pure over a listing and capped reads. |
+| `addons/link.rs` (new) | `resolve(addon, candidates: &Candidates) -> Resolution { One(GameRef, LinkVia, Option<HeaderFit>), Several(usize), None }` (D5, D6, D8); readme search. Pure. |
+| `translate/mod.rs` + `shadps4.rs`, `rpcs3.rs`, `azahar.rs`, `cemu.rs`, `vita3k.rs`, `switch.rs` (Ryujinx and yuzu-family), `retroarch.rs`, `duckstation.rs`, `pcsx2.rs`, `dolphin.rs`, `ppsspp.rs`, `xenia.rs`, `flycast.rs`, `mesen.rs`, `frontend.rs` (`DirAsGame`) (new) | D14, D15. No `std::fs`, no clock: a test asserts the module never imports `std::fs` (grep test). |
+| `organize/walk.rs` | Addon candidates: patch/cheat files by magic/pattern; mod folders recognised and not descended (D4); pile game folders' `Mods/`/`Cheats/` entries (D13); key material first (D18). |
+| `organize/plan.rs` | `GameRole::{Mod, Cheat}`, `GameLink.addon`, `ItemNote::{ModOf, PatchOf, CheatOf, HeaderMismatch { needs }, PointEmulatorHere { emulator, folder }}`, `LeftReason::{AddonUnlinked, AddonNameTaken, AddonNoPlace, AddonForEmulator, NotSupported { emulator, why }}`; linking pass after `updates_after_bases`; demo region (D20); `OrganizePlan.translated`; `FACTS_VERSION` 11. |
+| `organize/library_bases.rs` | Serial, game id, stem/title-key + region maps; `by_title_key` returning all candidates (D9, D20). |
+| `organize/target.rs` | Addon targets (D11, D12), translator placements (D16), `bare_region` in `game_folder_name` (D21). |
+| `organize/apply.rs` | `roots_state` and target creation (D19); emulator-data roots journaled (D17). |
+| `identify/names.rs` | `bare_region`, region aliases (D21). |
+| `profiles/mod.rs`, `builtin.rs`, `custom.rs` | `Profile.emulators` and defaults (D16); TOML key. |
+| `crates/coverly-cli/src/organize.rs`, `main.rs` | D22, D24. |
+| `src-tauri/src/ipc.rs`, `tests/contract.rs`, `contract.sample.json` | New fields, request fields `emulators`, `emulator_data`. |
+
+### 5.2 Front end
+
+| File | Change |
+|---|---|
+| `src/ipc/types.ts`, `contract.test.ts`, `organizeWire.ts` | `GameRole` `mod`/`cheat`, `AddonLink`, new reasons and notes, `OrganizeRequest.emulators`, `OrganizePlan.translated`, `EmulatorId`. |
+| `src/lib/organize.ts` | `updatesUnderBases` also folds `mod`/`cheat` by `game.of` (ordered: updates, DLC, mods, cheats); `addonText(link)` («Parche BPS · CRC32 1A2B3C4D»); `gameFolderPreview` lists `Mods/` and `Cheats/`; `translatedPreview(view)`. |
+| `src/components/organize/SystemGroups.tsx`, `ItemName.tsx` | Addon child rows; per-system «Emulador» select in the group header when the system has translators (§9). |
+| `src/components/organize/GameFolderPreview.tsx` | `Mods/`, `Cheats/` sections; a second tab-less mode «Cómo queda para {emulator}» (§9). |
+| `src/components/organize/ReviewBuckets.tsx` | D23. |
+| `locales/{es,en}/ui.json` | §10 keys (merge key by key: parallel workflows edit these files). |
+| `src/ipc/mock/modsFixture.ts` (new), `mockOrganize.ts` | `?mockPick=mods` (§9.3). |
+
+## 6. Formats and keys at a glance
+
+| System | Patches | Cheats | Mods | Key |
+|---|---|---|---|---|
+| NES, SNES, GB/GBC, GBA, MD, SMS/GG, PCE, NDS | BPS/UPS (CRC), IPS (name/readme), xdelta (app header) | RetroArch `.cht`, FCEUX `.cht`, mGBA `.cheats`, melonDS `.mch`, code text | Mesen HD packs, MSU-1 | CRC32, ROM name |
+| N64 | BPS, IPS, xdelta, APS10 | RetroArch `.cht` | hi-res folders / `.htc` | CRC32, N64 id, internal name |
+| PS1 / PS2 | xdelta, PPF | DuckStation `.cht`, `.pnach` | `textures/<SERIAL>/` | serial |
+| GameCube / Wii | xdelta, BPS, Riivolution | Dolphin `<GAMEID>.ini` | `Load/Textures/<GAMEID>/`, GraphicMods | game id |
+| PSP | xdelta, PPF | PPSSPP `<GAMEID>.ini` | `TEXTURES/<GAMEID>/` | disc id |
+| Dreamcast | xdelta | RetroArch `.cht` | `textures/<GAMEID>/` | game id, ROM name |
+| 3DS | LayeredFS `code.ips/bps` | `<TitleID>.txt` | `load/mods/<TitleID>/`, `load/textures/<TitleID>/` | title id |
+| Wii U | — | Cemu packs (cheat-named) | Cemu graphic packs | `titleIds` |
+| Switch | `exefs_patches/<BuildId>.ips`, `.pchtxt` | `<BuildId>.txt` under a title id | `contents/<TitleID>/romfs\|exefs` | title id, build id |
+| PS3 | — | `<TITLEID>_patch.yml` | none (`NotSupported`) | title id |
+| Vita | — | Vita3K `<TITLEID>*.txt` | rePatch (`NotSupported` in Vita3K) | title id |
+| PS4 | — | `SERIAL_VERSION.json`, XML | `<CUSA>-mods/` | serial |
+| Xbox 360 | — | `patch.toml` | `plugins/<TITLEID>/` | title id |
+
+## 7. Examples
+
+| Input (pile) | Detected | `coverly-library` target | ES-DE + default emulators |
+|---|---|---|---|
+| `Chrono Trigger (USA) [T-Es].bps`, source CRC32 = `2D206BF7` | BPS, `SourceCrc` → `Chrono Trigger (USA).sfc` (headerless match, file headerless) | `SFC/Chrono Trigger (USA).sfc` stays flat (retro, part A D5); patch has no game folder: D12 → companion rule does not apply (other stem) → `AddonNoPlace`, left | RetroArch: `snes/Chrono Trigger (USA).bps` beside the ROM (only patch, fit matches) |
+| `Super Mario Bros. 3 (USA).ips` + `readme.txt` naming it | IPS, readme | as above (left, `AddonNoPlace`) | RetroArch: `nes/Super Mario Bros. 3 (USA).ips` |
+| `Contra (USA).bps` matching the **headerless** digest of a headered `Contra (USA).nes` | `NeedsHeaderless` | — | stays in the pile, note «Este parche espera la ROM sin cabecera» |
+| `SLUS-00594.cht` | DuckStation, `Serial` | `PSX/<Game>/Cheats/SLUS-00594.cht` when the PS1 base has a game folder, else `AddonNoPlace` | DuckStation: `AddonForEmulator` (no data folder given): «Va en la carpeta de DuckStation: cheats/SLUS-00594.cht» |
+| `0004000000055D00/romfs/…` | Azahar mod, `TitleId` | `3DS/Pokemon Y (World)/Mods/0004000000055D00/` | Azahar: `EmulatorData(load/mods/0004000000055D00/)` or left with the path |
+| `CUSA07023_01.03.json` | shadPS4 cheat | `PS4/Bloodborne (USA)/Cheats/CUSA07023_01.03.json` | shadPS4: `cheats/CUSA07023_01.03.json` in its data folder |
+| `CUSA00900/` + `CUSA00900 update/` (extracted, header `gp`) | base + update | `PS4/Bloodborne (USA)/CUSA00900/…`, `Updates/…` (part A) | shadPS4: `ps4/CUSA00900/` and `ps4/CUSA00900-UPDATE/` |
+| `Zelda.nsp` + update + `0100…/romfs/` | base, update, Switch mod | `Switch/Zelda/…`, `Updates/…`, `Mods/0100…/` | Ryujinx: `switch/Zelda.nsp`, `switch/Updates/Zelda (v131072).nsp` (note: point the emulator at it), mod → `mods/contents/0100…/Coverly mod/romfs/` in its data folder |
+| `Uncharted (USA).pkg` update (PS3) | update | `PS3/Uncharted (USA)/Updates/…` | RPCS3: stays beside the base, «RPCS3 lo instala; no se abre desde la carpeta» |
+| `patch.yml` (RPCS3 official, 400 serials) | `Many(400)` | left, «tiene parches de 400 juegos» | same |
+
+## 8. Behaviour in detail
+
+### 8.1 Planning order
+
+1. Walk: candidates as today; addon files by magic/pattern; addon folders recognised and not descended; pile game folders' `Mods/`/`Cheats/` entries as addons with their folder's base (D13); key material first.
+2. Identify ROMs and bases as today (hashes for retro ROMs where the plan already hashes them).
+3. Part A linking (updates, DLC, demos with D20).
+4. Addon linking (D5, D6, D8), plan first, then the library index for systems with unresolved addons (D9).
+5. Master targets (part A D5 + D11), then translators for systems with an emulator (D15, D16), then frontend `DirAsGame`.
+6. Licence companions (part A), duplicates step (addons are never dedupe units).
+
+### 8.2 Undo
+
+Unchanged mechanism: the journal is reversed; addons move back first, then children, then bases, then created folders are removed when empty (including target-root components created by D19).
+
+## 9. UX and UI design
+
+The visible change stays small: addon rows folded under their game like updates, the folder preview gains two folders, a system group can pick its emulator, and the preview can show the emulator's shape.
+
+### 9.1 Design plan (frontend-design pass)
+
+- **Colour** (existing tokens only): addon rows use the same surfaces as update rows (`--cr-surface`, `--cr-border`, `--cr-text`, `--cr-text-secondary`). Placements that need the user (`InstallFirst`, `AddonForEmulator`, `NotSupported`, header mismatch) use `--cr-text-secondary` text plus their sentence, never a warning colour: they are facts about a device, not errors. No new token (`pnpm tokens:check` unchanged).
+- **Type**: Atkinson Hyperlegible Next for words; Atkinson Hyperlegible Mono **only for data**: file and folder names, keys (`SLUS-00594`, `0004000000055D00`, `CRC32 2D206BF7`), versions and paths. What an addon is reads as words («Parche de traducción», «Pack de texturas», «Trucos»), its format and key follow in mono.
+- **Layout** (Organizar, a base with children and addons):
+
+  ```
+  ▢ Pokemon Y (World)                 1,72 GB  → 3DS/Pokemon Y (World)/Pokemon Y (World).cia
+    ┃ Pokemon Y (World)/
+    ┃   Pokemon Y (World).cia
+    ┃   Actualizaciones (1)
+    ┃   Mods (1)
+    ┃     0004000000055D00/
+    ┃   Trucos (1)
+    ┃     0004000000055D00.txt
+    ▢ Actualización de Pokemon Y · v1.1.0          → …/Updates/…
+    ▢ Mod de Pokemon Y · LayeredFS 0004000000055D00 → …/Mods/0004000000055D00/
+    ▢ Trucos de Pokemon Y · Azahar 0004000000055D00 → …/Cheats/0004000000055D00.txt
+  ```
+
+  Addon rows come after updates and DLC, in the order Mods then Cheats (the order of the fixed folders). The row's second line is the link proof in plain words: «Enlazado por el CRC32 de la ROM de origen», «Enlazado por el nombre», «Enlazado por el readme», «Enlazado por su title ID».
+- **Emulator choice**: in each system group header that has translators, one small labelled select «Emulador» (`NativeSelect size="sm"`, `id` `emulator-<system>`, `name` `emulator`), options = the emulators for that system plus «Ninguno (estructura de la biblioteca)»; changing it re-plans like any `OptionsBar` change. It is in the group header, not the global bar, because the emulator is per system; the global bar stays as it is at 390 px.
+- **Translated preview**: when the system has an emulator, the existing disclosure «Ver cómo queda la carpeta» becomes «Ver cómo queda para {emulator}» and shows the translated tree in two lists under the same single spine: «En la carpeta del sistema» (paths relative to the device's system folder) and «En la carpeta de {emulator}» (emulator-data paths, with «Coverly no la toca si no le dices dónde está» when no data folder was given), then «Se queda en la biblioteca» for `Library` placements with «Instálalo en el emulador». At most 20 entries per list, then «y {count} más» (part A rule); built only while open.
+- **Motion**: the existing collapsible only (`--cr-duration-fast`, `--cr-ease-standard`), removed under `prefers-reduced-motion`.
+- **Principle**: every addon says what it is, which game it belongs to and why Coverly thinks so, before anything moves.
+
+Review against generic defaults: the default would be a coloured kind badge per row («MOD», «CHEAT» pills, often in caps) and a two-column before/after diff panel for the translation. Rejected: pills in caps are the template look the brand avoids and repeat what the row's first words say; a side-by-side diff halves the width at 390 px and duplicates the master preview the user already knows. The chosen devices are the ones part A introduced (one spine, indentation, counts in parentheses), so the screen learns no new vocabulary; the one new control is the per-system select, placed where the system is named.
+
+Accessibility: addon rows keep checkbox, name and actions in the same keyboard order as children; the preview is real nested `ul` lists with `aria-label` «Carpeta de {title} para {emulator}»; the emulator select has a visible label and `aria-describedby` pointing at the group's system name; link proof and placement notes are text, never colour; target size ≥ 24 × 24 px; long keys and paths break at separators (`overflow-wrap:anywhere` in mono); forced-colours keeps the spine (a `border`).
+
+### 9.2 States
+
+Empty (no addon in the plan): nothing new is drawn. A system with translators but no linked group: the select shows (it also changes base placement, e.g. shadPS4). Unlinked addons appear in «Se quedan donde están» with their reason. A plan from before part B (no `game.addon`, no `translated`) renders as today.
+
+### 9.3 Mock
+
+`?mockPick=mods`: a SNES ROM with a BPS (CRC match) and an IPS with a readme; a headered NES ROM with a headerless-only BPS (header note); two IPS for one ROM (RetroArch `NotSupported`); a PS1 base with `SLUS-00594.cht` and `textures/SLUS-00594/replacements/`; a 3DS base with an Azahar mod folder and a `<TitleID>.txt`; a Switch base with an update, `atmosphere/contents/<id>/romfs/` and `cheats/<build id>.txt`; a PS4 extracted base with an update folder and `CUSA…_01.03.json`; a PS3 PKG update (`InstallFirst` under RPCS3); a Cemu graphic pack listing US and EU ids with both bases present (`Several`); RPCS3 `patch.yml` with many serials (`Many`); an unlinked `.ips`; a pile game folder with `Mods/` and `Cheats/`. Synthetic names and sizes only.
+
+## 10. Copy (es / en)
+
+Spanish: sentence case, no exclamation marks, exact counts, numbers, keys and paths in mono by the renderer.
+
+| Key | es | en |
+|---|---|---|
+| `organize.note.modOf` | Mod de {title} | Mod for {title} |
+| `organize.note.patchOf` | Parche de {title} | Patch for {title} |
+| `organize.note.cheatOf` | Trucos de {title} | Cheats for {title} |
+| `organize.addon.patch` | Parche de traducción o hack | Translation patch or hack |
+| `organize.addon.mod` | Mod | Mod |
+| `organize.addon.texturePack` | Pack de texturas | Texture pack |
+| `organize.addon.cheat` | Trucos | Cheats |
+| `organize.addon.emulatorPatch` | Parches del emulador | Emulator patches |
+| `organize.addon.via.sourceCrc` | Enlazado por el CRC32 de la ROM de origen | Linked by the source ROM's CRC32 |
+| `organize.addon.via.dat` | Enlazado por el CRC32 y el DAT | Linked by CRC32 and the DAT |
+| `organize.addon.via.name` | Enlazado por el nombre | Linked by its name |
+| `organize.addon.via.readme` | Enlazado por el readme | Linked by its readme |
+| `organize.addon.via.key` | Enlazado por {key} | Linked by {key} |
+| `organize.addon.via.folder` | Ya estaba en la carpeta del juego | It was already in the game's folder |
+| `organize.addon.headerless` | Este parche espera la ROM sin cabecera | This patch expects the ROM without a header |
+| `organize.addon.headered` | Este parche espera la ROM con cabecera | This patch expects the ROM with a header |
+| `organize.left.addonUnlinked` | No se sabe de qué juego es; se queda donde está | Its game is unknown; it stays where it is |
+| `organize.left.addonSeveral` | Encaja con {count} juegos; se queda donde está | It fits {count} games; it stays where it is |
+| `organize.left.addonMany` | Tiene parches de {count} juegos; se queda donde está | It holds patches for {count} games; it stays where it is |
+| `organize.left.addonNameTaken` | Ya hay otro archivo con ese nombre en su carpeta | Another file with that name is already in its folder |
+| `organize.left.addonNoPlace` | Este perfil no tiene sitio para mods; se queda donde está | This layout has no place for mods; it stays where it is |
+| `organize.left.addonForEmulator` | Va en la carpeta de {emulator}: {path}. Coverly no sabe dónde está | It goes in {emulator}'s folder: {path}. Coverly does not know where that is |
+| `organize.left.notSupported` | {emulator} no lo usa así: {why} | {emulator} does not use it like this: {why} |
+| `organize.note.pointEmulatorHere` | Indica esta carpeta en {emulator}: {folder} | Point {emulator} at this folder: {folder} |
+| `organize.emulator.label` | Emulador | Emulator |
+| `organize.emulator.none` | Ninguno (estructura de la biblioteca) | None (library layout) |
+| `organize.gameFolder.showFor` | Ver cómo queda para {emulator} | Show the layout for {emulator} |
+| `organize.gameFolder.labelFor` | Carpeta de {title} para {emulator} | Folder of {title} for {emulator} |
+| `organize.translate.system` | En la carpeta del sistema | In the system folder |
+| `organize.translate.emulatorData` | En la carpeta de {emulator} | In {emulator}'s folder |
+| `organize.translate.emulatorDataUnknown` | Coverly no la toca si no le dices dónde está | Coverly leaves it alone unless you say where it is |
+| `organize.translate.library` | Se queda en la biblioteca | Stays in the library |
+| `organize.translate.installHere` | Instálalo en el emulador | Install it in the emulator |
+| `organize.translate.why.rpcs3Mods` | RPCS3 no tiene carpeta de mods; se reemplazan archivos del juego | RPCS3 has no mods folder; mods replace the game's files |
+| `organize.translate.why.vitaRepatch` | Vita3K no lee rePatch; hay que mezclar los archivos en el juego | Vita3K does not read rePatch; the files have to be merged into the game |
+| `organize.translate.why.severalPatches` | Varios parches para la misma ROM; RetroArch solo aplica uno | Several patches for one ROM; RetroArch applies only one |
+| `organize.translate.why.configExists` | Ya hay un archivo de ajustes con ese nombre; Coverly no lo mezcla | A settings file with that name already exists; Coverly does not merge it |
+
+`ItemNote::InstallFirst` and `ExtractFirst` keep their existing copy («{emulator} lo instala; no se abre desde la carpeta», «Este paquete no se abre así: hay que extraerlo antes»). Emulator names are product names, never translated and never linked. `gameFolder.mods` («Mods») and `gameFolder.cheats` («Trucos») exist from part A. Parallel workflows edit these files: merge key by key; the i18n parity test covers every key.
+
+## 11. Data flow
+
+```
+pile ─walk─▶ ROM candidates + addon candidates (magic, name pattern, mod folder shape; keys never opened)
+     ─identify─▶ ConsoleId / RomHashes (as today)
+     ─link─▶ updates/DLC/demos (part A, D20) ─▶ addons: plan, then library index (D5, D6, D9) → GameLink{Mod|Cheat, addon}
+     ─master targets─▶ <System>/<Game>/[Updates|DLC|Mods|Cheats]/…        (coverly-library)
+     ─translate (pure)─▶ MasterGame ⇒ TranslatedGame{System|EmulatorData|Library + notes}  (device/emulator layouts)
+     ─▶ OrganizePlan { items, translated } ─IPC─▶ Organizar (folded rows, previews, per-system emulator)
+apply ─roots_state (D19)─▶ create missing target dirs (journaled) ─▶ DirCreated / Moved / Copied ─undo─▶ reverse
+block 4 (later): library scan ⇒ MasterGame ⇒ same translate()
+```
+
+## 12. Edge cases and failure modes
+
+| Case | Behaviour |
+|---|---|
+| BPS whose source CRC matches two ROMs (two identical dumps) | Duplicates of one game: linked to the base the plan keeps (dedupe keeper) when both are in one system and one title key; else `Several`. |
+| BPS for a ROM not in the pile nor the library, but in the DAT | DAT names the game, no ROM present → unlinked (`NoMatch`); the row says which game it is for when the DAT named it. |
+| Patch inside a zip with a readme | Archive stays whole (`ItemKind::Archive`), linked by the inner patch's footer or the readme; never extracted. |
+| `.ips` named like a ROM in the same folder | Still a companion as today (same-stem rule wins, nothing changes for existing users). |
+| Truncated BPS (shorter than its header + 12) | Not a BPS key: treated as keyless; never panics (fuzz-style unit test with short inputs). |
+| xdelta app header with a path (`../x`) | Only the final component is compared; never used to build a path. |
+| `rules.txt` with ids of games not present | `NoMatch`, stays. |
+| Cemu pack for US and EU with only US present | One match → linked to the US base. |
+| Dolphin 3-character key and two regions present | `Several`, stays (D6). |
+| Switch `<BuildId>.txt` alone | No title id → unlinked (`NoKey`). |
+| Mod folder holding a `.tik` | Not moved (`KeyMaterial`), the `.tik` never opened (D18). |
+| Same addon name already in `Cheats/` with different bytes | `AddonNameTaken`, Review, nothing renamed. |
+| Linked addon, base flat in the library (no game folder) | No folder built around the base (part A D19): `AddonNoPlace` for `coverly-library`; translators may still place it (RetroArch beside the ROM). |
+| Emulator data folder given but on another volume | Copy + verify + remove (move mode) or copy, journaled; undo restores. |
+| `emulator_data` folder does not exist | Same rule as D19: created when its parent exists, else the addons stay with `AddonForEmulator`. |
+| Dolphin/PPSSPP ini already present in the emulator folder | Left, «Ya hay un archivo de ajustes con ese nombre; Coverly no lo mezcla». |
+| Target folder `T/new/sub` missing, parent exists | Created at apply start (journaled), run proceeds; undo removes the created folders when empty. |
+| Target on `/Volumes/USB/ROMS`, USB unplugged | `/Volumes/USB` missing, nearest ancestor `/Volumes` is a mount parent → paused `volume-gone`, as today. |
+| Windows target `E:\ROMS`, drive E: gone | Nearest ancestor is the path root, missing → `volume-gone`. |
+| Demo `Game (Demo)` with no region, bases `Game (Japan)` and `Game (USA)` | Linked to `Game (USA)` (World > USA > Europe > Japan). |
+| `Game USA` with header region USA | Folder `Game USA/`, not `Game USA (USA)/`. |
+| `USA Racer` with header USA | `USA Racer (USA)` (the word is not last). |
+| Plan made before part B, applied by this build | No addon fields; applies as before. |
+| Older build reading a plan or settings from this build | Unknown `GameRole` values: plans are not persisted across builds beyond the journal, and journals use only existing ops, so undo works; `Profile.emulators` in a custom TOML is ignored by older builds (`ProfileFile` is not `deny_unknown_fields`). |
+| shadPS4 base as `.pkg` | `ExtractFirst` note, placed as without a translator; nothing extracted. |
+| ES-DE with game folders on, base `Game.pkg` | Folder `Game.pkg/` holding `Game.pkg`, `Updates/`, `DLC/` (D15 `DirAsGame`). |
+
+## 13. Owner questions (implemented with the safe default, listed in the PR)
+
+- **Q1** Should an addon linked to a flat library base create a game folder around it? Default: no (part A D19 / Q1 «Reagrupar biblioteca»).
+- **Q2** Where do emulator data folders come from? Default: only from the run (`--emulator-data`); the app shows the path and leaves the file. A per-emulator setting in Ajustes (and auto-detecting known data folders) is proposed as its own item.
+- **Q3** shadPS4 mods to `<CUSA>-mods/`: the updates research read the `-mods` overlay in `fs.cpp`, the mods research did not find it. Default: use it (batch 3 D11 already treats `-mods` as an overlay); revisit if a shadPS4 release drops it.
+- **Q4** Use PPF2/3's block check or xdelta window checksums to link keyless patches? Default: no (needs reading images at offsets per candidate); name and readme only.
+- **Q5** Merge Dolphin `GameSettings/<GAMEID>.ini` and PPSSPP `<GAMEID>.ini` cheats into existing files? Default: never merge; left with the reason when the file exists.
+- **Q6** Several patches for one retro ROM under RetroArch: rename the first by default? Default: none renamed; the user picks (Review).
+- **Q7** Scan model for addons (show mods and cheats in the library views)? Default: not in part B (part C draws it); the scan keeps skipping `Mods/` and `Cheats/` inside game folders.
+- **Q8** Switch translator: `Updates/` and `DLC/` directly under the system folder. Default: yes, with «Indica esta carpeta en {emulator}»; the scan treats them as today (part A D3: fixed folders under a system folder are not a game's), so on that device an update may show as its own entry until part C.
+- **Q9** Default emulators per profile (D16: Ryujinx for Switch, DuckStation for PS1…). Default: as listed; the run can change each one. A settings override per profile is proposed for later.
+- **Q10** Retro systems on `coverly-library` stay loose (part A Q8), so their patches and cheats have no `Mods/`/`Cheats/` to go to (`AddonNoPlace`). Default: keep loose; answering part A Q8 «yes» would give them folders.
+
+Out of scope: official extras (themes, soundtracks, manuals) and the Extras CRUD (D); applying patches to make patched ROMs; installing into emulators; sync (block 4); six views (C).
+
+## 14. Test plan
+
+### 14.1 Rust (`cargo test --workspace --no-fail-fast`)
+
+- `addons::patch`: BPS/UPS footer parse (synthetic bytes, LE CRCs), varint edge cases, truncated and empty inputs never panic, IPS magic and `.ips1` chain names, xdelta app header with and without `VCD_APPHEADER` and with a `../` path, PPF versions, APS10 N64 id, a renamed `.ips` with BPS magic is BPS.
+- `addons::cheat`: one test per format of D3 (RetroArch vs FCEUX `.cht`, DuckStation serial and serial-hash, PCSX2 serial_crc and CRC-only with `gametitle=`, Dolphin 6/3-char ini with and without code sections, PPSSPP, Azahar, Switch with and without a title id parent, `.pchtxt`, RPCS3 per-title and `Many`, shadPS4 json with `_2`, shadPS4 XML one/several ids, Xenia toml, Vita3K txt and `patchlist.txt`, code text vs prose `.txt`), and global databases → `EmulatorConfig`.
+- `addons::mods`: each folder shape of D4 from a synthetic listing; `rules.txt` titleIds parse with spaces and case; `hires.txt` `<ver>`; MSU-1 set gathering; a `USRDIR/` mirror is not an addon.
+- `addons::link`: resolution order table; headerless vs full CRC and `HeaderFit`; `RomName` requires the same regions; readme with one / two candidates; `Several` and `Many`; library budget out → `Budget`.
+- `translate` (pure, table-driven, one module per translator): master game in → expected placements out, for every row of D15 including `Package` bases (`ExtractFirst`), `InstallInEmulator` for RPCS3/Azahar/Cemu/Vita3K, Switch separate folders, RetroArch single/multiple patches and header mismatch, `DirAsGame` after an emulator, no emulator → master unchanged; a test that greps `src/translate/` for `std::fs` and `std::time` and fails if found.
+- `organize` integration (`tests/organize_addons.rs`): `coverly-library` plan snapshot with mods and cheats → `Mods/`/`Cheats/` only when used; pile game folder `Mods/` entries move (D13), `Extras/`/`Saves/` still left; name taken → `AddonNameTaken`; unlinked rows; ES-DE + shadPS4 snapshot (`-UPDATE` sibling, `addcont/…`); RPCS3 update `InstallFirst`; emulator data given vs not; apply + undo round trip restores every path and removes only empty created folders; existing batch 2/3 and part A snapshots unchanged; keys rule: every fixture with a `.tik` or `.rap` runs under `start_open_log` and asserts the key path is never opened.
+- `apply` (D19, test-first): target `<tmp>/new/sub` missing → created, journaled, items moved, undo removes `sub` and `new`; `roots_state` with fake mount parents: missing `/Volumes/X` → `VolumeGone`; missing source → `VolumeGone`; resume after partial creation.
+- Follow-ups (test-first): demo region preference (match, World, USA order, no region); `bare_region` table (`New Super Mario Bros 2 USA`, `Game usa`, `USA Racer`, `Game US`, different bare word); CLI staying list without moved licences (snapshot of the text).
+- Fixtures: mtimes pinned (`filetime`) before planning; paths compared by `Path::components()`, never slash text (Windows CI); FAT/Windows safe names for emulator-data paths.
+
+### 14.2 Vitest (`pnpm check-all`)
+
+- `organize.test.ts`: folding of mods and cheats by `game.of` and order; `addonText`; preview with `Mods/`/`Cheats/`; `translatedPreview` sections and the 20 + «y n más» cap; old plans without the new fields.
+- `GameFolderPreview.test.tsx`: emulator mode labels and list semantics.
+- `SystemGroups.test.tsx`: emulator select appears only for systems with translators, has id/name/label, and sends `emulators` in the re-plan request.
+- `ReviewBuckets.test.tsx`: both selects have `id` and `name` (D23).
+- `contract.test.ts` round trip; i18n parity test; `mockOrganize` `?mockPick=mods`.
+
+### 14.3 E2E (Chrome DevTools MCP, isolated context `mods-cheats-translators`, dev server on port **1471**)
+
+1. `/?mockPick=mods`, layout «Coverly»: the 3DS base shows its mod and cheats folded with proof lines and keys in mono; «Ver cómo queda la carpeta» lists `Mods/` and `Trucos`; unlinked `.ips`, `patch.yml` (`Many`) and the Cemu pack (`Several`) in «Se quedan donde están»; screenshots at 1440 and 390 px, light and dark.
+2. Layout ES-DE: the PS4 group's «Emulador» select shows shadPS4; the preview reads «Ver cómo queda para shadPS4» with `CUSA…-UPDATE` and the addcont note; switch the PS3 group to RPCS3: the update row says it is installed in the emulator; set Switch to «Ninguno»: the master layout returns.
+3. SNES: the header-mismatch note shows; two patches for one ROM show the RetroArch reason.
+4. Review bucket: the «Elige un sistema…» selects report no form-field issue in the DevTools issues panel; keyboard-only pass over the emulator select and the disclosure; `prefers-reduced-motion: reduce` emulated; no console errors.
+Fallback: Playwright MCP, then `playwright-core` with Chrome for Testing from the scratchpad (`/private/tmp/claude-501/-Users-miguelangelesparzacalero-Documents-GitHub/35b7c020-f2ae-412f-b757-99c24a9a498b/scratchpad/mods-cheats-translators`). Stop the server only by port (`lsof -ti tcp:1471 -sTCP:LISTEN | xargs -r kill`).
+
+Real-data check (read-only): plan only with `coverly-library` and with ES-DE against a `cp -RXp` copy of a few `~/Documents/ROMS` folders under `target/`, deleted afterwards, no `._` files; never write to `~/Documents/ROMS`, `/Volumes/TinyExt/*` or `/Volumes/System`. CLI check of D19: `organize --apply` into a not-yet-existing folder under `target/` completes, then `--undo` leaves no created folder.
+
+### 14.4 Gates
+
+`pnpm check-all`, `pnpm build`, `pnpm tokens:check` (no new token), `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `scripts/dev/clippy-windows.sh`, `cargo test --workspace --no-fail-fast`.
+
+## 15. Tasks (granular conventional commits, `git push` after every commit)
+
+1. `docs(spec): design mods, cheats and emulator translators, part B` (this file).
+2. `fix(core): create a missing target folder instead of pausing as volume gone` (D19, test first).
+3. `fix(core): link a region-less demo to the base of its region` (D20, test first).
+4. `fix(core): do not add a region a name already ends with` (D21, test first).
+5. `fix(cli): list a licence that moves with its game under its game` (D22).
+6. `fix(ui): give the review system selects an id and a name` (D23).
+7. `feat(core): recognise translation patches and their source keys` (D2).
+8. `feat(core): recognise cheats and emulator patches by name and content` (D3).
+9. `feat(core): recognise mod folders and texture packs` (D4, D18).
+10. `feat(core): link mods, patches and cheats to one game` (D5–D9).
+11. `feat(core): place mods and cheats in the game folder` (D10–D13).
+12. `feat(core): add pure per-emulator translators` (D14, D15), one commit per few translators if large.
+13. `feat(core): use translators when organising for a device` (D16, D17).
+14. `feat(cli): emulator flags and addon texts` (D24).
+15. `feat(ipc): carry addon links and translated layouts to the app`.
+16. `feat(ui): fold mods and cheats under their game and preview the emulator layout` (§9).
+17. `test(e2e): mods mock pile` and evidence.
+
+## 16. Sources
+
+- `docs/02-research/mods-cheats-extras-per-system.md` (2026-11-01: libretro softpatching and cheat docs, Mesen HD packs, DuckStation chtdb, PCSX2 patches repo, Dolphin, PPSSPP, Azahar, Atmosphère and Ryujinx `ModLoader.cs`, Cemu graphic packs, RPCS3 `bin_patch.cpp`, Vita3K `patch.cpp`, shadPS4 `path_util.h` and ps4_cheats, Xenia `patch_db.cc`).
+- `docs/02-research/updates-dlc-per-system.md` (emulator expectations: shadPS4 `fs.cpp` overlays and addcont, RPCS3/Azahar/Cemu/Vita3K installs, Ryujinx/yuzu-family update and DLC handling, ES-DE directories as files).
+- Part A spec and code at `88a46858` (this branch's base).
+
+## 17. Self-review
+
+- **Placeholders**: none; every key, field, file, enum and copy string is named. Emulator data paths are relative to the emulator's own folder by design (D16), not a placeholder.
+- **Contradictions checked**: D11 (names kept, never ` (2)`) vs part A D20 (collision suffix) — addons are name-keyed, so collisions are left for review instead; consistent with «nothing overwritten». D12 (flat profiles unchanged) vs D15 RetroArch rule — RetroArch places only when a translator is chosen for the system and the fit matches; same-stem companions keep working either way. D13 (pile `Mods/` moves) vs part A D7 (left) — superseded for `Mods/`/`Cheats/` only, as the part A spec deferred them to part B; `Extras/`/`Saves/` still left. D15 «Library» in Organizar (placed beside the base with `InstallFirst`) vs sync (not copied) — the same placement means different things for a pile and a library; documented in D15. D19 creates folders only when the nearest existing ancestor is not a mount parent, so a missing volume is never «created» under `/Volumes`. Q8 accepts that a Switch device's `Updates/` may scan as entries; noted, not hidden.
+- **Scope**: no six-views work, no Extras CRUD, no official extras, no sync, no settings UI for emulator folders; the only UI is the fold, previews, one per-system select and the select id fix.
+- **Keys rule**: detection reads only patch headers/footers and capped text of non-key files; key material is checked first and never moved inside a mod unit; translators never extract, decrypt or install; no emulator, ROM or key site is linked or recommended (emulator names appear only as facts about where a file goes).
