@@ -570,7 +570,8 @@ export function createMockSettings(opts: {
     if (!k) throw new BackendError('bad-request', 'unknown credential key');
     return k;
   };
-  /** Like Rust's `rename_profile_refs`: the default and the max size follow. */
+  /** Like Rust's `rename_profile_refs`: the default, the max size and
+   * the game folders override follow. */
   const renameRefs = (old: string, next: string | null) => {
     const s = cloneSettings(settings);
     let touched = false;
@@ -582,6 +583,14 @@ export function createMockSettings(opts: {
     if (size) {
       delete s.art.max_size[old];
       if (next !== null) s.art.max_size[next] = size;
+      touched = true;
+    }
+    // The game folders override follows the profile too (spec D1).
+    const folders = s.organize.game_folders;
+    if (folders && Object.prototype.hasOwnProperty.call(folders, old)) {
+      const on = folders[old]!;
+      delete folders[old];
+      if (next !== null) folders[next] = on;
       touched = true;
     }
     if (!touched) return;

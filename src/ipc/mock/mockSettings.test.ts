@@ -282,6 +282,43 @@ describe('mock settings', () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
+  it('sets and removes one game folders override, like the Rust merge patch', async () => {
+    const m = make();
+    const on = await m.updateSettings({
+      organize: { game_folders: { onion: true, 'coverly-library': false } },
+    });
+    expect(on.errors).toEqual([]);
+    const off = await m.updateSettings({
+      organize: { game_folders: { onion: null } },
+    } as never);
+    expect(off.errors).toEqual([]);
+    expect(off.settings.organize.game_folders).toEqual({
+      'coverly-library': false,
+    });
+    const bad = await m.updateSettings({
+      organize: { game_folders: { onion: 'yes' } },
+    } as never);
+    expect(bad.errors.map((e) => e.field)).toEqual([
+      'organize.game_folders.onion',
+    ]);
+  });
+
+  it('moves the game folders override with a renamed profile and drops it on delete', async () => {
+    const storage = new MemoryStorage();
+    const m = make(storage);
+    const onion = (await m.listProfiles()).find(
+      (p) => p.profile.id === 'onion',
+    )!;
+    await m.saveProfile({ ...onion.profile, id: 'mine', name: 'Mine' }, null);
+    await m.updateSettings({ organize: { game_folders: { mine: true } } });
+    await m.saveProfile({ ...onion.profile, id: 'ours', name: 'Ours' }, 'mine');
+    let s = (await m.getSettings()).settings;
+    expect(s.organize.game_folders).toEqual({ ours: true });
+    await m.deleteProfile('ours');
+    s = (await make(storage).getSettings()).settings;
+    expect(s.organize.game_folders ?? {}).toEqual({});
+  });
+
   it('skips hostile stored profiles and renames references with a profile', async () => {
     const storage = new MemoryStorage();
     storage.setItem(

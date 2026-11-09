@@ -501,6 +501,14 @@ export function patchShapeErrors(patch: unknown): FieldError[] {
         }
         continue;
       }
+      if (k === 'game_folders' && isObject(value)) {
+        // `null` removes one override (RFC 7386), as in Rust.
+        for (const [id, on] of Object.entries(value)) {
+          if (on !== null && !isBool(on))
+            out.push(err(`${g}.${k}.${id}`, 'invalid'));
+        }
+        continue;
+      }
       if (!ok(value)) out.push(err(`${g}.${k}`, 'invalid'));
     }
   }
