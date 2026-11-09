@@ -1582,6 +1582,31 @@ fn an_emulator_data_folder_inside_the_target_shows_as_emulator_data() {
 }
 
 #[test]
+fn a_run_emulator_that_does_not_run_the_system_falls_back_to_the_default() {
+    // shadPS4 does not run 3DS games: the choice is ignored and the
+    // profile's default (Azahar) still lays the cheat out.
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_with_addons(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    let cheat = format!("{MON_ID}.txt");
+    let default = plan_in(&pile, &place_options("esde", &lib));
+    let mut opts = place_options("esde", &lib);
+    choose(
+        &mut opts,
+        "3ds",
+        EmulatorChoice::Emulator(EmulatorId::Shadps4),
+    );
+    let plan = plan_in(&pile, &opts);
+    assert_eq!(item(&plan, &cheat).action, item(&default, &cheat).action);
+    assert!(matches!(
+        left(item(&plan, &cheat)),
+        LeftReason::AddonForEmulator { .. }
+    ));
+    assert_eq!(plan.translated, default.translated);
+}
+
+#[test]
 fn none_returns_the_master_layout() {
     // Game folders on: the master puts the cheat and the mod in the game
     // folder. `none` never sends them to the emulator, even when the run

@@ -157,7 +157,8 @@ pub(crate) fn check_emulator_data(
 /// The emulator `system` is laid out for in this run and how far its
 /// translator may go (D16): the run's choice (full; `none` = no
 /// translator), else the profile's default (always conservative, Q11).
-/// An emulator that does not run the system is ignored.
+/// A run's emulator that does not run the system is ignored (the default
+/// applies), and so is a default that does not.
 pub(crate) fn emulator_for(
     system: &str,
     opts: &OrganizeOptions,
@@ -166,8 +167,8 @@ pub(crate) fn emulator_for(
     let runs = |e: &EmulatorId| e.systems().contains(&system);
     match opts.emulators.get(system) {
         Some(EmulatorChoice::None) => None,
-        Some(EmulatorChoice::Emulator(e)) => runs(e).then_some((*e, TranslateScope::Full)),
-        None => layout
+        Some(EmulatorChoice::Emulator(e)) if runs(e) => Some((*e, TranslateScope::Full)),
+        _ => layout
             .profile
             .emulators
             .get(system)
