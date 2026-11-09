@@ -1540,7 +1540,7 @@
     },
     "copiedNotRemoved": "Copied; the original couldn't be removed",
     "copiedNotRemovedCount": "Copied without removing the original: {count}",
-    "licenceLeft": "The licence stayed where it was: Coverly only moves it by renaming it",
+    "licenceLeft": "The licence stayed where it was: it could not be moved with its game",
     "licenceStays": "Its licence stays where it was; Coverly does not open it",
     "companion": {
       "licence": "Its licence goes with it; Coverly does not open it"

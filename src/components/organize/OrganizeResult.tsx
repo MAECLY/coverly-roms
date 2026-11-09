@@ -234,7 +234,8 @@ export function OrganizeResult({
         <ul className="m-0 grid list-none gap-0.5 p-0">
           {licencesLeft.map((path) => (
             <li key={path} className={hintText}>
-              {`${baseName(path)} · ${t('organize.licenceLeft')}`}
+              <span className={pathText}>{baseName(path)}</span>
+              {` · ${t('organize.licenceLeft')}`}
             </li>
           ))}
         </ul>

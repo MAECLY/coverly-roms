@@ -1540,7 +1540,7 @@
     },
     "copiedNotRemoved": "Copiado; el original no se pudo borrar",
     "copiedNotRemovedCount": "Copiados sin borrar el original: {count}",
-    "licenceLeft": "La licencia se quedó donde estaba: Coverly solo la mueve renombrándola",
+    "licenceLeft": "La licencia se ha quedado donde estaba: no se pudo mover con su juego",
     "licenceStays": "Su licencia se queda donde estaba; Coverly no la abre",
     "companion": {
       "licence": "Su licencia va con él; Coverly no la abre"

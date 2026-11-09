@@ -136,11 +136,15 @@ describe('OrganizeResult', () => {
         },
       }),
     );
-    expect(
-      screen.getByText(
-        'BLUS30001.rap · The licence stayed where it was: Coverly only moves it by renaming it',
-      ),
-    ).toBeInTheDocument();
+    const line = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'LI' &&
+        el.textContent ===
+          'BLUS30001.rap · The licence stayed where it was: it could not be moved with its game',
+    );
+    // A file name is a path: in mono, the sentence in the body face.
+    expect(within(line).getByText('BLUS30001.rap')).toHaveClass('font-mono');
+    expect(line).not.toHaveClass('font-mono');
   });
 
   it('a stopped job says what stays and still offers open and undo', async () => {
