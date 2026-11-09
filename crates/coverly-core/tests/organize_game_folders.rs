@@ -1520,3 +1520,372 @@ fn a_licence_name_taken_at_apply_leaves_it_and_the_other_file_untouched() {
     assert_eq!(dir_names, ["BLUS30001.rap"], "never a numbered name");
     assert_no_licence_opened();
 }
+
+// --- Apply and undo round trip (game folders spec D4, D21, §8.3, plan Task 13) ---
+
+use coverly_core::organize::ItemStatus;
+
+/// One journal line of an organise job: its op kind and its target.
+struct JournalEntry {
+    op: String,
+    target: PathBuf,
+}
+
+/// The entries of job `job`'s journal, in the order they were written.
+fn journal(data: &Path, job: &str) -> Vec<JournalEntry> {
+    let text = fs::read_to_string(data.join("jobs").join(format!("{job}.jsonl"))).unwrap();
+    text.lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|v| v["type"] == "entry")
+        .map(|v| JournalEntry {
+            op: v["op"]["kind"].as_str().unwrap().to_string(),
+            target: PathBuf::from(v["target"].as_str().unwrap()),
+        })
+        .collect()
+}
+
+/// The folders job `job` journaled as created, below `lib`, by component.
+fn dirs_created(data: &Path, job: &str, lib: &Path) -> Vec<Vec<String>> {
+    journal(data, job)
+        .iter()
+        .filter(|e| e.op == "dir-created")
+        .map(|e| parts(e.target.strip_prefix(lib).unwrap()))
+        .collect()
+}
+
+/// Every file below `dir`, relative to it, by component, sorted.
+fn files_below(dir: &Path) -> Vec<Vec<String>> {
+    if !dir.exists() {
+        return Vec::new();
+    }
+    let mut out: Vec<Vec<String>> = walk_files(dir)
+        .iter()
+        .map(|f| parts(f.strip_prefix(dir).unwrap()))
+        .collect();
+    out.sort();
+    out
+}
+
+fn sorted(mut v: Vec<Vec<String>>) -> Vec<Vec<String>> {
+    v.sort();
+    v
+}
+
+/// `pile`, `lib` and `data` under one temp dir, with Pokemon Y flat in
+/// the pile and an empty library.
+fn pokemon_world() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("lib"),
+        tmp.path().join("data"),
+    );
+    pokemon_flat(&pile);
+    fs::create_dir_all(&lib).unwrap();
+    (tmp, pile, lib, data)
+}
+
+const GAME: &str = "Pokemon Y (World)";
+
+/// Where Pokemon Y's four files land in the library.
+fn pokemon_in_lib() -> Vec<Vec<String>> {
+    sorted(vec![
+        p(&["3DS", GAME, "Pokemon Y (World).cia"]),
+        p(&["3DS", GAME, "Updates", "Pokemon Y (World) (v1.1.0).cia"]),
+        p(&["3DS", GAME, "DLC", "Pokemon Y (World) - Extra Pack.cia"]),
+        p(&[
+            "3DS",
+            GAME,
+            "DLC",
+            "Pokemon Y (World) - DLC 0004008C00055D00.cia",
+        ]),
+    ])
+}
+
+fn pokemon_in_pile() -> Vec<Vec<String>> {
+    sorted(vec![
+        p(&["Pokemon Y.cia"]),
+        p(&["0004000E00055D00.cia"]),
+        p(&["Pokemon Y - Extra Pack (USA).cia"]),
+        p(&["Pokemon Y [DLC2].cia"]),
+    ])
+}
+
+/// The position in `entries` of the first entry whose target, below
+/// `lib`, is `want` (by component).
+fn position(entries: &[JournalEntry], lib: &Path, op: &str, want: &[String]) -> usize {
+    entries
+        .iter()
+        .position(|e| e.op == op && parts(e.target.strip_prefix(lib).unwrap()) == want)
+        .unwrap_or_else(|| panic!("no {op} entry for {want:?}"))
+}
+
+#[test]
+fn apply_and_undo_round_trip_restores_every_path() {
+    let (_tmp, pile, lib, data) = pokemon_world();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    assert_eq!(plan.mode, TransferMode::Move);
+    let bytes: Vec<(Vec<String>, Vec<u8>)> = pokemon_in_pile()
+        .into_iter()
+        .map(|f| {
+            let b = fs::read(pile.join(&f[0])).unwrap();
+            (f, b)
+        })
+        .collect();
+
+    let report = apply_in(&plan, &data);
+    assert!(report.paused.is_none(), "{report:?}");
+    assert!(
+        report
+            .items
+            .iter()
+            .all(|o| matches!(o.status, ItemStatus::Moved)),
+        "{report:?}"
+    );
+    assert_eq!(files_below(&lib), pokemon_in_lib());
+    assert_eq!(files_below(&pile), Vec::<Vec<String>>::new());
+
+    // Exactly the folders used, each journaled once, the game folder
+    // before its fixed folders and before any child moves into them.
+    let job = report.job.clone().unwrap();
+    let created = dirs_created(&data, &job, &lib);
+    assert_eq!(
+        sorted(created.clone()),
+        sorted(vec![
+            p(&["3DS"]),
+            p(&["3DS", GAME]),
+            p(&["3DS", GAME, "Updates"]),
+            p(&["3DS", GAME, "DLC"]),
+        ])
+    );
+    let entries = journal(&data, &job);
+    let game = position(&entries, &lib, "dir-created", &p(&["3DS", GAME]));
+    let updates = position(&entries, &lib, "dir-created", &p(&["3DS", GAME, "Updates"]));
+    let dlc = position(&entries, &lib, "dir-created", &p(&["3DS", GAME, "DLC"]));
+    assert!(game < updates && game < dlc);
+    let base_move = position(
+        &entries,
+        &lib,
+        "moved",
+        &p(&["3DS", GAME, "Pokemon Y (World).cia"]),
+    );
+    for (n, e) in entries.iter().enumerate() {
+        let rel = parts(e.target.strip_prefix(&lib).unwrap());
+        if e.op == "moved" && rel.len() > 3 {
+            let fixed = if rel[2] == "Updates" { updates } else { dlc };
+            assert!(fixed < n, "{rel:?} moved before its folder existed");
+            assert!(base_move < n, "{rel:?} moved before its base");
+        }
+    }
+
+    let undo = undo_job(&data, &job).unwrap();
+    assert_eq!(files_below(&pile), pokemon_in_pile());
+    for (f, b) in &bytes {
+        assert_eq!(&fs::read(pile.join(&f[0])).unwrap(), b, "{f:?}");
+    }
+    assert_eq!(files_below(&lib), Vec::<Vec<String>>::new());
+    assert_eq!(fs::read_dir(&lib).unwrap().count(), 0, "every folder gone");
+    // Children back before their base, folders after what was in them.
+    let restored: Vec<Vec<String>> = undo
+        .restored
+        .iter()
+        .map(|r| parts(r.strip_prefix(&pile).unwrap()))
+        .collect();
+    assert_eq!(
+        restored.last(),
+        Some(&p(&["Pokemon Y.cia"])),
+        "{restored:?}"
+    );
+    let removed: Vec<Vec<String>> = undo
+        .dirs_removed
+        .iter()
+        .map(|d| parts(d.strip_prefix(&lib).unwrap()))
+        .collect();
+    assert_eq!(sorted(removed.clone()), sorted(created));
+    let at = |want: &[&str]| removed.iter().position(|d| *d == p(want)).unwrap();
+    assert!(at(&["3DS", GAME, "Updates"]) < at(&["3DS", GAME]));
+    assert!(at(&["3DS", GAME, "DLC"]) < at(&["3DS", GAME]));
+    assert!(at(&["3DS", GAME]) < at(&["3DS"]));
+    assert!(undo.skipped_modified.is_empty() && undo.skipped_occupied.is_empty());
+}
+
+#[test]
+fn no_dlc_folder_without_dlc_and_never_an_empty_fixed_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("lib"),
+        tmp.path().join("data"),
+    );
+    pokemon_flat(&pile);
+    for gone in ["Pokemon Y - Extra Pack (USA).cia", "Pokemon Y [DLC2].cia"] {
+        fs::remove_file(pile.join(gone)).unwrap();
+    }
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let report = apply_in(&plan, &data);
+    let job = report.job.clone().unwrap();
+    assert_eq!(
+        sorted(dirs_created(&data, &job, &lib)),
+        sorted(vec![
+            p(&["3DS"]),
+            p(&["3DS", GAME]),
+            p(&["3DS", GAME, "Updates"]),
+        ])
+    );
+    // No fixed folder exists that nothing went into.
+    let game_dir = lib.join("3DS").join(GAME);
+    let mut names: Vec<String> = fs::read_dir(&game_dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["Pokemon Y (World).cia", "Updates"]);
+    for fixed in [
+        FixedFolder::Dlc,
+        FixedFolder::Mods,
+        FixedFolder::Cheats,
+        FixedFolder::Extras,
+        FixedFolder::Saves,
+    ] {
+        assert!(!game_dir.join(fixed.dir_name()).exists(), "{fixed:?}");
+    }
+}
+
+#[test]
+fn undo_keeps_a_game_folder_that_holds_the_user_s_save() {
+    let (_tmp, pile, lib, data) = pokemon_world();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let report = apply_in(&plan, &data);
+    let job = report.job.clone().unwrap();
+    // The user adds a save after the run.
+    let game_dir = lib.join("3DS").join(GAME);
+    put(&game_dir, "Saves/main.sav", &[7u8; 64], 9);
+
+    let undo = undo_job(&data, &job).unwrap();
+    assert_eq!(files_below(&pile), pokemon_in_pile());
+    assert_eq!(files_below(&lib), [p(&["3DS", GAME, "Saves", "main.sav"])]);
+    assert_eq!(
+        fs::read(game_dir.join("Saves/main.sav")).unwrap(),
+        [7u8; 64]
+    );
+    let removed: Vec<Vec<String>> = undo
+        .dirs_removed
+        .iter()
+        .map(|d| parts(d.strip_prefix(&lib).unwrap()))
+        .collect();
+    assert_eq!(
+        sorted(removed),
+        sorted(vec![p(&["3DS", GAME, "Updates"]), p(&["3DS", GAME, "DLC"]),])
+    );
+    let kept: Vec<Vec<String>> = undo
+        .dirs_kept
+        .iter()
+        .map(|d| parts(d.strip_prefix(&lib).unwrap()))
+        .collect();
+    assert_eq!(kept, [p(&["3DS", GAME]), p(&["3DS"])], "reported as kept");
+}
+
+#[test]
+fn copy_mode_round_trip_leaves_the_pile_and_removes_the_copies() {
+    let (_tmp, pile, lib, data) = pokemon_world();
+    let opts = OrganizeOptions {
+        mode: Some(TransferMode::Copy),
+        ..options("coverly-library", &lib)
+    };
+    let plan = plan_of(&pile, &opts);
+    let report = apply_in(&plan, &data);
+    assert!(
+        report
+            .items
+            .iter()
+            .all(|o| matches!(o.status, ItemStatus::Copied)),
+        "{report:?}"
+    );
+    assert_eq!(files_below(&lib), pokemon_in_lib());
+    assert_eq!(files_below(&pile), pokemon_in_pile());
+    let job = report.job.clone().unwrap();
+    assert_eq!(dirs_created(&data, &job, &lib).len(), 4);
+
+    let undo = undo_job(&data, &job).unwrap();
+    assert_eq!(undo.removed.len(), 4, "{undo:?}");
+    assert_eq!(files_below(&pile), pokemon_in_pile());
+    assert_eq!(fs::read_dir(&lib).unwrap().count(), 0, "every folder gone");
+}
+
+#[cfg(unix)]
+fn disk_full_on_bare_dlc(stage: CopyStage, path: &Path) -> Option<std::io::Error> {
+    (stage == CopyStage::Rename
+        && path
+            .file_name()
+            .is_some_and(|n| n == "Pokemon Y [DLC2].cia"))
+    .then(|| std::io::Error::from_raw_os_error(28))
+}
+
+#[cfg(unix)]
+#[test]
+fn a_pause_mid_apply_is_finished_by_resume_and_undone_whole() {
+    use coverly_core::organize::resume_organize;
+    use coverly_core::progress::PauseKind;
+    let (_tmp, pile, lib, data) = pokemon_world();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    set_copy_fault(Some(disk_full_on_bare_dlc));
+    let report = apply_in(&plan, &data);
+    set_copy_fault(None);
+    assert_eq!(report.paused, Some(PauseKind::Volume), "{report:?}");
+    let bare = item(&plan, "Pokemon Y [DLC2].cia").id;
+    assert!(report.resumable_items.contains(&bare), "{report:?}");
+    assert!(pile.join("Pokemon Y [DLC2].cia").is_file());
+    let job = report.job.clone().unwrap();
+
+    let resumed = resume_organize(
+        &job,
+        &ApplyEnv {
+            data_dir: &data,
+            progress: &|_| {},
+            cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
+        },
+    )
+    .unwrap();
+    assert!(resumed.paused.is_none(), "{resumed:?}");
+    assert_eq!(resumed.job.as_deref(), Some(job.as_str()));
+    assert_eq!(files_below(&lib), pokemon_in_lib());
+    assert_eq!(files_below(&pile), Vec::<Vec<String>>::new());
+    // One folder of each, whatever run created it.
+    assert_eq!(
+        sorted(dirs_created(&data, &job, &lib)),
+        sorted(vec![
+            p(&["3DS"]),
+            p(&["3DS", GAME]),
+            p(&["3DS", GAME, "Updates"]),
+            p(&["3DS", GAME, "DLC"]),
+        ])
+    );
+
+    undo_job(&data, &job).unwrap();
+    assert_eq!(files_below(&pile), pokemon_in_pile());
+    assert_eq!(fs::read_dir(&lib).unwrap().count(), 0, "every folder gone");
+}
+
+#[test]
+fn apply_follows_the_plan_when_the_option_changes_after_it() {
+    let (_tmp, pile, lib, data) = pokemon_world();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    // The option is switched off after planning: a new plan would be
+    // flat, the one being applied keeps its game folder.
+    let off = OrganizeOptions {
+        game_folders: Some(false),
+        ..options("coverly-library", &lib)
+    };
+    let flat = plan_of(&pile, &off);
+    assert_ne!(
+        item(&flat, "Pokemon Y.cia").target,
+        item(&plan, "Pokemon Y.cia").target
+    );
+    let report = apply_in(&plan, &data);
+    assert!(report.paused.is_none(), "{report:?}");
+    assert_eq!(files_below(&lib), pokemon_in_lib());
+}
