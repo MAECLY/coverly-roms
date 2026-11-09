@@ -30,21 +30,37 @@ import { hintText, pathText } from './styles';
 export function ItemName({
   item,
   target,
+  fullTarget,
   className = '',
 }: {
   item: OrganizeItem;
   /** Where it goes, shown after an arrow (moving rows only). */
   target?: string | null;
+  /** The whole target when `target` is shortened (`…/Updates/<name>`):
+   * its tooltip and what a screen reader reads. */
+  fullTarget?: string | null;
   className?: string;
 }) {
   const t = useT();
   const detail = useId();
   if (!encryptedName(item))
-    return <Name item={item} target={target} className={className} />;
+    return (
+      <Name
+        item={item}
+        target={target}
+        fullTarget={fullTarget}
+        className={className}
+      />
+    );
   return (
     <span className={`grid min-w-0 gap-0.5 ${className}`}>
       <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-        <Name item={item} target={target} className="min-w-0" />
+        <Name
+          item={item}
+          target={target}
+          fullTarget={fullTarget}
+          className="min-w-0"
+        />
         <Badge variant="outline" aria-describedby={detail}>
           <Lock aria-hidden />
           {t('organize.encryptedLabel')}
@@ -57,19 +73,46 @@ export function ItemName({
   );
 }
 
+/** `→ target`; a shortened target keeps the whole path as its tooltip
+ * and as the text a screen reader reads. */
+function Arrow({
+  target,
+  full,
+}: {
+  target: string | null;
+  full: string | null | undefined;
+}): ReactNode {
+  if (!full) return `→ ${target ?? ''}`;
+  return (
+    <>
+      <span aria-hidden title={full}>{`→ ${target ?? ''}`}</span>
+      <span className="sr-only">{`→ ${full}`}</span>
+    </>
+  );
+}
+
 function Name({
   item,
   target,
+  fullTarget,
   className,
 }: {
   item: OrganizeItem;
   target?: string | null | undefined;
+  fullTarget?: string | null | undefined;
   className: string;
 }): ReactNode {
   const t = useT();
   const locale = useContext(LocaleContext);
   const name = item.sources[0] ?? '';
   if (item.kind !== 'folder') {
+    if (target !== undefined && fullTarget)
+      return (
+        <span className={`${pathText} ${className}`}>
+          {`${name} `}
+          <Arrow target={target} full={fullTarget} />
+        </span>
+      );
     const text = target === undefined ? name : `${name} → ${target ?? ''}`;
     return <span className={`${pathText} ${className}`}>{text}</span>;
   }
@@ -88,7 +131,11 @@ function Name({
       <span className="whitespace-nowrap font-mono tabular-nums text-cr-text-secondary">
         {formatDecimalSize(item.size, locale)}
       </span>
-      {target !== undefined && <span>{`→ ${target ?? ''}`}</span>}
+      {target !== undefined && (
+        <span>
+          <Arrow target={target} full={fullTarget} />
+        </span>
+      )}
     </span>
   );
 }

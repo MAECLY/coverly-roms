@@ -731,3 +731,94 @@ describe('SystemGroups (adjustments)', () => {
     ).toBeInTheDocument();
   });
 });
+
+describe('SystemGroups game folders (spec §9.1)', () => {
+  const DIR = 'ROMS/3DS/Pokemon Y (World)';
+  const pokemon = () => [
+    autoItem(1, '0004000E00055D00.cia', '3ds', 'ROMS/3DS', {
+      target: `${DIR}/Updates/Pokemon Y (World) (v1.1.0).cia`,
+      notes: [{ kind: 'update', of: 'Pokemon Y' }],
+      game: { role: 'update', of: 0, version: '1.1.0', newest_here: true },
+    }),
+    autoItem(0, 'Pokemon Y.cia', '3ds', 'ROMS/3DS', {
+      target: `${DIR}/Pokemon Y (World).cia`,
+      rename: { kind: 'game-folder', from: 'Pokemon Y.cia' },
+      game: { role: 'base', folder: DIR },
+      companions: [
+        {
+          source: 'Pokemon Y.tik',
+          target: `${DIR}/Pokemon Y.tik`,
+          licence: true,
+        },
+      ],
+    }),
+    autoItem(2, 'Pokemon Y [DLC2].cia', '3ds', 'ROMS/3DS', {
+      target: `${DIR}/DLC/Pokemon Y (World) - Pack 1.cia`,
+      notes: [{ kind: 'dlc', of: 'Pokemon Y' }],
+      game: { role: 'dlc', of: 0 },
+    }),
+  ];
+
+  function renderEs(items: OrganizeItem[], licenceStays?: Set<number>) {
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf(items))}
+          layoutName="Coverly"
+          systemName={(id) => id}
+          profile={null}
+          {...(licenceStays && { licenceStays })}
+        />
+      </I18nProvider>,
+    );
+  }
+
+  it('folds children under their base, with the version as text and the target short', () => {
+    renderEs(pokemon());
+    const rows = screen.getAllByRole('listitem');
+    expect(rows[0]).toHaveTextContent('Pokemon Y.cia');
+    expect(rows[0]).toHaveTextContent(
+      'Renombrado para su carpeta; antes era Pokemon Y.cia',
+    );
+    expect(rows[0]).toHaveTextContent(
+      'Su licencia va con él; Coverly no la abre',
+    );
+    const update = rows.find((r) =>
+      r.textContent?.includes('0004000E00055D00.cia'),
+    )!;
+    // The version reads as a word, the mark after it is text.
+    const version = within(update).getByText('v1.1.0');
+    expect(version).toHaveClass('font-mono');
+    expect(version).toHaveAttribute('aria-hidden', 'true');
+    expect(within(update).getByText('versión 1.1.0')).toHaveClass('sr-only');
+    expect(within(update).getByText('la más nueva aquí')).toBeInTheDocument();
+    // The target shortened to its fixed folder, the full path kept.
+    const full = `${DIR}/Updates/Pokemon Y (World) (v1.1.0).cia`;
+    const short = within(update).getByTitle(full);
+    expect(short).toHaveTextContent('…/Updates/Pokemon Y (World) (v1.1.0).cia');
+    expect(within(update).getByText(`→ ${full}`)).toHaveClass('sr-only');
+    // The DLC has no version line.
+    const dlc = rows.find((r) => r.textContent?.includes('[DLC2]'))!;
+    expect(within(dlc).queryByText(/^versión/)).toBeNull();
+  });
+
+  it('the base row offers the folder preview', async () => {
+    renderEs(pokemon());
+    const button = screen.getByRole('button', {
+      name: 'Ver cómo queda la carpeta',
+    });
+    await userEvent.click(button);
+    expect(
+      screen.getByRole('list', { name: 'Carpeta de Pokemon Y (World)' }),
+    ).toBeInTheDocument();
+    window.sessionStorage.clear();
+  });
+
+  it('a base whose licence the core left says it stays', () => {
+    const [update, base, dlc] = pokemon();
+    renderEs([update!, { ...base!, companions: [] }, dlc!], new Set([0]));
+    expect(
+      screen.getByText('Su licencia se queda donde estaba; Coverly no la abre'),
+    ).toBeInTheDocument();
+  });
+});
