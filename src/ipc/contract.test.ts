@@ -1448,6 +1448,11 @@ describe('addons and emulator layouts contract', () => {
     expect(sample.header_fits).toEqual(HEADER_FITS);
     expect(sample.emulator_ids).toEqual(EMULATOR_IDS);
     expect(sample.not_supported_whys).toEqual(NOT_SUPPORTED_WHYS);
+    // Every reason an addon stays, in Rust's order, counts included.
+    const unlinked = sample.unlinked_whys as UnlinkedWhy[];
+    expect(unlinked.map((w) => w.kind)).toEqual(UNLINKED_WHY_KINDS);
+    expect(unlinked[1]).toEqual({ kind: 'several', count: 3 });
+    expect(unlinked[2]).toEqual({ kind: 'many', count: 400 });
     const game = sample.translated_game as TranslatedGameView;
     expect(game.emulator).toBe('shadps4');
     expect(game.base).toBe(0);
@@ -1673,6 +1678,18 @@ const NOT_SUPPORTED_WHYS = [
   'older-update',
   'config-exists',
 ] as const satisfies readonly NotSupportedWhy[];
+const UNLINKED_WHY_KINDS = [
+  'no-match',
+  'several',
+  'many',
+  'no-key',
+  'budget',
+  'partial',
+] as const satisfies readonly UnlinkedWhy['kind'][];
+const _allUnlinkedWhys: AllMembers<
+  UnlinkedWhy['kind'],
+  typeof UNLINKED_WHY_KINDS
+> = UNLINKED_WHY_KINDS;
 const _allAddonKinds: AllMembers<AddonKind, typeof ADDON_KINDS> = ADDON_KINDS;
 const _allAddonFormats: AllMembers<AddonFormat, typeof ADDON_FORMATS> =
   ADDON_FORMATS;
@@ -1726,6 +1743,7 @@ void _allLinkVias;
 void _allHeaderFits;
 void _allEmulatorIds;
 void _allNotSupportedWhys;
+void _allUnlinkedWhys;
 
 /** Every `IdSource`, in Rust's declaration order. */
 const ID_SOURCES = [

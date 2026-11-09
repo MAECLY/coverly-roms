@@ -2434,6 +2434,14 @@
     "mesen"
   ],
   "header_fits": ["matches", "needs-headerless", "needs-headered"],
+  "unlinked_whys": [
+    { "kind": "no-match" },
+    { "count": 3, "kind": "several" },
+    { "count": 400, "kind": "many" },
+    { "kind": "no-key" },
+    { "kind": "budget" },
+    { "kind": "partial" }
+  ],
   "not_supported_whys": [
     "rpcs3-mods",
     "vita-repatch",

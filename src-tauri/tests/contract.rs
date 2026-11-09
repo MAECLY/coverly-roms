@@ -1677,6 +1677,122 @@ fn game_folder_values_match_the_shared_sample() {
     }
 }
 
+/// Fail to compile when an addon, emulator or translate value is added,
+/// so `addon_values_match_the_shared_sample` (and the TypeScript unions)
+/// get it too (mods spec D10, D16).
+#[allow(dead_code, clippy::too_many_arguments)]
+fn every_addon_value_is_listed(
+    kind: coverly_core::addons::AddonKind,
+    format: coverly_core::addons::AddonFormat,
+    via: coverly_core::addons::LinkVia,
+    fit: coverly_core::addons::HeaderFit,
+    why: coverly_core::addons::UnlinkedWhy,
+    emulator: coverly_core::organize::EmulatorId,
+    not: coverly_core::organize::NotSupportedWhy,
+    note: coverly_core::organize::TranslateNote,
+    to: coverly_core::organize::PlacementTo,
+) {
+    use coverly_core::addons::{AddonFormat as F, AddonKind, HeaderFit, LinkVia, UnlinkedWhy};
+    use coverly_core::organize::{EmulatorId as E, NotSupportedWhy, PlacementTo, TranslateNote};
+    match kind {
+        AddonKind::Patch | AddonKind::Cheat | AddonKind::Mod => {}
+    }
+    match format {
+        F::Bps
+        | F::Ups
+        | F::Ips
+        | F::Xdelta
+        | F::Ppf
+        | F::Aps
+        | F::RetroArchCht
+        | F::FceuxCht
+        | F::DuckStationCht
+        | F::Pnach
+        | F::DolphinIni
+        | F::PpssppIni
+        | F::CtrCheats
+        | F::SwitchCheats
+        | F::Pchtxt
+        | F::Rpcs3Patch
+        | F::Shadps4Cheat
+        | F::Shadps4Patch
+        | F::XeniaPatch
+        | F::Vita3kPatch
+        | F::MelonDsCheats
+        | F::MgbaCheats
+        | F::DesmumeCheats
+        | F::CodeText
+        | F::TexturePack
+        | F::DolphinGraphicMod
+        | F::Riivolution
+        | F::LayeredFs
+        | F::SwitchMod
+        | F::ExefsPatches
+        | F::CemuGraphicPack
+        | F::VitaRepatch
+        | F::MesenHdPack
+        | F::Msu1
+        | F::XeniaPlugin
+        | F::N64HiresTextures
+        | F::Shadps4Mods => {}
+    }
+    match via {
+        LinkVia::SourceCrc
+        | LinkVia::Dat
+        | LinkVia::Name
+        | LinkVia::Readme
+        | LinkVia::Key
+        | LinkVia::Folder => {}
+    }
+    match fit {
+        HeaderFit::Matches | HeaderFit::NeedsHeaderless | HeaderFit::NeedsHeadered => {}
+    }
+    match why {
+        UnlinkedWhy::NoMatch
+        | UnlinkedWhy::Several { .. }
+        | UnlinkedWhy::Many { .. }
+        | UnlinkedWhy::NoKey
+        | UnlinkedWhy::Budget
+        | UnlinkedWhy::Partial => {}
+    }
+    // `EmulatorId::ALL` feeds the sample: this keeps it whole.
+    match emulator {
+        E::Shadps4
+        | E::Rpcs3
+        | E::Azahar
+        | E::Cemu
+        | E::Vita3k
+        | E::Ryujinx
+        | E::YuzuFamily
+        | E::RetroArch
+        | E::DuckStation
+        | E::Pcsx2
+        | E::Dolphin
+        | E::Ppsspp
+        | E::Xenia
+        | E::Flycast
+        | E::Mesen => {}
+    }
+    match not {
+        NotSupportedWhy::Rpcs3Mods
+        | NotSupportedWhy::VitaRepatch
+        | NotSupportedWhy::SeveralPatches
+        | NotSupportedWhy::OlderUpdate
+        | NotSupportedWhy::ConfigExists => {}
+    }
+    match note {
+        TranslateNote::InstallInEmulator { .. }
+        | TranslateNote::ExtractFirst
+        | TranslateNote::NotSupported { .. }
+        | TranslateNote::HeaderMismatch { .. }
+        | TranslateNote::PointEmulatorHere { .. }
+        | TranslateNote::PatchNotApplied { .. } => {}
+    }
+    match to {
+        PlacementTo::System { .. } | PlacementTo::EmulatorData { .. } | PlacementTo::Library => {}
+    }
+}
+
 /// Mods spec D10, D16: an addon row, the new reasons and notes, every
 /// emulator id and why, and a translated layout use the spellings the
 /// webview's union types name.
@@ -1843,6 +1959,14 @@ fn addon_values_match_the_shared_sample() {
             NotSupportedWhy::SeveralPatches,
             NotSupportedWhy::OlderUpdate,
             NotSupportedWhy::ConfigExists,
+        ],
+        "unlinked_whys": [
+            UnlinkedWhy::NoMatch,
+            UnlinkedWhy::Several { count: 3 },
+            UnlinkedWhy::Many { count: 400 },
+            UnlinkedWhy::NoKey,
+            UnlinkedWhy::Budget,
+            UnlinkedWhy::Partial,
         ],
         "translated_game": TranslatedGameView {
             system: "ps4".into(),
