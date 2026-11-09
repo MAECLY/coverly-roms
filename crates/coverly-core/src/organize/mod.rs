@@ -9,6 +9,7 @@ pub mod inspect;
 pub mod library_bases;
 pub mod online;
 pub mod plan;
+pub mod roots;
 pub mod target;
 pub mod walk;
 

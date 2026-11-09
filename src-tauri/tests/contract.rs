@@ -501,6 +501,7 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         set_aside_trash: false,
         updates: 0,
         integration_notices: Vec::new(),
+        target_anchor: None,
     }
 }
 

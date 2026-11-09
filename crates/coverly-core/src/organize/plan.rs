@@ -1026,6 +1026,12 @@ pub struct OrganizePlan {
     /// the JSON when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub integration_notices: Vec<crate::integrations::Notice>,
+    /// Set when the target did not exist at plan time (mods/cheats spec
+    /// D19): its nearest existing ancestor, so apply can create the target
+    /// and still tell it from a vanished volume. Left out of the JSON when
+    /// the target existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_anchor: Option<super::roots::TargetAnchor>,
 }
 
 /// One future plan item as the survey found it.
@@ -3939,6 +3945,7 @@ pub fn plan_from_survey(
     let mut counts = count(&items, &survey.walked);
     counts.in_library = dups.in_library;
 
+    let target_anchor = super::roots::anchor_of(&target_root, &super::roots::OsRootProbe);
     let mut plan = OrganizePlan {
         source_root: src.clone(),
         target_root,
@@ -3977,6 +3984,7 @@ pub fn plan_from_survey(
         duplicates: dups.groups,
         updates,
         integration_notices: Vec::new(),
+        target_anchor,
     };
     // Informational: the gate runs on the decided plan at apply time; a
     // folder game extraction under the threshold is asked then, with no

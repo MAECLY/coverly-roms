@@ -2621,6 +2621,7 @@ mod tests {
             set_aside_trash: false,
             updates: 0,
             integration_notices: Vec::new(),
+            target_anchor: None,
         };
         let id = st.organize.next_id();
         st.organize.store(
