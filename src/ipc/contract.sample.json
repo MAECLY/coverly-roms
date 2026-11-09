@@ -981,6 +981,42 @@
       },
       "builtin": true,
       "mirror_subdirs": false
+    },
+    {
+      "profile": {
+        "id": "coverly-library",
+        "name": "Coverly",
+        "roms_root": "ROMS",
+        "art_dirs": [".media"],
+        "gamelist": false,
+        "disc_layout": {
+          "kind": "game-folder",
+          "m3u_for_multi": true
+        },
+        "game_folders": true,
+        "slots": {
+          "cover": {
+            "template": "{system_dir}/{rel_dir}/.media/{stem}.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          },
+          "screenshot": {
+            "template": "{system_dir}/{rel_dir}/.media/{stem}-screenshot.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          },
+          "title": {
+            "template": "{system_dir}/{rel_dir}/.media/{stem}-title.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          }
+        }
+      },
+      "builtin": true,
+      "mirror_subdirs": true
     }
   ],
   "source_info": {

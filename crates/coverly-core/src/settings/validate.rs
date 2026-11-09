@@ -280,6 +280,14 @@ impl Settings {
             "organize.keep_organize_journals_days",
             f64::from(o.keep_organize_journals_days),
         );
+        for profile_id in o.game_folders.keys() {
+            if !known(profile_id) {
+                out.push(FieldError::new(
+                    format!("organize.game_folders.{profile_id}"),
+                    Unknown,
+                ));
+            }
+        }
         if o.folder_names.is_empty() && o.arcade_order.is_empty() {
             return;
         }

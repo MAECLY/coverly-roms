@@ -353,6 +353,14 @@ fn settings_samples_match_rust() {
         serde_json::to_value(builtins).unwrap(),
         sample["builtin_profiles"]
     );
+    // Game folders spec D2: the library profile is a built-in, on.
+    let library = sample["builtin_profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["profile"]["id"] == "coverly-library")
+        .expect("coverly-library in the built-ins");
+    assert_eq!(library["profile"]["game_folders"], json!(true));
 }
 
 #[test]

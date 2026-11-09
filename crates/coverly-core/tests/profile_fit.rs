@@ -121,6 +121,13 @@ mod disc_layouts_and_containers {
                     m3u_for_multi: true,
                 },
             ),
+            // Game folders spec D2: one folder per game in the library.
+            (
+                "coverly-library",
+                DiscLayout::GameFolder {
+                    m3u_for_multi: true,
+                },
+            ),
         ];
         assert_eq!(expected.len(), builtin_profiles().len());
         for (id, layout) in expected {

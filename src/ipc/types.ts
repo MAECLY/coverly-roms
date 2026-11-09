@@ -407,6 +407,9 @@ export interface OrganizeSettings {
   folder_names: Record<string, Record<string, string>>;
   /** Profile id → arcade system order. */
   arcade_order: Record<string, string[]>;
+  /** Profile id → game folders on or off (absent = the profile's own
+   * value; game folders spec D1). Not sent while empty. */
+  game_folders?: Record<string, boolean>;
   recent_seconds: number;
   keep_organize_journals_days: number;
   external_tools: ExternalToolsSetting;
@@ -739,6 +742,9 @@ export interface ProfileFile {
    * (system id → template whose only token is `{title_id}`, `ps4 →
    * DLC/{title_id}` on Batocera); absent = DLC sits beside its game. */
   dlc_folder?: Record<string, string>;
+  /** Organise puts a modern game's base, updates and DLC in one folder
+   * (game folders spec D1); absent = off. */
+  game_folders?: boolean;
 }
 
 /** `profiles::DiscLayout`. */

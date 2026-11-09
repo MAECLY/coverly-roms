@@ -277,7 +277,8 @@ fn organise_targets_match_the_research_table() {
 
 /// Spec §6: every built-in × every new system is `Named` exactly where the
 /// research table has a name; everywhere else the frontend has no folder
-/// (`on_device == Some(false)`), except RetroArch, which lists none.
+/// (`on_device == Some(false)`), except RetroArch and the Coverly
+/// library, which list none.
 #[test]
 fn every_builtin_names_only_the_researched_folders() {
     use coverly_core::profiles::ProfileFolder;
@@ -293,6 +294,17 @@ fn every_builtin_names_only_the_researched_folders() {
                     (c.folder.as_str(), c.on_device),
                     (*id, None),
                     "retroarch {id}"
+                );
+                continue;
+            }
+            if p.id == "coverly-library" {
+                // Game folders spec D2: the library lists no device
+                // folders; every system gets its own first-alias folder.
+                assert!(!p.folders.contains_key(*id), "coverly-library {id}");
+                assert_eq!(
+                    (c.host.as_deref(), c.on_device),
+                    (None, None),
+                    "coverly-library {id}"
                 );
                 continue;
             }

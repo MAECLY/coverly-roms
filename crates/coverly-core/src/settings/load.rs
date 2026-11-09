@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use super::model::{MaxSize, RecentLibrary, Settings, SourceEntry, SETTINGS_VERSION};
 use super::validate::FieldErrorCode;
+use crate::profiles::custom::ProfileRename;
 
 pub const SETTINGS_FILE: &str = "settings.json";
 /// The M3 file holding ignored folders and recents (migrated once).
@@ -199,7 +200,11 @@ fn reset_path(s: &mut Settings, dotted: &str) {
 
 /// Field-level tolerant parse (see the module docs); `None` when `text` is
 /// not a JSON object.
-fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
+/// Map settings serde leaves out while empty (`group`, `field`), so an
+/// older build reads the file unchanged (game folders spec D1).
+const SKIPPED_WHEN_EMPTY: [(&str, &str); 1] = [("organize", "game_folders")];
+
+fn parse_tolerant(text: &str, known: &[String], renames: &[ProfileRename]) -> Option<Parsed> {
     let Ok(Value::Object(user)) = serde_json::from_str::<Value>(text) else {
         return None;
     };
@@ -208,6 +213,13 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
         .and_then(Value::as_u64)
         .is_some_and(|v| v > u64::from(SETTINGS_VERSION));
     let mut merged = serde_json::to_value(Settings::default()).expect("defaults serialise");
+    // Fields not written while empty are still known fields.
+    for (group, field) in SKIPPED_WHEN_EMPTY {
+        if let Some(Value::Object(g)) = merged.get_mut(group) {
+            g.entry(field)
+                .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        }
+    }
     let mut fixed = Vec::new();
     for (group, fields) in &user {
         if group == "version" {
@@ -265,6 +277,12 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
             id: embedded.to_string(),
             enabled: true,
         });
+    }
+    // A custom profile kept under a new id in this load (game folders
+    // spec D2): its references follow it before the old id, now a
+    // built-in's, is validated.
+    for r in renames {
+        settings.rename_profile(&r.from, &r.to);
     }
     // What can be cleaned (spelling, duplicates, unknown sources) is
     // cleaned before validating, so it is not reset.
@@ -324,6 +342,10 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
             } else if let Some(profile) = e.field.strip_prefix("organize.arcade_order.") {
                 settings.organize.arcade_order.remove(profile);
                 note(&mut fixed, "organize.arcade_order");
+            } else if let Some(profile) = e.field.strip_prefix("organize.game_folders.") {
+                // An unknown layout's override goes alone.
+                settings.organize.game_folders.remove(profile);
+                note(&mut fixed, "organize.game_folders");
             } else if fields.is_empty() {
                 reset_field(&mut settings, &e.field);
                 let key: String = e.field.splitn(3, '.').take(2).collect::<Vec<_>>().join(".");
@@ -396,6 +418,17 @@ fn reset_group(s: &mut Settings, group: &str) {
 /// that is not settings is renamed aside; a file loading changed is
 /// copied aside; a missing file is migrated from `library.json`.
 pub fn load_settings(dir: &Path, known: &[String]) -> (Settings, LoadReport) {
+    load_settings_with_renames(dir, known, &[])
+}
+
+/// [`load_settings`] with the custom profiles renamed by this load's
+/// [`crate::profiles::custom::ProfileStore::load_all`]: references to
+/// their old ids follow them (game folders spec D2).
+pub fn load_settings_with_renames(
+    dir: &Path,
+    known: &[String],
+    renames: &[ProfileRename],
+) -> (Settings, LoadReport) {
     let path = dir.join(SETTINGS_FILE);
     let corrupt = |path: &Path| {
         let dest = aside_path(path, "bad");
@@ -414,7 +447,7 @@ pub fn load_settings(dir: &Path, known: &[String]) -> (Settings, LoadReport) {
         // Unreadable (a folder, no permission): set aside as well, so the
         // next save never replaces what the user had.
         Read_::Unreadable | Read_::TooLarge => corrupt(&path),
-        Read_::Text(text) => match parse_tolerant(&text, known) {
+        Read_::Text(text) => match parse_tolerant(&text, known, renames) {
             None => corrupt(&path),
             Some(p) => {
                 let notice = if p.future {
@@ -450,11 +483,21 @@ pub enum ReadProblem {
 /// Like [`read_settings`], also saying why the defaults were used. Never
 /// touches the disk; a missing file is not a problem.
 pub fn read_settings_checked(path: &Path, known: &[String]) -> (Settings, Option<ReadProblem>) {
+    read_settings_checked_with_renames(path, known, &[])
+}
+
+/// [`read_settings_checked`] with this load's profile renames (see
+/// [`load_settings_with_renames`]).
+pub fn read_settings_checked_with_renames(
+    path: &Path,
+    known: &[String],
+    renames: &[ProfileRename],
+) -> (Settings, Option<ReadProblem>) {
     match read_capped(path) {
         Read_::Missing => (Settings::default(), None),
         Read_::Unreadable => (Settings::default(), Some(ReadProblem::Unreadable)),
         Read_::TooLarge => (Settings::default(), Some(ReadProblem::NotSettings)),
-        Read_::Text(text) => match parse_tolerant(&text, known) {
+        Read_::Text(text) => match parse_tolerant(&text, known, renames) {
             Some(p) => (p.settings, None),
             None => (Settings::default(), Some(ReadProblem::NotSettings)),
         },
@@ -464,6 +507,16 @@ pub fn read_settings_checked(path: &Path, known: &[String]) -> (Settings, Option
 /// Like [`load_settings`] without touching the disk (the CLI).
 pub fn read_settings(path: &Path, known: &[String]) -> Settings {
     read_settings_checked(path, known).0
+}
+
+/// [`read_settings`] with this load's profile renames (see
+/// [`load_settings_with_renames`]).
+pub fn read_settings_with_renames(
+    path: &Path,
+    known: &[String],
+    renames: &[ProfileRename],
+) -> Settings {
+    read_settings_checked_with_renames(path, known, renames).0
 }
 
 /// `library.json` → `settings.json` (ignored folders + recents), once.

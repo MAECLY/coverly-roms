@@ -42,8 +42,8 @@ use coverly_core::profiles::custom::{
 use coverly_core::profiles::{builtin_profiles, Media, Profile};
 use coverly_core::progress::NoProgress;
 use coverly_core::settings::{
-    backup_settings, load_settings, save_settings, FieldError, FieldErrorCode, LoadReport,
-    RecentLibrary, Settings,
+    backup_settings, load_settings_with_renames, save_settings, FieldError, FieldErrorCode,
+    LoadReport, RecentLibrary, Settings,
 };
 use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig};
 use coverly_core::sources::{Candidate, SourceTrouble, TroubleKind};
@@ -337,16 +337,26 @@ impl AppState {
     /// Loads the settings of `config_dir` once (a broken file never fails:
     /// defaults for the bad parts, a backup, a notice in [`Self::settings_view`]).
     pub fn new(config_dir: PathBuf, base: FillConfig) -> AppState {
-        let custom = custom_dir_store(&config_dir, None).load().0;
-        let (mut settings, mut report) = load_settings(&config_dir, &known_ids(&custom));
+        let mut store = custom_dir_store(&config_dir, None);
+        let mut loaded = store.load_all();
+        let (mut settings, mut report) =
+            load_settings_with_renames(&config_dir, &known_ids(&loaded.files), &loaded.renamed);
         // Custom profiles elsewhere: the default profile may be one of them.
         if let Some(dir) = settings.advanced.custom_dir.clone() {
-            let custom = ProfileStore::new(dir).load().0;
-            let (s, r) = load_settings(&config_dir, &known_ids(&custom));
+            store = ProfileStore::new(dir);
+            loaded = store.load_all();
+            let (s, r) =
+                load_settings_with_renames(&config_dir, &known_ids(&loaded.files), &loaded.renamed);
             settings = s;
             if r.notice.is_some() {
                 report = r;
             }
+        }
+        // A custom profile kept under a new id (game folders spec D2):
+        // the settings that followed it are saved first, then the file
+        // moves to its new id, so the next start renames nothing.
+        if !loaded.renamed.is_empty() && save_settings(&config_dir, &settings).is_ok() {
+            let _ = store.persist_renames(&loaded);
         }
         AppState {
             latest: AtomicU64::new(0),
@@ -1166,6 +1176,19 @@ impl AppState {
                 sizes.insert(n.to_string(), serde_json::json!(size));
             }
             patch.insert("art".into(), serde_json::json!({ "max_size": sizes }));
+        }
+        if let Some(on) = s.organize.game_folders.get(old) {
+            // The game folders override follows the profile (game folders
+            // spec D1), like its size above.
+            let mut map = serde_json::Map::new();
+            map.insert(old.to_string(), serde_json::Value::Null);
+            if let Some(n) = new {
+                map.insert(n.to_string(), serde_json::json!(on));
+            }
+            patch.insert(
+                "organize".into(),
+                serde_json::json!({ "game_folders": map }),
+            );
         }
         if patch.is_empty() {
             return Ok(());

@@ -503,6 +503,25 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
     builtin: true,
     mirror_subdirs: false,
   },
+  {
+    // Game folders spec D2: the library's master layout, never detected.
+    profile: {
+      id: 'coverly-library',
+      name: 'Coverly',
+      roms_root: 'ROMS',
+      art_dirs: ['.media'],
+      gamelist: false,
+      disc_layout: { kind: 'game-folder', m3u_for_multi: true },
+      game_folders: true,
+      slots: {
+        cover: png('{system_dir}/{rel_dir}/.media/{stem}.png'),
+        screenshot: png('{system_dir}/{rel_dir}/.media/{stem}-screenshot.png'),
+        title: png('{system_dir}/{rel_dir}/.media/{stem}-title.png'),
+      },
+    },
+    builtin: true,
+    mirror_subdirs: true,
+  },
 ];
 
 /** `window.localStorage` when the page may use it, else null. */

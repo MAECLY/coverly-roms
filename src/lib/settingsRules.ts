@@ -55,6 +55,7 @@ export const BUILTIN_LAYOUTS: readonly string[] = [
   'esde',
   'batocera',
   'retroarch',
+  'coverly-library',
 ];
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -305,6 +306,8 @@ const isFolderNames: Kind = (v) =>
   Object.values(v).every((m) => isObject(m) && Object.values(m).every(isStr));
 const isArcadeOrders: Kind = (v) =>
   isObject(v) && Object.values(v).every(listOf(isStr));
+const isGameFolders: Kind = (v) =>
+  isObject(v) && Object.values(v).every(isBool);
 const isRuleToggle: Kind = (v) =>
   isObject(v) && oneOf(KEEP_RULES)(v.rule) && isBool(v.on);
 const isContainerOrders: Kind = (v) =>
@@ -401,6 +404,7 @@ const SHAPES: { [G in SettingsGroup]: Record<keyof Settings[G], Kind> } = {
     companion_exts: listOf(isStr),
     folder_names: isFolderNames,
     arcade_order: isArcadeOrders,
+    game_folders: isGameFolders,
     recent_seconds: isUint(),
     keep_organize_journals_days: isUint(),
     external_tools: oneOf(['auto', 'off']),
@@ -651,6 +655,9 @@ export function validateSettings(
   for (const id of Object.keys(o.folder_names))
     if (!layoutKnown(id))
       out.push(err(`organize.folder_names.${id}`, 'unknown'));
+  for (const id of Object.keys(o.game_folders ?? {}))
+    if (!layoutKnown(id))
+      out.push(err(`organize.game_folders.${id}`, 'unknown'));
   for (const [id, order] of Object.entries(o.arcade_order)) {
     if (!layoutKnown(id))
       out.push(err(`organize.arcade_order.${id}`, 'unknown'));

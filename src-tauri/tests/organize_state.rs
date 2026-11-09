@@ -327,6 +327,7 @@ fn custom_layout(roms_root: &str) -> coverly_core::profiles::custom::ProfileFile
         folder_game_suffix: Default::default(),
         folder_stem_keeps_suffix: false,
         dlc_folder: Default::default(),
+        game_folders: false,
     }
 }
 

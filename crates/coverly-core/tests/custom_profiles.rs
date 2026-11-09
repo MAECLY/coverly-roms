@@ -38,6 +38,7 @@ fn sample() -> ProfileFile {
         folder_game_suffix: BTreeMap::new(),
         folder_stem_keeps_suffix: false,
         dlc_folder: BTreeMap::new(),
+        game_folders: false,
     }
 }
 
@@ -777,4 +778,242 @@ fn ps5_archives_are_taken_as_is_by_default() {
     let p = ProfileFile::parse_toml(&sample().to_toml()).unwrap();
     assert!(p.to_profile().container_overrides.contains_key("ps5"));
     assert!(errors(&sample()).is_empty());
+}
+
+// Game folders (game folders spec D1, D2): the option, the built-in
+// `coverly-library` profile and the migration guard for a custom file
+// that already used its id.
+
+#[test]
+fn game_folders_round_trip_through_toml_and_are_written_only_when_on() {
+    let off = sample();
+    let text = off.to_toml();
+    assert!(!text.contains("game_folders"), "{text}");
+    let back = ProfileFile::parse_toml(&text).unwrap();
+    assert!(!back.game_folders && !back.to_profile().game_folders);
+    let mut on = sample();
+    on.game_folders = true;
+    let text = on.to_toml();
+    assert!(text.contains("game_folders = true"), "{text}");
+    let back = ProfileFile::parse_toml(&text).unwrap();
+    assert!(back.game_folders);
+    assert!(back.to_profile().game_folders);
+    // «Duplicar perfil» copies it from a built-in.
+    let library = builtin_profiles()
+        .into_iter()
+        .find(|p| p.id == "coverly-library")
+        .unwrap();
+    assert!(ProfileFile::from_profile(&library).game_folders);
+    let anbernic = builtin_profiles()
+        .into_iter()
+        .find(|p| p.id == "anbernic-stock")
+        .unwrap();
+    assert!(!ProfileFile::from_profile(&anbernic).game_folders);
+}
+
+#[test]
+fn the_settings_override_wins_over_the_profile_value() {
+    use coverly_core::settings::OrganizeSettings;
+    let find = |id: &str| builtin_profiles().into_iter().find(|p| p.id == id).unwrap();
+    let library = find("coverly-library");
+    let onion = find("onion");
+    let mut o = OrganizeSettings::default();
+    assert!(library.uses_game_folders(&o));
+    assert!(!onion.uses_game_folders(&o));
+    o.game_folders.insert("coverly-library".into(), false);
+    o.game_folders.insert("onion".into(), true);
+    assert!(!library.uses_game_folders(&o));
+    assert!(onion.uses_game_folders(&o));
+    // A custom profile: its own value, then the override.
+    let mut mine = sample();
+    mine.game_folders = true;
+    let mine = mine.to_profile();
+    assert!(mine.uses_game_folders(&OrganizeSettings::default()));
+    o.game_folders.insert("my-sd".into(), false);
+    assert!(!mine.uses_game_folders(&o));
+}
+
+fn legacy_library_file() -> ProfileFile {
+    let mut p = sample();
+    p.id = "coverly-library".into();
+    p.name = "My library".into();
+    p
+}
+
+#[test]
+fn a_custom_profile_with_the_library_id_is_kept_under_a_new_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let pdir = dir.path().join(PROFILES_DIR);
+    fs::create_dir_all(&pdir).unwrap();
+    fs::write(
+        pdir.join("coverly-library.toml"),
+        legacy_library_file().to_toml(),
+    )
+    .unwrap();
+    let store = ProfileStore::new(pdir.clone());
+    let loaded = store.load_all();
+    assert_eq!(
+        loaded
+            .files
+            .iter()
+            .map(|p| p.id.as_str())
+            .collect::<Vec<_>>(),
+        ["coverly-library-custom"]
+    );
+    assert_eq!(loaded.files[0].name, "My library");
+    assert_eq!(loaded.warnings.len(), 1, "{:?}", loaded.warnings);
+    assert_eq!(
+        loaded.renamed,
+        [ProfileRename {
+            from: "coverly-library".into(),
+            to: "coverly-library-custom".into(),
+        }]
+    );
+    // `load` is the same list, and loading never writes.
+    assert_eq!(store.load().0, loaded.files);
+    assert!(!pdir.join("coverly-library-custom.toml").exists());
+    // The app makes it stick: the file moves to its new id.
+    store.persist_renames(&loaded).unwrap();
+    assert!(!pdir.join("coverly-library.toml").exists());
+    let again = store.load_all();
+    assert_eq!(again.files, loaded.files);
+    assert!(again.renamed.is_empty() && again.warnings.is_empty());
+}
+
+#[test]
+fn a_legacy_library_file_beside_its_new_id_is_skipped() {
+    let dir = tempfile::tempdir().unwrap();
+    let pdir = dir.path().join(PROFILES_DIR);
+    fs::create_dir_all(&pdir).unwrap();
+    fs::write(
+        pdir.join("coverly-library.toml"),
+        legacy_library_file().to_toml(),
+    )
+    .unwrap();
+    let mut kept = sample();
+    kept.id = "coverly-library-custom".into();
+    fs::write(pdir.join("coverly-library-custom.toml"), kept.to_toml()).unwrap();
+    let loaded = ProfileStore::new(pdir).load_all();
+    assert_eq!(loaded.files, [kept]);
+    assert!(loaded.renamed.is_empty());
+    assert_eq!(loaded.warnings.len(), 1, "{:?}", loaded.warnings);
+}
+
+#[test]
+fn settings_references_follow_a_renamed_library_profile_only() {
+    use coverly_core::settings::{read_settings, read_settings_with_renames, SETTINGS_FILE};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(SETTINGS_FILE);
+    fs::write(
+        &path,
+        r#"{"version":3,
+            "library":{"default_profile":"coverly-library"},
+            "organize":{"default_layout":"coverly-library",
+                        "folder_names":{"coverly-library":{"gba":"GBA"}},
+                        "arcade_order":{"coverly-library":["mame","fbneo"]},
+                        "game_folders":{"coverly-library":false,"onion":true}}}"#,
+    )
+    .unwrap();
+    let mut known = builtin_ids();
+    known.push("coverly-library-custom".into());
+    let renames = [ProfileRename {
+        from: "coverly-library".into(),
+        to: "coverly-library-custom".into(),
+    }];
+    let s = read_settings_with_renames(&path, &known, &renames);
+    let to = "coverly-library-custom".to_string();
+    assert_eq!(s.organize.default_layout, to);
+    assert_eq!(s.library.default_profile.as_ref(), Some(&to));
+    assert_eq!(s.organize.folder_names.keys().collect::<Vec<_>>(), [&to]);
+    assert_eq!(s.organize.arcade_order.keys().collect::<Vec<_>>(), [&to]);
+    assert_eq!(
+        s.organize.game_folders,
+        BTreeMap::from([(to.clone(), false), ("onion".to_string(), true)])
+    );
+    // No rename in this load: `coverly-library` is the built-in.
+    let s = read_settings(&path, &known);
+    assert_eq!(s.organize.default_layout, "coverly-library");
+    assert_eq!(s.organize.game_folders.get("coverly-library"), Some(&false));
+}
+
+#[test]
+fn unknown_profiles_leave_the_game_folders_map() {
+    use coverly_core::settings::{read_settings, SETTINGS_FILE};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(SETTINGS_FILE);
+    fs::write(
+        &path,
+        r#"{"version":3,"organize":{"game_folders":{"nope":true,"onion":true}}}"#,
+    )
+    .unwrap();
+    let s = read_settings(&path, &builtin_ids());
+    assert_eq!(
+        s.organize.game_folders,
+        BTreeMap::from([("onion".to_string(), true)])
+    );
+    // An empty map is not written (older builds read the file unchanged).
+    let json = serde_json::to_string(&coverly_core::settings::Settings::default()).unwrap();
+    assert!(!json.contains("game_folders"), "{json}");
+}
+
+#[test]
+fn a_settings_patch_sets_and_removes_one_override() {
+    use coverly_core::settings::Settings;
+    let known = builtin_ids();
+    let s = Settings::default()
+        .with_patch(
+            &serde_json::json!({"organize":{"game_folders":{"onion":true}}}),
+            &known,
+        )
+        .unwrap();
+    assert_eq!(s.organize.game_folders.get("onion"), Some(&true));
+    let s = s
+        .with_patch(
+            &serde_json::json!({"organize":{"game_folders":{"coverly-library":false}}}),
+            &known,
+        )
+        .unwrap();
+    assert_eq!(s.organize.game_folders.len(), 2);
+    let s = s
+        .with_patch(
+            &serde_json::json!({"organize":{"game_folders":{"onion":null}}}),
+            &known,
+        )
+        .unwrap();
+    assert_eq!(
+        s.organize.game_folders,
+        BTreeMap::from([("coverly-library".to_string(), false)])
+    );
+    let err = Settings::default()
+        .with_patch(
+            &serde_json::json!({"organize":{"game_folders":{"nope":true}}}),
+            &known,
+        )
+        .unwrap_err();
+    assert_eq!(err[0].field, "organize.game_folders.nope");
+}
+
+#[test]
+fn the_library_profile_is_never_detected() {
+    use coverly_core::profiles::detect;
+    let dir = tempfile::tempdir().unwrap();
+    let sys = dir.path().join("ROMS").join("PS4");
+    let game = sys.join("Bloodborne");
+    for d in [
+        game.join("Updates"),
+        game.join("DLC"),
+        sys.join(".media"),
+        dir.path().join("anbernic"),
+        dir.path().join(".system"),
+        dir.path().join("downloaded_media"),
+    ] {
+        fs::create_dir_all(d).unwrap();
+    }
+    fs::write(game.join("Bloodborne.pkg"), b"x").unwrap();
+    let found = detect(dir.path());
+    assert!(!found.is_empty());
+    assert!(
+        found.iter().all(|d| d.profile_id != "coverly-library"),
+        "{found:?}"
+    );
 }
