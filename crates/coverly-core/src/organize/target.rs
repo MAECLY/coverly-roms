@@ -2812,6 +2812,36 @@ mod tests {
     }
 
     #[test]
+    fn both_dlc_spellings_on_disk_fill_the_first_and_create_no_third() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let game = root.join("3DS").join("Game");
+        fs::create_dir_all(game.join("dlc")).unwrap();
+        // Only a case-sensitive volume can hold both spellings.
+        if fs::create_dir(game.join("DLC")).is_err() || !game.join("dlc").is_dir() {
+            return;
+        }
+        let entries = || fs::read_dir(&game).unwrap().count();
+        if entries() != 2 {
+            return;
+        }
+        let layout = game_layout(root, false);
+        let mut items = family("Game", GameRole::Dlc, &["a.cia"]);
+        game_children_targets(
+            &mut items,
+            &layout,
+            &mut DirIndex::new(),
+            &never_same,
+            &|_| Some("Pack".into()),
+        );
+        assert_eq!(
+            components(items[1].target.as_deref().expect("placed")),
+            ["3DS", "Game", "DLC", "Game - Pack.cia"]
+        );
+        assert_eq!(entries(), 2);
+    }
+
+    #[test]
     fn children_follow_a_left_base() {
         let tmp = tempfile::tempdir().unwrap();
         let layout = game_layout(tmp.path(), false);

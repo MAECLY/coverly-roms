@@ -784,3 +784,49 @@ fn the_highest_update_is_the_newest_here() {
         ])
     );
 }
+
+#[test]
+fn an_update_already_in_its_folder_is_present_and_another_gets_a_number() {
+    let name = "Pokemon Y (World) (v1.1.0).cia";
+    // The same bytes already filed: nothing to move.
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_flat(&pile);
+    let same = with_tail(&cia_update(PY_UPDATE, 1040), 1);
+    put(
+        &lib,
+        &format!("3DS/Pokemon Y (World)/Updates/{name}"),
+        &same,
+        1,
+    );
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    match &item(&plan, "0004000E00055D00.cia").action {
+        OrganizeAction::Left {
+            reason: LeftReason::AlreadyPresent { at },
+        } => assert_eq!(parts(at), p(&["3DS", "Pokemon Y (World)", "Updates", name])),
+        other => panic!("{other:?}"),
+    }
+    assert!(item(&plan, "Pokemon Y.cia").moves_in());
+
+    // Another file under that name: never overwritten, ` (2)` and Review.
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_flat(&pile);
+    put(
+        &lib,
+        &format!("3DS/Pokemon Y (World)/Updates/{name}"),
+        b"someone else's file",
+        1,
+    );
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let update = item(&plan, "0004000E00055D00.cia");
+    assert_eq!(update.action, OrganizeAction::Review, "{update:?}");
+    assert_eq!(
+        below_system(update),
+        p(&[
+            "Pokemon Y (World)",
+            "Updates",
+            "Pokemon Y (World) (v1.1.0) (2).cia"
+        ])
+    );
+}
