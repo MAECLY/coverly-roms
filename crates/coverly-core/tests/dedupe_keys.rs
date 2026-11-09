@@ -1903,3 +1903,38 @@ fn an_update_or_dlc_of_unknown_version_never_acts() {
     };
     assert!(base.acts_unconfirmed());
 }
+
+/// Game folders spec D14 (d): two WADs of one title id are versions of
+/// one title (their TMD versions differ), not an exact copy and not base
+/// and update; the same TMD version is a copy.
+#[test]
+fn wii_wads_of_one_title_id_are_versions() {
+    use coverly_core::consoles::testing::wad_head;
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let wad = |name: &str, version: u16, pad: usize| {
+        let mut bytes = wad_head(0x0001_0001_5746_3445, version).head_bytes();
+        bytes.extend(std::iter::repeat_n(0xA5, pad));
+        raw("wii", &put(root, &format!("wii/{name}"), &bytes))
+    };
+    let units = numbered(vec![
+        wad("A v1.wad", 1, 0),
+        wad("A v1 (copy).wad", 1, 16),
+        wad("A v2.wad", 2, 32),
+    ]);
+    let keys = keys_of(&units);
+    assert!(matches!(
+        exact(&keys[0]),
+        ExactKey::Title {
+            kind: TitleKind::Base,
+            ..
+        }
+    ));
+    let g = |i: usize| keys[i].group_key("wii");
+    assert_eq!(g(0), g(1), "same title id and version");
+    assert_ne!(g(0), g(2), "another TMD version is no exact copy");
+    let v = level_two(&units, &keys, &NoDats);
+    let (a, c) = (v[0].as_ref().unwrap(), v[2].as_ref().unwrap());
+    assert_eq!(a.key_string(), c.key_string(), "one title, two versions");
+    assert_eq!(c.console_version.as_deref(), Some("2"));
+}

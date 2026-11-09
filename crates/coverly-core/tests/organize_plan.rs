@@ -4117,6 +4117,7 @@ fn under_source_root(value: &mut serde_json::Value, root: &Path) {
 #[test]
 fn wii_wad_dlc_follows_its_disc() {
     use coverly_core::consoles::testing as ct;
+    use coverly_core::organize::ItemNote;
     let world = World::new();
     let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
     let dir = s.path();
@@ -4155,6 +4156,14 @@ fn wii_wad_dlc_follows_its_disc() {
         at("DJ Hero (USA).wbfs") + 1,
         "{names:?}"
     );
+    let notes = &by_name(&p, "A DJ Hero DLC.wad").notes;
+    assert!(
+        notes
+            .iter()
+            .any(|n| matches!(n, ItemNote::Dlc { of } if !of.is_empty() && of != "SXBE")),
+        "the DLC names its disc game: {notes:?}"
+    );
+    assert!(by_name(&p, "B Other (USA).wbfs").notes.is_empty());
     assert_eq!(
         left_reason(&p, "System Menu Channel.wad"),
         Some(LeftReason::NotARom {
