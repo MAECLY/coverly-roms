@@ -194,6 +194,35 @@ describe('organise plan helpers', () => {
     }
   });
 
+  it('renders the addon reasons and notes with the generic text until their copy lands', () => {
+    const reasons: LeftReason[] = [
+      {
+        kind: 'addon-unlinked',
+        addon: 'patch',
+        format: 'ips',
+        why: { kind: 'no-key' },
+      },
+      { kind: 'addon-name-taken', at: 'PS1/Game/Cheats' },
+      { kind: 'addon-no-place', addon: 'mod' },
+      { kind: 'addon-for-emulator', emulator: 'DuckStation', path: 'cheats' },
+      { kind: 'not-supported', emulator: 'RPCS3', why: 'rpcs3-mods' },
+      { kind: 'patch-not-applied', emulator: 'RetroArch' },
+    ];
+    for (const reason of reasons) {
+      const { key } = leftReasonKey(reason);
+      expect(key, reason.kind).toBe('organize.left.title');
+      expect(has(en, key) && has(es, key)).toBe(true);
+    }
+    const notes: ItemNote[] = [
+      { kind: 'mod-of', of: 'Zelda' },
+      { kind: 'patch-of', of: 'Zelda' },
+      { kind: 'cheat-of', of: 'Zelda' },
+      { kind: 'header-mismatch', needs: 'needs-headered' },
+      { kind: 'point-emulator-here', emulator: 'shadPS4', folder: 'addcont' },
+    ];
+    for (const note of notes) expect(noteKey(note), note.kind).toBeNull();
+  });
+
   it('renders a left reason with its nested fragment and data', () => {
     const t = (key: string, vars?: Record<string, string | number>) =>
       `${key}${vars ? JSON.stringify(vars) : ''}`;

@@ -969,7 +969,28 @@ export type LeftReason =
   | { kind: 'not-confirmed' }
   /** A file inside a fixed folder of a game folder (`of`: the game
    * folder's name): it belongs to its game and stays for now. */
-  | { kind: 'game-folder-content'; folder: FixedFolder; of: string };
+  | { kind: 'game-folder-content'; folder: FixedFolder; of: string }
+  /** An addon whose game is not known: never moved, never deleted (mods
+   * spec D7). `addon` is its kind (`kind` is the tag). */
+  | {
+      kind: 'addon-unlinked';
+      addon: AddonKind;
+      format: AddonFormat;
+      why: UnlinkedWhy;
+    }
+  /** Another file of that name is already in its fixed folder (`at`,
+   * relative to the target root): never renamed to ` (2)`. */
+  | { kind: 'addon-name-taken'; at: string }
+  /** A linked addon the layout has no place for. */
+  | { kind: 'addon-no-place'; addon: AddonKind }
+  /** Goes in the emulator's own data folder (`path` relative to it),
+   * which the run did not name; `emulator` is the product name. */
+  | { kind: 'addon-for-emulator'; emulator: string; path: string }
+  /** The chosen emulator does not use the item like this. */
+  | { kind: 'not-supported'; emulator: string; why: NotSupportedWhy }
+  /** A patch the emulator would apply when playing, renamed for it only
+   * when the user chooses that emulator. */
+  | { kind: 'patch-not-applied'; emulator: string };
 
 /** A fixed folder inside a game folder (Rust `FixedFolder`). Its name on
  * disk is English (`Updates`, `DLC`, `Mods`, `Cheats`, `Extras`,
@@ -978,7 +999,139 @@ export type FixedFolder =
   'updates' | 'dlc' | 'mods' | 'cheats' | 'extras' | 'saves';
 
 /** What an item is to its game (Rust `GameRole`). */
-export type GameRole = 'base' | 'update' | 'dlc' | 'demo';
+export type GameRole = 'base' | 'update' | 'dlc' | 'demo' | 'mod' | 'cheat';
+
+/** What an addon is to its game (Rust `AddonKind`). */
+export type AddonKind = 'patch' | 'cheat' | 'mod';
+
+/** The format of an addon (Rust `AddonFormat`). */
+export type AddonFormat =
+  | 'bps'
+  | 'ups'
+  | 'ips'
+  | 'xdelta'
+  | 'ppf'
+  | 'aps'
+  | 'retro-arch-cht'
+  | 'fceux-cht'
+  | 'duck-station-cht'
+  | 'pnach'
+  | 'dolphin-ini'
+  | 'ppsspp-ini'
+  | 'ctr-cheats'
+  | 'switch-cheats'
+  | 'pchtxt'
+  | 'rpcs3-patch'
+  | 'shadps4-cheat'
+  | 'shadps4-patch'
+  | 'xenia-patch'
+  | 'vita3k-patch'
+  | 'melon-ds-cheats'
+  | 'mgba-cheats'
+  | 'desmume-cheats'
+  | 'code-text'
+  | 'texture-pack'
+  | 'dolphin-graphic-mod'
+  | 'riivolution'
+  | 'layered-fs'
+  | 'switch-mod'
+  | 'exefs-patches'
+  | 'cemu-graphic-pack'
+  | 'vita-repatch'
+  | 'mesen-hd-pack'
+  | 'msu1'
+  | 'xenia-plugin'
+  | 'n64-hires-textures'
+  | 'shadps4-mods';
+
+/** How an addon was linked to its game (Rust `LinkVia`). */
+export type LinkVia =
+  'source-crc' | 'dat' | 'name' | 'readme' | 'key' | 'folder';
+
+/** Whether a patch fits the ROM as it is on disk (Rust `HeaderFit`). */
+export type HeaderFit = 'matches' | 'needs-headerless' | 'needs-headered';
+
+/** Why an addon stays where it is (Rust `UnlinkedWhy`). */
+export type UnlinkedWhy =
+  | { kind: 'no-match' }
+  | { kind: 'several'; count: number }
+  | { kind: 'many'; count: number }
+  | { kind: 'no-key' }
+  | { kind: 'budget' }
+  | { kind: 'partial' };
+
+/** An addon linked to its game (Rust `AddonLink`). */
+export interface AddonLink {
+  kind: AddonKind;
+  format: AddonFormat;
+  /** «SLUS-00594», «0004000000055D00», «CRC32 1A2B3C4D»: shown in mono. */
+  key_text: string;
+  via: LinkVia;
+  header?: HeaderFit;
+}
+
+/** An emulator a translator knows (Rust `EmulatorId`). */
+export type EmulatorId =
+  | 'shadps4'
+  | 'rpcs3'
+  | 'azahar'
+  | 'cemu'
+  | 'vita3k'
+  | 'ryujinx'
+  | 'yuzu-family'
+  | 'retroarch'
+  | 'duckstation'
+  | 'pcsx2'
+  | 'dolphin'
+  | 'ppsspp'
+  | 'xenia'
+  | 'flycast'
+  | 'mesen';
+
+/** The emulator a run chose for one system, or `none` for the library
+ * layout (Rust `EmulatorChoice`). */
+export type EmulatorChoice = EmulatorId | 'none';
+
+/** Why an emulator does not use an item as the library keeps it. */
+export type NotSupportedWhy =
+  | 'rpcs3-mods'
+  | 'vita-repatch'
+  | 'several-patches'
+  | 'older-update'
+  | 'config-exists';
+
+/** What a translator says about one placement instead of doing it. */
+export type TranslateNote =
+  | { kind: 'install-in-emulator'; emulator: EmulatorId }
+  | { kind: 'extract-first' }
+  | { kind: 'not-supported'; emulator: EmulatorId; why: NotSupportedWhy }
+  | { kind: 'header-mismatch'; needs: HeaderFit }
+  | { kind: 'point-emulator-here'; emulator: EmulatorId; folder: string }
+  | { kind: 'patch-not-applied'; emulator: EmulatorId };
+
+/** Where a placement goes: under the device's system folder, under the
+ * emulator's own data folder, or nowhere (it stays in the library). */
+export type PlacementTo =
+  | { kind: 'system'; path: string }
+  | { kind: 'emulator-data'; path: string }
+  | { kind: 'library' };
+
+/** One placement of a translated game (`from`: relative to the master
+ * system folder). */
+export interface PlacementView {
+  from: string;
+  to: PlacementTo;
+  note?: TranslateNote;
+}
+
+/** A game of the plan laid out for one emulator, for the preview. */
+export interface TranslatedGameView {
+  system: string;
+  /** The base item's id, when the base is an item. */
+  base?: number;
+  emulator: EmulatorId;
+  placements: PlacementView[];
+}
 
 /** How an item belongs to a game folder (Rust `GameLink`); optional
  * fields are left out when absent or false. */
@@ -997,6 +1150,8 @@ export interface GameLink {
   demo_of?: string;
   /** Highest version present for this base. */
   newest_here?: boolean;
+  /** What a `mod` or `cheat` row is and how it was linked. */
+  addon?: AddonLink;
 }
 
 /** A piece of a game that cannot play alone (Rust `PartKind`). */
@@ -1071,7 +1226,15 @@ export type ItemNote =
   /** A demo of `of`, linked by name only: its own game. */
   | { kind: 'demo-of'; of: string }
   /** An update or DLC whose game is not in the plan or the library. */
-  | { kind: 'base-missing' };
+  | { kind: 'base-missing' }
+  /** A mod, patch or cheats of `of` (its title). */
+  | { kind: 'mod-of'; of: string }
+  | { kind: 'patch-of'; of: string }
+  | { kind: 'cheat-of'; of: string }
+  /** The patch expects the ROM with or without its header. */
+  | { kind: 'header-mismatch'; needs: HeaderFit }
+  /** The emulator (product name) has to be pointed at `folder`. */
+  | { kind: 'point-emulator-here'; emulator: string; folder: string };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =
@@ -1316,6 +1479,9 @@ export interface OrganizePlan {
   /** Services whose absence or used-up quota changes this plan (D28,
    * plan IP-2); Rust leaves it out when none. */
   integration_notices?: IntegrationNotice[];
+  /** Games laid out for the emulator chosen for their system (mods spec
+   * D16); Rust leaves it out when none. */
+  translated?: TranslatedGameView[];
 }
 
 /** What to plan; missing fields take `settings.organize`. */
@@ -1338,6 +1504,9 @@ export interface OrganizeRequest {
   /** Game folders for this run (missing: the layout's own value with the
    * user's override in `organize.game_folders`; game folders spec D1). */
   game_folders?: boolean | null;
+  /** The emulator chosen per system for this run (mods spec D16); a
+   * system left out uses the layout's default. */
+  emulators?: Record<string, EmulatorChoice>;
 }
 
 /** The user's answer for one plan item. */

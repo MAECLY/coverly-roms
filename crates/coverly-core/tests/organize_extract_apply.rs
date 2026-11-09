@@ -869,6 +869,7 @@ mod apply_phases {
             updates: 0,
             integration_notices: Vec::new(),
             target_anchor: None,
+            translated: Vec::new(),
         }
     }
 

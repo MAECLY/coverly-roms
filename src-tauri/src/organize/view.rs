@@ -1,8 +1,11 @@
 //! Wire types of organising a loose pile (organise spec §4, §11): snake_case
 //! fields, kebab-case enums, mirrored in `src/ipc/types.ts`.
 
+use std::collections::BTreeMap;
+
 use coverly_core::organize::{
-    FolderProbe, NameMode, OrganizePhase, OrganizePlan, OrganizeReport, TransferMode,
+    EmulatorChoice, FolderProbe, NameMode, OrganizePhase, OrganizePlan, OrganizeReport,
+    TransferMode,
 };
 use coverly_core::settings::OrganizeDedupeMode;
 use coverly_core::write::UndoReport;
@@ -71,6 +74,10 @@ pub struct OrganizeRequest {
     /// the user's override in `organize.game_folders`; game folders spec
     /// D1).
     pub game_folders: Option<bool>,
+    /// The emulator chosen per system for this run (mods spec D16):
+    /// `{"ps4": "shadps4", "snes": "none"}`; a system left out uses the
+    /// layout's default.
+    pub emulators: BTreeMap<String, EmulatorChoice>,
 }
 
 /// A dry run kept by the backend under `plan_id`: the webview only sends

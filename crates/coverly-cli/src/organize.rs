@@ -11,6 +11,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use clap::{Args, ValueEnum};
+use coverly_core::addons::{AddonFormat, AddonKind, HeaderFit, UnlinkedWhy};
 use coverly_core::archive::{FoundTool, Tool};
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::catalog::{SwitchCatalog, TitleNames};
@@ -23,11 +24,11 @@ use coverly_core::net::{PoliteHttp, UreqHttp};
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
     apply_organize, gate, large_transfer, large_transfer_threshold, load_plan, plan_from_survey,
-    resume_organize, survey, ApplyEnv, ApplyError, Choice, Decision, GameLink, GameRole, HugeItem,
-    ItemKind, ItemNote, ItemOutcome, ItemStatus, LargeConfirm, LargeTransfer, LeftReason, NameMode,
-    OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase,
-    OrganizePlan, OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason,
-    SkipReason, Survey, Transfer, TransferMode,
+    resume_organize, survey, ApplyEnv, ApplyError, Choice, Decision, EmulatorId, GameLink,
+    GameRole, HugeItem, ItemKind, ItemNote, ItemOutcome, ItemStatus, LargeConfirm, LargeTransfer,
+    LeftReason, NameMode, NotSupportedWhy, OrganizeAction, OrganizeEnv, OrganizeError,
+    OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan, OrganizeProgress, OrganizeReport,
+    OsMetaProbe, PlanWarning, RenameReason, SkipReason, Survey, Transfer, TransferMode,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
@@ -1007,7 +1008,7 @@ fn warn_ignored_assigns(
         }
         let why = match &item.action {
             OrganizeAction::Left { reason } => {
-                format!(": it stays where it is ({})", left_text(reason))
+                format!(": it stays where it is ({})", left_text_for(item, reason))
             }
             OrganizeAction::SetAside { keeper, .. } => {
                 format!(": it is set aside as a copy of {}", slash(keeper))
@@ -1178,11 +1179,18 @@ pub(crate) fn why_text(e: &Evidence) -> String {
 
 /// Why `reason` keeps a file where it is, on one line: names read from
 /// an archive or a cue sheet cannot start a forged plan line.
+#[cfg(test)]
 pub(crate) fn left_text(reason: &LeftReason) -> String {
-    table::one_line(&left_reason_text(reason))
+    table::one_line(&left_reason_text(reason, None))
 }
 
-fn left_reason_text(reason: &LeftReason) -> String {
+/// [`left_text`] for one item: a reason that names a command line gets
+/// the item's system in it.
+pub(crate) fn left_text_for(item: &OrganizeItem, reason: &LeftReason) -> String {
+    table::one_line(&left_reason_text(reason, item.system_id.as_deref()))
+}
+
+fn left_reason_text(reason: &LeftReason, system: Option<&str>) -> String {
     match reason {
         LeftReason::PartialDownload => "download not finished".into(),
         LeftReason::RecentlyModified => "modified moments ago, may still be written".into(),
@@ -1276,6 +1284,115 @@ fn left_reason_text(reason: &LeftReason) -> String {
             "kept in place: the {} folder of {of} stays for now",
             fixed_folder_name(*folder)
         ),
+        LeftReason::AddonUnlinked { kind, format, why } => {
+            let what = format!("{}, {}", addon_kind_name(*kind), addon_format_name(*format));
+            match why {
+                UnlinkedWhy::NoMatch | UnlinkedWhy::NoKey => {
+                    format!("its game is unknown: stays here ({what})")
+                }
+                UnlinkedWhy::Several { count } => format!("fits {count} games: stays here"),
+                UnlinkedWhy::Many { count } => {
+                    format!("holds patches for {count} games: stays here")
+                }
+                UnlinkedWhy::Budget => {
+                    format!("its game could not be checked in time: stays here ({what})")
+                }
+                UnlinkedWhy::Partial => format!("only part of a mod: stays here ({what})"),
+            }
+        }
+        LeftReason::AddonNameTaken { .. } => {
+            "a file with that name is already in its folder".into()
+        }
+        LeftReason::AddonNoPlace { kind } => format!(
+            "this layout has no folder for its game's {}: stays here",
+            match kind {
+                AddonKind::Cheat => "cheats",
+                AddonKind::Patch | AddonKind::Mod => "mods",
+            }
+        ),
+        LeftReason::AddonForEmulator { emulator, path } => format!(
+            "goes in {emulator}'s folder: {} (pass --emulator-data)",
+            slash(path)
+        ),
+        LeftReason::NotSupported { emulator, why } => format!(
+            "{emulator} does not use it like this: {}",
+            not_supported_text(*why)
+        ),
+        LeftReason::PatchNotApplied { emulator } => {
+            let id = EmulatorId::ALL
+                .into_iter()
+                .find(|e| e.display_name() == emulator.as_str())
+                .map_or_else(|| emulator.to_lowercase(), |e| e.id().to_string());
+            format!(
+                "{emulator} would apply it when you play: pass --emulator {}={id}",
+                system.unwrap_or("<system>")
+            )
+        }
+    }
+}
+
+/// What an addon is, in a left reason (the core has no UI strings).
+fn addon_kind_name(kind: AddonKind) -> &'static str {
+    match kind {
+        AddonKind::Patch => "Translation patch",
+        AddonKind::Cheat => "Cheats",
+        AddonKind::Mod => "Mod",
+    }
+}
+
+/// An addon format's short name: product and format names, never
+/// translated.
+fn addon_format_name(format: AddonFormat) -> &'static str {
+    use AddonFormat as F;
+    match format {
+        F::Bps => "BPS",
+        F::Ups => "UPS",
+        F::Ips => "IPS",
+        F::Xdelta => "xdelta",
+        F::Ppf => "PPF",
+        F::Aps => "APS",
+        F::RetroArchCht => "RetroArch .cht",
+        F::FceuxCht => "FCEUX .cht",
+        F::DuckStationCht => "DuckStation .cht",
+        F::Pnach => "PCSX2 .pnach",
+        F::DolphinIni => "Dolphin .ini",
+        F::PpssppIni => "PPSSPP .ini",
+        F::CtrCheats => "3DS cheats",
+        F::SwitchCheats => "Switch cheats",
+        F::Pchtxt => "IPSwitch .pchtxt",
+        F::Rpcs3Patch => "RPCS3 patch",
+        F::Shadps4Cheat => "shadPS4 cheats",
+        F::Shadps4Patch => "shadPS4 patch",
+        F::XeniaPatch => "Xenia patch",
+        F::Vita3kPatch => "Vita3K patch",
+        F::MelonDsCheats => "melonDS cheats",
+        F::MgbaCheats => "mGBA cheats",
+        F::DesmumeCheats => "DeSmuME cheats",
+        F::CodeText => "cheat codes",
+        F::TexturePack => "texture pack",
+        F::DolphinGraphicMod => "Dolphin graphics mod",
+        F::Riivolution => "Riivolution",
+        F::LayeredFs => "LayeredFS mod",
+        F::SwitchMod => "Switch mod",
+        F::ExefsPatches => "ExeFS patches",
+        F::CemuGraphicPack => "Cemu graphic pack",
+        F::VitaRepatch => "rePatch",
+        F::MesenHdPack => "Mesen HD pack",
+        F::Msu1 => "MSU-1",
+        F::XeniaPlugin => "Xenia plugin",
+        F::N64HiresTextures => "N64 hi-res textures",
+        F::Shadps4Mods => "shadPS4 mods",
+    }
+}
+
+/// Why an emulator does not use an item as the library keeps it.
+fn not_supported_text(why: NotSupportedWhy) -> &'static str {
+    match why {
+        NotSupportedWhy::Rpcs3Mods => "no mods folder",
+        NotSupportedWhy::VitaRepatch => "it does not read rePatch",
+        NotSupportedWhy::SeveralPatches => "several patches for one ROM; only one is applied",
+        NotSupportedWhy::OlderUpdate => "only the newest update is used",
+        NotSupportedWhy::ConfigExists => "a settings file with that name already exists",
     }
 }
 
@@ -1376,6 +1493,17 @@ fn note_text(n: &ItemNote) -> Option<String> {
         }
         ItemNote::DemoOf { of } => format!("demo of {of}"),
         ItemNote::BaseMissing => "its game is not here or in the library".into(),
+        ItemNote::ModOf { of } => format!("mod for {of}"),
+        ItemNote::PatchOf { of } => format!("patch for {of}"),
+        ItemNote::CheatOf { of } => format!("cheats for {of}"),
+        ItemNote::HeaderMismatch { needs } => match needs {
+            HeaderFit::NeedsHeaderless => "this patch expects the ROM without a header".into(),
+            HeaderFit::NeedsHeadered => "this patch expects the ROM with a header".into(),
+            HeaderFit::Matches => return None,
+        },
+        ItemNote::PointEmulatorHere { emulator, folder } => {
+            format!("point {emulator} at this folder: {folder}")
+        }
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })
@@ -1832,7 +1960,7 @@ fn render_table(
                 out,
                 "  {}  {}{}",
                 source_label(item),
-                left_text(reason),
+                left_text_for(item, reason),
                 tools_off_hint(reason, opts)
             );
         }
@@ -2557,6 +2685,7 @@ mod tests {
             updates: 0,
             integration_notices: Vec::new(),
             target_anchor: None,
+            translated: Vec::new(),
         }
     }
 
@@ -2700,6 +2829,145 @@ mod tests {
                 from: "pky.3ds".into()
             }),
             "renamed for its game folder (was pky.3ds)"
+        );
+    }
+
+    #[test]
+    fn addon_and_emulator_texts() {
+        use coverly_core::addons::{AddonFormat, AddonKind, HeaderFit, UnlinkedWhy};
+        use coverly_core::organize::NotSupportedWhy;
+        let unlinked = |why| LeftReason::AddonUnlinked {
+            kind: AddonKind::Patch,
+            format: AddonFormat::Ips,
+            why,
+        };
+        assert_eq!(
+            left_text(&unlinked(UnlinkedWhy::NoMatch)),
+            "its game is unknown: stays here (Translation patch, IPS)"
+        );
+        assert_eq!(
+            left_text(&unlinked(UnlinkedWhy::NoKey)),
+            "its game is unknown: stays here (Translation patch, IPS)"
+        );
+        assert_eq!(
+            left_text(&unlinked(UnlinkedWhy::Several { count: 2 })),
+            "fits 2 games: stays here"
+        );
+        assert_eq!(
+            left_text(&LeftReason::AddonUnlinked {
+                kind: AddonKind::Cheat,
+                format: AddonFormat::Rpcs3Patch,
+                why: UnlinkedWhy::Many { count: 400 },
+            }),
+            "holds patches for 400 games: stays here"
+        );
+        assert_eq!(
+            left_text(&unlinked(UnlinkedWhy::Budget)),
+            "its game could not be checked in time: stays here (Translation patch, IPS)"
+        );
+        assert_eq!(
+            left_text(&LeftReason::AddonUnlinked {
+                kind: AddonKind::Mod,
+                format: AddonFormat::Msu1,
+                why: UnlinkedWhy::Partial,
+            }),
+            "only part of a mod: stays here (Mod, MSU-1)"
+        );
+        assert_eq!(
+            left_text(&LeftReason::AddonNameTaken {
+                at: Path::new("PS1").join("Game").join("Cheats"),
+            }),
+            "a file with that name is already in its folder"
+        );
+        assert_eq!(
+            left_text(&LeftReason::AddonNoPlace {
+                kind: AddonKind::Mod
+            }),
+            "this layout has no folder for its game's mods: stays here"
+        );
+        assert_eq!(
+            left_text(&LeftReason::AddonNoPlace {
+                kind: AddonKind::Cheat
+            }),
+            "this layout has no folder for its game's cheats: stays here"
+        );
+        assert_eq!(
+            left_text(&LeftReason::AddonForEmulator {
+                emulator: "DuckStation".into(),
+                path: Path::new("cheats").join("SLUS-00594.cht"),
+            }),
+            "goes in DuckStation's folder: cheats/SLUS-00594.cht (pass --emulator-data)"
+        );
+        assert_eq!(
+            left_text(&LeftReason::NotSupported {
+                emulator: "RPCS3".into(),
+                why: NotSupportedWhy::Rpcs3Mods,
+            }),
+            "RPCS3 does not use it like this: no mods folder"
+        );
+        assert_eq!(
+            left_text(&LeftReason::NotSupported {
+                emulator: "Vita3K".into(),
+                why: NotSupportedWhy::VitaRepatch,
+            }),
+            "Vita3K does not use it like this: it does not read rePatch"
+        );
+        let patch = LeftReason::PatchNotApplied {
+            emulator: "RetroArch".into(),
+        };
+        let mut item = test_item(0, "Chrono Trigger.ips");
+        item.system_id = Some("snes".into());
+        assert_eq!(
+            left_text_for(&item, &patch),
+            "RetroArch would apply it when you play: pass --emulator snes=retroarch"
+        );
+        assert_eq!(
+            left_text(&patch),
+            "RetroArch would apply it when you play: pass --emulator <system>=retroarch"
+        );
+        assert_eq!(
+            note_text(&ItemNote::ModOf { of: "Zelda".into() }).as_deref(),
+            Some("mod for Zelda")
+        );
+        assert_eq!(
+            note_text(&ItemNote::PatchOf { of: "Zelda".into() }).as_deref(),
+            Some("patch for Zelda")
+        );
+        assert_eq!(
+            note_text(&ItemNote::CheatOf { of: "Zelda".into() }).as_deref(),
+            Some("cheats for Zelda")
+        );
+        assert_eq!(
+            note_text(&ItemNote::HeaderMismatch {
+                needs: HeaderFit::NeedsHeaderless
+            })
+            .as_deref(),
+            Some("this patch expects the ROM without a header")
+        );
+        assert_eq!(
+            note_text(&ItemNote::HeaderMismatch {
+                needs: HeaderFit::NeedsHeadered
+            })
+            .as_deref(),
+            Some("this patch expects the ROM with a header")
+        );
+        assert_eq!(
+            note_text(&ItemNote::HeaderMismatch {
+                needs: HeaderFit::Matches
+            }),
+            None
+        );
+        assert_eq!(
+            note_text(&ItemNote::PointEmulatorHere {
+                emulator: "shadPS4".into(),
+                folder: "addcont".into(),
+            })
+            .as_deref(),
+            Some("point shadPS4 at this folder: addcont")
+        );
+        assert_eq!(
+            addon_format_name(AddonFormat::CemuGraphicPack),
+            "Cemu graphic pack"
         );
     }
 }

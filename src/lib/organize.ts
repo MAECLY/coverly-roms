@@ -585,6 +585,15 @@ export function leftReasonKey(
     // A Vita backup is its own sentence; every other part stays alike.
     case 'game-part':
       return r.part === 'backup' ? k('backup') : k('gamePart');
+    // Addons and emulator layouts (mods spec D7, D16): the generic
+    // «staying» text until their own copy lands.
+    case 'addon-unlinked':
+    case 'addon-name-taken':
+    case 'addon-no-place':
+    case 'addon-for-emulator':
+    case 'not-supported':
+    case 'patch-not-applied':
+      return k('title');
   }
 }
 
@@ -981,6 +990,14 @@ export function noteKey(n: ItemNote): KeyedText | null {
       return k('demoOf', { title: n.of });
     case 'base-missing':
       return k('baseMissing');
+    // Addons and emulator layouts (mods spec D10, D15): no line of their
+    // own until their copy lands.
+    case 'mod-of':
+    case 'patch-of':
+    case 'cheat-of':
+    case 'header-mismatch':
+    case 'point-emulator-here':
+      return null;
   }
 }
 

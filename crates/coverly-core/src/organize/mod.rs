@@ -13,6 +13,10 @@ pub mod roots;
 pub mod target;
 pub mod walk;
 
+pub use crate::translate::{
+    EmulatorChoice, EmulatorId, NotSupportedWhy, PlacementTo, PlacementView, TranslateNote,
+    TranslatedGameView,
+};
 pub use apply::{
     apply_organize, cluster_size, free_space, gate, large_transfer, large_transfer_threshold,
     load_plan, resume_organize, user_available, ApplyEnv, ApplyError, HugeItem, ItemOutcome,
