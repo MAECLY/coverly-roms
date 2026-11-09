@@ -524,13 +524,16 @@ pub fn translate(game: &MasterGame, to: &TranslateTarget) -> TranslatedGame {
     }
 }
 
-/// One emulator's layout. Translators that have no rules yet keep the
-/// master layout.
+/// One emulator's layout. An emulator that does not run the game's
+/// system, or whose translator has no rules yet, keeps the master layout.
 fn emulator_layout(
     emulator: EmulatorId,
     game: &MasterGame,
     _to: &TranslateTarget,
 ) -> TranslatedGame {
+    if !emulator.systems().contains(&game.system.as_str()) {
+        return master_layout(game);
+    }
     match emulator {
         EmulatorId::Shadps4
         | EmulatorId::Rpcs3

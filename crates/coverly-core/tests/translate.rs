@@ -129,30 +129,91 @@ fn dest(t: &TranslatedGame, from_name: &str) -> Destination {
     placement(t, from_name).to.clone()
 }
 
+/// The first banned I/O, clock or environment use in `text`, if any.
+/// Catches grouped and aliased imports too (`use std::{fs, path}`).
+fn banned_use(text: &str) -> Option<&'static str> {
+    const BANNED: &[&str] = &[
+        "std::fs",
+        "std::time",
+        "std::env",
+        "std::process",
+        "std::net",
+        "std::io",
+        "SystemTime",
+        "Instant::",
+        "File::",
+        "fs::",
+        "env::",
+        "io::",
+        "time::",
+        "process::",
+    ];
+    if let Some(b) = BANNED.iter().find(|b| text.contains(*b)) {
+        return Some(b);
+    }
+    // `use std::{fs, …}` / `use std::{ env, … }`.
+    let grouped = text
+        .match_indices("std::{")
+        .map(|(at, _)| &text[at..text[at..].find('}').map_or(text.len(), |end| at + end)]);
+    for group in grouped {
+        for name in ["fs", "env", "io", "time", "process", "net"] {
+            if group
+                .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .any(|word| word == name)
+            {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn the_banned_use_check_catches_grouped_imports() {
+    assert_eq!(banned_use("use std::{fs, path::Path};"), Some("fs"));
+    assert_eq!(banned_use("use std::{\n    env,\n};"), Some("env"));
+    assert_eq!(banned_use("use std::fs as f;"), Some("std::fs"));
+    assert_eq!(banned_use("use std::{fmt, path::Path};"), None);
+    assert_eq!(banned_use("use std::path::{Component, Path};"), None);
+}
+
+/// Every `.rs` file under `dir`, sub-folders included.
+fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            rust_files(&path, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
+        }
+    }
+}
+
 #[test]
 fn translate_never_touches_the_filesystem() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")
         .join("translate");
-    let mut files = 0;
-    for entry in fs::read_dir(&dir).unwrap() {
-        let path = entry.unwrap().path();
-        let text = fs::read_to_string(&path).unwrap();
-        files += 1;
-        for banned in [
-            "std::fs",
-            "std::time",
-            "SystemTime",
-            "Instant::",
-            "std::env",
-            "File::",
-            "std::process",
-            "std::net",
-        ] {
-            assert!(!text.contains(banned), "{} uses {banned}", path.display());
-        }
+    let mut files = Vec::new();
+    rust_files(&dir, &mut files);
+    for path in &files {
+        let text = fs::read_to_string(path).unwrap();
+        assert_eq!(banned_use(&text), None, "{}", path.display());
     }
-    assert!(files >= 2, "mod.rs and frontend.rs at least");
+    assert!(files.len() >= 2, "mod.rs and frontend.rs at least");
+}
+
+#[test]
+fn an_emulator_never_lays_out_a_system_it_does_not_run() {
+    // shadPS4 does not run 3DS games: the master layout is kept.
+    let g = fixtures::pokemon_y();
+    for e in EmulatorId::ALL {
+        if e.systems().contains(&"3ds") {
+            continue;
+        }
+        let t = target(Some(e), FrontendMode::Plain, true, TranslateScope::Full);
+        assert_eq!(translate(&g, &t), master_layout(&g), "{e:?}");
+    }
 }
 
 #[test]
