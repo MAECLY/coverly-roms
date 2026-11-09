@@ -1636,3 +1636,214 @@ fn resume_refuses_the_game_folders_flags() {
         .stderr(contains("cannot be used with"));
     }
 }
+
+/// Every file under `root` gets the same old mtime (Windows CI).
+fn pin_all(root: &Path) {
+    let old = filetime::FileTime::from_unix_time(1_600_000_000, 0);
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                filetime::set_file_mtime(&path, old).unwrap();
+            }
+        }
+    }
+}
+
+const MON_ID: &str = "0004000000055D00";
+
+/// A 3DS base with its LayeredFS mod folder and its cheats (mods spec
+/// D4, D3), flat in a pile.
+fn pokemon_addons_pile() -> TempDir {
+    use coverly_core::consoles::testing as ct;
+    let tmp = TempDir::new().unwrap();
+    let base = ct::cia(0x0004_0000_0005_5D00, true, false);
+    write_old(
+        &tmp.path().join("Pokemon Y (World).cia"),
+        &base.head_bytes(),
+    );
+    fs::create_dir_all(tmp.path().join(MON_ID).join("romfs")).unwrap();
+    write_old(
+        &tmp.path().join(MON_ID).join("romfs").join("a.bin"),
+        &[1u8; 64],
+    );
+    write_old(
+        &tmp.path().join(format!("{MON_ID}.txt")),
+        b"[Infinite money]\nD3000000 00000000\n",
+    );
+    tmp
+}
+
+#[test]
+fn the_plan_lists_a_mod_and_cheats_under_their_game() {
+    let p = pokemon_addons_pile();
+    let out = game_folders_plan(p.path(), "coverly-library", &[]);
+    let lines: Vec<&str> = out.lines().collect();
+    let at = lines
+        .iter()
+        .position(|l| l.contains("Pokemon Y (World).cia →"))
+        .unwrap_or_else(|| panic!("no base row in {out}"));
+    let below: Vec<&str> = lines[at + 1..]
+        .iter()
+        .take_while(|l| l.starts_with("    + "))
+        .copied()
+        .collect();
+    assert_eq!(below.len(), 2, "{out}");
+    assert!(
+        below
+            .iter()
+            .any(|l| l.contains(&format!("+ Mod  {MON_ID}/"))
+                && l.contains("→ Mods/")
+                && l.contains(&format!("linked by {MON_ID}"))),
+        "{out}"
+    );
+    assert!(
+        below
+            .iter()
+            .any(|l| l.contains(&format!("+ Cheats  {MON_ID}.txt")) && l.contains("→ Cheats/")),
+        "{out}"
+    );
+}
+
+/// Bloodborne as an extracted folder and a DLC folder beside it.
+fn bloodborne_pile() -> TempDir {
+    use coverly_core::consoles::testing as ct;
+    const CONTENT: &str = "UP9000-CUSA00900_00-BLOODBORNE000000";
+    let tmp = TempDir::new().unwrap();
+    let sfo = |category: &str, content_id: &str, title: &str| {
+        ct::param_sfo_with(
+            &[
+                ("APP_VER", "01.09"),
+                ("CATEGORY", category),
+                ("CONTENT_ID", content_id),
+                ("TITLE", title),
+                ("TITLE_ID", "CUSA00900"),
+                ("VERSION", "01.00"),
+            ],
+            &[("APP_TYPE", 1), ("PUBTOOLVER", 0x0289_0000)],
+        )
+    };
+    let base = tmp.path().join("CUSA00900");
+    ct::ps4_app(&base, "CUSA00900", "gd", CONTENT);
+    ct::put_file(
+        &base,
+        "sce_sys/param.sfo",
+        &sfo("gd", CONTENT, "Bloodborne"),
+    );
+    ct::ps4_app(
+        &tmp.path().join("CUSA00900-UPDATE"),
+        "CUSA00900",
+        "gp",
+        CONTENT,
+    );
+    let dlc = tmp.path().join("CUSA00900-DLC-ABC");
+    ct::put_file(
+        &dlc,
+        "sce_sys/param.sfo",
+        &sfo(
+            "ac",
+            "UP9000-CUSA00900_00-OLDHUNTERS000000",
+            "The Old Hunters",
+        ),
+    );
+    ct::put_file(&dlc, "content.dat", &[7u8; 64]);
+    pin_all(tmp.path());
+    tmp
+}
+
+#[test]
+fn emulator_shadps4_lays_out_the_update_and_the_dlc() {
+    let p = bloodborne_pile();
+    let plain = game_folders_plan(p.path(), "esde", &["--dry-run"]);
+    assert!(!plain.contains("addcont"), "{plain}");
+    assert!(!plain.contains("Laid out for"), "{plain}");
+    let out = game_folders_plan(
+        p.path(),
+        "esde",
+        &["--dry-run", "--emulator", "ps4=shadps4"],
+    );
+    assert!(out.contains("CUSA00900-UPDATE"), "{out}");
+    assert!(
+        out.contains("ps4/addcont/CUSA00900/CUSA00900-DLC-ABC"),
+        "{out}"
+    );
+    assert!(out.contains("Laid out for shadPS4 (ps4)"), "{out}");
+    assert!(out.contains("point shadPS4 at this folder"), "{out}");
+    // `none` keeps the layout's own places.
+    let none = game_folders_plan(p.path(), "esde", &["--dry-run", "--emulator", "ps4=none"]);
+    assert!(!none.contains("addcont"), "{none}");
+}
+
+#[test]
+fn bad_emulator_flags_are_usage_errors() {
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    let abs = data.path().join("ds");
+    let cases: Vec<(Vec<String>, &str)> = vec![
+        (
+            vec!["--emulator".into(), "nosuch=shadps4".into()],
+            "unknown system `nosuch`",
+        ),
+        (
+            vec!["--emulator".into(), "ps4=nosuch".into()],
+            "unknown emulator `nosuch`",
+        ),
+        (
+            vec!["--emulator".into(), "ps3=shadps4".into()],
+            "shadps4 does not run ps3",
+        ),
+        (
+            vec!["--emulator-data".into(), "duckstation=rel/ds".into()],
+            "absolute",
+        ),
+        (
+            vec![
+                "--emulator-data".into(),
+                format!("nosuch={}", abs.display()),
+            ],
+            "unknown emulator `nosuch`",
+        ),
+    ];
+    for (extra, message) in cases {
+        coverly(data.path(), cache.path(), &["organize", "--offline"])
+            .args(&extra)
+            .arg(p.path())
+            .assert()
+            .code(2)
+            .stderr(contains(message));
+    }
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--resume", "job-1", "--emulator", "ps4=shadps4"],
+    )
+    .arg(p.path())
+    .assert()
+    .code(2)
+    .stderr(contains("cannot be used with"));
+}
+
+#[test]
+fn apply_into_a_folder_that_does_not_exist_yet_creates_it_and_undo_removes_it() {
+    // D19 at the CLI: the known «paused: volume-gone» bug.
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    let out = TempDir::new().unwrap();
+    let target = out.path().join("new").join("sub");
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--offline", "--apply", "--copy"],
+    )
+    .arg(format!("--target={}", target.display()))
+    .arg(p.path())
+    .assert()
+    .success()
+    .stdout(contains("copied 2"))
+    .stderr(contains("paused").not());
+    assert!(target.join("ROMS").join("GBA").join("Game A.gba").is_file());
+    undo(data.path(), &[]).assert().success();
+    assert!(!out.path().join("new").exists());
+    assert!(p.path().join("Game A.gba").is_file());
+}
