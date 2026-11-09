@@ -1718,7 +1718,13 @@ impl<'a> Run<'a> {
         if let Some((dir, name)) = split(&at) {
             self.index.claim(dir, name);
         }
-        Step::Done(status, vec![at])
+        let mut targets = vec![at];
+        // A licence beside the folder game follows it (game folders spec
+        // D17), or its outcome says it stayed.
+        if let Some(pause) = self.move_companions(item, &mut targets) {
+            return pause;
+        }
+        Step::Done(status, targets)
     }
 
     /// Sets a duplicate aside (duplicates spec §7.1): its files go to the

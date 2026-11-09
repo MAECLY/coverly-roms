@@ -1911,3 +1911,33 @@ fn undo_after_a_pause_reverses_only_what_moved() {
     assert_eq!(fs::read_dir(&lib).unwrap().count(), 0, "every folder gone");
     assert!(undo.dirs_kept.is_empty(), "{undo:?}");
 }
+
+#[test]
+fn a_folder_game_s_licence_moves_as_planned_or_its_outcome_says_it_stayed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("lib"),
+        tmp.path().join("data"),
+    );
+    ct::ps3_jb(&pile.join("BLUS30001"), "BLUS30001", "DG");
+    for f in walk_files(&pile) {
+        pin_mtime(&f, 7);
+    }
+    put(&pile, "BLUS30001.rap", &[0xA5; 16], 8);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let base = item(&plan, "BLUS30001");
+    assert!(base.moves_in(), "{base:?}");
+    let planned = licence_companions(base);
+    let report = apply_in(&plan, &data);
+    let outcome = report.items.iter().find(|o| o.item == base.id).unwrap();
+    assert_eq!(planned.len(), 1, "{base:?}");
+    let moved = lib.join(&planned[0].target);
+    // What the plan promised happened, or the outcome says it did not.
+    assert!(
+        (moved.is_file() && outcome.targets.contains(&moved))
+            || outcome.licences_left == [pile.join("BLUS30001.rap")],
+        "{outcome:?}"
+    );
+}
