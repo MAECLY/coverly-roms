@@ -98,6 +98,7 @@ import {
   type Region,
   type DedupeSettings,
   type DupGroupView,
+  type GameRole,
   type OrganizeDedupeMode,
   type SystemFamily,
   type SystemView,
@@ -119,6 +120,11 @@ import {
   type AdjustPile,
 } from './adjustFixture';
 import { MOCK_DISC_ARCHIVES, type MockArchiveEntry } from './discFixture';
+import {
+  GAME_FOLDER_FILES,
+  MOCK_GAMEFOLDERS,
+  type GameFolderFile,
+} from './gameFoldersFixture';
 import { FIXTURE_SYSTEMS } from './fixture';
 import type { MockExport } from './mockJobs';
 import { MOCK_SAMPLE_SORTED, type MockSortedFolder } from './sampleFixture';
@@ -137,14 +143,16 @@ export const MOCK_PICK_KEY = 'coverly.mock.pick';
 /**
  * What "Open folder…" picks in the browser mock, so the organise offer is
  * reachable from the start screen:
- * `?mockPick=downloads|loose|mixed|retro|modern|current|huge|switch|odd|discs|dupes-title|<absolute path>` (or
+ * `?mockPick=downloads|loose|mixed|retro|modern|current|huge|switch|odd|discs|dupes-title|gamefolders|<absolute path>` (or
  * localStorage `coverly.mock.pick`). `downloads` is the owner's pile as it
  * is now (`MOCK_SAMPLE`), `loose` the same pile before any of it was sorted
  * (`MOCK_DOWNLOADS`), `retro` the systems batch 1 pile (`MOCK_RETRO`),
  * `modern` the systems batch 2 pile (`MOCK_MODERN`), `current` the systems
  * batch 3 pile (`MOCK_CURRENT`), `huge` the adjustments pile of big items
  * asked one by one (`MOCK_HUGE`, `adjustFixture.ts`), and `switch`, `odd`,
- * `discs` and `dupes-title` the other adjustments piles (spec §9.4).
+ * `discs` and `dupes-title` the other adjustments piles (spec §9.4), and
+ * `gamefolders` the game folders pile (`MOCK_GAMEFOLDERS`, game folders
+ * spec §9.3).
  * Null: the first fixture library, as before.
  */
 export function readMockPick(): string | null {
@@ -160,6 +168,7 @@ export function readMockPick(): string | null {
     if (v === 'odd') return MOCK_ODD;
     if (v === 'discs') return MOCK_DISCS;
     if (v === 'dupes-title') return MOCK_DUPES_TITLE;
+    if (v === 'gamefolders') return MOCK_GAMEFOLDERS;
     return v && v.startsWith('/') ? v : null;
   };
   try {
@@ -291,6 +300,17 @@ interface PileFile {
   playlist?: string;
   /** What matched a duplicate copy when no bytes were compared (D19). */
   dupBasis?: 'title-id' | 'folder-tree';
+  /** What its header makes it in a game folder (game folders spec D5):
+   * used only when the plan's layout resolves the option on. */
+  gameFolder?: {
+    role: GameRole;
+    game?: string;
+    version?: string;
+    region?: Region;
+    newest?: true;
+    dlcName?: string;
+    demoOf?: string;
+  };
 }
 
 interface PileDef {
@@ -405,6 +425,35 @@ const MARIO_FACTS: MemberFactsView = {
   regions: ['world'],
   revision: 'Rev 1',
 };
+
+/** A game folders pile file (`gameFoldersFixture.ts`) as a pile file. */
+function gameFolderPile(f: GameFolderFile): PileFile {
+  if (f.left || !f.system)
+    return { name: f.name, size: f.size, ...(f.left && { left: f.left }) };
+  const file = consoleFile(
+    f.name,
+    f.size,
+    f.system,
+    f.detail ?? '',
+    f.titleId ?? null,
+    {
+      ...(f.contentId && { contentId: f.contentId }),
+      ...(f.notes && { notes: f.notes.map((n) => ({ ...n })) }),
+    },
+  );
+  if (f.of) file.baseOf = f.of;
+  if (f.role)
+    file.gameFolder = {
+      role: f.role,
+      ...(f.game && { game: f.game }),
+      ...(f.version && { version: f.version }),
+      ...(f.region && { region: f.region }),
+      ...(f.newest && { newest: f.newest }),
+      ...(f.dlcName && { dlcName: f.dlcName }),
+      ...(f.demoOf && { demoOf: f.demoOf }),
+    };
+  return file;
+}
 
 /** An adjustments pile (`adjustFixture.ts`) as pile files. */
 function adjustPile(p: AdjustPile): PileDef {
@@ -1169,6 +1218,11 @@ const PILES: readonly PileDef[] = [
     ],
   },
   ...ADJUST_PILES.map(adjustPile),
+  {
+    path: MOCK_GAMEFOLDERS,
+    files: GAME_FOLDER_FILES.map(gameFolderPile),
+    junk: [],
+  },
 ];
 
 const ARCHIVE_EXTS = ['.zip', '.7z', '.rar', '.gz', '.tgz'];
@@ -1327,6 +1381,8 @@ const stemOf = (name: string) => {
   return ext ? name.slice(0, -ext.length) : name;
 };
 const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
+/** A pile path's last part (game folders pile files sit in folders). */
+const fileName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 const under = (root: string, path: string) =>
   path === root || path.startsWith(`${root}/`);
 /** One folder holds the other (Rust `later_jobs`: under or above). */
@@ -1468,6 +1524,9 @@ interface Resolved {
   trash: boolean;
   /** The pile's quarantine folder, relative to the pile. */
   quarantine: string;
+  /** Game folders for this run: the request, else the user's override,
+   * else the layout's own value (game folders spec D1). */
+  gameFolders: boolean;
 }
 
 /** A file (or the files of an archive) an apply put in a target. */
@@ -1770,6 +1829,11 @@ export function createMockOrganize(
       duplicates: req.duplicates ?? d?.organize_step ?? 'set-aside',
       trash: d?.action === 'trash',
       quarantine: d?.quarantine_name?.trim() || '_Duplicados',
+      gameFolders:
+        req.game_folders ??
+        s.game_folders?.[id] ??
+        layout.profile.game_folders ??
+        false,
     };
   }
 
@@ -2026,6 +2090,11 @@ export function createMockOrganize(
     );
     /** Each moving item's final name, for its sibling overlays. */
     const finalNames = new Map<string, string>();
+    /** Each base's game folder (by its pile name), for its children. */
+    const gameDirs = new Map<
+      string,
+      { dir: string; game: string; id: number }
+    >();
     for (const [i, item] of items.entries()) {
       if (item.action === 'left' && item.reason.kind === 'folder-game') {
         // Move the whole folder to the system's folder of this layout.
@@ -2096,6 +2165,60 @@ export function createMockOrganize(
           ...item.notes.filter(late),
         ];
       }
+      // Game folders (spec D5, D12, D13): a base or a demo gets its own
+      // `<Game>/`, a child goes in its base's `Updates/` or `DLC/`; an
+      // update or DLC whose base is not here is reviewed.
+      const gf = r.gameFolders ? file.gameFolder : undefined;
+      if (file.gameFolder && !gf) name = fileName(source);
+      if (gf) {
+        const ext = extOf(source);
+        const own = fileName(source);
+        if (gf.role === 'base' || gf.role === 'demo') {
+          const game = gf.game ?? stemOf(own);
+          dirOf = join(dir, game);
+          name = `${game}${ext}`;
+          const prefix = `${dirOf.toLowerCase()}/`;
+          const exists = [...taken].some((k) => k.startsWith(prefix));
+          item.game = {
+            role: gf.role,
+            folder: dirOf,
+            ...(gf.region && { region: gf.region }),
+            ...(exists && { folder_exists: true }),
+            ...(gf.demoOf && { demo_of: gf.demoOf }),
+          };
+          if (gf.role === 'base')
+            gameDirs.set(source, { dir: dirOf, game, id: item.id });
+        } else {
+          const base = file.baseOf ? gameDirs.get(file.baseOf) : undefined;
+          const link = {
+            role: gf.role,
+            ...(gf.version && { version: gf.version }),
+            ...(gf.region && { region: gf.region }),
+          };
+          if (!base) {
+            item.game = link;
+            item.notes = [...item.notes, { kind: 'base-missing' }];
+            const decided = decisions.some((d) => d.item === i);
+            if (!decided) {
+              items[i] = { ...item, action: 'review', folder };
+              continue;
+            }
+          } else {
+            dirOf = join(base.dir, gf.role === 'update' ? 'Updates' : 'DLC');
+            name =
+              gf.role === 'update'
+                ? `${base.game} (v${gf.version ?? ''})${ext}`
+                : `${base.game} - ${gf.dlcName ?? stemOf(own)}${ext}`;
+            item.game = {
+              ...link,
+              of: base.id,
+              folder: base.dir,
+              ...(gf.newest && { newest_here: true }),
+            };
+          }
+        }
+        if (name !== own) rename = { kind: 'game-folder', from: own };
+      }
       // A sibling overlay keeps its base's final name (batch 3 D11).
       const base = file.sibling && file.baseOf && finalNames.get(file.baseOf);
       if (base) name = `${base}${source.slice(file.baseOf!.length)}`;
@@ -2153,7 +2276,49 @@ export function createMockOrganize(
         ...(playlist && { playlist }),
       };
     }
+    if (
+      r.gameFolders &&
+      r.mode === 'move' &&
+      volumeOf(r.source) === volumeOf(r.target)
+    )
+      licenceCompanions(items);
     return { items, files };
+  }
+
+  /**
+   * A licence left as key material goes beside the one moving item its
+   * name points at (title id, content id or stem), by a rename only
+   * (game folders D17): the item gets a licence companion, the licence
+   * row says whose it is. Two owners, or none: it stays. Never opened.
+   */
+  function licenceCompanions(items: OrganizeItem[]) {
+    for (const [pos, lic] of items.entries()) {
+      if (lic.action !== 'left' || lic.reason.kind !== 'key-material') continue;
+      const own = fileName(lic.sources[0] ?? '');
+      const stem = stemOf(own).toLowerCase();
+      if (!stem || stem === own.toLowerCase()) continue;
+      const owners = items.filter(
+        (i) =>
+          i.action === 'auto' &&
+          i.target &&
+          i.transfer.kind === 'as-is' &&
+          [i.title_id?.id, i.content_id, stemOf(fileName(i.sources[0] ?? ''))]
+            .filter((n): n is string => !!n)
+            .some((n) => n.toLowerCase() === stem),
+      );
+      if (owners.length !== 1) continue;
+      const owner = owners[0]!;
+      const target = owner.target!;
+      const dir = target.slice(0, Math.max(0, target.lastIndexOf('/')));
+      owner.companions = [
+        ...owner.companions,
+        { source: lic.sources[0]!, target: join(dir, own), licence: true },
+      ];
+      items[pos] = {
+        ...lic,
+        reason: { kind: 'licence-of', of: owner.sources[0]! },
+      } as OrganizeItem;
+    }
   }
 
   /**
