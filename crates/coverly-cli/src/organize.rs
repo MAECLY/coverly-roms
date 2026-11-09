@@ -23,11 +23,11 @@ use coverly_core::net::{PoliteHttp, UreqHttp};
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
     apply_organize, gate, large_transfer, large_transfer_threshold, load_plan, plan_from_survey,
-    resume_organize, survey, ApplyEnv, ApplyError, Choice, Decision, HugeItem, ItemKind, ItemNote,
-    ItemOutcome, ItemStatus, LargeConfirm, LargeTransfer, LeftReason, NameMode, OrganizeAction,
-    OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan,
-    OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason, SkipReason, Survey,
-    Transfer, TransferMode,
+    resume_organize, survey, ApplyEnv, ApplyError, Choice, Decision, GameLink, GameRole, HugeItem,
+    ItemKind, ItemNote, ItemOutcome, ItemStatus, LargeConfirm, LargeTransfer, LeftReason, NameMode,
+    OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase,
+    OrganizePlan, OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason,
+    SkipReason, Survey, Transfer, TransferMode,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
@@ -82,6 +82,7 @@ pub struct OrganizeArgs {
         conflicts_with_all = [
             "apply", "dry_run", "layout", "target", "flat", "copy", "move_",
             "names", "assign", "include_review", "duplicates",
+            "game_folders", "no_game_folders",
         ]
     )]
     resume: Option<String>,
@@ -95,6 +96,15 @@ pub struct OrganizeArgs {
     /// Move the items to review with their best candidate system.
     #[arg(long)]
     include_review: bool,
+    /// Give each modern game its own folder for this run, with its
+    /// updates in `Updates/` and its DLC in `DLC/` (default: the game
+    /// folders setting of the layout, else the layout's own value).
+    #[arg(long, conflicts_with = "no_game_folders")]
+    game_folders: bool,
+    /// Keep bases, updates and DLC loose in the system folder for this
+    /// run, whatever the layout or the game folders setting say.
+    #[arg(long)]
+    no_game_folders: bool,
     /// Cached catalogues only: no download, no online lookup.
     #[arg(long)]
     offline: bool,
@@ -744,13 +754,14 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         .into_iter()
         .map(|(p, _)| p)
         .collect();
-    if !profiles.iter().any(|p| p.id == opts.layout) {
+    let Some(profile) = profiles.iter().find(|p| p.id == opts.layout) else {
         return Err(Failure::usage(format!(
             "unknown layout `{}`; expected one of: {}",
             opts.layout,
             profile_ids(&cli.custom)
         )));
-    }
+    };
+    opts.game_folders = Some(game_folders_for(args, profile, s));
     let db = SystemDb::builtin();
     let mut assigned: Vec<(PathBuf, String)> = Vec::with_capacity(args.assign.len());
     for a in &args.assign {
@@ -1100,6 +1111,31 @@ fn mode_name(mode: TransferMode) -> &'static str {
     match mode {
         TransferMode::Move => "move",
         TransferMode::Copy => "copy",
+    }
+}
+
+/// Whether this run builds game folders (game folders spec D23): the
+/// flag, else the user's setting for the layout, else the layout's value.
+fn game_folders_for(args: &OrganizeArgs, profile: &Profile, settings: &Settings) -> bool {
+    if args.game_folders {
+        true
+    } else if args.no_game_folders {
+        false
+    } else {
+        profile.uses_game_folders(&settings.organize)
+    }
+}
+
+/// The version column of an update or DLC row (`v1.1.0`; D11 display
+/// form, D23), empty for every other item.
+fn version_column(item: &OrganizeItem) -> String {
+    match &item.game {
+        Some(GameLink {
+            role: GameRole::Update | GameRole::Dlc,
+            version: Some(v),
+            ..
+        }) if !v.trim().is_empty() => format!("  v{}", v.trim()),
+        _ => String::new(),
     }
 }
 
@@ -1681,9 +1717,10 @@ fn render_table(
             let why = item.why.first().map(why_text).unwrap_or_default();
             let _ = writeln!(
                 out,
-                "  {}  {}  {why}{}",
+                "  {}  {}{}  {why}{}",
                 action_label(item),
                 confidence_label(item, opts),
+                version_column(item),
                 item_extras(item)
             );
         }

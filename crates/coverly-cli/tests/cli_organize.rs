@@ -1485,3 +1485,154 @@ fn without_a_terminal_the_refusal_is_unchanged() {
         .unwrap_or_else(|| panic!("unexpected refusal: {stderr:?}"));
     assert!(!volume.is_empty() && !volume.contains('\n'), "{stderr:?}");
 }
+
+/// Pokemon Y (`CTR-P-EK2A`, region A = World) and its update (TMD title
+/// version 1040 = 1.1.0), flat in a pile (game folders spec D23).
+fn pokemon_pile() -> TempDir {
+    use coverly_core::consoles::testing as ct;
+    let tmp = TempDir::new().unwrap();
+    let base = ct::cia_with_code(0x0004_0000_0005_5D00, "CTR-P-EK2A", false, false);
+    write_old(&tmp.path().join("Pokemon Y.cia"), &base.head_bytes());
+    let mut update = ct::cia(0x0004_000E_0005_5D00, true, false);
+    update.put(ct::CIA_TMD + 0x1DC, &1040u16.to_be_bytes());
+    let mut bytes = update.head_bytes();
+    bytes.extend([1u8; 16]);
+    write_old(&tmp.path().join("0004000E00055D00.cia"), &bytes);
+    tmp
+}
+
+/// `coverly organize --offline --flat --target <lib> --layout <layout>`
+/// plus `extra`, on `pile`; returns stdout.
+fn game_folders_plan(pile: &Path, layout: &str, extra: &[&str]) -> String {
+    game_folders_plan_with(pile, layout, extra, None)
+}
+
+/// [`game_folders_plan`] with `settings` as the app's settings file.
+fn game_folders_plan_with(
+    pile: &Path,
+    layout: &str,
+    extra: &[&str],
+    settings: Option<&str>,
+) -> String {
+    let (data, cache, lib) = (
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let mut args = vec!["organize", "--offline", "--flat", "--layout", layout];
+    args.extend_from_slice(extra);
+    let mut cmd = coverly(data.path(), cache.path(), &args);
+    if let Some(json) = settings {
+        let file = data.path().join("settings.json");
+        fs::write(&file, json).unwrap();
+        cmd.env(SETTINGS_ENV, file);
+    }
+    let out = cmd
+        .arg("--target")
+        .arg(lib.path())
+        .arg(pile)
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+const NESTED_UPDATE: &str = "3DS/Pokemon Y (World)/Updates/Pokemon Y (World) (v1.1.0).cia";
+
+#[test]
+fn game_folders_flag_nests_an_update_under_a_handheld_layout() {
+    let p = pokemon_pile();
+    let off = game_folders_plan(p.path(), "anbernic-stock", &[]);
+    assert!(!off.contains("/Updates/"), "{off}");
+    let on = game_folders_plan(p.path(), "anbernic-stock", &["--game-folders"]);
+    assert!(on.contains(NESTED_UPDATE), "{on}");
+    assert!(
+        on.contains("3DS/Pokemon Y (World)/Pokemon Y (World).cia"),
+        "{on}"
+    );
+}
+
+#[test]
+fn no_game_folders_flag_keeps_the_library_layout_flat() {
+    let p = pokemon_pile();
+    let on = game_folders_plan(p.path(), "coverly-library", &[]);
+    assert!(on.contains(NESTED_UPDATE), "{on}");
+    let off = game_folders_plan(p.path(), "coverly-library", &["--no-game-folders"]);
+    assert!(!off.contains("/Updates/"), "{off}");
+    assert!(!off.contains("Pokemon Y (World)/"), "{off}");
+}
+
+#[test]
+fn game_folders_flags_are_exclusive() {
+    let (p, data, cache) = (
+        pokemon_pile(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    coverly(
+        data.path(),
+        cache.path(),
+        &[
+            "organize",
+            "--offline",
+            "--game-folders",
+            "--no-game-folders",
+        ],
+    )
+    .arg(p.path())
+    .assert()
+    .code(2)
+    .stderr(contains("cannot be used with"));
+}
+
+#[test]
+fn the_plan_table_shows_an_updates_version() {
+    let p = pokemon_pile();
+    for layout in ["coverly-library", "muos"] {
+        let out = game_folders_plan(p.path(), layout, &["--game-folders"]);
+        let row = out
+            .lines()
+            .find(|l| l.contains("0004000E00055D00.cia →"))
+            .unwrap_or_else(|| panic!("no update row in {out}"));
+        assert!(row.contains("  v1.1.0  "), "{row}");
+        let base = out
+            .lines()
+            .find(|l| l.contains("Pokemon Y.cia →"))
+            .unwrap_or_else(|| panic!("no base row in {out}"));
+        assert!(!base.contains("  v"), "{base}");
+    }
+}
+
+#[test]
+fn the_game_folders_setting_applies_and_the_flag_overrides_it() {
+    let p = pokemon_pile();
+    let on = r#"{"organize":{"game_folders":{"anbernic-stock":true}}}"#;
+    let out = game_folders_plan_with(p.path(), "anbernic-stock", &[], Some(on));
+    assert!(out.contains(NESTED_UPDATE), "{out}");
+    let out = game_folders_plan_with(p.path(), "anbernic-stock", &["--no-game-folders"], Some(on));
+    assert!(!out.contains("/Updates/"), "{out}");
+    let off = r#"{"organize":{"game_folders":{"coverly-library":false}}}"#;
+    let out = game_folders_plan_with(p.path(), "coverly-library", &[], Some(off));
+    assert!(!out.contains("/Updates/"), "{out}");
+}
+
+#[test]
+fn resume_refuses_the_game_folders_flags() {
+    let (p, data, cache) = (
+        pokemon_pile(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    for flag in ["--game-folders", "--no-game-folders"] {
+        coverly(
+            data.path(),
+            cache.path(),
+            &["organize", "--resume", "job-1", flag],
+        )
+        .arg(p.path())
+        .assert()
+        .code(2)
+        .stderr(contains("cannot be used with"));
+    }
+}
