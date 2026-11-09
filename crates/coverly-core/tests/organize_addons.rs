@@ -1198,3 +1198,40 @@ fn apply_and_undo_round_trip_with_addons() {
     assert_eq!(files_below(&lib), Vec::<Vec<String>>::new());
     assert_eq!(fs::read_dir(&lib).unwrap().count(), 0, "every folder gone");
 }
+
+#[test]
+fn a_mod_folder_still_being_written_stays_like_a_folder_game() {
+    // The folder gates of a folder game hold for a mod folder too: one
+    // written a moment ago, or holding a partial download, is not moved.
+    for (file, mtime, want) in [
+        ("a.bin", 100_000 - 5, LeftReason::RecentlyModified),
+        ("b.bin.part", 2, LeftReason::PartialDownload),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+        pokemon_with_addons(&pile);
+        put(&pile, &format!("{MON_ID}/romfs/{file}"), &[2u8; 8], mtime);
+        fs::create_dir_all(&lib).unwrap();
+        let plan = lib_plan(&pile, &lib);
+        let m = item(&plan, MON_ID);
+        assert_eq!(left(m), want, "{file}: {m:?}");
+        // The cheat beside it still goes in.
+        assert!(item(&plan, &format!("{MON_ID}.txt")).moves_in());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_mod_folder_with_a_link_inside_stays() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_with_addons(&pile);
+    std::os::unix::fs::symlink(
+        tmp.path().join("elsewhere"),
+        join(&pile, &format!("{MON_ID}/romfs/link.bin")),
+    )
+    .unwrap();
+    fs::create_dir_all(&lib).unwrap();
+    let plan = lib_plan(&pile, &lib);
+    assert_eq!(left(item(&plan, MON_ID)), LeftReason::Symlink);
+}

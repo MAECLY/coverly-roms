@@ -1502,16 +1502,46 @@ pub fn survey(
     // Every addon stays where it is, with the reason it would have if no
     // game took it, until the plan's link pass places it (mods spec D7):
     // a mod folder as one folder, an MSU-1 set as one set (D10).
+    let tree_opts = WalkOptions {
+        skip_dirs: Vec::new(),
+        roms_root: None,
+        art_dirs: &[],
+        ignored_dirs: &[],
+        now: env.now,
+        recent: Duration::from_secs(opts.recent_secs),
+        probe: env.probe,
+        max_depth: MAX_DEPTH,
+        profile: None,
+        cache: None,
+    };
     for (sources, kind, reason) in super::addons::unlinked_entries(&walked.addons) {
-        let (fps, tree) = if kind == ItemKind::Folder {
-            let tree = super::walk::tree_now(&sources[0]);
+        let (fps, tree, reason) = if kind == ItemKind::Folder {
+            let tree = super::walk::tree_summary(&sources[0], &tree_opts);
             let fp = SourceFp {
                 size: tree.bytes,
                 mtime_ns: tree.newest_mtime_ns,
             };
-            (vec![fp], Some(tree))
+            // A mod folder passes a folder game's gates before the link
+            // pass may move it (a link, a partial download, a file still
+            // being written, a cloud placeholder inside stay).
+            let reason = if tree.symlink {
+                LeftReason::Symlink
+            } else if tree.partial {
+                LeftReason::PartialDownload
+            } else if tree.recent {
+                LeftReason::RecentlyModified
+            } else if tree.cloud_only {
+                LeftReason::CloudOnly
+            } else {
+                reason
+            };
+            (vec![fp], Some(tree), reason)
         } else {
-            (sources.iter().map(|p| fp_of(p)).collect::<Vec<_>>(), None)
+            (
+                sources.iter().map(|p| fp_of(p)).collect::<Vec<_>>(),
+                None,
+                reason,
+            )
         };
         entries.push(Pending {
             entry: SurveyEntry {
