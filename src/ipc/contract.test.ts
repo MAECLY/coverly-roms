@@ -768,9 +768,10 @@ const checks: [string, readonly string[], object][] = [
   ],
   [
     'UnitRefView',
-    // `mtimes_ns` is left out for a unit of one file.
+    // `mtimes_ns` is left out for a unit of one file, `holds_children`
+    // when false (game folders D9).
     UNIT_KEYS satisfies AllKeys<
-      Omit<UnitRefView, 'mtimes_ns'>,
+      Omit<UnitRefView, 'mtimes_ns' | 'holds_children'>,
       typeof UNIT_KEYS
     >,
     sample.dedupe_plan_view.groups[0]!.members[0]!.unit,

@@ -638,7 +638,8 @@
       "userSkipped": "You asked to leave it alone",
       "chdMetadataDiffers": "Same content, different CHD metadata",
       "titleId": "Same title id; the contents were not compared",
-      "folderGame": "Game folder: reported only, never set aside"
+      "folderGame": "Game folder: reported only, never set aside",
+      "hasChildren": "Has updates or DLC in its folder: not removed"
     },
     "notRom": "Not a ROM",
     "skip": {

@@ -398,6 +398,16 @@ describe('report-only and per-level counts', () => {
     expect(REPORT_WHY_KINDS).toContain('folder-game');
   });
 
+  it('a_base_with_updates_or_dlc_says_why_it_stays', () => {
+    expect(reportWhyText(tr('es'), { kind: 'has-children' })).toBe(
+      'Tiene actualizaciones o DLC en su carpeta: no se quita',
+    );
+    expect(reportWhyText(tr('en'), { kind: 'has-children' })).toBe(
+      'Has updates or DLC in its folder: not removed',
+    );
+    expect(REPORT_WHY_KINDS).toContain('has-children');
+  });
+
   it('level_counts_count_the_copies_each_level_finds', () => {
     expect(levelCounts(dedupeFixture())).toEqual({
       exact: 85,

@@ -638,7 +638,8 @@
       "userSkipped": "Has pedido no tocarlo",
       "chdMetadataDiffers": "Mismo contenido, metadatos del CHD distintos",
       "titleId": "Mismo id de juego; el contenido no se ha comparado",
-      "folderGame": "Carpeta de juego: solo se informa, no se aparta"
+      "folderGame": "Carpeta de juego: solo se informa, no se aparta",
+      "hasChildren": "Tiene actualizaciones o DLC en su carpeta: no se quita"
     },
     "notRom": "No es una ROM",
     "skip": {

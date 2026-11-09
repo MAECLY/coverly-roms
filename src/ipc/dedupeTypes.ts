@@ -158,6 +158,7 @@ export const REPORT_WHY_KINDS = [
   'chd-metadata-differs',
   'title-id',
   'folder-game',
+  'has-children',
 ] as const;
 
 export type ReportWhyView =
@@ -175,7 +176,9 @@ export type ReportWhyView =
   /** Same console title id (plan P-6): contents never compared. */
   | { kind: 'title-id' }
   /** A folder game (D28): reported, never set aside. */
-  | { kind: 'folder-game' };
+  | { kind: 'folder-game' }
+  /** A game whose folder holds updates, DLC or saves (game folders D9): never removed. */
+  | { kind: 'has-children' };
 
 export type SaveKeyView = 'stem' | 'serial' | 'set';
 
@@ -212,6 +215,8 @@ export interface UnitRefView {
   in_library: boolean;
   /** A set's files' modification times, in `files` order; absent for one file. */
   mtimes_ns?: number[];
+  /** A game whose folder holds updates, DLC or saves (game folders D9); absent when false. */
+  holds_children?: boolean;
 }
 
 export type MediaView = 'cover' | 'screenshot' | 'title';

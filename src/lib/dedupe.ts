@@ -330,6 +330,8 @@ export function reportWhyText(t: Translate, why: ReportWhyView): string {
       return t('dedupe.report.titleId');
     case 'folder-game':
       return t('dedupe.report.folderGame');
+    case 'has-children':
+      return t('dedupe.report.hasChildren');
   }
 }
 
