@@ -141,6 +141,9 @@ export function OrganizeResult({
     ? report.moved + report.copied + report.extracted + report.set_aside
     : 0;
   const kept = report?.items.filter((o) => o.status === 'extracted-kept') ?? [];
+  // Licences whose rename failed stay beside the pile (game folders D17).
+  const licencesLeft =
+    report?.items.flatMap((o) => o.licences_left ?? []) ?? [];
   const allLost = (undo?.report ?? []).flatMap((r) => r.archive_lost);
   // Duplicates sent to the Trash are not archives with extracted files.
   const lostCopies = lostTrashedCopies(allLost, report, plan);
@@ -219,6 +222,16 @@ export function OrganizeResult({
           {kept.map((o) => (
             <li key={o.item} className={hintText}>
               {`${nameOf(o)} · ${t('organize.extract.kept')}`}
+            </li>
+          ))}
+        </ul>
+      )}
+      {licencesLeft.length > 0 && (
+        // Said in sight, by name: the plan said it would go with its game.
+        <ul className="m-0 grid list-none gap-0.5 p-0">
+          {licencesLeft.map((path) => (
+            <li key={path} className={hintText}>
+              {`${baseName(path)} · ${t('organize.licenceLeft')}`}
             </li>
           ))}
         </ul>

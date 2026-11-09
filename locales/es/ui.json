@@ -1520,6 +1520,7 @@
     },
     "copiedNotRemoved": "Copiado; el original no se pudo borrar",
     "copiedNotRemovedCount": "Copiados sin borrar el original: {count}",
+    "licenceLeft": "La licencia se quedó donde estaba: Coverly solo la mueve renombrándola",
     "stopped": "Detenido. Lo ya organizado se queda; Deshacer lo devuelve a su sitio.",
     "details": "Qué ha pasado con cada archivo",
     "outcome": {

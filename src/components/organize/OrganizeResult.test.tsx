@@ -119,6 +119,30 @@ describe('OrganizeResult', () => {
     expect(screen.getByText('#3 · Error: Write denied')).toBeInTheDocument();
   });
 
+  it('names a licence that stayed behind its moved game, in sight', () => {
+    const base = view();
+    show(
+      view({
+        report: {
+          ...base.report!,
+          items: [
+            {
+              item: 0,
+              status: 'moved',
+              targets: ['/Volumes/SD/PS3/Resistance/Resistance.pkg'],
+              licences_left: ['/Users/me/pile/BLUS30001.rap'],
+            },
+          ],
+        },
+      }),
+    );
+    expect(
+      screen.getByText(
+        'BLUS30001.rap · The licence stayed where it was: Coverly only moves it by renaming it',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('a stopped job says what stays and still offers open and undo', async () => {
     const h = show(view({ state: 'cancelled' }));
     expect(

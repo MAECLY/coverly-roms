@@ -1520,6 +1520,7 @@
     },
     "copiedNotRemoved": "Copied; the original couldn't be removed",
     "copiedNotRemovedCount": "Copied without removing the original: {count}",
+    "licenceLeft": "The licence stayed where it was: Coverly only moves it by renaming it",
     "stopped": "Stopped. What was already organised stays; Undo puts it back.",
     "details": "What happened to each file",
     "outcome": {
