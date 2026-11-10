@@ -1429,7 +1429,8 @@
     "summaryUpdates": "Incluye {count} actualizaciones o contenidos descargables",
     "summaryUpdatesOne": "Incluye 1 actualización o contenido descargable",
     "item": {
-      "folder": "Carpeta de juego"
+      "folder": "Carpeta de juego",
+      "modFolder": "Carpeta de mod"
     },
     "gameFolder": {
       "show": "Ver cómo queda la carpeta",

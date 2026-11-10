@@ -12,6 +12,7 @@ import {
   addonViaKey,
   contentIdKey,
   encryptedName,
+  isAddonItem,
   titleIdKey,
   titleSourceKey,
 } from '@/lib/organize';
@@ -20,7 +21,8 @@ import { hintText, pathText } from './styles';
 
 /**
  * A row's name. A game folder (systems batch 2 §9.1) gets the folder glyph,
- * a visually hidden «Game folder» before its name, so the glyph carries no
+ * a visually hidden «Game folder» («Mod folder» for a mod, mods spec
+ * §9.1) before its name, so the glyph carries no
  * information alone, and its size in mono right after it; `target` follows
  * as `→ path`. Any other item is its name (and target) as one path line.
  *
@@ -127,7 +129,11 @@ function Name({
         className="size-3.5 shrink-0 self-center text-cr-text-secondary"
       />
       <span>
-        <span className="sr-only">{`${t('organize.item.folder')} `}</span>
+        <span className="sr-only">{`${t(
+          isAddonItem(item)
+            ? 'organize.item.modFolder'
+            : 'organize.item.folder',
+        )} `}</span>
         {name}
       </span>
       <span className="whitespace-nowrap font-mono tabular-nums text-cr-text-secondary">

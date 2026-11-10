@@ -487,6 +487,19 @@ describe('SystemGroups — extract rows keep warnings in sight', () => {
       expect(screen.queryByText('Game folder')).toBeNull();
     });
 
+    it('a mod folder that moves is read as a mod folder', () => {
+      renderIn('en', [
+        {
+          ...autoItem(2, 'textures/BLUS30443', 'ps3', 'ps3', {}),
+          kind: 'folder',
+          size: 1_200_000,
+          game: { role: 'mod', of: 9 },
+        } as OrganizeItem,
+      ]);
+      expect(screen.getByText('Mod folder')).toHaveClass('sr-only');
+      expect(screen.queryByText('Game folder')).toBeNull();
+    });
+
     it('an update sits right under its base, whatever order it came in', () => {
       const base = autoItem(
         1,

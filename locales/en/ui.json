@@ -1429,7 +1429,8 @@
     "summaryUpdates": "Includes {count} updates or DLC",
     "summaryUpdatesOne": "Includes 1 update or DLC",
     "item": {
-      "folder": "Game folder"
+      "folder": "Game folder",
+      "modFolder": "Mod folder"
     },
     "gameFolder": {
       "show": "Show how the folder will look",

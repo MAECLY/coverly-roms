@@ -373,6 +373,23 @@ function addonWhat(link: Pick<AddonLink, 'kind' | 'format'>): string {
  * 1A2B3C4D»). `what` is a fragment to translate first (`keyedText`);
  * `format` and `key` go in mono.
  */
+/** The left reasons only a mod, patch or cheats item has (mods spec D7). */
+const ADDON_LEFT: ReadonlySet<LeftReason['kind']> = new Set([
+  'addon-unlinked',
+  'addon-no-place',
+  'addon-name-taken',
+  'addon-for-emulator',
+  'patch-not-applied',
+]);
+
+/** A mod, patch or cheats item, linked or not: a folder of one is a mod
+ * folder, never a game folder. */
+export function isAddonItem(item: OrganizeItem): boolean {
+  const role = item.game?.role;
+  if (item.game?.addon || role === 'mod' || role === 'cheat') return true;
+  return item.action === 'left' && ADDON_LEFT.has(item.reason.kind);
+}
+
 export function addonText(link: AddonLink): KeyedText {
   const what = `organize.addon.${addonWhat(link)}`;
   const format = ADDON_FORMAT_NAMES[link.format] ?? null;
