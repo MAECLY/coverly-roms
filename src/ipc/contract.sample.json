@@ -2859,6 +2859,10 @@
       "kind": "disc-set"
     }
   ],
+  "region_letter_note": {
+    "kind": "region-letter-unknown",
+    "letter": "T"
+  },
   "adjustments_playlist": {
     "path": "ROMS/Saturn/Grandia (Japan).m3u",
     "discs": [

@@ -1523,6 +1523,8 @@ fn adjustment_values_match_the_shared_sample() {
             ItemNote::ArchiveCaseCollision,
             ItemNote::DiscSet,
         ],
+        // A 3DS product code's unknown region letter (part C §5, P-1).
+        "region_letter_note": ItemNote::RegionLetterUnknown { letter: 'T' },
         "adjustments_playlist": Playlist {
             path: "ROMS/Saturn/Grandia (Japan).m3u".into(),
             discs: vec![

@@ -1552,6 +1552,9 @@ describe('adjustments contract', () => {
     expect(sample.adjustments_part_kinds).toEqual(PART_KINDS);
     expect(sample.adjustments_title_kinds).toEqual(TITLE_KINDS);
     expect(sample.adjustments_title_sources).toEqual(TITLE_SOURCES);
+    // A 3DS product code's unknown region letter (part C §5, P-1).
+    const regionNote: ItemNote = { kind: 'region-letter-unknown', letter: 'T' };
+    expect(sample.region_letter_note).toEqual(regionNote);
     // A cartridge the catalogue named: its title id from the NCA ids and
     // where its name came from (adjustments_values_match_the_shared_sample).
     const cart = sample.adjustments_catalogue_item as OrganizeItem;
