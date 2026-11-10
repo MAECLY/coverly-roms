@@ -44,6 +44,7 @@ fn run(root: &Path, probe: &dyn MetaProbe) -> Walked {
         probe,
         max_depth: 4,
         profile: None,
+        cache: None,
     };
     walk(root, &SystemDb::builtin(), &opts).unwrap()
 }
@@ -172,6 +173,7 @@ fn skip_dirs_and_roms_root() {
         probe: &NoCloud,
         max_depth: 4,
         profile: None,
+        cache: None,
     };
     let w = walk(tmp.path(), &SystemDb::builtin(), &opts).unwrap();
     let names: Vec<_> = w
@@ -202,6 +204,7 @@ fn an_unreadable_source_is_an_error() {
         probe: &NoCloud,
         max_depth: 4,
         profile: None,
+        cache: None,
     };
     assert!(walk(&tmp.path().join("missing"), &SystemDb::builtin(), &opts).is_err());
 }
@@ -236,6 +239,7 @@ fn opts_with<'a>(
         probe,
         max_depth: 4,
         profile: None,
+        cache: None,
     }
 }
 
@@ -331,6 +335,7 @@ fn a_folder_the_target_layout_names_counts_as_sorted() {
         probe: &NoCloud,
         max_depth: 4,
         profile: Some(&p),
+        cache: None,
     };
     let w = walk(tmp.path(), &SystemDb::builtin(), &opts).unwrap();
     assert!(w.candidates.is_empty());
@@ -381,6 +386,7 @@ fn dragon_folder_in_downloads_is_still_walked() {
         probe: &NoCloud,
         max_depth: 4,
         profile: Some(&p),
+        cache: None,
     };
     let w = walk(tmp.path(), &SystemDb::builtin(), &opts).unwrap();
     assert!(w.candidates.is_empty());
@@ -473,6 +479,7 @@ fn folder_game_target_follows_the_layout() {
         probe: &NoCloud,
         max_depth: 4,
         profile: Some(&p),
+        cache: None,
     };
     let w = walk(tmp.path(), &SystemDb::builtin(), &opts).unwrap();
     assert_eq!(
@@ -837,14 +844,18 @@ fn mods_beside_base_is_left_not_descended() {
         !opened.iter().any(|p| below(p, &mods)),
         "opened under -mods: {opened:?}"
     );
+    // A mod of its base (mods spec D4): an addon filed under the base,
+    // never walked.
+    assert!(w.left.is_empty(), "{:?}", w.left);
+    assert_eq!(w.addons.len(), 1, "{:?}", w.addons);
+    assert_eq!(w.addons[0].path, mods);
     assert_eq!(
-        w.left,
-        vec![(
-            mods.clone(),
-            LeftReason::GameOverlay {
-                of: "CUSA00900".into()
-            }
-        )]
+        w.addons[0].format,
+        coverly_core::addons::AddonFormat::Shadps4Mods
+    );
+    assert_eq!(
+        w.addons[0].filed_under.as_deref(),
+        Some(root.join("CUSA00900").as_path())
     );
     assert!(w.candidates.is_empty(), "{:?}", w.candidates);
     assert!(!w.other_files.iter().any(|p| below(p, &mods)));
@@ -857,11 +868,12 @@ fn mods_beside_base_is_left_not_descended() {
     ps4_app(&root.join("Bloodborne"), "CUSA00900", "gd", BLOODBORNE);
     put(root, "Bloodborne-MODS/x.bin", &[1u8; 64]);
     let w = run(root, &NoCloud);
+    assert_eq!(w.addons.len(), 1, "{:?}", w.addons);
+    assert_eq!(w.addons[0].path, root.join("Bloodborne-MODS"));
+    assert_eq!(w.addons[0].key, coverly_core::addons::AddonKey::None);
     assert_eq!(
-        reason_of(&w, "Bloodborne-MODS"),
-        Some(LeftReason::GameOverlay {
-            of: "Bloodborne".into()
-        })
+        w.addons[0].filed_under.as_deref(),
+        Some(root.join("Bloodborne").as_path())
     );
     assert!(w.candidates.is_empty(), "{:?}", w.candidates);
 }

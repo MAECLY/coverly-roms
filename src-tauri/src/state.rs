@@ -1525,6 +1525,11 @@ impl AppState {
             opts.duplicates = duplicates;
         }
         opts.offline = req.offline.unwrap_or(false);
+        // The webview picks an emulator per system, never a folder to
+        // write into: emulator data folders are CLI only (mods spec D16,
+        // Q2).
+        opts.emulators = req.emulators.clone();
+        opts.emulator_data.clear();
         Ok((source, opts))
     }
 
@@ -2287,6 +2292,39 @@ impl AppState {
 mod tests {
     use super::*;
 
+    /// Mods spec D16, Q2: the webview picks an emulator per system but can
+    /// never name a folder for Coverly to write into; an `emulator_data`
+    /// sent anyway is ignored.
+    #[test]
+    fn a_request_carries_its_emulators_and_never_an_emulator_data_folder() {
+        use coverly_core::organize::{EmulatorChoice, EmulatorId};
+
+        let req: OrganizeRequest = serde_json::from_value(serde_json::json!({
+            "source": "/pile",
+            "emulators": { "ps4": "shadps4", "switch": "none" },
+            "emulator_data": { "shadps4": "/Users/me/shadPS4" }
+        }))
+        .unwrap();
+        let (_, opts) = AppState::organize_options(&Settings::default(), &req).unwrap();
+        assert_eq!(
+            opts.emulators,
+            BTreeMap::from([
+                (
+                    "ps4".to_string(),
+                    EmulatorChoice::Emulator(EmulatorId::Shadps4)
+                ),
+                ("switch".to_string(), EmulatorChoice::None),
+            ])
+        );
+        assert!(opts.emulator_data.is_empty());
+
+        let bare: OrganizeRequest =
+            serde_json::from_value(serde_json::json!({ "source": "/pile" })).unwrap();
+        let (_, opts) = AppState::organize_options(&Settings::default(), &bare).unwrap();
+        assert!(opts.emulators.is_empty());
+        assert!(opts.emulator_data.is_empty());
+    }
+
     #[test]
     fn a_pulled_volume_is_its_own_error() {
         let e = item_error(ItemErrorKind::VolumeGone, "/sd gone");
@@ -2621,6 +2659,9 @@ mod tests {
             set_aside_trash: false,
             updates: 0,
             integration_notices: Vec::new(),
+            target_anchor: None,
+            translated: Vec::new(),
+            emulator_roots: Vec::new(),
         };
         let id = st.organize.next_id();
         st.organize.store(

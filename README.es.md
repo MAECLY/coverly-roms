@@ -634,7 +634,11 @@ candidatos e índices en caché), `--report table|json`, `--output ARCHIVO`.
 `--yes-large` (confirma un trabajo que escribe 10 GB o más), `--skip-large`
 (deja esos elementos donde están), `--game-folders`/`--no-game-folders`
 (en esta ejecución, cada juego moderno en su carpeta con `Updates/` y `DLC/`,
-o todo suelto; por defecto, lo que diga el perfil).
+o todo suelto; por defecto, lo que diga el perfil),
+`--emulator SISTEMA=EMULADOR|none` (repetible; ordena un sistema como lo
+espera ese emulador, por ejemplo `ps4=shadps4`), `--emulator-data
+EMULADOR=CARPETA` (repetible, ruta absoluta; dónde guarda ese emulador sus
+trucos, parches y mods).
 
 **`catalog switch`:** `status`, `update`, `remove`, `--data-dir CARPETA`.
 

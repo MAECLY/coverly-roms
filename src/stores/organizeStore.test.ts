@@ -12,6 +12,7 @@ import {
   MOCK_MIXED,
   MOCK_MODERN,
 } from '@/ipc/mock/mockOrganize';
+import { MOCK_MODS } from '@/ipc/mock/modsFixture';
 import type {
   OrganizeDecision,
   OrganizePlanView,
@@ -96,6 +97,44 @@ describe('organise store', () => {
     expect(store().progress).toBeNull();
     release();
     await started;
+  });
+
+  it('setEmulator re-plans with the choice for this session only', async () => {
+    const settings = await b.getSettings();
+    const sent: OrganizeRequest[] = [];
+    const plan = b.organizePlan.bind(b);
+    vi.spyOn(b, 'organizePlan').mockImplementation(async (req, dec) => {
+      sent.push(structuredClone(req));
+      return plan(req, dec);
+    });
+    await store().start(MOCK_MODS, { layout: 'esde' });
+    expect(sent.at(-1)).not.toHaveProperty('emulators');
+    await store().setEmulator('ps4', 'shadps4');
+    expect(sent.at(-1)?.emulators).toEqual({ ps4: 'shadps4' });
+    expect(
+      store().plan?.translated?.some((v) => v.emulator === 'shadps4'),
+    ).toBe(true);
+    await store().setEmulator('switch', 'none');
+    expect(sent.at(-1)?.emulators).toEqual({ ps4: 'shadps4', switch: 'none' });
+    // The default sends nothing for that system.
+    await store().setEmulator('ps4', null);
+    expect(sent.at(-1)?.emulators).toEqual({ switch: 'none' });
+    await store().setEmulator('switch', null);
+    expect(sent.at(-1)).not.toHaveProperty('emulators');
+    expect(store().request).not.toHaveProperty('emulators');
+    // Never saved: the settings are as they were.
+    expect(await b.getSettings()).toEqual(settings);
+  });
+
+  it('setEmulator does nothing when the choice is already in place', async () => {
+    await store().start(MOCK_MODS, { layout: 'esde' });
+    const before = store().planId;
+    await store().setEmulator('ps4', null);
+    expect(store().planId).toBe(before);
+    await store().setEmulator('ps4', 'shadps4');
+    const chosen = store().planId;
+    await store().setEmulator('ps4', 'shadps4');
+    expect(store().planId).toBe(chosen);
   });
 
   it('setOption re-plans and keeps decisions', async () => {

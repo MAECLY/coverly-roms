@@ -173,16 +173,15 @@ impl Writer {
     /// each folder before creating it so undo can remove the ones the job
     /// made. Folders that already exist are not journaled.
     pub fn ensure_dir(&mut self, dir: &Path) -> Result<(), WriteError> {
-        if dir == self.root {
+        if dir == self.root || self.is_extra_root(dir) {
             return Ok(());
         }
-        ensure_within(&self.root, dir)?;
+        let (dir, base) = self.within_any(dir)?;
         let mut missing = Vec::new();
-        let mut probe = Some(dir);
+        let mut probe = Some(dir.as_path());
         // Only a NotFound folder is ours (see `create_dirs`).
         while let Some(p) = probe.filter(|p| {
-            *p != self.root
-                && fs::symlink_metadata(p).is_err_and(|e| e.kind() == ErrorKind::NotFound)
+            *p != base && fs::symlink_metadata(p).is_err_and(|e| e.kind() == ErrorKind::NotFound)
         }) {
             missing.push(p.to_path_buf());
             probe = p.parent();
@@ -245,7 +244,7 @@ impl Writer {
         item: Option<usize>,
     ) -> Result<Option<PathBuf>, WriteError> {
         let from = ensure_within(&self.source_root, from)?;
-        let to = ensure_within(&self.root, to)?;
+        let to = self.ensure_within_any(to)?;
         let meta = fs::symlink_metadata(&from).map_err(|e| map_io(e, &from))?;
         if !meta.file_type().is_file() {
             return Err(WriteError::NotAFile(from));
@@ -329,7 +328,7 @@ impl Writer {
     /// An `AlreadyExists` I/O error means `from` was taken meanwhile and
     /// nothing changed.
     pub fn move_back(&mut self, to: &Path, from: &Path) -> Result<(), WriteError> {
-        let to = ensure_within(&self.root, to)?;
+        let to = self.ensure_within_any(to)?;
         let from = ensure_within(&self.source_root, from)?;
         let renamed = with_sharing_retries(|| match fault(CopyStage::Rename, &to) {
             Some(e) => Err(e),
@@ -420,7 +419,7 @@ impl Writer {
         list_target: bool,
     ) -> Result<MoveOutcome, WriteError> {
         let from = ensure_within(&self.source_root, from)?;
-        let to = ensure_within(&self.root, to)?;
+        let to = self.ensure_within_any(to)?;
         let meta = fs::symlink_metadata(&from).map_err(|e| map_io(e, &from))?;
         if !meta.file_type().is_file() {
             return Err(WriteError::NotAFile(from));
@@ -633,7 +632,7 @@ impl Writer {
         progress: &mut dyn FnMut(u64),
     ) -> Result<DirOutcome, WriteError> {
         let from = ensure_within(&self.source_root, from)?;
-        let to = ensure_within(&self.root, to)?;
+        let to = self.ensure_within_any(to)?;
         let meta = fs::symlink_metadata(&from).map_err(|e| map_io(e, &from))?;
         if !meta.is_dir() {
             return Err(not_a_folder(&from));

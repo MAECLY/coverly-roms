@@ -168,6 +168,9 @@ fn plan_of(env: &Env, mut items: Vec<OrganizeItem>, mode: TransferMode) -> Organ
         set_aside_trash: false,
         updates: 0,
         integration_notices: Vec::new(),
+        target_anchor: None,
+        translated: Vec::new(),
+        emulator_roots: Vec::new(),
     }
 }
 
@@ -400,6 +403,7 @@ fn undo_intent_without_completion_deletes_only_after_crc() {
         JobMeta {
             kind: JobKind::Organize,
             source_root: Some(env.src.clone()),
+            ..JobMeta::default()
         },
     )
     .unwrap();
@@ -457,6 +461,7 @@ fn a_rolled_back_intent_never_touches_its_target() {
         JobMeta {
             kind: JobKind::Organize,
             source_root: Some(env.src.clone()),
+            ..JobMeta::default()
         },
     )
     .unwrap();

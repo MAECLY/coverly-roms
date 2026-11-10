@@ -35,6 +35,31 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   are never moved out as loose games nor reported as copies of the game.
 - `coverly organize --game-folders` and `--no-game-folders` override the
   layout's setting for one run.
+- Mods, translation patches and cheats are recognised and linked to their
+  game without opening any key: patches (`.ips`, `.bps`, `.ups`,
+  `.xdelta`, `.ppf`) by the CRC32 of the ROM they were made for, their
+  name or their readme, minding copier headers; cheats by the game's name,
+  serial or title ID (`.cht`, `.pnach`, Dolphin and PPSSPP `.ini`, Azahar,
+  Switch, RPCS3, shadPS4 and Xenia files); texture packs, LayeredFS and
+  Atmosphère mods, Cemu graphic packs, rePatch folders, Mesen HD packs and
+  MSU-1 sets by their folder. With the «Coverly» layout Organise puts them
+  in the game's `Mods/` or `Cheats/` folder, created only when something
+  goes in, and the run can be undone. One that fits no game, or several,
+  stays where it is and the plan says why; nothing is ever deleted.
+- Emulator layouts: Organise can lay a system out for its emulator
+  (shadPS4, RPCS3, Azahar, Cemu, Vita3K, Ryujinx and yuzu, RetroArch,
+  DuckStation, PCSX2, Dolphin, PPSSPP, Xenia, Flycast, Mesen) and for
+  frontends such as ES-DE. Each system group has an «Emulator» choice and a
+  preview of how the game will look for it. Updates and DLC that an
+  emulator installs stay in the library with a note to install them there;
+  nothing is ever extracted, decrypted or installed. A patch the emulator
+  cannot use as it is, or one made for a ROM with a different header, says
+  why in the preview.
+- `coverly organize --emulator SYSTEM=EMULATOR` lays one system out for an
+  emulator (`none` keeps the library's own layout), and
+  `--emulator-data EMULATOR=DIR` names the emulator's own folder, where its
+  mods, cheats and patches go; without it they stay where they are and the
+  plan says where they belong.
 
 ### Changed
 
@@ -50,6 +75,21 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   «not a game» and left where they are.
 - Duplicates never removes a game whose folder holds updates or DLC; it only
   reports it.
+
+### Fixed
+
+- `organize --apply` into a folder that does not exist yet creates it when
+  its drive is there, instead of stopping with «volume gone»; a drive that
+  really is missing still stops the run before anything is written, and
+  undo removes the folders it created when they are empty.
+- A demo with no region in its name links to the game whose region
+  matches, else the World or USA one, not the first by name.
+- A name that already ends in a region word (`New Super Mario Bros 2 USA`)
+  is no longer given the region twice.
+- `coverly organize` no longer lists a licence that moves with its game
+  under «Staying where they are».
+- Organise's «Choose a system…» selects have an id and a name, so the
+  browser no longer reports them as unlabelled form fields.
 
 ## [0.4.0] - 2026-11-03
 

@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::archive::ContainerKind;
 use crate::settings::OrganizeSettings;
 use crate::systems::System;
+use crate::translate::EmulatorId;
 
 pub use builtin::{builtin_profiles, LIBRARY_PROFILE_ID};
 pub use detect::{detect, detect_with_fallback, Detection};
@@ -228,6 +229,11 @@ pub struct Profile {
     /// [`Profile::uses_game_folders`]). It governs only what Organizar
     /// creates: existing game folders are respected whatever it says.
     pub game_folders: bool,
+    /// The emulator Organizar lays each system out for when the run names
+    /// none (mods spec D16): system id → emulator. A default runs its
+    /// translator in the conservative scope. Empty for the library
+    /// profile, which is the master layout.
+    pub emulators: BTreeMap<String, EmulatorId>,
 }
 
 impl Profile {

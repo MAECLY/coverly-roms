@@ -22,6 +22,7 @@ import {
   type MockBackend,
   type MockOptions,
 } from './mockBackend';
+import { MOCK_MODS } from './modsFixture';
 import {
   MOCK_CURRENT,
   MOCK_CURRENT_TARGET,
@@ -2163,5 +2164,373 @@ describe('mock adjustments piles (spec §9.4)', () => {
       rescan: true,
     });
     expect(again.plan.counts.set_aside).toBe(2);
+  });
+});
+
+describe('mock mods pile (mods spec §9.3)', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  const one = (items: OrganizeItem[], name: string): OrganizeItem => {
+    const found = items.find((i) => i.sources[0] === name);
+    if (!found) throw new Error(`no item ${name}`);
+    return found;
+  };
+  const SD3 = 'Seiken Densetsu 3 (Japan).sfc';
+  const SD3_BPS = 'Seiken Densetsu 3 (Japan) [T-En by DeJap].bps';
+  const TMZ_IPS = 'TMZ English v1.01.ips';
+  const FF5 = 'Final Fantasy V (Japan).sfc';
+  const FF5_IPS = ['FF5 Restored Script.ips', 'FF5 Sound Restoration.ips'];
+  const NES_BPS = 'Mother (Japan) [T-En].bps';
+  const MGS = 'Metal Gear Solid (USA) (Disc 1).chd';
+  const POKEMON = 'Pokemon Y (World).cia';
+  const ACNH = 'Animal Crossing New Horizons [01006F8002326000].nsp';
+  const ACNH_UPD =
+    'Animal Crossing New Horizons [01006F8002326800][v1966080].nsp';
+  const ACNH_ROMFS = 'atmosphere/contents/01006F8002326000/romfs';
+  const ACNH_CHEATS =
+    'atmosphere/contents/01006F8002326000/cheats/7F6F4D3C2B1A0908.txt';
+  const GR2 = 'CUSA04943';
+  const XENO = 'Xenoblade Chronicles 3 (World)';
+
+  it('is what ?mockPick=mods opens', () => {
+    window.history.replaceState(null, '', '/?mockPick=mods');
+    expect(readMockPick()).toBe(MOCK_MODS);
+  });
+
+  it('links every spec case to its game on the Coverly layout', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({
+      source: MOCK_MODS,
+      layout: 'coverly-library',
+    });
+    const { items } = plan;
+    // Unique ids; every `game.of` is a base of the same system.
+    expect(new Set(items.map((i) => i.id)).size).toBe(items.length);
+    for (const i of items.filter((i) => i.game?.of !== undefined)) {
+      const base = items.find((b) => b.id === i.game!.of);
+      expect(base, i.sources[0]).toBeDefined();
+      expect(base!.game?.of).toBeUndefined();
+      expect(base!.system_id).toBe(i.system_id);
+    }
+    const id = (name: string) => one(items, name).id;
+
+    // SNES: a BPS by its source CRC32, an IPS by its readme; retro bases
+    // get no game folder, so they stay with their link.
+    expect(one(items, SD3_BPS)).toMatchObject({
+      action: 'left',
+      reason: { kind: 'addon-no-place', addon: 'patch' },
+      game: {
+        role: 'mod',
+        of: id(SD3),
+        addon: {
+          kind: 'patch',
+          format: 'bps',
+          key_text: 'CRC32 D0176B24',
+          via: 'source-crc',
+        },
+      },
+      notes: [{ kind: 'patch-of', of: 'Seiken Densetsu 3 (Japan)' }],
+    });
+    expect(one(items, TMZ_IPS).game?.addon).toMatchObject({
+      format: 'ips',
+      via: 'readme',
+    });
+    // NES: a headered ROM and a patch for the headerless one.
+    expect(one(items, NES_BPS)).toMatchObject({
+      game: { addon: { header: 'needs-headerless' } },
+    });
+    expect(one(items, NES_BPS).notes).toContainEqual({
+      kind: 'header-mismatch',
+      needs: 'needs-headerless',
+    });
+    // Two IPS for one ROM.
+    for (const n of FF5_IPS) expect(one(items, n).game?.of).toBe(id(FF5));
+    // PS1: cheats and a texture pack folder by serial.
+    expect(one(items, 'SLUS-00594.cht')).toMatchObject({
+      game: { role: 'cheat', of: id(MGS), addon: { key_text: 'SLUS-00594' } },
+    });
+    expect(one(items, 'textures/SLUS-00594')).toMatchObject({
+      kind: 'folder',
+      game: { role: 'mod', of: id(MGS), addon: { format: 'texture-pack' } },
+    });
+    // 3DS: the mod folder in Mods/, the cheats in Cheats/.
+    expect(one(items, 'load/mods/0004000000055D00')).toMatchObject({
+      action: 'auto',
+      kind: 'folder',
+      target: 'ROMS/3DS/Pokemon Y (World)/Mods/0004000000055D00',
+      game: {
+        role: 'mod',
+        of: id(POKEMON),
+        folder: 'ROMS/3DS/Pokemon Y (World)',
+        addon: { format: 'layered-fs', via: 'key' },
+      },
+      notes: [{ kind: 'mod-of', of: 'Pokemon Y' }],
+    });
+    expect(one(items, 'cheats/0004000000055D00.txt')).toMatchObject({
+      target: 'ROMS/3DS/Pokemon Y (World)/Cheats/0004000000055D00.txt',
+      game: { role: 'cheat', addon: { format: 'ctr-cheats' } },
+    });
+    // Switch: base, update, a romfs mod and cheats by build id.
+    const acnh = 'ROMS/SWITCH/Animal Crossing New Horizons';
+    expect(one(items, ACNH_UPD)).toMatchObject({
+      target: expect.stringContaining(`${acnh}/Updates/`),
+      game: { role: 'update', of: id(ACNH) },
+    });
+    expect(one(items, ACNH_ROMFS).target).toBe(`${acnh}/Mods/romfs`);
+    expect(one(items, ACNH_CHEATS).target).toBe(
+      `${acnh}/Cheats/7F6F4D3C2B1A0908.txt`,
+    );
+    // PS4: an extracted base is its own game folder.
+    expect(one(items, GR2)).toMatchObject({
+      kind: 'folder',
+      target: `ROMS/PS4/${GR2}`,
+      game: { role: 'base', folder: `ROMS/PS4/${GR2}` },
+    });
+    expect(one(items, `${GR2}-UPDATE`)).toMatchObject({
+      target: `ROMS/PS4/${GR2}/Updates/${GR2}-UPDATE`,
+      game: { role: 'update', of: id(GR2) },
+    });
+    expect(one(items, `${GR2}_01.03.json`)).toMatchObject({
+      target: `ROMS/PS4/${GR2}/Cheats/${GR2}_01.03.json`,
+      game: { role: 'cheat', of: id(GR2), addon: { format: 'shadps4-cheat' } },
+    });
+    // PS3: a PKG update of its PKG base.
+    expect(one(items, 'Folklore (USA) [Update v1.02].pkg').game).toMatchObject({
+      role: 'update',
+      of: id('Folklore (USA).pkg'),
+    });
+    // Unlinked: Cemu (two bases), RPCS3 (many games), an unknown IPS.
+    expect(one(items, 'graphicPacks/MK8 4K Resolution')).toMatchObject({
+      action: 'left',
+      reason: {
+        kind: 'addon-unlinked',
+        addon: 'mod',
+        format: 'cemu-graphic-pack',
+        why: { kind: 'several', count: 2 },
+      },
+    });
+    expect(
+      ['Mario Kart 8 (USA).wua', 'Mario Kart 8 (Europe).wua'].map(
+        (n) => one(items, n).action,
+      ),
+    ).toEqual(['auto', 'auto']);
+    expect(one(items, 'patch.yml')).toMatchObject({
+      reason: { kind: 'addon-unlinked', why: { kind: 'many' } },
+    });
+    expect(one(items, 'Unknown Hack v2.ips')).toMatchObject({
+      reason: { kind: 'addon-unlinked', why: { kind: 'no-match' } },
+    });
+    // A pile game folder: its Mods/ and Cheats/ follow the base.
+    const xeno = `ROMS/SWITCH/${XENO}`;
+    expect(one(items, `${XENO}/Mods/60fps`)).toMatchObject({
+      target: `${xeno}/Mods/60fps`,
+      game: { addon: { via: 'folder' } },
+    });
+    expect(one(items, `${XENO}/Cheats/A1B2C3D4E5F60718.txt`).target).toBe(
+      `${xeno}/Cheats/A1B2C3D4E5F60718.txt`,
+    );
+    // The Coverly layout has no default emulator: the master layout.
+    expect(plan.translated).toBeUndefined();
+  });
+
+  it('lays PS4 out for shadPS4 when the run chooses it', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({
+      source: MOCK_MODS,
+      layout: 'coverly-library',
+      emulators: { ps4: 'shadps4' },
+    });
+    const base = one(plan.items, GR2);
+    const view = plan.translated?.find((v) => v.system === 'ps4');
+    expect(view).toMatchObject({ emulator: 'shadps4', base: base.id });
+    expect(view!.placements).toContainEqual({
+      from: `${GR2}/Updates/${GR2}-UPDATE`,
+      to: { kind: 'system', path: `${GR2}-UPDATE` },
+    });
+    expect(view!.placements).toContainEqual(
+      expect.objectContaining({
+        to: {
+          kind: 'system',
+          path: `addcont/${GR2}/Gravity Rush 2 Raven Pack`,
+        },
+        note: {
+          kind: 'point-emulator-here',
+          emulator: 'shadps4',
+          folder: 'addcont',
+        },
+      }),
+    );
+    // The base never moves; the update goes beside it; the cheats keep
+    // their game folder place (no shadPS4 folder was named).
+    expect(base.target).toBe(`ROMS/PS4/${GR2}`);
+    expect(one(plan.items, `${GR2}-UPDATE`).target).toBe(
+      `ROMS/PS4/${GR2}-UPDATE`,
+    );
+    expect(one(plan.items, 'Gravity Rush 2 Raven Pack').notes).toContainEqual({
+      kind: 'point-emulator-here',
+      emulator: 'shadPS4',
+      folder: 'addcont',
+    });
+    expect(one(plan.items, `${GR2}_01.03.json`).target).toBe(
+      `ROMS/PS4/${GR2}/Cheats/${GR2}_01.03.json`,
+    );
+    // Only the chosen system is translated.
+    expect(plan.translated!.every((v) => v.system === 'ps4')).toBe(true);
+  });
+
+  it('keeps PS4 DLC where it is under the ES-DE default, with no addcont note', async () => {
+    // Like Rust's conservative scope: a default emulator never moves a
+    // DLC and never tells the user to point it at a folder not made.
+    const b = backend();
+    const { plan } = await b.organizePlan({
+      source: MOCK_MODS,
+      layout: 'esde',
+    });
+    const dlc = one(plan.items, 'Gravity Rush 2 Raven Pack');
+    expect(dlc.notes).not.toContainEqual(
+      expect.objectContaining({ kind: 'point-emulator-here' }),
+    );
+    const view = plan.translated?.find((v) => v.system === 'ps4');
+    for (const p of view?.placements ?? []) {
+      expect(p.note?.kind).not.toBe('point-emulator-here');
+      if (p.to.kind === 'system') expect(p.to.path).not.toMatch(/^addcont\//);
+    }
+  });
+
+  it('follows the ES-DE defaults and returns to the master layout on none', async () => {
+    const b = backend();
+    const esde = await b.organizePlan({ source: MOCK_MODS, layout: 'esde' });
+    const items = esde.plan.items;
+    // RPCS3 installs updates: the row says so, the view too.
+    const update = one(items, 'Folklore (USA) [Update v1.02].pkg');
+    expect(update.notes).toContainEqual({
+      kind: 'install-first',
+      emulator: 'RPCS3',
+    });
+    expect(
+      esde.plan.translated?.find((v) => v.system === 'ps3')?.placements,
+    ).toContainEqual({
+      from: 'Folklore (USA) [Update v1.02].pkg',
+      to: { kind: 'library' },
+      note: { kind: 'install-in-emulator', emulator: 'rpcs3' },
+    });
+    // A default emulator never renames a patch: RetroArch would apply it.
+    expect(one(items, SD3_BPS)).toMatchObject({
+      action: 'left',
+      reason: { kind: 'patch-not-applied', emulator: 'RetroArch' },
+    });
+    // Like the core's conservative scope: a patch RetroArch could not use
+    // even when chosen says why, not «choose RetroArch».
+    for (const n of FF5_IPS)
+      expect(one(items, n)).toMatchObject({
+        action: 'left',
+        reason: {
+          kind: 'not-supported',
+          emulator: 'RetroArch',
+          why: 'several-patches',
+        },
+      });
+    // Without game folders, a Switch addon goes to Ryujinx's folder,
+    // which this run did not name.
+    expect(one(items, ACNH_ROMFS)).toMatchObject({
+      action: 'left',
+      reason: {
+        kind: 'addon-for-emulator',
+        emulator: 'Ryujinx',
+        path: 'mods/contents/01006F8002326000/romfs',
+      },
+    });
+
+    const none = await b.organizePlan({
+      source: MOCK_MODS,
+      layout: 'esde',
+      emulators: { switch: 'none' },
+    });
+    expect(none.plan.translated?.some((v) => v.system === 'switch')).toBe(
+      false,
+    );
+    expect(one(none.plan.items, ACNH_ROMFS)).toMatchObject({
+      action: 'left',
+      reason: { kind: 'addon-no-place', addon: 'mod' },
+    });
+    expect(one(none.plan.items, ACNH_UPD).target).toBe(
+      one(items, ACNH_UPD).target,
+    );
+
+    const ryujinx = await b.organizePlan({
+      source: MOCK_MODS,
+      layout: 'esde',
+      emulators: { switch: 'ryujinx' },
+    });
+    expect(one(ryujinx.plan.items, ACNH_UPD).target).toBe(
+      `ROMs/switch/Updates/${ACNH_UPD}`,
+    );
+  });
+
+  it('puts a patch beside its ROM for RetroArch, and says when it cannot', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({
+      source: MOCK_MODS,
+      layout: 'esde',
+      emulators: { snes: 'retroarch', nes: 'retroarch' },
+    });
+    expect(one(plan.items, SD3_BPS)).toMatchObject({
+      action: 'auto',
+      target: 'ROMs/snes/Seiken Densetsu 3 (Japan).bps',
+    });
+    for (const n of FF5_IPS)
+      expect(one(plan.items, n)).toMatchObject({
+        action: 'left',
+        reason: {
+          kind: 'not-supported',
+          emulator: 'RetroArch',
+          why: 'several-patches',
+        },
+      });
+    const nes = plan.translated?.find((v) => v.system === 'nes');
+    expect(nes?.placements).toContainEqual({
+      from: NES_BPS,
+      to: { kind: 'library' },
+      note: { kind: 'header-mismatch', needs: 'needs-headerless' },
+    });
+  });
+
+  it('keeps the link of an addon whose game is already in the library', async () => {
+    const b = backend();
+    const { plan_id } = await b.organizePlan({
+      source: MOCK_MODS,
+      layout: 'coverly-library',
+    });
+    const done = ended(b);
+    await b.organizeApply(plan_id, []);
+    await done;
+    const { plan } = await b.organizePlan({
+      source: MOCK_MODS,
+      layout: 'coverly-library',
+      rescan: true,
+    });
+    // Nothing reads as moving without a target.
+    expect(
+      plan.items.filter((i) => i.action === 'auto' && i.target === null),
+    ).toEqual([]);
+    expect(plan.counts.auto).toBe(0);
+    // The patch still names its game; its base has no game folder.
+    const patch = one(plan.items, SD3_BPS);
+    expect(patch).toMatchObject({
+      action: 'left',
+      reason: { kind: 'addon-no-place', addon: 'patch' },
+      game: { role: 'mod', addon: { format: 'bps', via: 'source-crc' } },
+    });
+    expect(patch.game?.of).toBeUndefined();
+    expect(patch.notes).toContainEqual({
+      kind: 'patch-of',
+      of: 'Seiken Densetsu 3 (Japan)',
+    });
+    // Unlinked ones are still reported as before.
+    expect(one(plan.items, 'Unknown Hack v2.ips')).toMatchObject({
+      reason: { kind: 'addon-unlinked', why: { kind: 'no-match' } },
+    });
   });
 });

@@ -1,11 +1,16 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SystemGroups } from '@/components/organize/SystemGroups';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { groupBySystem } from '@/lib/organize';
-import type { OrganizeItem, SystemInfo, TransferMode } from '@/ipc/types';
+import type {
+  EmulatorChoice,
+  OrganizeItem,
+  SystemInfo,
+  TransferMode,
+} from '@/ipc/types';
 import { autoItem, discItem, planOf } from '@/test/organizeFixtures';
 
 const NAMES: Record<string, string> = {
@@ -194,6 +199,15 @@ describe('SystemGroups — a system the user chose', () => {
       </I18nProvider>,
     );
   }
+
+  it('gives the changeable system select an id and the name "system"', () => {
+    renderChosen(() => {});
+    const select = screen.getByRole('combobox', {
+      name: 'System for mystery.rom',
+    });
+    expect(select.id).not.toBe('');
+    expect(select).toHaveAttribute('name', 'system');
+  });
 
   it('can be changed to another system or left in place', async () => {
     const calls: [number[], unknown][] = [];
@@ -470,6 +484,19 @@ describe('SystemGroups — extract rows keep warnings in sight', () => {
 
     it('a file row has no folder label', () => {
       renderIn('en', [autoItem(1, 'Halo 3 (USA).iso', 'ps3', 'ps3', {})]);
+      expect(screen.queryByText('Game folder')).toBeNull();
+    });
+
+    it('a mod folder that moves is read as a mod folder', () => {
+      renderIn('en', [
+        {
+          ...autoItem(2, 'textures/BLUS30443', 'ps3', 'ps3', {}),
+          kind: 'folder',
+          size: 1_200_000,
+          game: { role: 'mod', of: 9 },
+        } as OrganizeItem,
+      ]);
+      expect(screen.getByText('Mod folder')).toHaveClass('sr-only');
       expect(screen.queryByText('Game folder')).toBeNull();
     });
 
@@ -826,6 +853,337 @@ describe('SystemGroups game folders (spec §9.1)', () => {
     renderEs([update!, { ...base!, companions: [] }, dlc!], new Set([0]));
     expect(
       screen.getByText('Su licencia se queda donde estaba; Coverly no la abre'),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('SystemGroups mods and cheats (mods spec §9.1)', () => {
+  const DIR = 'ROMS/3DS/Pokemon Y (World)';
+  const KEY = '0004000000055D00';
+  const pile = (): OrganizeItem[] => [
+    autoItem(4, `${KEY}.txt`, '3ds', 'ROMS/3DS', {
+      target: `${DIR}/Cheats/${KEY}.txt`,
+      notes: [{ kind: 'cheat-of', of: 'Pokemon Y' }],
+      game: {
+        role: 'cheat',
+        of: 0,
+        addon: {
+          kind: 'cheat',
+          format: 'ctr-cheats',
+          key_text: KEY,
+          via: 'key',
+        },
+      },
+    }),
+    autoItem(3, KEY, '3ds', 'ROMS/3DS', {
+      kind: 'folder',
+      target: `${DIR}/Mods/${KEY}`,
+      notes: [{ kind: 'mod-of', of: 'Pokemon Y' }],
+      game: {
+        role: 'mod',
+        of: 0,
+        addon: { kind: 'mod', format: 'layered-fs', key_text: KEY, via: 'key' },
+      },
+    }),
+    autoItem(0, 'Pokemon Y.cia', '3ds', 'ROMS/3DS', {
+      target: `${DIR}/Pokemon Y (World).cia`,
+      game: { role: 'base', folder: DIR },
+    }),
+    autoItem(1, '0004000E00055D00.cia', '3ds', 'ROMS/3DS', {
+      target: `${DIR}/Updates/Pokemon Y (World) (v1.1.0).cia`,
+      notes: [{ kind: 'update', of: 'Pokemon Y' }],
+      game: { role: 'update', of: 0, version: '1.1.0' },
+    }),
+  ];
+
+  function renderEs(items: OrganizeItem[]) {
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf(items))}
+          layoutName="Coverly"
+          systemName={(id) => id}
+          profile={null}
+        />
+      </I18nProvider>,
+    );
+  }
+
+  it('folds a mod and cheats under their game, after its update', () => {
+    renderEs(pile());
+    const rows = screen.getAllByRole('listitem');
+    const at = (text: string) =>
+      rows.findIndex((r) => r.textContent?.includes(text));
+    const order = ['Pokemon Y.cia', '/Updates/', '/Mods/', '/Cheats/'].map(at);
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('says what an addon is in words, its key in mono and the proof as text', () => {
+    renderEs(pile());
+    const mod = screen
+      .getAllByRole('listitem')
+      .find((r) => r.textContent?.includes('Mods/'))!;
+    const owner = within(mod).getByText('Mod de Pokemon Y');
+    // Whose it is comes first, before what it is and the proof.
+    expect(
+      owner.compareDocumentPosition(within(mod).getByText(/^Enlazado por/)) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const keys = within(mod).getAllByText(KEY);
+    expect(keys.some((k) => k.closest('.mono'))).toBe(true);
+    expect(mod).toHaveTextContent(`Mod · LayeredFS ${KEY}`);
+    expect(mod).toHaveTextContent(`Enlazado por ${KEY}`);
+    // The target is short, the whole path kept for its tooltip.
+    expect(within(mod).getByTitle(`${DIR}/Mods/${KEY}`)).toHaveTextContent(
+      `…/Mods/${KEY}`,
+    );
+    const cheat = screen
+      .getAllByRole('listitem')
+      .find((r) => r.textContent?.includes('Cheats/'))!;
+    expect(within(cheat).getByText('Trucos de Pokemon Y')).toBeInTheDocument();
+    expect(cheat).toHaveTextContent(`Trucos · Azahar ${KEY}`);
+  });
+
+  it('a patch says it was linked by the source ROM and which header it needs', () => {
+    const base = autoItem(0, 'Mother (Japan).nes', 'nes', 'ROMS/NES', {
+      target: 'ROMS/NES/Mother (Japan)/Mother (Japan).nes',
+      game: { role: 'base', folder: 'ROMS/NES/Mother (Japan)' },
+    });
+    const patch = autoItem(1, 'Mother (Japan) [T-En].bps', 'nes', 'ROMS/NES', {
+      target: 'ROMS/NES/Mother (Japan)/Mods/Mother (Japan) [T-En].bps',
+      notes: [
+        { kind: 'patch-of', of: 'Mother (Japan)' },
+        { kind: 'header-mismatch', needs: 'needs-headerless' },
+      ],
+      game: {
+        role: 'mod',
+        of: 0,
+        addon: {
+          kind: 'patch',
+          format: 'bps',
+          key_text: 'CRC32 7F8E1A20',
+          via: 'source-crc',
+          header: 'needs-headerless',
+        },
+      },
+    });
+    renderEs([base, patch]);
+    const row = screen
+      .getAllByRole('listitem')
+      .find((r) => r.textContent?.includes('[T-En]'))!;
+    expect(
+      within(row).getByText('Parche de Mother (Japan)'),
+    ).toBeInTheDocument();
+    expect(row).toHaveTextContent(
+      'Parche de traducción o hack · BPS CRC32 7F8E1A20',
+    );
+    expect(
+      within(row).getByText('Enlazado por el CRC32 de la ROM de origen'),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByText('Este parche espera la ROM sin cabecera'),
+    ).toBeInTheDocument();
+  });
+
+  it('a plan from before mods draws no addon line', () => {
+    renderEs(pile().slice(2));
+    expect(screen.queryByText(/^Enlazado por/)).toBeNull();
+  });
+});
+
+describe('SystemGroups: the emulator of a system', () => {
+  const ps4 = autoItem(0, 'CUSA00900', 'ps4', 'ROMS/PS4', { kind: 'folder' });
+  const odd = autoItem(1, 'thing.bin', 'nothing-runs-it', 'ROMS/ODD');
+  const ES_DE = {
+    disc_layout: { kind: 'flat' as const, m3u_for_multi: false },
+    emulators: { ps4: 'shadps4' as const },
+  };
+
+  function renderChoice(
+    props: {
+      chosen?: Record<string, EmulatorChoice>;
+      disabled?: boolean;
+      profile?: typeof ES_DE | null;
+      onEmulator?: (system: string, choice: EmulatorChoice | null) => void;
+    } = {},
+  ) {
+    const onEmulator = props.onEmulator ?? vi.fn();
+    const ui = (disabled: boolean) => (
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf([ps4, odd]))}
+          layoutName="ES-DE"
+          systemName={(id) => (id === 'ps4' ? 'PlayStation 4' : id)}
+          profile={props.profile === undefined ? ES_DE : props.profile}
+          emulators={props.chosen ?? {}}
+          onEmulator={onEmulator}
+          disabled={disabled}
+        />
+      </I18nProvider>
+    );
+    const view = render(ui(props.disabled ?? false));
+    return {
+      onEmulator,
+      rerender: (disabled: boolean) => view.rerender(ui(disabled)),
+    };
+  }
+
+  afterEach(cleanup);
+
+  it('shows a labelled select only for a system with translators', () => {
+    renderChoice();
+    const select = screen.getByRole('combobox', { name: 'Emulador' });
+    expect(select).toHaveAttribute('name', 'emulator');
+    expect(select.id).toMatch(/emulator-ps4$/);
+    // A real, visible label, and the group's system name describes it.
+    const label = document.querySelector(`label[for="${select.id}"]`);
+    expect(label).toHaveTextContent('Emulador');
+    expect(select).toHaveAccessibleDescription('PlayStation 4');
+    expect(screen.getAllByRole('combobox', { name: 'Emulador' })).toHaveLength(
+      1,
+    );
+  });
+
+  it('offers the default, every emulator of the system and none', () => {
+    renderChoice();
+    const select = screen.getByRole('combobox', { name: 'Emulador' });
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual([
+      'Predeterminado: shadPS4',
+      'shadPS4',
+      'Ninguno (estructura de la biblioteca)',
+    ]);
+    expect(select).toHaveValue('');
+  });
+
+  it('sends nothing for the default, the emulator or none when picked', async () => {
+    const { onEmulator } = renderChoice({ chosen: { ps4: 'none' } });
+    const select = screen.getByRole('combobox', { name: 'Emulador' });
+    expect(select).toHaveValue('none');
+    await userEvent.selectOptions(select, 'shadps4');
+    expect(onEmulator).toHaveBeenLastCalledWith('ps4', 'shadps4');
+    await userEvent.selectOptions(select, '');
+    expect(onEmulator).toHaveBeenLastCalledWith('ps4', null);
+  });
+
+  it('picks none explicitly', async () => {
+    const { onEmulator } = renderChoice();
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Emulador' }),
+      'none',
+    );
+    expect(onEmulator).toHaveBeenLastCalledWith('ps4', 'none');
+  });
+
+  it('without a default, none is the default and sends nothing', () => {
+    renderChoice({ profile: null });
+    const select = screen.getByRole('combobox', { name: 'Emulador' });
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => [o.getAttribute('value'), o.textContent]),
+    ).toEqual([
+      ['shadps4', 'shadPS4'],
+      ['', 'Ninguno (estructura de la biblioteca)'],
+    ]);
+    expect(select).toHaveValue('');
+  });
+
+  it('is disabled while planning and keeps focus after the re-plan', async () => {
+    const { rerender } = renderChoice();
+    const select = screen.getByRole('combobox', { name: 'Emulador' });
+    await userEvent.selectOptions(select, 'shadps4');
+    select.focus();
+    rerender(true);
+    expect(screen.getByRole('combobox', { name: 'Emulador' })).toBeDisabled();
+    rerender(false);
+    const after = screen.getByRole('combobox', { name: 'Emulador' });
+    expect(after).toBe(select);
+    expect(after).toHaveFocus();
+  });
+
+  it('draws no select without a handler (a plan shown read-only)', () => {
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf([ps4]))}
+          layoutName="ES-DE"
+          systemName={(id) => id}
+          profile={ES_DE}
+        />
+      </I18nProvider>,
+    );
+    expect(screen.queryByRole('combobox', { name: 'Emulador' })).toBeNull();
+  });
+
+  it('hands a base its translated layout for the preview', () => {
+    const base = autoItem(0, 'CUSA00900', 'ps4', 'ROMS/PS4', {
+      kind: 'folder',
+      target: 'ROMS/PS4/Bloodborne (Europe)/CUSA00900',
+      game: { role: 'base', folder: 'ROMS/PS4/Bloodborne (Europe)' },
+    });
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf([base]))}
+          layoutName="ES-DE"
+          systemName={(id) => id}
+          profile={ES_DE}
+          translated={[
+            {
+              system: 'ps4',
+              base: 0,
+              emulator: 'shadps4',
+              placements: [
+                {
+                  from: 'Bloodborne (Europe)/CUSA00900',
+                  to: { kind: 'system', path: 'CUSA00900' },
+                },
+              ],
+            },
+          ]}
+        />
+      </I18nProvider>,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Ver cómo queda para shadPS4' }),
+    ).toBeInTheDocument();
+  });
+
+  it('previews the layout of a base without a game folder too', () => {
+    // Game folders off (ES-DE): the base has no game link, only its view.
+    const base = autoItem(5, 'CUSA04943', 'ps4', 'ROMs/ps4', {
+      kind: 'folder',
+    });
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf([base]))}
+          layoutName="ES-DE"
+          systemName={(id) => id}
+          profile={ES_DE}
+          translated={[
+            {
+              system: 'ps4',
+              base: 5,
+              emulator: 'shadps4',
+              placements: [
+                {
+                  from: 'CUSA04943',
+                  to: { kind: 'system', path: 'CUSA04943' },
+                },
+              ],
+            },
+          ]}
+        />
+      </I18nProvider>,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Ver cómo queda para shadPS4' }),
     ).toBeInTheDocument();
   });
 });

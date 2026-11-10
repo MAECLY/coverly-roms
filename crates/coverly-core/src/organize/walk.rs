@@ -15,8 +15,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
+use super::addons::{
+    dir_candidate, file_candidate, is_global_db, is_msu1_piece, may_be_addon_file, may_be_mod_dir,
+    msu1_candidates, sniff_dir, sniff_file, AddonCandidate, DirAddon,
+};
 use super::plan::LeftReason;
+use crate::addons::{AddonFormat, AddonKey, AddonKind};
 use crate::archive::detect::multi_volume_part;
+use crate::cache::Cache;
 use crate::consoles::{identify_dir_on_disk, is_key_material, ConsoleId, FolderLeave};
 use crate::game_folder::{
     classify_listing, is_system_level_fixed, ChildRole, DirShape, FixedFolder, GameBase,
@@ -123,6 +129,9 @@ pub struct Walked {
     /// D7): everything found below one is a child of a game by its folder,
     /// sorted by folder.
     pub child_dirs: Vec<ChildDir>,
+    /// Patches, cheats and mods (mods spec D2–D4, D13), sorted by path:
+    /// they are neither candidates nor companions nor other files.
+    pub addons: Vec<AddonCandidate>,
 }
 
 /// An `Updates/` or `DLC/` folder the walk met in a pile directory (game
@@ -144,8 +153,14 @@ enum FixedSeen {
     /// `Updates/` or `DLC/`: walked, its items carry the role.
     Child(ChildDir),
     /// `Mods/`, `Cheats/`, `Extras/` or `Saves/` of a game folder: not
-    /// descended, one left row.
-    Content { folder: FixedFolder, of: String },
+    /// descended, one left row; the entries of `Mods/` and `Cheats/` are
+    /// addons filed under `base` (mods spec D13).
+    Content {
+        folder: FixedFolder,
+        of: String,
+        /// The game's base: its file, or the folder game itself.
+        base: PathBuf,
+    },
 }
 
 /// A folder game the walk found (spec D12, plan P-3).
@@ -257,6 +272,7 @@ pub fn tree_now_without_fixed(dir: &Path) -> TreeSummary {
         probe: &OsMetaProbe,
         max_depth: MAX_DEPTH,
         profile: None,
+        cache: None,
     };
     tree_summary_excluding(dir, &opts, &fixed)
 }
@@ -274,6 +290,7 @@ pub fn tree_now(dir: &Path) -> TreeSummary {
         probe: &OsMetaProbe,
         max_depth: MAX_DEPTH,
         profile: None,
+        cache: None,
     };
     tree_summary(dir, &opts)
 }
@@ -385,6 +402,9 @@ pub struct WalkOptions<'a> {
     /// The target layout: its own folder names count as sorted too
     /// ([`SystemDb::resolve_folder_in`]); `None` = global aliases only.
     pub profile: Option<&'a Profile>,
+    /// Where addon verdicts are memoised (mods spec D10); `None` sniffs
+    /// every time.
+    pub cache: Option<&'a Cache>,
 }
 
 /// Walks `source` without following links or crossing volumes and sorts
@@ -407,6 +427,10 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     // Fixed folders of the pile directories met so far, by path key (D7).
     let mut fixed_seen: HashMap<String, FixedSeen> = HashMap::new();
     let mut game_content: Vec<(PathBuf, LeftReason)> = Vec::new();
+    let mut addons: Vec<AddonCandidate> = Vec::new();
+    // Files that may be addons, judged once the walk knows every ROM
+    // (a same-stem patch or cheat stays a companion).
+    let mut maybe_addons: Vec<(PathBuf, fs::Metadata)> = Vec::new();
     if let Some(listed) = list_dir(source) {
         // A pile picked at a system folder (Batocera `ps4/`): its fixed
         // folders are never a game's (D3). Deeper system folders are
@@ -449,16 +473,27 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             // stay with their game, unread (game folders D7), even when the
             // name is an ignored one (`saves`).
             if !fixed_seen.is_empty() {
-                if let Some(FixedSeen::Content { folder, of }) =
+                if let Some(FixedSeen::Content { folder, of, base }) =
                     fixed_seen.get(&path_key(entry.path()))
                 {
-                    game_content.push((
-                        entry.path().to_path_buf(),
-                        LeftReason::GameFolderContent {
-                            folder: *folder,
-                            of: of.clone(),
-                        },
-                    ));
+                    // D13: what the user filed in `Mods/` and `Cheats/`
+                    // goes with the game, entry by entry.
+                    let filed = matches!(folder, FixedFolder::Mods | FixedFolder::Cheats)
+                        .then(|| filed_entries(entry.path(), *folder, of, base, opts))
+                        .flatten();
+                    match filed {
+                        Some((found, rows)) => {
+                            addons.extend(found);
+                            game_content.extend(rows);
+                        }
+                        None => game_content.push((
+                            entry.path().to_path_buf(),
+                            LeftReason::GameFolderContent {
+                                folder: *folder,
+                                of: of.clone(),
+                            },
+                        )),
+                    }
                     return false;
                 }
             }
@@ -509,11 +544,37 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             }
             let overlay = overlay_base(entry.path(), &name);
             if let Some((base, Overlay::Mods)) = &overlay {
-                left_dirs.push((
-                    entry.path().to_path_buf(),
-                    LeftReason::GameOverlay { of: base.clone() },
-                ));
+                // A shadPS4 `-mods` overlay is a mod of its base (mods
+                // spec D4), never walked.
+                match mods_overlay(entry.path(), base) {
+                    Ok(found) => addons.push(found),
+                    Err(reason) => left_dirs.push((entry.path().to_path_buf(), reason)),
+                }
                 return false;
+            }
+            // A mod folder or texture pack is one unit, never walked (D4);
+            // a mod holding key material is left whole (D18).
+            let entries: Vec<(String, bool)> = listed
+                .iter()
+                .map(|(n, _, is_file)| (n.clone(), !is_file))
+                .collect();
+            let parent = entry
+                .path()
+                .parent()
+                .and_then(Path::file_name)
+                .map(|n| n.to_string_lossy().into_owned());
+            if may_be_mod_dir(&name, parent.as_deref(), &entries) {
+                match sniff_dir(entry.path()) {
+                    DirAddon::Mod { kind, format, key } => {
+                        addons.push(dir_candidate(entry.path(), kind, format, key, None));
+                        return false;
+                    }
+                    DirAddon::HoldsKeys => {
+                        left_dirs.push((entry.path().to_path_buf(), LeftReason::KeyMaterial));
+                        return false;
+                    }
+                    DirAddon::No => {}
+                }
             }
             let names = probe_names(&listed);
             match identify_dir_on_disk(entry.path(), &names) {
@@ -606,6 +667,16 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 .push((path.to_path_buf(), LeftReason::NotARom { what }));
             continue;
         }
+        // Global cheat databases are system data (mods spec D7).
+        if is_global_db(&name) {
+            out.left.push((
+                path.to_path_buf(),
+                LeftReason::NotARom {
+                    what: crate::identify::sniff::NotARom::EmulatorConfig,
+                },
+            ));
+            continue;
+        }
         if is_partial_download(&name)
             || meta.len() == 0
             || has_partial_sibling(&mut siblings, path, &name)
@@ -661,15 +732,20 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 size: meta.len(),
                 mtime_ns: mtime_ns(mtime),
             });
-        } else if is_companion(&name, &ext)
-            || crate::organize::target::is_wbfs_part(&ext)
-            || ignored_exts.contains(&ext)
-        {
-            out.companions.push(path.to_path_buf());
+        } else if may_be_addon_file(&name) && !opts.probe.cloud_only(path, &meta) {
+            maybe_addons.push((path.to_path_buf(), meta));
         } else {
-            out.other_files.push(path.to_path_buf());
+            plain_file(&mut out, path, &name, &ext, &ignored_exts);
         }
     }
+
+    // Patches, cheats and MSU-1 sets, now that every ROM is known.
+    addons.extend(file_addons(
+        &mut out,
+        maybe_addons,
+        opts.cache,
+        &ignored_exts,
+    ));
 
     out.left
         .extend(refused_links.into_iter().map(|p| (p, LeftReason::Symlink)));
@@ -702,7 +778,233 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
         })
         .collect();
     out.child_dirs.sort_by(|a, b| a.dir.cmp(&b.dir));
+    addons.sort_by(|a, b| a.path.cmp(&b.path));
+    out.addons = addons;
     Ok(out)
+}
+
+/// A file that is neither a ROM candidate nor an addon: a companion when
+/// its extension says so, another file otherwise.
+fn plain_file(out: &mut Walked, path: &Path, name: &str, ext: &str, ignored_exts: &[String]) {
+    if is_companion(name, ext)
+        || crate::organize::target::is_wbfs_part(ext)
+        || ignored_exts.iter().any(|e| e.as_str() == ext)
+    {
+        out.companions.push(path.to_path_buf());
+    } else {
+        out.other_files.push(path.to_path_buf());
+    }
+}
+
+/// Stem of a file name (up to its last dot) as the companion pass keys
+/// it: NFC, lower case, so a same-stem patch the pass would attach is
+/// never taken for an addon.
+fn stem_key(name: &str) -> String {
+    crate::write::name_key(name.rsplit_once('.').map_or(name, |(stem, _)| stem))
+}
+
+/// Up to two parent folder names of `path`, nearest first.
+fn parent_names(path: &Path) -> Vec<String> {
+    path.ancestors()
+        .skip(1)
+        .filter_map(Path::file_name)
+        .take(2)
+        .map(|n| n.to_string_lossy().into_owned())
+        .collect()
+}
+
+/// Judges the files that may be addons (mods spec D2–D4): MSU-1 pieces
+/// are gathered by folder; a patch or cheat with the stem of a ROM beside
+/// it stays a companion (the existing companion pass keeps it); any other
+/// is sniffed (bounded reads, memoised) and becomes an addon, or a plain
+/// file when it is none. A code-text `.txt` is a cheat only when its stem
+/// is some ROM's stem (D3).
+fn file_addons(
+    out: &mut Walked,
+    files: Vec<(PathBuf, fs::Metadata)>,
+    cache: Option<&Cache>,
+    ignored_exts: &[String],
+) -> Vec<AddonCandidate> {
+    let mut found = Vec::new();
+    if files.is_empty() {
+        return found;
+    }
+    let mut stems_here: HashSet<(PathBuf, String)> = HashSet::new();
+    let mut stems: HashSet<String> = HashSet::new();
+    for c in &out.candidates {
+        let (Some(dir), Some(name)) = (c.path.parent(), c.path.file_name()) else {
+            continue;
+        };
+        let stem = stem_key(&name.to_string_lossy());
+        stems_here.insert((dir.to_path_buf(), stem.clone()));
+        stems.insert(stem);
+    }
+    let mut msu: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
+    let mut rest = Vec::new();
+    for (path, meta) in files {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        match path.parent() {
+            Some(dir) if is_msu1_piece(&name) => {
+                msu.entry(dir.to_path_buf()).or_default().push(name);
+            }
+            _ => rest.push((path, name, meta)),
+        }
+    }
+    for (dir, names) in msu {
+        let sets = msu1_candidates(&dir, &names, None);
+        let taken: HashSet<PathBuf> = sets
+            .iter()
+            .flat_map(|c| {
+                std::iter::once(c.path.clone()).chain(c.members.iter().map(|m| dir.join(m)))
+            })
+            .collect();
+        found.extend(sets);
+        for name in names {
+            let path = dir.join(&name);
+            if !taken.contains(&path) {
+                plain_file(out, &path, &name, &extension(&path), ignored_exts);
+            }
+        }
+    }
+    for (path, name, meta) in rest {
+        let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let ext = extension(&path);
+        if stems_here.contains(&(dir, stem_key(&name))) {
+            plain_file(out, &path, &name, &ext, ignored_exts);
+            continue;
+        }
+        let parents = parent_names(&path);
+        let parents: Vec<&str> = parents.iter().map(String::as_str).collect();
+        match sniff_file(&path, &meta, &parents, cache, false) {
+            Some((AddonFormat::CodeText, _)) if !stems.contains(&stem_key(&name)) => {
+                plain_file(out, &path, &name, &ext, ignored_exts);
+            }
+            Some(verdict) => found.push(file_candidate(&path, verdict, None)),
+            None => plain_file(out, &path, &name, &ext, ignored_exts),
+        }
+    }
+    found
+}
+
+/// A shadPS4 `-mods` overlay beside its base `base_name` (mods spec D4):
+/// an addon filed under the base, keyed by the title id its name holds.
+/// A folder holding key material, or a `<CUSA>-mods` folder whose tree
+/// cannot be listed whole, is left as before.
+fn mods_overlay(dir: &Path, base_name: &str) -> Result<AddonCandidate, LeftReason> {
+    let base = dir
+        .parent()
+        .map_or_else(|| PathBuf::from(base_name), |p| p.join(base_name));
+    let (kind, format, key) = match crate::addons::mods::sniff_mod_dir_on_disk(dir) {
+        Ok(crate::addons::mods::ModVerdict::HoldsKeys) => return Err(LeftReason::KeyMaterial),
+        Ok(crate::addons::mods::ModVerdict::Mod { kind, format, key }) => (kind, format, key),
+        // A `<CUSA>-mods` name is always a mod: not one means its tree
+        // could not be listed (it may hide a key).
+        _ if dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.get(..9))
+            .and_then(crate::addons::valid_sony_serial)
+            .is_some() =>
+        {
+            return Err(LeftReason::GameOverlay {
+                of: base_name.to_string(),
+            })
+        }
+        _ => (AddonKind::Mod, AddonFormat::Shadps4Mods, AddonKey::None),
+    };
+    Ok(dir_candidate(dir, kind, format, key, Some(base)))
+}
+
+/// Paths left where they are, each with its reason.
+type LeftRows = Vec<(PathBuf, LeftReason)>;
+
+/// The entries the user filed in a pile game folder's `Mods/` or
+/// `Cheats/` (mods spec D13): each patch, cheat or mod the sniff knows is
+/// an addon filed under `base`; a key is left with
+/// [`LeftReason::KeyMaterial`] (never opened); anything else stays with
+/// the folder's [`LeftReason::GameFolderContent`] row. `None` when no
+/// entry is an addon: the folder keeps its one row, as before.
+fn filed_entries(
+    dir: &Path,
+    folder: FixedFolder,
+    of: &str,
+    base: &Path,
+    opts: &WalkOptions,
+) -> Option<(Vec<AddonCandidate>, LeftRows)> {
+    let listed = list_dir(dir)?;
+    let content = || LeftReason::GameFolderContent {
+        folder,
+        of: of.to_string(),
+    };
+    let mut found = Vec::new();
+    let mut rows = Vec::new();
+    let mut msu = Vec::new();
+    for (name, path, _) in listed {
+        if is_hidden(&name) {
+            continue;
+        }
+        if is_key_material(&name) {
+            rows.push((path, LeftReason::KeyMaterial));
+            continue;
+        }
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            rows.push((path, LeftReason::Unreadable));
+            continue;
+        };
+        if meta.file_type().is_symlink() || is_reparse_point(&meta) {
+            rows.push((path, LeftReason::Symlink));
+            continue;
+        }
+        if meta.is_dir() {
+            match sniff_dir(&path) {
+                DirAddon::Mod { kind, format, key } => found.push(dir_candidate(
+                    &path,
+                    kind,
+                    format,
+                    key,
+                    Some(base.to_path_buf()),
+                )),
+                DirAddon::HoldsKeys => rows.push((path, LeftReason::KeyMaterial)),
+                DirAddon::No => rows.push((path, content())),
+            }
+            continue;
+        }
+        if is_partial_download(&name) || meta.len() == 0 || opts.probe.cloud_only(&path, &meta) {
+            rows.push((path, content()));
+            continue;
+        }
+        let mtime = meta.modified().unwrap_or(UNIX_EPOCH);
+        if is_recent(opts.now, mtime, opts.recent) {
+            rows.push((path, LeftReason::RecentlyModified));
+            continue;
+        }
+        if is_msu1_piece(&name) {
+            msu.push(name);
+            continue;
+        }
+        let parents = parent_names(&path);
+        let parents: Vec<&str> = parents.iter().map(String::as_str).collect();
+        match sniff_file(&path, &meta, &parents, opts.cache, true) {
+            Some(verdict) => found.push(file_candidate(&path, verdict, Some(base.to_path_buf()))),
+            None => rows.push((path, content())),
+        }
+    }
+    let sets = msu1_candidates(dir, &msu, Some(base));
+    let taken: HashSet<PathBuf> = sets
+        .iter()
+        .flat_map(|c| std::iter::once(c.path.clone()).chain(c.members.iter().map(|m| dir.join(m))))
+        .collect();
+    rows.extend(
+        msu.iter()
+            .map(|n| dir.join(n))
+            .filter(|p| !taken.contains(p))
+            .map(|p| (p, content())),
+    );
+    found.extend(sets);
+    (!found.is_empty()).then_some((found, rows))
 }
 
 /// Extensions a sheet's tracks use: with a sheet at a folder's root they
@@ -764,13 +1066,18 @@ fn note_fixed_folders(
         DirShape::Plain => return,
     };
     let of = base.as_ref().map(|base| match base {
-        GameBase::File(name) | GameBase::Sheet(name) => Path::new(name)
-            .file_stem()
-            .map_or_else(|| name.clone(), |s| s.to_string_lossy().into_owned()),
-        GameBase::SelfIsFolderGame => dir
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default(),
+        GameBase::File(name) | GameBase::Sheet(name) => (
+            Path::new(name)
+                .file_stem()
+                .map_or_else(|| name.clone(), |s| s.to_string_lossy().into_owned()),
+            dir.join(name),
+        ),
+        GameBase::SelfIsFolderGame => (
+            dir.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            dir.to_path_buf(),
+        ),
     });
     for (folder, spelling) in fixed {
         let path = dir.join(&spelling);
@@ -780,9 +1087,10 @@ fn note_fixed_folders(
                 role,
                 game_dir: of.as_ref().map(|_| dir.to_path_buf()),
             }),
-            (None, Some(of)) => FixedSeen::Content {
+            (None, Some((of, base))) => FixedSeen::Content {
                 folder,
                 of: of.clone(),
+                base: base.clone(),
             },
             (None, None) => continue,
         };
@@ -1229,6 +1537,7 @@ mod tests {
             probe,
             max_depth: MAX_DEPTH,
             profile: None,
+            cache: None,
         }
     }
 

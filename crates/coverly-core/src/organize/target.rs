@@ -14,7 +14,7 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::consoles::{licence_matches, LicenceKeys};
 use crate::game_folder::FixedFolder;
-use crate::identify::names::{parse_tags, Region};
+use crate::identify::names::{bare_region, parse_tags, Region};
 use crate::organize::plan::{
     Companion, ExtractEntry, GameRole, ItemKind, ItemNote, LeftReason, NameMode, OrganizeAction,
     OrganizeItem, Playlist, RenameReason, Transfer,
@@ -1440,7 +1440,9 @@ pub fn game_folder_name(
 ) -> Option<(String, bool)> {
     let stem = stem.trim();
     let wanted = match region {
-        Some(region) if parse_tags(stem).regions.is_empty() => {
+        Some(region)
+            if parse_tags(stem).regions.is_empty() && bare_region(stem) != Some(region) =>
+        {
             format!("{stem} ({})", region.no_intro_word())
         }
         _ => stem.to_string(),
@@ -1539,7 +1541,7 @@ fn safe_component(raw: &str) -> Option<String> {
 /// into and whether it was on disk: a moving folder game is its own
 /// folder; a moving base file or set its planned `game.folder`; a base
 /// already present in its game folder that folder.
-fn base_game_folder(base: &OrganizeItem) -> Option<(PathBuf, bool)> {
+pub(crate) fn base_game_folder(base: &OrganizeItem) -> Option<(PathBuf, bool)> {
     match &base.action {
         OrganizeAction::Auto | OrganizeAction::Review if base.kind == ItemKind::Folder => {
             base.target.clone().map(|t| (t, false))
@@ -1725,7 +1727,12 @@ pub fn game_children_follow(items: &mut [OrganizeItem]) {
         let Some(b) = item
             .game
             .as_ref()
-            .filter(|g| matches!(g.role, GameRole::Update | GameRole::Dlc))
+            .filter(|g| {
+                matches!(
+                    g.role,
+                    GameRole::Update | GameRole::Dlc | GameRole::Mod | GameRole::Cheat
+                )
+            })
             .and_then(|g| g.of)
             .filter(|&b| b != pos)
         else {
@@ -2194,7 +2201,7 @@ fn place_extracted(
 /// a component over 255 bytes or UTF-16 units, more than
 /// [`MAX_EXTRACT_DEPTH`] components below `dir`, or, with
 /// `windows_paths`, the path or the temp file beside it over 259 units.
-fn check_lengths(dir: &Path, path: &Path, windows_paths: bool) -> Option<LeftReason> {
+pub(crate) fn check_lengths(dir: &Path, path: &Path, windows_paths: bool) -> Option<LeftReason> {
     let below = path.strip_prefix(dir).unwrap_or(path);
     let parts: Vec<String> = below
         .components()
@@ -3008,5 +3015,29 @@ mod tests {
         assert!(cut);
         assert!(name.len() <= MAX_NAME_BYTES);
         assert!(name.ends_with(" (2).gb"));
+    }
+
+    #[test]
+    fn a_bare_region_word_is_not_doubled_in_a_game_folder_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let name = |s: &str, r| {
+            game_folder_name(s, r, tmp.path(), &mut DirIndex::new())
+                .unwrap()
+                .0
+        };
+        assert_eq!(
+            name("New Super Mario Bros 2 USA", Some(Region::Usa)),
+            "New Super Mario Bros 2 USA"
+        );
+        assert_eq!(name("Game USA", Some(Region::Europe)), "Game USA (Europe)");
+        assert_eq!(name("USA Racer", Some(Region::Usa)), "USA Racer (USA)");
+        assert_eq!(
+            name("Super Mario World", Some(Region::Usa)),
+            "Super Mario World (USA)"
+        );
+        assert_eq!(
+            name("Game USA (Demo)", Some(Region::Usa)),
+            "Game USA (Demo)"
+        );
     }
 }

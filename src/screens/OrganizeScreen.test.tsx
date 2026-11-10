@@ -21,6 +21,7 @@ import {
   MOCK_MIXED,
   MOCK_MODERN,
 } from '@/ipc/mock/mockOrganize';
+import { MOCK_MODS } from '@/ipc/mock/modsFixture';
 import type { OrganizePlanView, OrganizeRequest } from '@/ipc/types';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
@@ -243,6 +244,46 @@ describe('OrganizeScreen', () => {
     expect(
       await screen.findByText('mystery.rom → ROMS/GB/mystery.rom'),
     ).toBeInTheDocument();
+  });
+
+  it('choosing a system emulator re-plans and previews its layout', async () => {
+    useNavStore
+      .getState()
+      .openOrganize(MOCK_MODS, { layout: 'coverly-library' });
+    render(
+      <I18nProvider locale="en">
+        <OrganizeScreen />
+      </I18nProvider>,
+    );
+    await ready();
+    const ps4 = () =>
+      screen
+        .getAllByRole('combobox', { name: 'Emulator' })
+        .find((s) => s.id.endsWith('emulator-ps4'))!;
+    // The library layout has no default: none sends nothing.
+    expect(ps4()).toHaveValue('');
+    expect(
+      screen.queryByRole('button', { name: 'Show the layout for shadPS4' }),
+    ).toBeNull();
+    await userEvent.selectOptions(ps4(), 'shadps4');
+    await ready();
+    expect(useOrganizeStore.getState().request?.emulators).toEqual({
+      ps4: 'shadps4',
+    });
+    expect(ps4()).toHaveValue('shadps4');
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: 'Show the layout for shadPS4',
+      }),
+    );
+    const tree = screen.getByRole('list', {
+      name: 'Folder of CUSA04943 for shadPS4',
+    });
+    expect(within(tree).getByText('CUSA04943-UPDATE')).toBeInTheDocument();
+    // Back to the library layout: the choice goes away.
+    await userEvent.selectOptions(ps4(), '');
+    await ready();
+    expect(useOrganizeStore.getState().request).not.toHaveProperty('emulators');
   });
 
   it('changing the layout re-plans and shows esde folder names', async () => {

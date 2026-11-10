@@ -39,6 +39,7 @@ fn sample() -> ProfileFile {
         folder_stem_keeps_suffix: false,
         dlc_folder: BTreeMap::new(),
         game_folders: false,
+        emulators: Default::default(),
     }
 }
 
@@ -1016,4 +1017,65 @@ fn the_library_profile_is_never_detected() {
         found.iter().all(|d| d.profile_id != "coverly-library"),
         "{found:?}"
     );
+}
+
+// --- Default emulators (mods spec D16) ---
+
+#[test]
+fn custom_emulators_round_trip_and_are_checked_per_system() {
+    use coverly_core::translate::EmulatorId;
+    // A file from an older build has no key and loads with none.
+    let old = sample().to_toml();
+    assert!(!old.contains("emulators"), "{old}");
+    let back = ProfileFile::parse_toml(&old).unwrap();
+    assert!(back.emulators.is_empty() && back.to_profile().emulators.is_empty());
+
+    let mut p = sample();
+    p.emulators.insert("ps4".into(), "shadps4".into());
+    p.emulators.insert("snes".into(), "retroarch".into());
+    assert!(errors(&p).is_empty(), "{:?}", errors(&p));
+    let text = p.to_toml();
+    assert!(text.contains("[emulators]"), "{text}");
+    let back = ProfileFile::parse_toml(&text).unwrap();
+    assert_eq!(back.emulators, p.emulators);
+    let profile = back.to_profile();
+    assert_eq!(profile.emulators.get("ps4"), Some(&EmulatorId::Shadps4));
+    assert_eq!(ProfileFile::from_profile(&profile).emulators, p.emulators);
+
+    // An emulator that does not run the system, an unknown system, an
+    // unknown emulator: each names its `emulators.<system>` field.
+    let toml = |line: &str| {
+        let mut text = sample().to_toml();
+        text.push_str(&format!("\n[emulators]\n{line}\n"));
+        ProfileFile::parse_toml(&text).unwrap()
+    };
+    let wrong = toml(r#"ps4 = "rpcs3""#);
+    assert!(has(&wrong, "emulators.ps4", FieldErrorCode::Invalid));
+    assert!(wrong.to_profile().emulators.is_empty());
+    assert!(has(
+        &toml(r#"zzbox = "retroarch""#),
+        "emulators.zzbox",
+        FieldErrorCode::Invalid
+    ));
+    assert!(has(
+        &toml(r#"snes = "snes9x""#),
+        "emulators.snes",
+        FieldErrorCode::Unknown
+    ));
+}
+
+#[test]
+fn a_copy_of_es_de_keeps_its_default_emulators() {
+    let esde = builtin_profiles()
+        .into_iter()
+        .find(|p| p.id == "esde")
+        .unwrap();
+    let mut file = ProfileFile::from_profile(&esde);
+    file.id = "my-esde".into();
+    assert_eq!(
+        file.emulators.get("ps4").map(String::as_str),
+        Some("shadps4")
+    );
+    assert!(errors(&file).is_empty(), "{:?}", errors(&file));
+    assert_eq!(file.to_profile().emulators, esde.emulators);
 }

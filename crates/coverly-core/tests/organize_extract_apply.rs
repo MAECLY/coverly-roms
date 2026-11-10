@@ -55,6 +55,7 @@ impl Env {
             JobMeta {
                 kind: JobKind::Organize,
                 source_root: Some(self.src.clone()),
+                ..JobMeta::default()
             },
         )
         .unwrap()
@@ -867,6 +868,9 @@ mod apply_phases {
             set_aside_trash: false,
             updates: 0,
             integration_notices: Vec::new(),
+            target_anchor: None,
+            translated: Vec::new(),
+            emulator_roots: Vec::new(),
         }
     }
 

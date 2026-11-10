@@ -253,6 +253,7 @@ mod extraction {
             JobMeta {
                 kind: JobKind::Organize,
                 source_root: Some(src.to_path_buf()),
+                ..JobMeta::default()
             },
         )
         .unwrap()
@@ -399,6 +400,7 @@ mod folders {
             JobMeta {
                 kind: JobKind::Organize,
                 source_root: Some(src.path().to_path_buf()),
+                ..JobMeta::default()
             },
         )
         .unwrap();

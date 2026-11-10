@@ -381,6 +381,7 @@ fn an_organise_header_round_trips() {
         JobMeta {
             kind: JobKind::Organize,
             source_root: Some(src.clone()),
+            ..JobMeta::default()
         },
     )
     .unwrap();
@@ -411,6 +412,7 @@ fn begin_with_requires_an_absolute_source_root() {
             JobMeta {
                 kind: JobKind::Organize,
                 source_root: Some(PathBuf::from("relative/pile")),
+                ..JobMeta::default()
             },
         ),
         Err(WriteError::OutsideRoot(_))
@@ -492,6 +494,7 @@ fn extract_setup() -> (TempDir, PathBuf, PathBuf, PathBuf, Writer) {
         JobMeta {
             kind: JobKind::Organize,
             source_root: Some(src.clone()),
+            ..JobMeta::default()
         },
     )
     .unwrap();
@@ -898,6 +901,7 @@ fn dedupe_job(root: &Path, data: &Path) -> Writer {
         JobMeta {
             kind: JobKind::Dedupe,
             source_root: None,
+            ..JobMeta::default()
         },
     )
     .unwrap()
@@ -1055,4 +1059,193 @@ fn a_journal_of_an_unknown_kind_is_listed_unreadable_and_never_undone() {
     assert!(undo_job_with(&data, &job, &trash).is_err());
     assert_eq!(fs::read(&to).unwrap(), b"tetris");
     assert!(!from.exists());
+}
+
+/// `<tmp>/T` (root), `<tmp>/S` (source), `<tmp>/E` (emulator data),
+/// `<tmp>/d` (app data) and an organise writer with `E` as extra root.
+fn extra_root_setup() -> (TempDir, PathBuf, PathBuf, PathBuf, Writer) {
+    let tmp = TempDir::new().unwrap();
+    let (root, src, emu, data) = (
+        tmp.path().join("T"),
+        tmp.path().join("S"),
+        tmp.path().join("E"),
+        tmp.path().join("d"),
+    );
+    for d in [&root, &src, &emu] {
+        fs::create_dir_all(d).unwrap();
+    }
+    let w = Writer::begin_with(
+        &root,
+        &data,
+        JobMeta {
+            kind: JobKind::Organize,
+            source_root: Some(src.clone()),
+            extra_roots: vec![emu.clone()],
+            ..JobMeta::default()
+        },
+    )
+    .unwrap();
+    (tmp, root, src, emu, w)
+}
+
+#[test]
+fn ensure_within_any_accepts_the_root_or_an_extra_root_only() {
+    let (tmp, root, _src, emu, w) = extra_root_setup();
+    let in_root = root.join("ps2/x.iso");
+    assert_eq!(w.ensure_within_any(&in_root).unwrap(), in_root);
+    // A path under the extra root comes back under its canonical form.
+    let got = w
+        .ensure_within_any(&emu.join("cheats/SLUS-00594.cht"))
+        .unwrap();
+    let want = emu.canonicalize().unwrap().join("cheats/SLUS-00594.cht");
+    assert_eq!(
+        got.components().collect::<Vec<_>>(),
+        want.components().collect::<Vec<_>>()
+    );
+    let elsewhere = tmp.path().join("X");
+    fs::create_dir_all(&elsewhere).unwrap();
+    for refused in [
+        elsewhere.join("a.cht"),
+        root.clone(),
+        emu.clone(),
+        emu.join("../T/a.cht"),
+        emu.join("cheats/../../X/a.cht"),
+    ] {
+        let err = w.ensure_within_any(&refused).unwrap_err();
+        assert!(
+            matches!(err, WriteError::OutsideRoot(_)),
+            "{refused:?}: {err}"
+        );
+    }
+}
+
+#[test]
+fn begin_with_refuses_a_missing_extra_root() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path().join("T");
+    fs::create_dir_all(&root).unwrap();
+    let err = Writer::begin_with(
+        &root,
+        &tmp.path().join("d"),
+        JobMeta {
+            kind: JobKind::Organize,
+            extra_roots: vec![tmp.path().join("missing")],
+            ..JobMeta::default()
+        },
+    )
+    .err()
+    .unwrap();
+    assert!(matches!(err, WriteError::OutsideRoot(_)), "{err}");
+}
+
+#[test]
+fn a_header_with_extra_roots_parses_with_the_old_shape() {
+    // The header as builds before extra roots knew it.
+    #[allow(dead_code)]
+    #[derive(serde::Deserialize)]
+    #[serde(tag = "type", rename_all = "kebab-case")]
+    enum OldLine {
+        Header {
+            job: String,
+            root: PathBuf,
+            #[serde(default)]
+            source_root: Option<PathBuf>,
+            #[serde(default)]
+            kind: Option<String>,
+            created_at: String,
+        },
+    }
+    let (_tmp, _root, _src, emu, w) = extra_root_setup();
+    let job = w.job_id().to_string();
+    let data = w
+        .journal_path()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    drop(w);
+    let text = fs::read_to_string(data.join("jobs").join(format!("{job}.jsonl"))).unwrap();
+    let header = text.lines().next().unwrap();
+    let v: serde_json::Value = serde_json::from_str(header).unwrap();
+    let journaled = PathBuf::from(v["extra_roots"][0].as_str().unwrap());
+    assert_eq!(journaled, emu.canonicalize().unwrap());
+    let old: OldLine = serde_json::from_str(header).unwrap();
+    let OldLine::Header { job: old_job, .. } = old;
+    assert_eq!(old_job, job);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_swapped_extra_root_link_does_not_redirect_writes() {
+    let tmp = TempDir::new().unwrap();
+    let (root, src, a, b, link, data) = (
+        tmp.path().join("T"),
+        tmp.path().join("S"),
+        tmp.path().join("A"),
+        tmp.path().join("B"),
+        tmp.path().join("emu"),
+        tmp.path().join("d"),
+    );
+    for d in [&root, &src, &a, &b] {
+        fs::create_dir_all(d).unwrap();
+    }
+    std::os::unix::fs::symlink(&a, &link).unwrap();
+    let mut w = Writer::begin_with(
+        &root,
+        &data,
+        JobMeta {
+            kind: JobKind::Organize,
+            source_root: Some(src.clone()),
+            extra_roots: vec![link.clone()],
+            ..JobMeta::default()
+        },
+    )
+    .unwrap();
+    fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink(&b, &link).unwrap();
+    let from = src.join("SLUS-00594.cht");
+    fs::write(&from, b"cheat").unwrap();
+    w.move_file(
+        &from,
+        &link.join("cheats/SLUS-00594.cht"),
+        Collision::Rename,
+        None,
+    )
+    .unwrap();
+    assert_eq!(fs::read(a.join("cheats/SLUS-00594.cht")).unwrap(), b"cheat");
+    assert!(fs::read_dir(&b).unwrap().next().is_none());
+}
+
+#[test]
+fn a_target_under_an_extra_root_keeps_its_folders_as_folders() {
+    // On Windows the resolved root is verbatim (`\\?\C:\…`), where `/` is
+    // no separator: a target named with `/` must still land in `cheats`.
+    let (tmp, _root, src, emu, mut w) = extra_root_setup();
+    let got = w
+        .ensure_within_any(&emu.join("cheats/SLUS-00594.cht"))
+        .unwrap();
+    assert_eq!(got.file_name().unwrap(), "SLUS-00594.cht");
+    let parent = got.parent().unwrap();
+    assert_eq!(parent.file_name().unwrap(), "cheats");
+    assert_eq!(
+        parent.parent().unwrap().canonicalize().unwrap(),
+        emu.canonicalize().unwrap()
+    );
+
+    let from = src.join("SLUS-00594.cht");
+    fs::write(&from, b"cheat").unwrap();
+    w.move_file(
+        &from,
+        &emu.join("cheats/SLUS-00594.cht"),
+        Collision::Rename,
+        None,
+    )
+    .unwrap();
+    w.finish().unwrap();
+    assert_eq!(
+        fs::read(emu.join("cheats").join("SLUS-00594.cht")).unwrap(),
+        b"cheat"
+    );
+    drop(tmp);
 }

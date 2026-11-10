@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::consoles::{base_title_id, is_key_material, link_kind, ConsoleId, TitleKind};
-use crate::identify::names::parse_tags;
+use crate::identify::names::{parse_tags, Region};
 use crate::systems::SystemDb;
 
 /// What a fresh header read of the lookup costs against the plan's head
@@ -64,13 +64,27 @@ pub struct LibraryBase {
     pub in_game_folder: bool,
     /// The entry's name as shown (folder name, file stem).
     pub title: Option<String>,
+    /// The single region its name tags (`(USA)`), if exactly one.
+    pub region: Option<Region>,
+    /// What its header says (read only when the caller asks for ids):
+    /// the base title id, upper-case (mods spec D9).
+    pub title_id: Option<String>,
+    /// The header's serial or product code, as read.
+    pub serial: Option<String>,
+    /// The header's raw title id (a GameCube/Wii game id, a PSP disc
+    /// id), as read.
+    pub raw_id: Option<String>,
 }
 
 /// The top-level bases of one target system folder.
 #[derive(Clone, Debug, Default)]
 pub struct LibraryIndex {
     ids: HashMap<String, LibraryBase>,
-    keys: HashMap<String, LibraryBase>,
+    /// Every base by title key, in bytes order of the name.
+    keys: HashMap<String, Vec<LibraryBase>>,
+    /// Every base, demos excluded, in bytes order of the name (mods spec
+    /// D9: what an addon may link to).
+    all: Vec<LibraryBase>,
     /// The budget ran out before every header was read: a title id not
     /// found may still be there (never guessed, D13).
     pub incomplete: bool,
@@ -82,9 +96,69 @@ impl LibraryIndex {
         self.ids.get(&base_id.trim().to_ascii_uppercase())
     }
 
-    /// The base whose name has the title key `key` ([`parse_tags`]).
+    /// The base whose name has the title key `key` ([`parse_tags`]):
+    /// of several, the first by the D20 order ([`pick_by_region`]).
     pub fn by_title_key(&self, key: &str) -> Option<&LibraryBase> {
-        self.keys.get(key)
+        pick_by_region(
+            self.by_title_key_all(key),
+            None,
+            |b| b.region,
+            |b| b.title.as_deref().unwrap_or(""),
+        )
+    }
+
+    /// Every base whose name has the title key `key`.
+    pub fn by_title_key_all(&self, key: &str) -> &[LibraryBase] {
+        self.keys.get(key).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Every base of the folder, with the ids its header gave (mods spec
+    /// D9), in bytes order of the name.
+    pub fn bases(&self) -> &[LibraryBase] {
+        &self.all
+    }
+}
+
+/// Where a region falls in the preference order (mods spec D20): World,
+/// USA, Europe, Japan, then every other region.
+fn region_rank(region: Option<Region>) -> u8 {
+    match region {
+        Some(Region::World) => 1,
+        Some(Region::Usa) => 2,
+        Some(Region::Europe) => 3,
+        Some(Region::Japan) => 4,
+        _ => 5,
+    }
+}
+
+/// The base a demo links to among `cands` (mods spec D20): one whose
+/// region is `want`; else, by preference, World, USA, Europe, Japan; else
+/// the rest. Ties go by name (bytes), so the pick is deterministic.
+pub fn pick_by_region<T>(
+    cands: &[T],
+    want: Option<Region>,
+    region: impl Fn(&T) -> Option<Region>,
+    name: impl Fn(&T) -> &str,
+) -> Option<&T> {
+    let rank = |c: &T| {
+        let r = region(c);
+        if want.is_some() && r == want {
+            0
+        } else {
+            region_rank(r)
+        }
+    };
+    cands
+        .iter()
+        .min_by(|a, b| (rank(a), name(a).as_bytes()).cmp(&(rank(b), name(b).as_bytes())))
+}
+
+/// The single region a name tags (`Game (USA)`); `None` for none or
+/// several (`(USA, Europe)`).
+pub fn single_name_region(name: &str) -> Option<Region> {
+    match parse_tags(name).regions.as_slice() {
+        [r] => Some(*r),
+        _ => None,
     }
 }
 
@@ -184,9 +258,16 @@ pub fn library_bases(
     read: &mut dyn FnMut(&Path, &fs::Metadata) -> Option<Option<ConsoleId>>,
 ) -> LibraryIndex {
     let mut index = LibraryIndex::default();
+    // Weak extensions too (a PS3 `.pkg`): the header decides what it is.
     let exts: Vec<String> = db
         .get(system)
-        .map(|s| s.extensions.clone())
+        .map(|s| {
+            s.extensions
+                .iter()
+                .chain(s.weak_extensions.iter())
+                .cloned()
+                .collect()
+        })
         .unwrap_or_default();
     let Ok(listing) = fs::read_dir(system_dir) else {
         return index;
@@ -207,7 +288,7 @@ pub fn library_bases(
     // A spent budget (`incomplete`) stops every later read.
     let mut read_one =
         |path: &Path, meta: &fs::Metadata, index: &mut LibraryIndex| match read(path, meta) {
-            Some(console) => console.as_ref().and_then(base_id),
+            Some(console) => console,
             None => {
                 index.incomplete = true;
                 None
@@ -221,18 +302,7 @@ pub fn library_bases(
         } else {
             continue;
         };
-        let base = LibraryBase {
-            path: path.clone(),
-            in_game_folder: dir,
-            title: Some(shown.clone()),
-        };
-        if !has_demo_tag(&shown) {
-            let key = parse_tags(&shown).title_key;
-            if !key.is_empty() {
-                index.keys.entry(key).or_insert_with(|| base.clone());
-            }
-        }
-        let id = if !read_ids || index.incomplete {
+        let console = if !read_ids || index.incomplete {
             // Names only (demos), or the budget ran out: no header, so no
             // listing of the folder either.
             None
@@ -260,6 +330,34 @@ pub fn library_bases(
         } else {
             read_one(&path, &meta, &mut index)
         };
+        let id = console.as_ref().and_then(base_id);
+        // An addon links to a header that names no kind too (a PS3 PKG):
+        // only an update's, a DLC's or a system title's is no base.
+        let console = console.filter(|c| {
+            !matches!(
+                link_kind(c),
+                TitleKind::Update | TitleKind::Dlc | TitleKind::System
+            )
+        });
+        let base = LibraryBase {
+            path: path.clone(),
+            in_game_folder: dir,
+            title: Some(shown.clone()),
+            region: single_name_region(&shown),
+            title_id: console
+                .as_ref()
+                .and_then(base_title_id)
+                .map(|t| t.trim().to_ascii_uppercase()),
+            serial: console.as_ref().and_then(|c| c.serial.clone()),
+            raw_id: console.as_ref().and_then(|c| c.title_id.clone()),
+        };
+        if !has_demo_tag(&shown) {
+            let key = parse_tags(&shown).title_key;
+            if !key.is_empty() {
+                index.keys.entry(key).or_default().push(base.clone());
+            }
+            index.all.push(base.clone());
+        }
         if let Some(id) = id {
             index.ids.entry(id).or_insert(base);
         }
@@ -284,6 +382,51 @@ mod tests {
             parse_tags("Resistance (USA)").title_key
         );
         assert_eq!(demo_free_key("Halo (Trial)"), parse_tags("Halo").title_key);
+    }
+
+    #[test]
+    fn pick_by_region_prefers_the_match_then_world_usa_europe_japan() {
+        use Region::*;
+        type C = (&'static str, Option<Region>);
+        let pick = |v: &[C], w| pick_by_region(v, w, |x| x.1, |x| x.0).map(|x| x.0);
+        let bases: Vec<C> = vec![
+            ("Game (Japan)", Some(Japan)),
+            ("Game (USA)", Some(Usa)),
+            ("Game (Europe)", Some(Europe)),
+        ];
+        assert_eq!(pick(&bases, Some(Europe)), Some("Game (Europe)"));
+        assert_eq!(pick(&bases, None), Some("Game (USA)"));
+        assert_eq!(pick(&bases, Some(Korea)), Some("Game (USA)"));
+        assert_eq!(
+            pick(
+                &[("Game (Japan)", Some(Japan)), ("Game (World)", Some(World))],
+                None
+            ),
+            Some("Game (World)")
+        );
+        assert_eq!(
+            pick(
+                &[
+                    ("Game (Spain)", Some(Spain)),
+                    ("Game (France)", Some(France))
+                ],
+                None
+            ),
+            Some("Game (France)")
+        );
+        // Past the four, the rest (no region too) by name.
+        assert_eq!(
+            pick(&[("Game (Korea)", Some(Korea)), ("Game", None)], None),
+            Some("Game")
+        );
+        assert_eq!(pick(&[], None), None);
+    }
+
+    #[test]
+    fn single_name_region_needs_exactly_one() {
+        assert_eq!(single_name_region("Game (USA)"), Some(Region::Usa));
+        assert_eq!(single_name_region("Game (USA, Europe)"), None);
+        assert_eq!(single_name_region("Game"), None);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { Archive, ChevronRight, Folder } from 'lucide-react';
-import { useContext, useId, useMemo, useState } from 'react';
+import { useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { SystemIcon } from '@/components/system/SystemIcon';
 import { Badge } from '@/components/ui/badge';
@@ -14,10 +14,13 @@ import { NativeSelect } from '@/components/ui/select';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import type {
+  EmulatorChoice,
+  EmulatorId,
   OrganizeItem,
   ProfileFile,
   SystemInfo,
   TransferMode,
+  TranslatedGameView,
 } from '@/ipc/types';
 import { formatDecimalSize } from '@/lib/format';
 import {
@@ -25,11 +28,16 @@ import {
   actionOf,
   childTarget,
   confidenceKey,
+  defaultEmulator,
+  emulatorName,
+  emulatorsFor,
   extractDetail,
+  isOwner,
   licenceLine,
   playlistKey,
   rowNotes,
   systemDir,
+  translatedFor,
   whyKey,
   type SystemGroup,
 } from '@/lib/organize';
@@ -37,7 +45,7 @@ import { systemOptionGroups } from '@/lib/systems';
 
 import { ExtractDetail } from './ExtractDetail';
 import { GameFolderPreview } from './GameFolderPreview';
-import { ItemName, TitleIdLine } from './ItemName';
+import { AddonLine, ItemName, TitleIdLine } from './ItemName';
 import { NewBadge, NewCount, newRow, type IsNew } from './NewMarks';
 import type { OrganizeChoice } from './ReviewBuckets';
 import {
@@ -65,36 +73,54 @@ interface Props {
   isNew?: IsNew;
   /** The plan's transfer mode: what applying does with as-is items. */
   mode?: TransferMode;
-  /** The target layout, for where a disc's tracks go. */
-  profile?: Pick<ProfileFile, 'disc_layout'> | null;
+  /** The target layout, for where a disc's tracks go and the emulator
+   * each system gets by default. */
+  profile?: Pick<ProfileFile, 'disc_layout' | 'emulators'> | null;
   /** Moving items whose licence the core left in place
    * (`licencesStaying`). */
   licenceStays?: ReadonlySet<number>;
+  /** The emulator chosen per system for this run (mods spec D16). */
+  emulators?: Readonly<Record<string, EmulatorChoice>>;
+  /** Picks a system's emulator; `null` takes the layout's default. No
+   * handler, no select. */
+  onEmulator?(system: string, choice: EmulatorChoice | null): void;
+  /** The plan's games laid out for their system's emulator. */
+  translated?: readonly TranslatedGameView[];
 }
 
 interface RowProps {
   layoutName: string;
   mode?: TransferMode;
-  profile?: Pick<ProfileFile, 'disc_layout'> | null;
+  profile?: Pick<ProfileFile, 'disc_layout' | 'emulators'> | null;
   systemName(id: string): string;
   systems?: SystemInfo[];
   disabled?: boolean;
   onDecide?(itemIds: number[], choice: OrganizeChoice): void;
   isNew?: IsNew;
   licenceStays?: ReadonlySet<number>;
+  translated?: readonly TranslatedGameView[];
 }
 
 const NONE: ReadonlySet<number> = new Set();
 
 /** The items that move, one collapsible per system folder (spec §4.2.3). */
-export function SystemGroups({ groups, ...row }: Props) {
+export function SystemGroups({ groups, emulators, onEmulator, ...row }: Props) {
   const total = groups.reduce((n, g) => n + g.items.length, 0);
   // Large piles start closed so thousands of rows never reach the DOM at once.
   const startOpen = total <= ROWS_PER_GROUP;
   return (
     <div className="flex flex-col gap-2">
+      {/* The folder is a stable key: a re-plan after an emulator change
+          keeps the group, and the select its focus (§9.1). */}
       {groups.map((g) => (
-        <Group key={g.folder} group={g} startOpen={startOpen} {...row} />
+        <Group
+          key={g.folder}
+          group={g}
+          startOpen={startOpen}
+          chosen={emulators?.[g.systemId] ?? null}
+          {...(onEmulator && { onEmulator })}
+          {...row}
+        />
       ))}
     </div>
   );
@@ -103,13 +129,18 @@ export function SystemGroups({ groups, ...row }: Props) {
 function Group({
   group,
   startOpen,
+  chosen,
+  onEmulator,
   ...row
 }: RowProps & {
   group: SystemGroup;
   startOpen: boolean;
+  chosen: EmulatorChoice | null;
+  onEmulator?(system: string, choice: EmulatorChoice | null): void;
 }) {
   const t = useT();
   const id = useId();
+  const nameId = `${id}-system`;
   const [open, setOpen] = useState(startOpen);
   const [visible, setVisible] = useState(ROWS_PER_GROUP);
   const rows = group.items.slice(0, visible);
@@ -127,35 +158,49 @@ function Group({
       aria-labelledby={id}
       className={panel}
     >
-      <CollapsibleTrigger asChild>
-        <Button id={id} variant="ghost" className={groupTrigger}>
-          <ChevronRight aria-hidden className={chevron} />
-          <Folder aria-hidden className="text-cr-text-secondary" />
-          <span className="font-mono text-ui text-cr-text [overflow-wrap:anywhere]">
-            {`${dir}/ (${group.items.length})`}
-          </span>{' '}
-          {/* The spaces keep the parts apart in the accessible name; a
+      <div className="flex flex-wrap items-center gap-x-3">
+        <div className="min-w-0 flex-[1_1_20rem]">
+          <CollapsibleTrigger asChild>
+            <Button id={id} variant="ghost" className={groupTrigger}>
+              <ChevronRight aria-hidden className={chevron} />
+              <Folder aria-hidden className="text-cr-text-secondary" />
+              <span className="font-mono text-ui text-cr-text [overflow-wrap:anywhere]">
+                {`${dir}/ (${group.items.length})`}
+              </span>{' '}
+              {/* The spaces keep the parts apart in the accessible name; a
               flex row drops them from the layout. */}
-          <SystemIcon systemId={group.systemId} size={16} />
-          {/* Name and «Sin emulador» are one text run: a narrow window
+              <SystemIcon systemId={group.systemId} size={16} />
+              {/* Name and «Sin emulador» are one text run: a narrow window
               wraps them as a phrase, not as separate flex columns. */}
-          <span className="text-caption font-normal text-cr-text-secondary">
-            {row.systemName(group.systemId)}
-            {noEmulator && (
-              // A fact about the world, not a fault: no box, no warning
-              // colour; read as part of the group's name (spec §9.1).
-              <>
-                {' '}
-                <span aria-hidden>·</span>{' '}
-                <span className="whitespace-nowrap">
-                  {t('systems.noEmulator')}
-                </span>
-              </>
-            )}
-          </span>
-          <NewCount count={fresh} />
-        </Button>
-      </CollapsibleTrigger>
+              <span className="text-caption font-normal text-cr-text-secondary">
+                <span id={nameId}>{row.systemName(group.systemId)}</span>
+                {noEmulator && (
+                  // A fact about the world, not a fault: no box, no warning
+                  // colour; read as part of the group's name (spec §9.1).
+                  <>
+                    {' '}
+                    <span aria-hidden>·</span>{' '}
+                    <span className="whitespace-nowrap">
+                      {t('systems.noEmulator')}
+                    </span>
+                  </>
+                )}
+              </span>
+              <NewCount count={fresh} />
+            </Button>
+          </CollapsibleTrigger>
+        </div>
+        {onEmulator && (
+          <EmulatorField
+            system={group.systemId}
+            describedBy={nameId}
+            chosen={chosen}
+            fallback={defaultEmulator(row.profile, group.systemId)}
+            disabled={row.disabled ?? false}
+            onEmulator={onEmulator}
+          />
+        )}
+      </div>
       {/* Rows mount only while open (Radix unmounts closed content). */}
       <CollapsibleContent className="border-t border-cr-border">
         <ScrollArea aria-label={`${dir}/`} viewportClassName={listViewport}>
@@ -192,6 +237,7 @@ function Row({
   mode = 'move',
   profile,
   licenceStays = NONE,
+  translated,
   group,
 }: RowProps & { item: OrganizeItem; group: readonly OrganizeItem[] }) {
   const t = useT();
@@ -212,12 +258,22 @@ function Row({
     [changeable, systems, t, locale],
   );
   const serials = item.disc?.serials.join(', ') ?? '';
-  const notes = rowNotes(t, item, layoutName, systemName);
+  const all = rowNotes(t, item, layoutName, systemName);
+  // An addon says whose it is right under its name, before what it is
+  // (mods spec §9.1); its other notes stay where they were.
+  const owner =
+    item.game?.addon && item.notes.some(isOwner)
+      ? (all.inline[0] ?? null)
+      : null;
+  const notes = owner ? { ...all, inline: all.inline.slice(1) } : all;
   // A loose multi-disc set's new playlist (D24), under its notes.
   const playlist = playlistKey(item);
   const licence = licenceLine(item, licenceStays);
-  // A linked update or DLC shows only its fixed folder and name (§9.1).
+  // A linked update, DLC, mod or cheats shows only its fixed folder and
+  // name (§9.1).
   const short = childTarget(item);
+  // Its emulator's layout, also for a base without a game folder.
+  const view = translatedFor(translated, item.id);
   return (
     <li className={fresh ? `${fileRow} ${newRow}` : fileRow}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -228,6 +284,7 @@ function Row({
             {...(short !== item.target && { fullTarget: item.target })}
           />
           <VersionLine item={item} />
+          <AddonLine item={item} owner={owner} />
           {serials && (
             <span className="font-mono text-caption tabular-nums text-cr-text-secondary">
               {serials}
@@ -251,6 +308,8 @@ function Row({
           <NativeSelect
             size="sm"
             className="w-auto max-w-[16rem]"
+            id={`chosen-system-${item.id}`}
+            name="system"
             aria-label={t('organize.review.systemFor', { name })}
             value={item.system_id ?? ''}
             disabled={disabled}
@@ -283,8 +342,8 @@ function Row({
       ))}
       {playlist && <p className={hintText}>{t(playlist.key, playlist.vars)}</p>}
       {licence && <p className={hintText}>{t(licence.key, licence.vars)}</p>}
-      {item.game?.role === 'base' && (
-        <GameFolderPreview base={item} items={group} />
+      {(item.game?.role === 'base' || view) && (
+        <GameFolderPreview base={item} items={group} translated={view} />
       )}
       {/* An extract row folds the archive's own facts into its detail. */}
       <ExtractDetail
@@ -294,6 +353,88 @@ function Row({
         notes={notes.detail}
       />
     </li>
+  );
+}
+
+/** The default option's value: it sends nothing for the system. */
+const DEFAULT = '';
+
+/**
+ * The emulator a system is laid out for (mods spec §9.1): a small
+ * labelled select in the group header, only for a system with translators.
+ * «Predeterminado: {emulator}» sends nothing; each emulator and «Ninguno»
+ * are explicit. Without a layout default, «Ninguno» is the default. Focus
+ * comes back to it after the re-plan it started (disabled meanwhile).
+ */
+function EmulatorField({
+  system,
+  describedBy,
+  chosen,
+  fallback,
+  disabled,
+  onEmulator,
+}: {
+  system: string;
+  describedBy: string;
+  chosen: EmulatorChoice | null;
+  fallback: EmulatorId | null;
+  disabled: boolean;
+  onEmulator(system: string, choice: EmulatorChoice | null): void;
+}) {
+  const t = useT();
+  const id = `${useId()}emulator-${system}`;
+  const ref = useRef<HTMLSelectElement>(null);
+  const refocus = useRef(false);
+  const options = emulatorsFor(system);
+  useEffect(() => {
+    if (disabled || !refocus.current) return;
+    refocus.current = false;
+    const el = ref.current;
+    const active = document.activeElement;
+    // Only when disabling dropped focus to the page, never from elsewhere.
+    if (el && (active === null || active === document.body || active === el))
+      el.focus();
+  }, [disabled]);
+  if (options.length === 0) return null;
+  const none = t('organize.emulator.none');
+  const value =
+    chosen === null || (chosen === 'none' && !fallback) ? DEFAULT : chosen;
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5">
+      <label htmlFor={id} className="text-caption text-cr-text-secondary">
+        {t('organize.emulator.label')}
+      </label>
+      <NativeSelect
+        ref={ref}
+        size="sm"
+        className="w-auto max-w-[16rem]"
+        id={id}
+        name="emulator"
+        aria-describedby={describedBy}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === value) return;
+          refocus.current = true;
+          onEmulator(system, v === DEFAULT ? null : (v as EmulatorChoice));
+        }}
+      >
+        {fallback && (
+          <option value={DEFAULT}>
+            {t('organize.emulator.default', {
+              emulator: emulatorName(fallback),
+            })}
+          </option>
+        )}
+        {options.map((e) => (
+          <option key={e} value={e}>
+            {emulatorName(e)}
+          </option>
+        ))}
+        <option value={fallback ? 'none' : DEFAULT}>{none}</option>
+      </NativeSelect>
+    </div>
   );
 }
 

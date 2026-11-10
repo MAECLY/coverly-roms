@@ -2,7 +2,7 @@
 //! folder per system in the chosen layout, and show the plan (dry run).
 //! Applying the plan is `--apply` (organise jobs, undone by `coverly undo`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::io::{self, IsTerminal};
 use std::path::{Component, Path, PathBuf};
@@ -11,6 +11,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use clap::{Args, ValueEnum};
+use coverly_core::addons::{AddonFormat, AddonKind, HeaderFit, LinkVia, UnlinkedWhy};
 use coverly_core::archive::{FoundTool, Tool};
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::catalog::{SwitchCatalog, TitleNames};
@@ -23,11 +24,12 @@ use coverly_core::net::{PoliteHttp, UreqHttp};
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
     apply_organize, gate, large_transfer, large_transfer_threshold, load_plan, plan_from_survey,
-    resume_organize, survey, ApplyEnv, ApplyError, Choice, Decision, GameLink, GameRole, HugeItem,
-    ItemKind, ItemNote, ItemOutcome, ItemStatus, LargeConfirm, LargeTransfer, LeftReason, NameMode,
-    OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase,
-    OrganizePlan, OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason,
-    SkipReason, Survey, Transfer, TransferMode,
+    resume_organize, survey, ApplyEnv, ApplyError, Choice, Decision, EmulatorChoice, EmulatorId,
+    GameLink, GameRole, HugeItem, ItemKind, ItemNote, ItemOutcome, ItemStatus, LargeConfirm,
+    LargeTransfer, LeftReason, NameMode, NotSupportedWhy, OrganizeAction, OrganizeEnv,
+    OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan, OrganizeProgress,
+    OrganizeReport, OsMetaProbe, PlacementTo, PlacementView, PlanWarning, RenameReason, SkipReason,
+    Survey, Transfer, TransferMode, TranslateNote,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
@@ -82,7 +84,7 @@ pub struct OrganizeArgs {
         conflicts_with_all = [
             "apply", "dry_run", "layout", "target", "flat", "copy", "move_",
             "names", "assign", "include_review", "duplicates",
-            "game_folders", "no_game_folders",
+            "game_folders", "no_game_folders", "emulator", "emulator_data",
         ]
     )]
     resume: Option<String>,
@@ -105,6 +107,20 @@ pub struct OrganizeArgs {
     /// run, whatever the layout or the game folders setting say.
     #[arg(long)]
     no_game_folders: bool,
+    /// Lay SYSTEM out for EMULATOR in this run (`ps4=shadps4`,
+    /// `3ds=azahar`, `snes=retroarch`), or `SYSTEM=none` for the
+    /// library's own layout; a system not named uses the layout's
+    /// default. Updates and DLC that an emulator installs stay in the
+    /// library; nothing is ever extracted, decrypted or installed.
+    /// Repeatable.
+    #[arg(long = "emulator", value_name = "SYSTEM=EMULATOR")]
+    emulator: Vec<String>,
+    /// The emulator's own data folder (absolute), where its mods,
+    /// cheats and patches go (`duckstation=/path/to/duckstation`).
+    /// Without it they stay where they are and the plan says where
+    /// they belong. Repeatable.
+    #[arg(long = "emulator-data", value_name = "EMULATOR=DIR")]
+    emulator_data: Vec<String>,
     /// Cached catalogues only: no download, no online lookup.
     #[arg(long)]
     offline: bool,
@@ -218,7 +234,8 @@ fn organize_failure(e: OrganizeError) -> Failure {
         OrganizeError::SourceMissing(_) => 3,
         OrganizeError::UnknownLayout(_)
         | OrganizeError::UnknownSystem(_)
-        | OrganizeError::UnknownItem(_) => 2,
+        | OrganizeError::UnknownItem(_)
+        | OrganizeError::EmulatorData { .. } => 2,
         OrganizeError::Unreadable(..) | OrganizeError::Cancelled => 1,
     };
     Failure {
@@ -763,6 +780,14 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
     };
     opts.game_folders = Some(game_folders_for(args, profile, s));
     let db = SystemDb::builtin();
+    for e in &args.emulator {
+        let (system, choice) = parse_emulator(e, &db)?;
+        opts.emulators.insert(system, choice);
+    }
+    for e in &args.emulator_data {
+        let (emulator, dir) = parse_emulator_data(e)?;
+        opts.emulator_data.insert(emulator, dir);
+    }
     let mut assigned: Vec<(PathBuf, String)> = Vec::with_capacity(args.assign.len());
     for a in &args.assign {
         let (file, system) = parse_assign(a)?;
@@ -1007,7 +1032,7 @@ fn warn_ignored_assigns(
         }
         let why = match &item.action {
             OrganizeAction::Left { reason } => {
-                format!(": it stays where it is ({})", left_text(reason))
+                format!(": it stays where it is ({})", left_text_for(item, reason))
             }
             OrganizeAction::SetAside { keeper, .. } => {
                 format!(": it is set aside as a copy of {}", slash(keeper))
@@ -1096,6 +1121,98 @@ fn emit(
     }
 }
 
+/// The systems some emulator lays out (`--emulator`), sorted.
+fn emulator_systems(db: &SystemDb) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = EmulatorId::ALL
+        .iter()
+        .flat_map(|e| e.systems().iter().copied())
+        .filter(|s| db.get(s).is_some())
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// Every emulator id, comma-separated (`shadps4, rpcs3, …`).
+fn emulator_ids() -> String {
+    EmulatorId::ALL
+        .iter()
+        .map(|e| e.id())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// `--emulator SYSTEM=EMULATOR|none` (mods spec D24): the system id and
+/// the run's choice; an unknown system or emulator, or an emulator that
+/// does not run the system, is a usage error naming the valid ids.
+pub(crate) fn parse_emulator(s: &str, db: &SystemDb) -> Result<(String, EmulatorChoice), Failure> {
+    let Some((system, emulator)) = s
+        .split_once('=')
+        .map(|(a, b)| (a.trim().to_ascii_lowercase(), b.trim()))
+        .filter(|(a, b)| !a.is_empty() && !b.is_empty())
+    else {
+        return Err(Failure::usage(format!(
+            "--emulator expects SYSTEM=EMULATOR (or SYSTEM=none), got `{s}`"
+        )));
+    };
+    let systems = emulator_systems(db);
+    if !systems.contains(&system.as_str()) {
+        return Err(Failure::usage(format!(
+            "unknown system `{system}` in --emulator; expected one of: {}",
+            systems.join(", ")
+        )));
+    }
+    if emulator.eq_ignore_ascii_case("none") {
+        return Ok((system, EmulatorChoice::None));
+    }
+    let Some(id) = EmulatorId::from_id(emulator) else {
+        return Err(Failure::usage(format!(
+            "unknown emulator `{emulator}` in --emulator; expected one of: {}, none",
+            emulator_ids()
+        )));
+    };
+    if !id.systems().contains(&system.as_str()) {
+        let runs: Vec<&str> = EmulatorId::for_system(&system)
+            .into_iter()
+            .map(EmulatorId::id)
+            .chain(["none"])
+            .collect();
+        return Err(Failure::usage(format!(
+            "{id} does not run {system} (--emulator {system}={id}); use one of: {}",
+            runs.join(", ")
+        )));
+    }
+    Ok((system, EmulatorChoice::Emulator(id)))
+}
+
+/// `--emulator-data EMULATOR=DIR` (mods spec D24): a known emulator and
+/// an absolute folder (split on the first `=`: a path may hold one).
+pub(crate) fn parse_emulator_data(s: &str) -> Result<(EmulatorId, PathBuf), Failure> {
+    let Some((emulator, dir)) = s
+        .split_once('=')
+        .map(|(a, b)| (a.trim(), b))
+        .filter(|(a, b)| !a.is_empty() && !b.is_empty())
+    else {
+        return Err(Failure::usage(format!(
+            "--emulator-data expects EMULATOR=DIR, got `{s}`"
+        )));
+    };
+    let Some(id) = EmulatorId::from_id(emulator) else {
+        return Err(Failure::usage(format!(
+            "unknown emulator `{emulator}` in --emulator-data; expected one of: {}",
+            emulator_ids()
+        )));
+    };
+    let dir = PathBuf::from(dir);
+    if !dir.is_absolute() {
+        return Err(Failure::usage(format!(
+            "--emulator-data needs an absolute folder: `{}`",
+            dir.display()
+        )));
+    }
+    Ok((id, dir))
+}
+
 /// `path` with `/` separators, whatever the platform.
 fn slash(path: &Path) -> String {
     path.components()
@@ -1178,11 +1295,18 @@ pub(crate) fn why_text(e: &Evidence) -> String {
 
 /// Why `reason` keeps a file where it is, on one line: names read from
 /// an archive or a cue sheet cannot start a forged plan line.
+#[cfg(test)]
 pub(crate) fn left_text(reason: &LeftReason) -> String {
-    table::one_line(&left_reason_text(reason))
+    table::one_line(&left_reason_text(reason, None))
 }
 
-fn left_reason_text(reason: &LeftReason) -> String {
+/// [`left_text`] for one item: a reason that names a command line gets
+/// the item's system in it.
+pub(crate) fn left_text_for(item: &OrganizeItem, reason: &LeftReason) -> String {
+    table::one_line(&left_reason_text(reason, item.system_id.as_deref()))
+}
+
+fn left_reason_text(reason: &LeftReason, system: Option<&str>) -> String {
     match reason {
         LeftReason::PartialDownload => "download not finished".into(),
         LeftReason::RecentlyModified => "modified moments ago, may still be written".into(),
@@ -1276,6 +1400,277 @@ fn left_reason_text(reason: &LeftReason) -> String {
             "kept in place: the {} folder of {of} stays for now",
             fixed_folder_name(*folder)
         ),
+        LeftReason::AddonUnlinked { kind, format, why } => {
+            let what = format!("{}, {}", addon_kind_name(*kind), addon_format_name(*format));
+            match why {
+                UnlinkedWhy::NoMatch | UnlinkedWhy::NoKey => {
+                    format!("its game is unknown: stays here ({what})")
+                }
+                UnlinkedWhy::Several { count } => format!("fits {count} games: stays here"),
+                UnlinkedWhy::Many { count } => {
+                    format!("holds patches for {count} games: stays here")
+                }
+                UnlinkedWhy::Budget => {
+                    format!("its game could not be checked in time: stays here ({what})")
+                }
+                UnlinkedWhy::Partial => format!("only part of a mod: stays here ({what})"),
+            }
+        }
+        LeftReason::AddonNameTaken { .. } => {
+            "a file with that name is already in its folder".into()
+        }
+        LeftReason::AddonNoPlace { kind } => format!(
+            "this layout has no folder for its game's {}: stays here",
+            match kind {
+                AddonKind::Cheat => "cheats",
+                AddonKind::Patch | AddonKind::Mod => "mods",
+            }
+        ),
+        LeftReason::AddonForEmulator { emulator, path } => format!(
+            "goes in {emulator}'s folder: {} (pass --emulator-data)",
+            slash(path)
+        ),
+        LeftReason::NotSupported { emulator, why } => format!(
+            "{emulator} does not use it like this: {}",
+            not_supported_text(*why)
+        ),
+        LeftReason::PatchNotApplied { emulator } => {
+            let id = EmulatorId::ALL
+                .into_iter()
+                .find(|e| e.display_name() == emulator.as_str())
+                .map_or_else(|| emulator.to_lowercase(), |e| e.id().to_string());
+            format!(
+                "{emulator} would apply it when you play: pass --emulator {}={id}",
+                system.unwrap_or("<system>")
+            )
+        }
+    }
+}
+
+/// What an addon is, in a left reason (the core has no UI strings).
+fn addon_kind_name(kind: AddonKind) -> &'static str {
+    match kind {
+        AddonKind::Patch => "Translation patch",
+        AddonKind::Cheat => "Cheats",
+        AddonKind::Mod => "Mod",
+    }
+}
+
+/// An addon format's short name: product and format names, never
+/// translated.
+fn addon_format_name(format: AddonFormat) -> &'static str {
+    use AddonFormat as F;
+    match format {
+        F::Bps => "BPS",
+        F::Ups => "UPS",
+        F::Ips => "IPS",
+        F::Xdelta => "xdelta",
+        F::Ppf => "PPF",
+        F::Aps => "APS",
+        F::RetroArchCht => "RetroArch .cht",
+        F::FceuxCht => "FCEUX .cht",
+        F::DuckStationCht => "DuckStation .cht",
+        F::Pnach => "PCSX2 .pnach",
+        F::DolphinIni => "Dolphin .ini",
+        F::PpssppIni => "PPSSPP .ini",
+        F::CtrCheats => "3DS cheats",
+        F::SwitchCheats => "Switch cheats",
+        F::Pchtxt => "IPSwitch .pchtxt",
+        F::Rpcs3Patch => "RPCS3 patch",
+        F::Shadps4Cheat => "shadPS4 cheats",
+        F::Shadps4Patch => "shadPS4 patch",
+        F::XeniaPatch => "Xenia patch",
+        F::Vita3kPatch => "Vita3K patch",
+        F::MelonDsCheats => "melonDS cheats",
+        F::MgbaCheats => "mGBA cheats",
+        F::DesmumeCheats => "DeSmuME cheats",
+        F::CodeText => "cheat codes",
+        F::TexturePack => "texture pack",
+        F::DolphinGraphicMod => "Dolphin graphics mod",
+        F::Riivolution => "Riivolution",
+        F::LayeredFs => "LayeredFS mod",
+        F::SwitchMod => "Switch mod",
+        F::ExefsPatches => "ExeFS patches",
+        F::CemuGraphicPack => "Cemu graphic pack",
+        F::VitaRepatch => "rePatch",
+        F::MesenHdPack => "Mesen HD pack",
+        F::Msu1 => "MSU-1",
+        F::XeniaPlugin => "Xenia plugin",
+        F::N64HiresTextures => "N64 hi-res textures",
+        F::Shadps4Mods => "shadPS4 mods",
+    }
+}
+
+/// What an addon row is: its kind, or the format family when that says
+/// more (texture packs, emulator patches).
+fn addon_label(kind: AddonKind, format: AddonFormat) -> &'static str {
+    use AddonFormat as F;
+    match format {
+        F::TexturePack | F::N64HiresTextures => "Texture pack",
+        F::Rpcs3Patch
+        | F::Shadps4Patch
+        | F::XeniaPatch
+        | F::Vita3kPatch
+        | F::Pchtxt
+        | F::ExefsPatches => "Emulator patches",
+        _ => addon_kind_name(kind),
+    }
+}
+
+/// How an addon was linked to its game (spec §10).
+fn via_text(via: LinkVia, key: &str) -> String {
+    match via {
+        LinkVia::SourceCrc => "linked by the source ROM's CRC32".into(),
+        LinkVia::Dat => "linked by CRC32 and the DAT".into(),
+        LinkVia::Name => "linked by its name".into(),
+        LinkVia::Readme => "linked by its readme".into(),
+        LinkVia::Key => format!("linked by {}", table::one_line(key)),
+        LinkVia::Folder => "it was already in the game's folder".into(),
+    }
+}
+
+/// An addon's base, when it moves in this plan into the same system
+/// folder: the addon is then printed under it. `by_id` indexes the
+/// plan's items by id (built once per render: a pile can hold tens of
+/// thousands of items).
+fn nested_base<'a>(
+    by_id: &HashMap<usize, &'a OrganizeItem>,
+    item: &OrganizeItem,
+) -> Option<&'a OrganizeItem> {
+    let link = item.game.as_ref()?;
+    if !matches!(link.role, GameRole::Mod | GameRole::Cheat) {
+        return None;
+    }
+    let base = *by_id.get(&link.of?)?;
+    // An addon bound for the emulator's own data folder (an absolute
+    // target) still reads under its game; `addon_dest` prints the path.
+    let elsewhere = item.target.as_deref().is_some_and(Path::is_absolute);
+    (base.action == OrganizeAction::Auto && (elsewhere || system_dir(base) == system_dir(item)))
+        .then_some(base)
+}
+
+/// Where an addon goes, seen from its game: `Mods/`, `beside it`, or the
+/// whole path when it lands elsewhere (an emulator's data folder).
+fn addon_dest(item: &OrganizeItem, base: &OrganizeItem) -> String {
+    let Some(target) = item.target.as_deref() else {
+        return String::new();
+    };
+    if target.is_absolute() {
+        return table::one_line(&target.display().to_string());
+    }
+    let parent = target.parent().unwrap_or(Path::new(""));
+    let game_dir = base
+        .game
+        .as_ref()
+        .and_then(|g| g.folder.clone())
+        .or_else(|| {
+            base.target
+                .as_deref()
+                .and_then(Path::parent)
+                .map(Path::to_path_buf)
+        })
+        .unwrap_or_default();
+    match parent.strip_prefix(&game_dir) {
+        Ok(rel) if rel.as_os_str().is_empty() => "beside it".into(),
+        Ok(rel) => format!("{}/", slash(rel)),
+        Err(_) => format!("{}/", slash(parent)),
+    }
+}
+
+/// `    + Mod  0004000000055D00/ (folder)  → Mods/  (linked by …)`.
+fn addon_row(item: &OrganizeItem, base: &OrganizeItem) -> String {
+    let (label, via) = item
+        .game
+        .as_ref()
+        .and_then(|g| g.addon.as_ref())
+        .map(|a| (addon_label(a.kind, a.format), via_text(a.via, &a.key_text)))
+        .unwrap_or_else(|| {
+            let kind = match item.game.as_ref().map(|g| g.role) {
+                Some(GameRole::Cheat) => AddonKind::Cheat,
+                _ => AddonKind::Mod,
+            };
+            (addon_kind_name(kind), "linked to its game".into())
+        });
+    format!(
+        "    + {label}  {}  → {}  ({via}){}",
+        source_label(item),
+        addon_dest(item, base),
+        item_extras_with(item, true)
+    )
+}
+
+/// What a translator says about one placement (mods spec D14, D24).
+fn translate_note_text(note: &TranslateNote) -> String {
+    match note {
+        TranslateNote::InstallInEmulator { emulator } => format!(
+            "{} installs it; it does not open from the folder",
+            emulator.display_name()
+        ),
+        TranslateNote::ExtractFirst => {
+            "this package does not open as is: it has to be extracted first".into()
+        }
+        TranslateNote::NotSupported { emulator, why } => format!(
+            "{} does not use it like this: {}",
+            emulator.display_name(),
+            not_supported_text(*why)
+        ),
+        TranslateNote::HeaderMismatch { needs } => {
+            note_text(&ItemNote::HeaderMismatch { needs: *needs })
+                .unwrap_or_else(|| "the patch fits the ROM as it is".into())
+        }
+        TranslateNote::PointEmulatorHere { emulator, folder } => format!(
+            "point {} at this folder: {}",
+            emulator.display_name(),
+            slash(folder)
+        ),
+        TranslateNote::PatchNotApplied { emulator } => {
+            format!("{} would apply it when you play", emulator.display_name())
+        }
+    }
+}
+
+/// The layouts the plan made for an emulator (mods spec D16), one block
+/// per emulator and system.
+fn translated_text(plan: &OrganizePlan) -> String {
+    type Block<'a> = ((EmulatorId, &'a str), Vec<&'a PlacementView>);
+    let mut blocks: Vec<Block> = Vec::new();
+    for view in &plan.translated {
+        let key = (view.emulator, view.system.as_str());
+        match blocks.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, list)) => list.extend(&view.placements),
+            None => blocks.push((key, view.placements.iter().collect())),
+        }
+    }
+    let mut out = String::new();
+    for ((emulator, system), placements) in blocks {
+        let _ = writeln!(out, "\nLaid out for {} ({system})", emulator.display_name());
+        for pl in placements {
+            let to = match &pl.to {
+                PlacementTo::System { path } => slash(path),
+                PlacementTo::EmulatorData { path } => {
+                    format!("{}'s folder: {}", emulator.display_name(), slash(path))
+                }
+                PlacementTo::Library => "stays in the library".into(),
+            };
+            let note = pl
+                .note
+                .as_ref()
+                .map(|n| format!("  [{}]", translate_note_text(n)))
+                .unwrap_or_default();
+            let _ = writeln!(out, "  {} → {to}{note}", slash(&pl.from));
+        }
+    }
+    out
+}
+
+/// Why an emulator does not use an item as the library keeps it.
+fn not_supported_text(why: NotSupportedWhy) -> &'static str {
+    match why {
+        NotSupportedWhy::Rpcs3Mods => "no mods folder",
+        NotSupportedWhy::VitaRepatch => "it does not read rePatch",
+        NotSupportedWhy::SeveralPatches => "several patches for one ROM; only one is applied",
+        NotSupportedWhy::OlderUpdate => "only the newest update is used",
+        NotSupportedWhy::ConfigExists => "a settings file with that name already exists",
     }
 }
 
@@ -1376,6 +1771,17 @@ fn note_text(n: &ItemNote) -> Option<String> {
         }
         ItemNote::DemoOf { of } => format!("demo of {of}"),
         ItemNote::BaseMissing => "its game is not here or in the library".into(),
+        ItemNote::ModOf { of } => format!("mod for {of}"),
+        ItemNote::PatchOf { of } => format!("patch for {of}"),
+        ItemNote::CheatOf { of } => format!("cheats for {of}"),
+        ItemNote::HeaderMismatch { needs } => match needs {
+            HeaderFit::NeedsHeaderless => "this patch expects the ROM without a header".into(),
+            HeaderFit::NeedsHeadered => "this patch expects the ROM with a header".into(),
+            HeaderFit::Matches => return None,
+        },
+        ItemNote::PointEmulatorHere { emulator, folder } => {
+            format!("point {emulator} at this folder: {folder}")
+        }
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })
@@ -1439,13 +1845,48 @@ fn source_label_of(sources: &[PathBuf], kind: ItemKind) -> String {
 }
 
 fn item_extras(item: &OrganizeItem) -> String {
+    item_extras_with(item, false)
+}
+
+/// [`item_extras`]; `nested`: an addon row printed under its game, whose
+/// own line already says what it is and whose game it is.
+fn item_extras_with(item: &OrganizeItem, nested: bool) -> String {
     let mut extras: Vec<String> = Vec::new();
+    let addon = item.game.as_ref().and_then(|g| g.addon.as_ref());
+    if let (Some(a), false) = (addon, nested) {
+        extras.push(format!(
+            "{}, {}",
+            addon_label(a.kind, a.format),
+            via_text(a.via, &a.key_text)
+        ));
+    }
     if let Some(r) = &item.rename {
         extras.push(rename_text(r));
     }
-    extras.extend(item.notes.iter().filter_map(note_text));
+    extras.extend(
+        item.notes
+            .iter()
+            .filter(|n| {
+                !nested
+                    || !matches!(
+                        n,
+                        ItemNote::ModOf { .. }
+                            | ItemNote::PatchOf { .. }
+                            | ItemNote::CheatOf { .. }
+                    )
+            })
+            .filter_map(note_text),
+    );
     if !item.companions.is_empty() {
         extras.push(format!("with {} companion file(s)", item.companions.len()));
+    }
+    for licence in item.companions.iter().filter(|c| c.licence) {
+        let name = licence
+            .source
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| slash(&licence.source));
+        extras.push(format!("licence {name} goes with it"));
     }
     if extras.is_empty() {
         String::new()
@@ -1668,6 +2109,32 @@ fn skip_text(r: SkipReason) -> &'static str {
     }
 }
 
+/// The items that really stay where they are: every left item except a
+/// licence that moves with its game (mods/cheats spec D22), which its
+/// game's row names instead.
+fn staying(plan: &OrganizePlan) -> Vec<(&OrganizeItem, &LeftReason)> {
+    let moving_licences: Vec<&Path> = plan
+        .items
+        .iter()
+        .filter(|i| (i.action == OrganizeAction::Auto && i.target.is_some()) || i.is_set_aside())
+        .flat_map(|i| &i.companions)
+        .filter(|c| c.licence)
+        .map(|c| c.source.as_path())
+        .collect();
+    plan.items
+        .iter()
+        .filter_map(|i| match &i.action {
+            OrganizeAction::Left { reason } => Some((i, reason)),
+            _ => None,
+        })
+        .filter(|(i, _)| {
+            i.sources
+                .first()
+                .is_none_or(|s| !moving_licences.contains(&s.as_path()))
+        })
+        .collect()
+}
+
 fn render_table(
     plan: &OrganizePlan,
     db: &SystemDb,
@@ -1684,10 +2151,16 @@ fn render_table(
         mode_name(plan.mode)
     );
     let c = &plan.counts;
+    // Counted as listed below: a licence that goes with its game is not
+    // staying put (D22), although the plan counts it as left.
+    let left = staying(plan);
     let _ = writeln!(
         out,
         "ROMs: {} · Systems: {} · To review: {} · Staying put: {}",
-        c.roms, c.systems, c.review, c.left
+        c.roms,
+        c.systems,
+        c.review,
+        left.len()
     );
     if c.set_aside + c.in_library > 0 {
         let _ = writeln!(
@@ -1698,12 +2171,15 @@ fn render_table(
     }
 
     // Moving items, grouped by their system folder.
+    let by_id: HashMap<usize, &OrganizeItem> = plan.items.iter().map(|i| (i.id, i)).collect();
     let mut groups: BTreeMap<String, Vec<&OrganizeItem>> = BTreeMap::new();
     for item in &plan.items {
         if item.action != OrganizeAction::Auto {
             continue;
         }
-        groups.entry(system_dir(item)).or_default().push(item);
+        // An addon is grouped with its game, wherever its own target is.
+        let folder = nested_base(&by_id, item).map_or_else(|| system_dir(item), system_dir);
+        groups.entry(folder).or_default().push(item);
     }
     for (folder, items) in &groups {
         let system = items
@@ -1713,7 +2189,17 @@ fn render_table(
             .map(|s| format!("  {}", s.name))
             .unwrap_or_default();
         let _ = writeln!(out, "\n{folder}/  ({}){system}", items.len());
+        // Addons printed under their base, in plan order.
+        let mut addons_of: HashMap<usize, Vec<&OrganizeItem>> = HashMap::new();
         for item in items {
+            if let Some(base) = nested_base(&by_id, item) {
+                addons_of.entry(base.id).or_default().push(item);
+            }
+        }
+        for item in items {
+            if nested_base(&by_id, item).is_some() {
+                continue;
+            }
             let why = item.why.first().map(why_text).unwrap_or_default();
             let _ = writeln!(
                 out,
@@ -1723,6 +2209,9 @@ fn render_table(
                 version_column(item),
                 item_extras(item)
             );
+            for addon in addons_of.get(&item.id).into_iter().flatten() {
+                let _ = writeln!(out, "{}", addon_row(addon, item));
+            }
         }
     }
 
@@ -1785,14 +2274,8 @@ fn render_table(
         }
     }
 
-    let left: Vec<(&OrganizeItem, &LeftReason)> = plan
-        .items
-        .iter()
-        .filter_map(|i| match &i.action {
-            OrganizeAction::Left { reason } => Some((i, reason)),
-            _ => None,
-        })
-        .collect();
+    out.push_str(&translated_text(plan));
+
     if !left.is_empty() {
         let _ = writeln!(out, "\nStaying where they are ({})", left.len());
         for (item, reason) in left {
@@ -1800,7 +2283,7 @@ fn render_table(
                 out,
                 "  {}  {}{}",
                 source_label(item),
-                left_text(reason),
+                left_text_for(item, reason),
                 tools_off_hint(reason, opts)
             );
         }
@@ -2471,6 +2954,136 @@ mod tests {
         );
     }
 
+    fn test_item(id: usize, name: &str) -> OrganizeItem {
+        OrganizeItem {
+            id,
+            sources: vec![name.into()],
+            kind: ItemKind::File,
+            size: 1,
+            fps: Vec::new(),
+            target: None,
+            set_targets: Vec::new(),
+            system_id: None,
+            folder: None,
+            confidence: 0.95,
+            method: None,
+            why: Vec::new(),
+            alternatives: Vec::new(),
+            rename: None,
+            notes: Vec::new(),
+            companions: Vec::new(),
+            catalogue_name: None,
+            transfer: Transfer::AsIs,
+            disc: None,
+            title_id: None,
+            content_id: None,
+            playlist: None,
+            title_source: None,
+            game: None,
+            action: OrganizeAction::Auto,
+        }
+    }
+
+    fn plan_with_items(items: Vec<OrganizeItem>) -> OrganizePlan {
+        OrganizePlan {
+            source_root: PathBuf::from("pile"),
+            target_root: PathBuf::from("lib"),
+            roms_dir: PathBuf::from("lib"),
+            layout: "coverly-library".into(),
+            mode: TransferMode::Move,
+            names: NameMode::Keep,
+            items,
+            counts: Default::default(),
+            sorted_folders: Vec::new(),
+            deep_folders: Vec::new(),
+            other_files: Vec::new(),
+            warnings: Vec::new(),
+            broad_root: false,
+            fat32: false,
+            move_allowed: true,
+            target_detected: None,
+            created_at: String::new(),
+            duplicates: Vec::new(),
+            set_aside_trash: false,
+            updates: 0,
+            integration_notices: Vec::new(),
+            target_anchor: None,
+            translated: Vec::new(),
+            emulator_roots: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_licence_that_moves_with_its_game_is_not_staying() {
+        use coverly_core::organize::Companion;
+        let p = std::path::Path::new;
+        let mut game = test_item(0, "Resistance.pkg");
+        game.action = OrganizeAction::Auto;
+        game.target = Some(p("PS3").join("Resistance").join("Resistance.pkg"));
+        game.companions.push(Companion {
+            source: p("BLUS30001.rap").into(),
+            target: p("PS3").join("Resistance").join("BLUS30001.rap"),
+            licence: true,
+        });
+        let mut rap = test_item(1, "BLUS30001.rap");
+        rap.action = OrganizeAction::Left {
+            reason: LeftReason::LicenceOf {
+                of: p("Resistance.pkg").into(),
+            },
+        };
+        let mut key = test_item(2, "prod.keys");
+        key.action = OrganizeAction::Left {
+            reason: LeftReason::KeyMaterial,
+        };
+        let mut plan = plan_with_items(vec![game, rap, key]);
+        // As the core counts them: both left items.
+        plan.counts.left = 2;
+        let names: Vec<String> = staying(&plan)
+            .iter()
+            .map(|(i, _)| source_label(i))
+            .collect();
+        assert_eq!(names, vec!["prod.keys".to_string()]);
+        let table = render_table(
+            &plan,
+            &SystemDb::builtin(),
+            &OrganizeOptions::default(),
+            true,
+        );
+        assert!(
+            table.contains("licence BLUS30001.rap goes with it"),
+            "{table}"
+        );
+        assert!(table.contains("Staying where they are (1)"), "{table}");
+        // The summary line agrees with the list below it.
+        assert!(table.contains("Staying put: 1"), "{table}");
+        assert!(!table.contains("licence of Resistance.pkg"), "{table}");
+    }
+
+    #[test]
+    fn a_licence_whose_game_stays_is_still_listed_as_staying() {
+        use coverly_core::organize::Companion;
+        let p = std::path::Path::new;
+        let mut game = test_item(0, "Resistance.pkg");
+        game.action = OrganizeAction::Review;
+        game.companions.push(Companion {
+            source: p("BLUS30001.rap").into(),
+            target: p("PS3").join("Resistance").join("BLUS30001.rap"),
+            licence: true,
+        });
+        let mut rap = test_item(1, "BLUS30001.rap");
+        rap.action = OrganizeAction::Left {
+            reason: LeftReason::LicenceOf {
+                of: p("Resistance.pkg").into(),
+            },
+        };
+        let plan = plan_with_items(vec![game, rap]);
+        let names: Vec<String> = staying(&plan)
+            .iter()
+            .map(|(i, _)| source_label(i))
+            .collect();
+        assert_eq!(names, vec!["BLUS30001.rap".to_string()]);
+    }
+
     #[test]
     fn a_licence_left_behind_is_named_in_the_report() {
         let report = OrganizeReport {
@@ -2540,6 +3153,520 @@ mod tests {
                 from: "pky.3ds".into()
             }),
             "renamed for its game folder (was pky.3ds)"
+        );
+    }
+
+    #[test]
+    fn addon_and_emulator_texts() {
+        use coverly_core::addons::{AddonFormat, AddonKind, HeaderFit, UnlinkedWhy};
+        use coverly_core::organize::NotSupportedWhy;
+        let unlinked = |why| LeftReason::AddonUnlinked {
+            kind: AddonKind::Patch,
+            format: AddonFormat::Ips,
+            why,
+        };
+        assert_eq!(
+            left_text(&unlinked(UnlinkedWhy::NoMatch)),
+            "its game is unknown: stays here (Translation patch, IPS)"
+        );
+        assert_eq!(
+            left_text(&unlinked(UnlinkedWhy::NoKey)),
+            "its game is unknown: stays here (Translation patch, IPS)"
+        );
+        assert_eq!(
+            left_text(&unlinked(UnlinkedWhy::Several { count: 2 })),
+            "fits 2 games: stays here"
+        );
+        assert_eq!(
+            left_text(&LeftReason::AddonUnlinked {
+                kind: AddonKind::Cheat,
+                format: AddonFormat::Rpcs3Patch,
+                why: UnlinkedWhy::Many { count: 400 },
+            }),
+            "holds patches for 400 games: stays here"
+        );
+        assert_eq!(
+            left_text(&unlinked(UnlinkedWhy::Budget)),
+            "its game could not be checked in time: stays here (Translation patch, IPS)"
+        );
+        assert_eq!(
+            left_text(&LeftReason::AddonUnlinked {
+                kind: AddonKind::Mod,
+                format: AddonFormat::Msu1,
+                why: UnlinkedWhy::Partial,
+            }),
+            "only part of a mod: stays here (Mod, MSU-1)"
+        );
+        assert_eq!(
+            left_text(&LeftReason::AddonNameTaken {
+                at: Path::new("PS1").join("Game").join("Cheats"),
+            }),
+            "a file with that name is already in its folder"
+        );
+        assert_eq!(
+            left_text(&LeftReason::AddonNoPlace {
+                kind: AddonKind::Mod
+            }),
+            "this layout has no folder for its game's mods: stays here"
+        );
+        assert_eq!(
+            left_text(&LeftReason::AddonNoPlace {
+                kind: AddonKind::Cheat
+            }),
+            "this layout has no folder for its game's cheats: stays here"
+        );
+        assert_eq!(
+            left_text(&LeftReason::AddonForEmulator {
+                emulator: "DuckStation".into(),
+                path: Path::new("cheats").join("SLUS-00594.cht"),
+            }),
+            "goes in DuckStation's folder: cheats/SLUS-00594.cht (pass --emulator-data)"
+        );
+        assert_eq!(
+            left_text(&LeftReason::NotSupported {
+                emulator: "RPCS3".into(),
+                why: NotSupportedWhy::Rpcs3Mods,
+            }),
+            "RPCS3 does not use it like this: no mods folder"
+        );
+        assert_eq!(
+            left_text(&LeftReason::NotSupported {
+                emulator: "Vita3K".into(),
+                why: NotSupportedWhy::VitaRepatch,
+            }),
+            "Vita3K does not use it like this: it does not read rePatch"
+        );
+        let patch = LeftReason::PatchNotApplied {
+            emulator: "RetroArch".into(),
+        };
+        let mut item = test_item(0, "Chrono Trigger.ips");
+        item.system_id = Some("snes".into());
+        assert_eq!(
+            left_text_for(&item, &patch),
+            "RetroArch would apply it when you play: pass --emulator snes=retroarch"
+        );
+        assert_eq!(
+            left_text(&patch),
+            "RetroArch would apply it when you play: pass --emulator <system>=retroarch"
+        );
+        assert_eq!(
+            note_text(&ItemNote::ModOf { of: "Zelda".into() }).as_deref(),
+            Some("mod for Zelda")
+        );
+        assert_eq!(
+            note_text(&ItemNote::PatchOf { of: "Zelda".into() }).as_deref(),
+            Some("patch for Zelda")
+        );
+        assert_eq!(
+            note_text(&ItemNote::CheatOf { of: "Zelda".into() }).as_deref(),
+            Some("cheats for Zelda")
+        );
+        assert_eq!(
+            note_text(&ItemNote::HeaderMismatch {
+                needs: HeaderFit::NeedsHeaderless
+            })
+            .as_deref(),
+            Some("this patch expects the ROM without a header")
+        );
+        assert_eq!(
+            note_text(&ItemNote::HeaderMismatch {
+                needs: HeaderFit::NeedsHeadered
+            })
+            .as_deref(),
+            Some("this patch expects the ROM with a header")
+        );
+        assert_eq!(
+            note_text(&ItemNote::HeaderMismatch {
+                needs: HeaderFit::Matches
+            }),
+            None
+        );
+        assert_eq!(
+            note_text(&ItemNote::PointEmulatorHere {
+                emulator: "shadPS4".into(),
+                folder: "addcont".into(),
+            })
+            .as_deref(),
+            Some("point shadPS4 at this folder: addcont")
+        );
+        assert_eq!(
+            addon_format_name(AddonFormat::CemuGraphicPack),
+            "Cemu graphic pack"
+        );
+    }
+
+    #[test]
+    fn emulator_flags_parse_system_and_emulator() {
+        use coverly_core::organize::EmulatorChoice;
+        let db = SystemDb::builtin();
+        assert_eq!(
+            parse_emulator("ps4=shadps4", &db).unwrap(),
+            (
+                "ps4".to_string(),
+                EmulatorChoice::Emulator(EmulatorId::Shadps4)
+            )
+        );
+        assert_eq!(
+            parse_emulator("PS4=None", &db).unwrap(),
+            ("ps4".to_string(), EmulatorChoice::None)
+        );
+        assert_eq!(
+            parse_emulator("snes=RetroArch", &db).unwrap(),
+            (
+                "snes".to_string(),
+                EmulatorChoice::Emulator(EmulatorId::RetroArch)
+            )
+        );
+        let e = parse_emulator("nosuch=shadps4", &db).unwrap_err();
+        assert_eq!(e.code, 2);
+        assert!(
+            e.message.contains("unknown system `nosuch`"),
+            "{}",
+            e.message
+        );
+        assert!(e.message.contains("ps4"), "{}", e.message);
+        assert!(e.message.contains("3ds"), "{}", e.message);
+        let e = parse_emulator("ps4=nosuch", &db).unwrap_err();
+        assert_eq!(e.code, 2);
+        assert!(
+            e.message.contains("unknown emulator `nosuch`"),
+            "{}",
+            e.message
+        );
+        assert!(e.message.contains("shadps4"), "{}", e.message);
+        assert!(e.message.contains("none"), "{}", e.message);
+        let e = parse_emulator("ps3=shadps4", &db).unwrap_err();
+        assert_eq!(e.code, 2);
+        assert_eq!(
+            e.message,
+            "shadps4 does not run ps3 (--emulator ps3=shadps4); use one of: rpcs3, none"
+        );
+        for bad in ["ps4", "=shadps4", "ps4="] {
+            assert_eq!(parse_emulator(bad, &db).unwrap_err().code, 2, "{bad}");
+        }
+    }
+
+    #[test]
+    fn emulator_data_flags_need_a_known_emulator_and_an_absolute_path() {
+        let abs = std::env::temp_dir().join("ds=data");
+        let arg = format!("duckstation={}", abs.display());
+        assert_eq!(
+            parse_emulator_data(&arg).unwrap(),
+            (EmulatorId::DuckStation, abs)
+        );
+        let e = parse_emulator_data("duckstation=rel/ds").unwrap_err();
+        assert_eq!(e.code, 2);
+        assert!(e.message.contains("absolute"), "{}", e.message);
+        let e =
+            parse_emulator_data(&format!("nosuch={}", std::env::temp_dir().display())).unwrap_err();
+        assert_eq!(e.code, 2);
+        assert!(
+            e.message.contains("unknown emulator `nosuch`"),
+            "{}",
+            e.message
+        );
+        assert!(!e.message.contains("none"), "{}", e.message);
+        assert_eq!(parse_emulator_data("duckstation").unwrap_err().code, 2);
+    }
+
+    fn addon_item(
+        id: usize,
+        name: &str,
+        role: GameRole,
+        of: usize,
+        target: PathBuf,
+    ) -> OrganizeItem {
+        use coverly_core::addons::{AddonLink, LinkVia};
+        let mut it = test_item(id, name);
+        it.system_id = Some("3ds".into());
+        it.folder = Some("3DS".into());
+        it.target = Some(target);
+        let (kind, format) = match role {
+            GameRole::Cheat => (AddonKind::Cheat, AddonFormat::CtrCheats),
+            _ => (AddonKind::Mod, AddonFormat::LayeredFs),
+        };
+        it.notes.push(ItemNote::ModOf {
+            of: "Pokemon Y".into(),
+        });
+        let mut link = GameLink::new(role);
+        link.of = Some(of);
+        link.addon = Some(AddonLink {
+            kind,
+            format,
+            key_text: "0004000000055D00".into(),
+            via: LinkVia::Key,
+            header: None,
+        });
+        it.game = Some(link);
+        it
+    }
+
+    #[test]
+    fn addons_are_listed_under_their_base_with_kind_and_key() {
+        let p = std::path::Path::new;
+        let game = p("3DS").join("Pokemon Y (World)");
+        let mut base = test_item(0, "Pokemon Y (World).cia");
+        base.system_id = Some("3ds".into());
+        base.folder = Some("3DS".into());
+        base.target = Some(game.join("Pokemon Y (World).cia"));
+        let mut cheat = addon_item(
+            1,
+            "0004000000055D00.txt",
+            GameRole::Cheat,
+            0,
+            game.join("Cheats").join("0004000000055D00.txt"),
+        );
+        cheat.notes = vec![ItemNote::CheatOf {
+            of: "Pokemon Y".into(),
+        }];
+        let mut m = addon_item(
+            2,
+            "0004000000055D00",
+            GameRole::Mod,
+            0,
+            game.join("Mods").join("0004000000055D00"),
+        );
+        m.kind = ItemKind::Folder;
+        // Listed before its base in the plan: still printed under it.
+        let plan = plan_with_items(vec![m, base, cheat]);
+        let table = render_table(
+            &plan,
+            &SystemDb::builtin(),
+            &OrganizeOptions::default(),
+            true,
+        );
+        let lines: Vec<&str> = table.lines().collect();
+        let at = lines
+            .iter()
+            .position(|l| l.contains("Pokemon Y (World).cia →"))
+            .unwrap_or_else(|| panic!("{table}"));
+        assert_eq!(
+            lines[at + 1],
+            "    + Mod  0004000000055D00/ (folder)  → Mods/  (linked by 0004000000055D00)",
+            "{table}"
+        );
+        assert_eq!(
+            lines[at + 2],
+            "    + Cheats  0004000000055D00.txt  → Cheats/  (linked by 0004000000055D00)",
+            "{table}"
+        );
+        assert!(!table.contains("mod for Pokemon Y"), "{table}");
+        assert!(table.contains("3DS/  (3)"), "{table}");
+    }
+
+    #[test]
+    fn an_addon_for_the_emulator_data_folder_stays_under_its_base() {
+        let p = std::path::Path::new;
+        let game = p("3DS").join("Pokemon Y (World)");
+        let mut base = test_item(0, "Pokemon Y (World).cia");
+        base.system_id = Some("3ds".into());
+        base.folder = Some("3DS".into());
+        base.target = Some(game.join("Pokemon Y (World).cia"));
+        let data = std::env::temp_dir().join("azahar-data");
+        let target = data.join("cheats").join("0004000000055D00.txt");
+        let mut cheat = addon_item(
+            1,
+            "0004000000055D00.txt",
+            GameRole::Cheat,
+            0,
+            target.clone(),
+        );
+        cheat.notes = vec![ItemNote::CheatOf {
+            of: "Pokemon Y".into(),
+        }];
+        let plan = plan_with_items(vec![base, cheat]);
+        let table = render_table(
+            &plan,
+            &SystemDb::builtin(),
+            &OrganizeOptions::default(),
+            true,
+        );
+        let lines: Vec<&str> = table.lines().collect();
+        let at = lines
+            .iter()
+            .position(|l| l.contains("Pokemon Y (World).cia →"))
+            .unwrap_or_else(|| panic!("{table}"));
+        assert_eq!(
+            lines[at + 1],
+            format!(
+                "    + Cheats  0004000000055D00.txt  → {}  (linked by 0004000000055D00)",
+                table::one_line(&target.display().to_string())
+            ),
+            "{table}"
+        );
+        // No group of its own named after the absolute folder.
+        assert!(table.contains("3DS/  (2)"), "{table}");
+        assert!(!table.contains("cheats/  (1)"), "{table}");
+    }
+
+    #[test]
+    fn an_addon_whose_base_is_not_in_the_plan_keeps_its_own_row() {
+        let p = std::path::Path::new;
+        let mut cheat = addon_item(
+            0,
+            "SLUS-00594.cht",
+            GameRole::Cheat,
+            7,
+            p("PS1").join("Game").join("Cheats").join("SLUS-00594.cht"),
+        );
+        cheat.game.as_mut().unwrap().of = None;
+        cheat.notes = vec![ItemNote::CheatOf { of: "Game".into() }];
+        let plan = plan_with_items(vec![cheat]);
+        let table = render_table(
+            &plan,
+            &SystemDb::builtin(),
+            &OrganizeOptions::default(),
+            true,
+        );
+        let row = table
+            .lines()
+            .find(|l| l.contains("SLUS-00594.cht →"))
+            .unwrap_or_else(|| panic!("{table}"));
+        assert!(row.contains("cheats for Game"), "{row}");
+        assert!(row.contains("Cheats, linked by 0004000000055D00"), "{row}");
+    }
+
+    #[test]
+    fn addon_kinds_and_links_read_as_words() {
+        use coverly_core::addons::LinkVia;
+        assert_eq!(
+            addon_label(AddonKind::Patch, AddonFormat::Bps),
+            "Translation patch"
+        );
+        assert_eq!(
+            addon_label(AddonKind::Mod, AddonFormat::TexturePack),
+            "Texture pack"
+        );
+        assert_eq!(
+            addon_label(AddonKind::Cheat, AddonFormat::Rpcs3Patch),
+            "Emulator patches"
+        );
+        assert_eq!(addon_label(AddonKind::Cheat, AddonFormat::Pnach), "Cheats");
+        assert_eq!(
+            via_text(LinkVia::SourceCrc, "CRC32 1A2B3C4D"),
+            "linked by the source ROM's CRC32"
+        );
+        assert_eq!(via_text(LinkVia::Dat, "x"), "linked by CRC32 and the DAT");
+        assert_eq!(via_text(LinkVia::Name, "x"), "linked by its name");
+        assert_eq!(via_text(LinkVia::Readme, "x"), "linked by its readme");
+        assert_eq!(via_text(LinkVia::Key, "SLUS-00594"), "linked by SLUS-00594");
+        assert_eq!(
+            via_text(LinkVia::Folder, "x"),
+            "it was already in the game's folder"
+        );
+    }
+
+    #[test]
+    fn translated_layouts_are_listed_per_emulator() {
+        use coverly_core::organize::{
+            NotSupportedWhy, PlacementTo, PlacementView, TranslateNote, TranslatedGameView,
+        };
+        let p = std::path::Path::new;
+        let mut plan = plan_with_items(Vec::new());
+        plan.translated.push(TranslatedGameView {
+            system: "ps4".into(),
+            base: None,
+            emulator: EmulatorId::Shadps4,
+            placements: vec![
+                PlacementView {
+                    from: p("CUSA00900").into(),
+                    to: PlacementTo::System {
+                        path: p("CUSA00900").into(),
+                    },
+                    note: None,
+                },
+                PlacementView {
+                    from: p("CUSA00900-DLC-ABC").into(),
+                    to: PlacementTo::System {
+                        path: p("addcont").join("CUSA00900").join("CUSA00900-DLC-ABC"),
+                    },
+                    note: Some(TranslateNote::PointEmulatorHere {
+                        emulator: EmulatorId::Shadps4,
+                        folder: p("addcont").into(),
+                    }),
+                },
+            ],
+        });
+        plan.translated.push(TranslatedGameView {
+            system: "ps3".into(),
+            base: None,
+            emulator: EmulatorId::Rpcs3,
+            placements: vec![
+                PlacementView {
+                    from: p("Update.pkg").into(),
+                    to: PlacementTo::Library,
+                    note: Some(TranslateNote::InstallInEmulator {
+                        emulator: EmulatorId::Rpcs3,
+                    }),
+                },
+                PlacementView {
+                    from: p("Mod").into(),
+                    to: PlacementTo::Library,
+                    note: Some(TranslateNote::NotSupported {
+                        emulator: EmulatorId::Rpcs3,
+                        why: NotSupportedWhy::Rpcs3Mods,
+                    }),
+                },
+            ],
+        });
+        plan.translated.push(TranslatedGameView {
+            system: "psx".into(),
+            base: None,
+            emulator: EmulatorId::DuckStation,
+            placements: vec![PlacementView {
+                from: p("SLUS-00594.cht").into(),
+                to: PlacementTo::EmulatorData {
+                    path: p("cheats").join("SLUS-00594.cht"),
+                },
+                note: None,
+            }],
+        });
+        let table = render_table(
+            &plan,
+            &SystemDb::builtin(),
+            &OrganizeOptions::default(),
+            true,
+        );
+        assert!(table.contains("\nLaid out for shadPS4 (ps4)\n"), "{table}");
+        assert!(table.contains("  CUSA00900 → CUSA00900\n"), "{table}");
+        assert!(
+            table.contains(
+                "  CUSA00900-DLC-ABC → addcont/CUSA00900/CUSA00900-DLC-ABC  [point shadPS4 at this folder: addcont]\n"
+            ),
+            "{table}"
+        );
+        assert!(table.contains("\nLaid out for RPCS3 (ps3)\n"), "{table}");
+        assert!(
+            table.contains(
+                "  Update.pkg → stays in the library  [RPCS3 installs it; it does not open from the folder]\n"
+            ),
+            "{table}"
+        );
+        assert!(
+            table.contains(
+                "  Mod → stays in the library  [RPCS3 does not use it like this: no mods folder]\n"
+            ),
+            "{table}"
+        );
+        assert!(
+            table.contains("  SLUS-00594.cht → DuckStation's folder: cheats/SLUS-00594.cht\n"),
+            "{table}"
+        );
+        assert_eq!(
+            translate_note_text(&TranslateNote::ExtractFirst),
+            "this package does not open as is: it has to be extracted first"
+        );
+        assert_eq!(
+            translate_note_text(&TranslateNote::PatchNotApplied {
+                emulator: EmulatorId::RetroArch
+            }),
+            "RetroArch would apply it when you play"
+        );
+        assert_eq!(
+            translate_note_text(&TranslateNote::HeaderMismatch {
+                needs: HeaderFit::NeedsHeadered
+            }),
+            "this patch expects the ROM with a header"
         );
     }
 }

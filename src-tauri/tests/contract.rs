@@ -501,6 +501,9 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         set_aside_trash: false,
         updates: 0,
         integration_notices: Vec::new(),
+        target_anchor: None,
+        translated: Vec::new(),
+        emulator_roots: Vec::new(),
     }
 }
 
@@ -794,7 +797,9 @@ fn organise_views_match_the_shared_sample() {
 
 #[test]
 fn rust_reads_the_shared_organise_requests() {
-    use coverly_core::organize::{Choice, Decision as OrganizeDecision, NameMode, TransferMode};
+    use coverly_core::organize::{
+        Choice, Decision as OrganizeDecision, EmulatorChoice, EmulatorId, NameMode, TransferMode,
+    };
     use coverly_core::settings::OrganizeDedupeMode;
     use coverly_roms_lib::organize::view::OrganizeRequest;
 
@@ -811,12 +816,23 @@ fn rust_reads_the_shared_organise_requests() {
     assert!(full.rescan);
     assert_eq!(full.duplicates, Some(OrganizeDedupeMode::Report));
     assert_eq!(full.game_folders, Some(true));
+    assert_eq!(
+        full.emulators,
+        std::collections::BTreeMap::from([
+            (
+                "ps4".to_string(),
+                EmulatorChoice::Emulator(EmulatorId::Shadps4)
+            ),
+            ("snes".to_string(), EmulatorChoice::None),
+        ])
+    );
     let bare: OrganizeRequest =
         serde_json::from_value(req["organize_request_bare"].clone()).unwrap();
     assert_eq!(bare.source, "/Users/me/ROMs-Downloaded");
     assert_eq!(bare.layout, None);
     assert_eq!(bare.duplicates, None);
     assert_eq!(bare.game_folders, None);
+    assert!(bare.emulators.is_empty());
     assert!(
         !bare.rescan,
         "a request reuses the kept survey unless asked"
@@ -1646,6 +1662,422 @@ fn game_folder_values_match_the_shared_sample() {
             GameRole::Update,
             GameRole::Dlc,
             GameRole::Demo,
+            GameRole::Mod,
+            GameRole::Cheat,
+        ],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+/// Mods spec D16, §12: a plan holding an addon row, the new reasons and
+/// notes and a translated layout reads back as it was saved (a paused
+/// job's `jobs/<job>.plan.json`), and a plan saved before part B, without
+/// `translated` or `target_anchor`, still reads.
+#[test]
+fn a_plan_with_addons_and_a_translated_layout_round_trips() {
+    use coverly_core::organize::{
+        ItemNote, LeftReason, OrganizeAction, OrganizeItem, OrganizePlan, TranslatedGameView,
+    };
+
+    let sample: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    let mut plan = organize_plan_sample();
+    let addon: OrganizeItem = serde_json::from_value(sample["addon_item"].clone()).unwrap();
+    assert!(addon.game.as_ref().unwrap().addon.is_some());
+    plan.items.push(addon);
+    let reasons: Vec<LeftReason> = serde_json::from_value(sample["addon_reasons"].clone()).unwrap();
+    let notes: Vec<ItemNote> = serde_json::from_value(sample["addon_notes"].clone()).unwrap();
+    for (n, reason) in reasons.iter().enumerate() {
+        let mut item = plan.items[0].clone();
+        item.id = 10 + n;
+        item.action = OrganizeAction::Left {
+            reason: reason.clone(),
+        };
+        item.notes = notes.clone();
+        plan.items.push(item);
+    }
+    let game: TranslatedGameView =
+        serde_json::from_value(sample["translated_game"].clone()).unwrap();
+    plan.translated = vec![game];
+
+    let text = serde_json::to_string(&plan).unwrap();
+    let back: OrganizePlan = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, plan);
+    let wire: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(wire["translated"], json!([sample["translated_game"]]));
+
+    let mut old = serde_json::to_value(organize_plan_sample()).unwrap();
+    let fields = old.as_object_mut().unwrap();
+    assert!(!fields.contains_key("translated"), "left out when empty");
+    assert!(!fields.contains_key("target_anchor"), "left out when none");
+    fields.remove("emulator_roots");
+    let old: OrganizePlan = serde_json::from_value(old).unwrap();
+    assert!(old.translated.is_empty());
+    assert_eq!(old.target_anchor, None);
+}
+
+/// Fail to compile when an addon, emulator or translate value is added,
+/// so `addon_values_match_the_shared_sample` (and the TypeScript unions)
+/// get it too (mods spec D10, D16).
+#[allow(dead_code, clippy::too_many_arguments)]
+fn every_addon_value_is_listed(
+    kind: coverly_core::addons::AddonKind,
+    format: coverly_core::addons::AddonFormat,
+    via: coverly_core::addons::LinkVia,
+    fit: coverly_core::addons::HeaderFit,
+    why: coverly_core::addons::UnlinkedWhy,
+    emulator: coverly_core::organize::EmulatorId,
+    not: coverly_core::organize::NotSupportedWhy,
+    note: coverly_core::organize::TranslateNote,
+    to: coverly_core::organize::PlacementTo,
+) {
+    use coverly_core::addons::{AddonFormat as F, AddonKind, HeaderFit, LinkVia, UnlinkedWhy};
+    use coverly_core::organize::{EmulatorId as E, NotSupportedWhy, PlacementTo, TranslateNote};
+    match kind {
+        AddonKind::Patch | AddonKind::Cheat | AddonKind::Mod => {}
+    }
+    match format {
+        F::Bps
+        | F::Ups
+        | F::Ips
+        | F::Xdelta
+        | F::Ppf
+        | F::Aps
+        | F::RetroArchCht
+        | F::FceuxCht
+        | F::DuckStationCht
+        | F::Pnach
+        | F::DolphinIni
+        | F::PpssppIni
+        | F::CtrCheats
+        | F::SwitchCheats
+        | F::Pchtxt
+        | F::Rpcs3Patch
+        | F::Shadps4Cheat
+        | F::Shadps4Patch
+        | F::XeniaPatch
+        | F::Vita3kPatch
+        | F::MelonDsCheats
+        | F::MgbaCheats
+        | F::DesmumeCheats
+        | F::CodeText
+        | F::TexturePack
+        | F::DolphinGraphicMod
+        | F::Riivolution
+        | F::LayeredFs
+        | F::SwitchMod
+        | F::ExefsPatches
+        | F::CemuGraphicPack
+        | F::VitaRepatch
+        | F::MesenHdPack
+        | F::Msu1
+        | F::XeniaPlugin
+        | F::N64HiresTextures
+        | F::Shadps4Mods => {}
+    }
+    match via {
+        LinkVia::SourceCrc
+        | LinkVia::Dat
+        | LinkVia::Name
+        | LinkVia::Readme
+        | LinkVia::Key
+        | LinkVia::Folder => {}
+    }
+    match fit {
+        HeaderFit::Matches | HeaderFit::NeedsHeaderless | HeaderFit::NeedsHeadered => {}
+    }
+    match why {
+        UnlinkedWhy::NoMatch
+        | UnlinkedWhy::Several { .. }
+        | UnlinkedWhy::Many { .. }
+        | UnlinkedWhy::NoKey
+        | UnlinkedWhy::Budget
+        | UnlinkedWhy::Partial => {}
+    }
+    // `EmulatorId::ALL` feeds the sample: this keeps it whole.
+    match emulator {
+        E::Shadps4
+        | E::Rpcs3
+        | E::Azahar
+        | E::Cemu
+        | E::Vita3k
+        | E::Ryujinx
+        | E::YuzuFamily
+        | E::RetroArch
+        | E::DuckStation
+        | E::Pcsx2
+        | E::Dolphin
+        | E::Ppsspp
+        | E::Xenia
+        | E::Flycast
+        | E::Mesen => {}
+    }
+    match not {
+        NotSupportedWhy::Rpcs3Mods
+        | NotSupportedWhy::VitaRepatch
+        | NotSupportedWhy::SeveralPatches
+        | NotSupportedWhy::OlderUpdate
+        | NotSupportedWhy::ConfigExists => {}
+    }
+    match note {
+        TranslateNote::InstallInEmulator { .. }
+        | TranslateNote::ExtractFirst
+        | TranslateNote::NotSupported { .. }
+        | TranslateNote::HeaderMismatch { .. }
+        | TranslateNote::PointEmulatorHere { .. }
+        | TranslateNote::PatchNotApplied { .. } => {}
+    }
+    match to {
+        PlacementTo::System { .. } | PlacementTo::EmulatorData { .. } | PlacementTo::Library => {}
+    }
+}
+
+/// Mods spec D10, D16: an addon row, the new reasons and notes, every
+/// emulator id and why, and a translated layout use the spellings the
+/// webview's union types name.
+#[test]
+fn addon_values_match_the_shared_sample() {
+    use coverly_core::addons::{
+        AddonFormat, AddonKind, AddonLink, HeaderFit, LinkVia, UnlinkedWhy,
+    };
+    use coverly_core::identify::evidence::{Evidence, IdLevel};
+    use coverly_core::organize::{
+        EmulatorId, GameLink, GameRole, ItemKind, ItemNote, LeftReason, NotSupportedWhy,
+        OrganizeAction, OrganizeItem, PlacementTo, PlacementView, SourceFp, Transfer,
+        TranslateNote, TranslatedGameView,
+    };
+
+    let mut link = GameLink::new(GameRole::Cheat);
+    link.of = Some(0);
+    link.folder = Some("PS1/Crash Bandicoot (USA)".into());
+    link.addon = Some(AddonLink {
+        kind: AddonKind::Cheat,
+        format: AddonFormat::DuckStationCht,
+        key_text: "SCUS-94900".into(),
+        via: LinkVia::Key,
+        header: None,
+    });
+    let cheat = OrganizeItem {
+        id: 1,
+        sources: vec!["SCUS-94900.cht".into()],
+        kind: ItemKind::File,
+        size: 2_048,
+        fps: vec![SourceFp {
+            size: 2_048,
+            mtime_ns: 1_700_000_000_000_000_000,
+        }],
+        target: Some("PS1/Crash Bandicoot (USA)/Cheats/SCUS-94900.cht".into()),
+        set_targets: vec![],
+        system_id: Some("psx".into()),
+        folder: Some("PS1".into()),
+        confidence: 0.95,
+        method: Some(IdLevel::Header),
+        why: vec![Evidence::new(IdLevel::Header, "psx", 0.95, "SCUS-94900")],
+        alternatives: vec![],
+        rename: None,
+        notes: vec![ItemNote::CheatOf {
+            of: "Crash Bandicoot".into(),
+        }],
+        companions: vec![],
+        catalogue_name: None,
+        transfer: Transfer::AsIs,
+        disc: None,
+        title_id: None,
+        content_id: None,
+        playlist: None,
+        title_source: None,
+        game: Some(link),
+        action: OrganizeAction::Auto,
+    };
+    let cheat: Value = serde_json::from_str(&serde_json::to_string(&cheat).unwrap()).unwrap();
+    let actual = json!({
+        "addon_item": cheat,
+        "addon_reasons": [
+            LeftReason::AddonUnlinked {
+                kind: AddonKind::Patch,
+                format: AddonFormat::Ips,
+                why: UnlinkedWhy::NoKey,
+            },
+            LeftReason::AddonUnlinked {
+                kind: AddonKind::Mod,
+                format: AddonFormat::CemuGraphicPack,
+                why: UnlinkedWhy::Several { count: 2 },
+            },
+            LeftReason::AddonUnlinked {
+                kind: AddonKind::Cheat,
+                format: AddonFormat::Rpcs3Patch,
+                why: UnlinkedWhy::Many { count: 400 },
+            },
+            LeftReason::AddonNameTaken {
+                at: "PS1/Crash Bandicoot (USA)/Cheats".into(),
+            },
+            LeftReason::AddonNoPlace {
+                kind: AddonKind::Mod,
+            },
+            LeftReason::AddonForEmulator {
+                emulator: "DuckStation".into(),
+                path: "cheats/SCUS-94900.cht".into(),
+            },
+            LeftReason::NotSupported {
+                emulator: "RPCS3".into(),
+                why: NotSupportedWhy::Rpcs3Mods,
+            },
+            LeftReason::PatchNotApplied {
+                emulator: "RetroArch".into(),
+            },
+        ],
+        "addon_notes": [
+            ItemNote::ModOf { of: "Zelda".into() },
+            ItemNote::PatchOf { of: "Zelda".into() },
+            ItemNote::CheatOf { of: "Zelda".into() },
+            ItemNote::HeaderMismatch {
+                needs: HeaderFit::NeedsHeaderless,
+            },
+            ItemNote::PointEmulatorHere {
+                emulator: "shadPS4".into(),
+                folder: "addcont".into(),
+            },
+        ],
+        "addon_kinds": [AddonKind::Patch, AddonKind::Cheat, AddonKind::Mod],
+        "addon_formats": [
+            AddonFormat::Bps,
+            AddonFormat::Ups,
+            AddonFormat::Ips,
+            AddonFormat::Xdelta,
+            AddonFormat::Ppf,
+            AddonFormat::Aps,
+            AddonFormat::RetroArchCht,
+            AddonFormat::FceuxCht,
+            AddonFormat::DuckStationCht,
+            AddonFormat::Pnach,
+            AddonFormat::DolphinIni,
+            AddonFormat::PpssppIni,
+            AddonFormat::CtrCheats,
+            AddonFormat::SwitchCheats,
+            AddonFormat::Pchtxt,
+            AddonFormat::Rpcs3Patch,
+            AddonFormat::Shadps4Cheat,
+            AddonFormat::Shadps4Patch,
+            AddonFormat::XeniaPatch,
+            AddonFormat::Vita3kPatch,
+            AddonFormat::MelonDsCheats,
+            AddonFormat::MgbaCheats,
+            AddonFormat::DesmumeCheats,
+            AddonFormat::CodeText,
+            AddonFormat::TexturePack,
+            AddonFormat::DolphinGraphicMod,
+            AddonFormat::Riivolution,
+            AddonFormat::LayeredFs,
+            AddonFormat::SwitchMod,
+            AddonFormat::ExefsPatches,
+            AddonFormat::CemuGraphicPack,
+            AddonFormat::VitaRepatch,
+            AddonFormat::MesenHdPack,
+            AddonFormat::Msu1,
+            AddonFormat::XeniaPlugin,
+            AddonFormat::N64HiresTextures,
+            AddonFormat::Shadps4Mods,
+        ],
+        "addon_vias": [
+            LinkVia::SourceCrc,
+            LinkVia::Dat,
+            LinkVia::Name,
+            LinkVia::Readme,
+            LinkVia::Key,
+            LinkVia::Folder,
+        ],
+        "header_fits": [
+            HeaderFit::Matches,
+            HeaderFit::NeedsHeaderless,
+            HeaderFit::NeedsHeadered,
+        ],
+        "emulator_ids": EmulatorId::ALL,
+        "not_supported_whys": [
+            NotSupportedWhy::Rpcs3Mods,
+            NotSupportedWhy::VitaRepatch,
+            NotSupportedWhy::SeveralPatches,
+            NotSupportedWhy::OlderUpdate,
+            NotSupportedWhy::ConfigExists,
+        ],
+        "unlinked_whys": [
+            UnlinkedWhy::NoMatch,
+            UnlinkedWhy::Several { count: 3 },
+            UnlinkedWhy::Many { count: 400 },
+            UnlinkedWhy::NoKey,
+            UnlinkedWhy::Budget,
+            UnlinkedWhy::Partial,
+        ],
+        "translated_game": TranslatedGameView {
+            system: "ps4".into(),
+            base: Some(0),
+            emulator: EmulatorId::Shadps4,
+            placements: vec![
+                PlacementView {
+                    from: "Bloodborne/CUSA00900".into(),
+                    to: PlacementTo::System {
+                        path: "CUSA00900".into(),
+                    },
+                    note: None,
+                },
+                PlacementView {
+                    from: "Bloodborne/Updates/CUSA00900-patch".into(),
+                    to: PlacementTo::System {
+                        path: "CUSA00900-UPDATE".into(),
+                    },
+                    note: None,
+                },
+                PlacementView {
+                    from: "Bloodborne/DLC/dlc.pkg".into(),
+                    to: PlacementTo::Library,
+                    note: Some(TranslateNote::ExtractFirst),
+                },
+                PlacementView {
+                    from: "Bloodborne/Cheats/CUSA00900_01.09.json".into(),
+                    to: PlacementTo::EmulatorData {
+                        path: "cheats/CUSA00900_01.09.json".into(),
+                    },
+                    note: None,
+                },
+                PlacementView {
+                    from: "Bloodborne/DLC/CUSA00900-DLC".into(),
+                    to: PlacementTo::System {
+                        path: "addcont/CUSA00900/CUSA00900-DLC".into(),
+                    },
+                    note: Some(TranslateNote::PointEmulatorHere {
+                        emulator: EmulatorId::Shadps4,
+                        folder: "addcont".into(),
+                    }),
+                },
+            ],
+        },
+        "translate_notes": [
+            TranslateNote::InstallInEmulator {
+                emulator: EmulatorId::Rpcs3,
+            },
+            TranslateNote::ExtractFirst,
+            TranslateNote::NotSupported {
+                emulator: EmulatorId::RetroArch,
+                why: NotSupportedWhy::SeveralPatches,
+            },
+            TranslateNote::HeaderMismatch {
+                needs: HeaderFit::NeedsHeadered,
+            },
+            TranslateNote::PointEmulatorHere {
+                emulator: EmulatorId::Ryujinx,
+                folder: "DLC".into(),
+            },
+            TranslateNote::PatchNotApplied {
+                emulator: EmulatorId::RetroArch,
+            },
         ],
     });
     let expected: Value =

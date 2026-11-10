@@ -343,21 +343,37 @@ pub fn apply_organize(plan: &OrganizePlan, env: &ApplyEnv) -> Result<OrganizeRep
     if pending.is_empty() {
         return Ok(report);
     }
-    if let Some(reason) = roots_gone(plan) {
-        pause(&mut report, reason, &pending);
-        return Ok(report);
-    }
-    check_space(plan, &pending, 0)?;
-    let writer = Writer::begin_with(
-        &plan.target_root,
-        env.data_dir,
-        JobMeta {
-            kind: JobKind::Organize,
-            source_root: Some(plan.source_root.clone()),
-        },
-    )?;
+    let created = match prepare_roots(plan, false) {
+        Ok(created) => created,
+        Err(reason) => {
+            pause(&mut report, reason, &pending);
+            return Ok(report);
+        }
+    };
+    let begun = check_space(plan, &pending, 0).and_then(|()| {
+        Writer::begin_with(
+            &plan.target_root,
+            env.data_dir,
+            JobMeta {
+                kind: JobKind::Organize,
+                source_root: Some(plan.source_root.clone()),
+                created_roots: created.clone(),
+                extra_roots: plan.emulator_roots.iter().map(|r| r.path.clone()).collect(),
+            },
+        )
+        .map_err(ApplyError::from)
+    });
+    let writer = match begun {
+        Ok(writer) => writer,
+        Err(e) => {
+            remove_created(&created);
+            return Err(e);
+        }
+    };
     if let Err(e) = save_plan(env.data_dir, writer.job_id(), plan) {
-        let _ = writer.discard();
+        if writer.discard().is_ok() {
+            remove_created(&created);
+        }
         return Err(e.into());
     }
     Ok(Run::new(plan, env, writer, false, Vec::new()).run(&pending, 0, report))
@@ -426,7 +442,7 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
         }
     }
     let done = applicable.len() - pending.len();
-    if let Some(reason) = roots_gone(&plan) {
+    if let Err(reason) = prepare_roots(&plan, true) {
         report.job = Some(job.to_string());
         pause(&mut report, reason, &pending);
         return Ok(report);
@@ -497,6 +513,64 @@ fn pause_as(
     report.paused = Some(kind);
     report.pause_reason = Some(reason);
     report.resumable_items = rest.iter().map(|i| i.id).collect();
+}
+
+/// Makes the target root exist when D19 allows it: the folders created,
+/// outermost first, for the journal header; `Err` pauses as volume gone.
+/// A resumed job never creates its root (plan P-4): its writer already
+/// began, so a root missing now vanished.
+fn prepare_roots(plan: &OrganizePlan, resumed: bool) -> Result<Vec<PathBuf>, ItemErrorKind> {
+    use super::roots::{roots_state, OsRootProbe, RootsState};
+    let mounts = crate::volumes::mount_parents();
+    // The target root, then each emulator data folder the plan writes
+    // into (mods spec D17): the same D19 rule with its own anchor.
+    let roots = std::iter::once((&plan.target_root, plan.target_anchor.as_ref())).chain(
+        plan.emulator_roots
+            .iter()
+            .map(|r| (&r.path, r.anchor.as_ref())),
+    );
+    // Every root is judged before any folder is made: creating the target
+    // first would otherwise move a sibling emulator folder's nearest
+    // existing ancestor off its recorded anchor (`card/roms` and
+    // `card/azahar` under a new `card/`).
+    let mut to_make = Vec::new();
+    for (root, anchor) in roots {
+        match roots_state(&plan.source_root, root, anchor, &mounts, &OsRootProbe) {
+            RootsState::Ready => {}
+            RootsState::CreateTarget { missing } if !resumed => to_make.push(missing),
+            RootsState::VolumeGone | RootsState::CreateTarget { .. } => {
+                return Err(ItemErrorKind::VolumeGone);
+            }
+        }
+    }
+    let mut made: Vec<PathBuf> = Vec::new();
+    for missing in to_make {
+        for dir in missing {
+            if made.contains(&dir) {
+                continue;
+            }
+            // One level at a time, never `create_dir_all`: a volume
+            // pulled meanwhile fails here instead of being recreated on
+            // the system disk.
+            match fs::create_dir(&dir) {
+                Ok(()) => made.push(dir),
+                Err(e) if e.kind() == ErrorKind::AlreadyExists && dir.is_dir() => {}
+                Err(_) => {
+                    remove_created(&made);
+                    return Err(ItemErrorKind::VolumeGone);
+                }
+            }
+        }
+    }
+    Ok(made)
+}
+
+/// Removes the target folders [`prepare_roots`] created, innermost first,
+/// when the job did not start after all (only empty ones go).
+fn remove_created(created: &[PathBuf]) {
+    for dir in created.iter().rev() {
+        let _ = fs::remove_dir(dir);
+    }
 }
 
 /// `volume-gone` when the source or the target root is not there.
@@ -1461,8 +1535,12 @@ impl<'a> Run<'a> {
             if self.writer.has_entries() || self.resumed {
                 Some(self.writer.finish().unwrap_or(job))
             } else {
-                // Nothing changed: no job to list or undo.
-                let _ = self.writer.discard();
+                // Nothing changed: no job to list or undo, so the target
+                // folders created for it go too (only when still empty).
+                let created = self.writer.created_roots().to_vec();
+                if self.writer.discard().is_ok() {
+                    remove_created(&created);
+                }
                 let _ = fs::remove_file(plan_path(self.env.data_dir, &job));
                 None
             }
@@ -1545,6 +1623,7 @@ impl<'a> Run<'a> {
             probe: &OsMetaProbe,
             max_depth: 0,
             profile: None,
+            cache: None,
         };
         let tree = tree_summary(path, &opts);
         // A link or a cloud placeholder that appeared since the plan does

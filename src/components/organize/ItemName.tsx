@@ -8,8 +8,11 @@ import { useT } from '@/i18n/useT';
 import type { OrganizeItem } from '@/ipc/types';
 import { formatDecimalSize } from '@/lib/format';
 import {
+  addonText,
+  addonViaKey,
   contentIdKey,
   encryptedName,
+  isAddonItem,
   titleIdKey,
   titleSourceKey,
 } from '@/lib/organize';
@@ -18,7 +21,8 @@ import { hintText, pathText } from './styles';
 
 /**
  * A row's name. A game folder (systems batch 2 §9.1) gets the folder glyph,
- * a visually hidden «Game folder» before its name, so the glyph carries no
+ * a visually hidden «Game folder» («Mod folder» for a mod, mods spec
+ * §9.1) before its name, so the glyph carries no
  * information alone, and its size in mono right after it; `target` follows
  * as `→ path`. Any other item is its name (and target) as one path line.
  *
@@ -125,7 +129,11 @@ function Name({
         className="size-3.5 shrink-0 self-center text-cr-text-secondary"
       />
       <span>
-        <span className="sr-only">{`${t('organize.item.folder')} `}</span>
+        <span className="sr-only">{`${t(
+          isAddonItem(item)
+            ? 'organize.item.modFolder'
+            : 'organize.item.folder',
+        )} `}</span>
         {name}
       </span>
       <span className="whitespace-nowrap font-mono tabular-nums text-cr-text-secondary">
@@ -155,6 +163,40 @@ export function TitleIdLine({ item }: { item: OrganizeItem }) {
       {source && <p className={hintText}>{tr(source.key, source.vars, [])}</p>}
       {keyed && <p className={hintText}>{tr(keyed.key, keyed.vars)}</p>}
       {content && <p className={hintText}>{tr(content.key, content.vars)}</p>}
+    </>
+  );
+}
+
+/**
+ * What a mod, patch or cheats row is and why Coverly thinks it belongs to
+ * its game (mods spec §9.1): the kind in words, its format and key in
+ * mono, then the link proof as a plain sentence. Never a badge, never a
+ * colour: both lines are text.
+ */
+export function AddonLine({
+  item,
+  owner = null,
+}: {
+  item: OrganizeItem;
+  /** Whose it is («Mod de Pokemon Y»), read first. */
+  owner?: string | null;
+}) {
+  const t = useT();
+  const tr = useRichT();
+  const link = item.game?.addon;
+  if (!link) return null;
+  const line = addonText(link);
+  const what = t(String(line.vars.what));
+  const via = addonViaKey(link);
+  return (
+    <>
+      {owner && <span className="text-caption text-cr-text">{owner}</span>}
+      <span className="text-caption text-cr-text-secondary [overflow-wrap:anywhere]">
+        {tr(line.key, { ...line.vars, what }, ['format', 'key'])}
+      </span>
+      <span className="text-caption text-cr-text-secondary [overflow-wrap:anywhere]">
+        {tr(via.key, via.vars, ['key'])}
+      </span>
     </>
   );
 }

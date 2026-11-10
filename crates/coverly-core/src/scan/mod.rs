@@ -788,6 +788,7 @@ fn tree_options(profile: Option<&Profile>) -> WalkOptions<'_> {
         probe: &OsMetaProbe,
         max_depth: MAX_DEPTH,
         profile,
+        cache: None,
     }
 }
 

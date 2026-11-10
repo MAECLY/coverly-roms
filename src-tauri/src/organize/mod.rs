@@ -383,14 +383,17 @@ fn end_state(report: &OrganizeReport) -> OrganizeJobState {
 }
 
 /// The options a survey depends on: everything but the transfer mode, the
-/// names, the duplicates step and game folders, which only the plan reads
-/// (layout, target, flat, offline, thresholds, folders…).
+/// names, the duplicates step, game folders and the emulators with their
+/// data folders, which only the plan reads (layout, target, flat, offline,
+/// thresholds, folders…).
 fn survey_key(opts: &OrganizeOptions) -> OrganizeOptions {
     OrganizeOptions {
         mode: None,
         names: Default::default(),
         duplicates: Default::default(),
         game_folders: None,
+        emulators: Default::default(),
+        emulator_data: Default::default(),
         ..opts.clone()
     }
 }
@@ -480,9 +483,9 @@ impl From<OrganizeError> for IpcError {
             OrganizeError::Unreadable(p, _) => IpcError::Unreadable(p.display().to_string()),
             OrganizeError::UnknownLayout(id) => IpcError::UnknownProfile(id),
             OrganizeError::Cancelled => IpcError::Cancelled,
-            other @ (OrganizeError::UnknownSystem(_) | OrganizeError::UnknownItem(_)) => {
-                IpcError::BadRequest(other.to_string())
-            }
+            other @ (OrganizeError::UnknownSystem(_)
+            | OrganizeError::UnknownItem(_)
+            | OrganizeError::EmulatorData { .. }) => IpcError::BadRequest(other.to_string()),
         }
     }
 }
@@ -704,6 +707,31 @@ mod tests {
             ..base.clone()
         };
         assert_ne!(survey_key(&base), survey_key(&flat));
+    }
+
+    /// Mods spec D16: choosing an emulator for a system re-plans from the
+    /// kept survey; the walk never reads the emulators nor their folders.
+    #[test]
+    fn emulators_do_not_need_a_new_survey() {
+        use coverly_core::organize::{EmulatorChoice, EmulatorId};
+        use std::collections::BTreeMap;
+
+        let base = OrganizeOptions::default();
+        let chosen = OrganizeOptions {
+            emulators: BTreeMap::from([
+                (
+                    "ps4".to_string(),
+                    EmulatorChoice::Emulator(EmulatorId::Shadps4),
+                ),
+                ("switch".to_string(), EmulatorChoice::None),
+            ]),
+            emulator_data: BTreeMap::from([(
+                EmulatorId::DuckStation,
+                PathBuf::from("/emulators/duckstation"),
+            )]),
+            ..base.clone()
+        };
+        assert_eq!(survey_key(&base), survey_key(&chosen));
     }
 
     #[test]

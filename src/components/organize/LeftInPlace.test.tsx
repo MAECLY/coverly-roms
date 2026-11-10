@@ -246,6 +246,21 @@ describe('LeftInPlace', () => {
     });
   });
 
+  it('gives every system select a unique id and the name "system"', () => {
+    show([unknown(0), unknown(1), unknown(2)]);
+    const selects = screen.getAllByRole('combobox');
+    expect(selects).toHaveLength(3);
+    for (const s of selects) {
+      expect(s.id).not.toBe('');
+      expect(s).toHaveAttribute('name', 'system');
+    }
+    expect(new Set(selects.map((s) => s.id)).size).toBe(3);
+    // The accessible name is unchanged.
+    expect(
+      screen.getByRole('combobox', { name: 'Sistema para File 001.bin' }),
+    ).toBeInTheDocument();
+  });
+
   it('renders at most 200 rows and a show-more button', async () => {
     render(
       <I18nProvider locale="en">
@@ -316,6 +331,32 @@ describe('LeftInPlace', () => {
     ]);
     expect(screen.getByText('Carpeta de juego')).toHaveClass('sr-only');
     expect(screen.getByText('1,7 GB')).toHaveClass('font-mono');
+  });
+
+  it('a mod folder left in place is read as a mod folder, not a game', () => {
+    show([
+      {
+        ...left(0, 'textures/SLUS-00594', {
+          kind: 'addon-no-place',
+          addon: 'mod',
+        }),
+        kind: 'folder',
+        size: 384_000_000,
+      } as OrganizeItem,
+      {
+        ...left(1, 'load/mods/0004000000055D00', {
+          kind: 'addon-for-emulator',
+          emulator: 'Azahar',
+          path: 'load/mods/0004000000055D00',
+        }),
+        kind: 'folder',
+        size: 46_000_000,
+      } as OrganizeItem,
+    ]);
+    expect(screen.getAllByText('Carpeta de mod')).toHaveLength(2);
+    for (const label of screen.getAllByText('Carpeta de mod'))
+      expect(label).toHaveClass('sr-only');
+    expect(screen.queryByText('Carpeta de juego')).toBeNull();
   });
 });
 

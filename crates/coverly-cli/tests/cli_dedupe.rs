@@ -401,6 +401,7 @@ fn dedupe_journal() -> (TempDir, TempDir, TempDir, PathBuf) {
         JobMeta {
             kind: JobKind::Dedupe,
             source_root: None,
+            ..JobMeta::default()
         },
     )
     .unwrap();
@@ -472,6 +473,7 @@ fn undo_of_a_dedupe_job_brings_a_trashed_copy_back_byte_identical() {
         JobMeta {
             kind: JobKind::Dedupe,
             source_root: None,
+            ..JobMeta::default()
         },
     )
     .unwrap();
@@ -517,6 +519,7 @@ fn undo_text_of_a_dedupe_job_keeps_hostile_names_on_one_line() {
         JobMeta {
             kind: JobKind::Dedupe,
             source_root: None,
+            ..JobMeta::default()
         },
     )
     .unwrap();

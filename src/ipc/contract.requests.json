@@ -72,7 +72,11 @@
     "offline": true,
     "rescan": true,
     "duplicates": "report",
-    "game_folders": true
+    "game_folders": true,
+    "emulators": {
+      "ps4": "shadps4",
+      "snes": "none"
+    }
   },
   "organize_request_bare": {
     "source": "/Users/me/ROMs-Downloaded"

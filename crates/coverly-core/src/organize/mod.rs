@@ -1,6 +1,7 @@
 //! Organising a pile of loose ROMs into one folder per system
 //! (organise spec): inspection, identification, planning and apply.
 
+pub mod addons;
 pub mod apply;
 pub mod discsets;
 pub mod evidence;
@@ -9,9 +10,15 @@ pub mod inspect;
 pub mod library_bases;
 pub mod online;
 pub mod plan;
+pub mod roots;
 pub mod target;
+pub mod translate_plan;
 pub mod walk;
 
+pub use crate::translate::{
+    EmulatorChoice, EmulatorId, NotSupportedWhy, PlacementTo, PlacementView, TranslateNote,
+    TranslatedGameView,
+};
 pub use apply::{
     apply_organize, cluster_size, free_space, gate, large_transfer, large_transfer_threshold,
     load_plan, resume_organize, user_available, ApplyEnv, ApplyError, HugeItem, ItemOutcome,

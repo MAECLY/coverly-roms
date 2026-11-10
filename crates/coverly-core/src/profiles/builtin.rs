@@ -8,6 +8,7 @@ use super::{
     Media, MediaSlot, Profile, ProfileFolder,
 };
 use crate::archive::ContainerKind;
+use crate::translate::{EmulatorId, RETROARCH_SYSTEMS};
 
 /// Id of the built-in library profile (game folders spec D2). Not
 /// `coverly`: a user's custom profile named «Coverly» would slug to it.
@@ -546,7 +547,7 @@ fn strings(items: &[&str]) -> Vec<String> {
 /// GarlicOS and Anbernic stock layouts are community-sourced (see
 /// `docs/02-research/layouts.md`); their templates are editable defaults.
 pub fn builtin_profiles() -> Vec<Profile> {
-    vec![
+    let mut profiles = vec![
         {
             let mut p = Profile {
                 known_folders: strings(&ANBERNIC_FOLDERS),
@@ -685,7 +686,52 @@ pub fn builtin_profiles() -> Vec<Profile> {
             )
         },
         library_profile(),
-    ]
+    ];
+    for p in &mut profiles {
+        p.emulators = default_emulators(&p.id);
+    }
+    profiles
+}
+
+/// The dedicated emulators ES-DE and Batocera launch per system (mods
+/// spec D16, Q9); every other retro system runs in RetroArch.
+const FRONTEND_EMULATORS: [(&str, EmulatorId); 13] = [
+    ("ps4", EmulatorId::Shadps4),
+    ("ps3", EmulatorId::Rpcs3),
+    ("3ds", EmulatorId::Azahar),
+    ("wiiu", EmulatorId::Cemu),
+    ("psvita", EmulatorId::Vita3k),
+    ("switch", EmulatorId::Ryujinx),
+    ("psx", EmulatorId::DuckStation),
+    ("ps2", EmulatorId::Pcsx2),
+    ("gamecube", EmulatorId::Dolphin),
+    ("wii", EmulatorId::Dolphin),
+    ("psp", EmulatorId::Ppsspp),
+    ("xbox360", EmulatorId::Xenia),
+    ("dreamcast", EmulatorId::Flycast),
+];
+
+/// A built-in profile's default emulators (mods spec D16): the frontends
+/// get a dedicated emulator per modern or disc system and RetroArch for
+/// the other retro systems; RetroArch and the handheld firmwares get
+/// RetroArch for every retro system; the library profile none (it is the
+/// master layout).
+fn default_emulators(id: &str) -> BTreeMap<String, EmulatorId> {
+    let retro = || {
+        RETROARCH_SYSTEMS
+            .iter()
+            .map(|s| (s.to_string(), EmulatorId::RetroArch))
+            .collect::<BTreeMap<_, _>>()
+    };
+    match id {
+        "esde" | "batocera" => {
+            let mut m = retro();
+            m.extend(FRONTEND_EMULATORS.iter().map(|(s, e)| (s.to_string(), *e)));
+            m
+        }
+        "retroarch" | "anbernic-stock" | "garlicos" | "onion" | "muos" | "minui" => retro(),
+        _ => BTreeMap::new(),
+    }
 }
 
 /// The library's own master layout (game folders spec D2, §6): Anbernic
@@ -789,6 +835,7 @@ fn profile(
         folder_stem_keeps_suffix: false,
         dlc_folder: BTreeMap::new(),
         game_folders: false,
+        emulators: BTreeMap::new(),
     }
 }
 

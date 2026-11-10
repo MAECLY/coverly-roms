@@ -38,6 +38,8 @@ const LITTER_DEPTH: u32 = 8;
 pub(super) struct Ctx<'a> {
     pub root: &'a Path,
     pub source_root: &'a Path,
+    /// Emulator data folders the job could write into (header, D17).
+    pub extra_roots: &'a [PathBuf],
     pub data_dir: &'a Path,
     pub job: &'a str,
     /// Temp file counter of the copies back across volumes.
@@ -152,13 +154,16 @@ pub(super) fn undo_entry(
     }
 }
 
-/// `target` inside the job's root, or inside its source root: a pile copy
-/// the duplicates step set aside stays on the pile's side (moves and the
-/// folders they created).
+/// `target` inside the job's root, inside its source root (a pile copy the
+/// duplicates step set aside stays on the pile's side: moves and the
+/// folders they created), or inside one of the header's extra roots (an
+/// emulator data folder, D17).
 fn within_either(ctx: &Ctx<'_>, target: &Path) -> Result<PathBuf, WriteError> {
-    ensure_within(ctx.root, target).or_else(|e| match ensure_within(ctx.source_root, target) {
-        Ok(t) => Ok(t),
-        Err(_) => Err(e),
+    ensure_within(ctx.root, target).or_else(|e| {
+        std::iter::once(ctx.source_root)
+            .chain(ctx.extra_roots.iter().map(PathBuf::as_path))
+            .find_map(|r| ensure_within(r, target).ok())
+            .ok_or(e)
     })
 }
 
@@ -717,6 +722,44 @@ fn remove_created_dir(ctx: &Ctx<'_>, dir: &Path, report: &mut UndoReport) {
             let _ = fs::remove_file(sidecar);
         }
         report.dirs_removed.push(dir);
+    }
+}
+
+/// The target folders apply created before the job began (D19), removed
+/// innermost first when they hold nothing of the user's. Only the job root
+/// and its ancestors count: anything else in the header is ignored.
+pub(super) fn remove_created_roots(ctx: &Ctx<'_>, created: &[PathBuf], report: &mut UndoReport) {
+    for dir in created.iter().rev() {
+        // A created emulator data folder (or a parent of one, D17): the
+        // header keeps its resolved form.
+        let resolved = fs::canonicalize(dir).unwrap_or_else(|_| dir.clone());
+        let extra = ctx
+            .extra_roots
+            .iter()
+            .any(|r| r.starts_with(dir) || r.starts_with(&resolved));
+        if dir.is_absolute() && (ctx.root.starts_with(dir) || extra) {
+            remove_created_root(ctx, dir, report);
+        }
+    }
+}
+
+/// [`remove_created_dir`] for a created target root, which lies at or
+/// above the job root (checked by the caller) instead of inside it.
+fn remove_created_root(ctx: &Ctx<'_>, dir: &Path, report: &mut UndoReport) {
+    if !fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir()) {
+        return;
+    }
+    clean_job_temps(ctx.job, &[dir.to_path_buf()]);
+    if !only_litter(dir, LITTER_DEPTH) {
+        report.dirs_kept.push(dir.to_path_buf());
+        return;
+    }
+    remove_litter(dir);
+    if fs::remove_dir(dir).is_ok() {
+        if let Some(sidecar) = apple_double(dir) {
+            let _ = fs::remove_file(sidecar);
+        }
+        report.dirs_removed.push(dir.to_path_buf());
     }
 }
 

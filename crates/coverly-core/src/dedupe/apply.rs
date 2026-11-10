@@ -200,6 +200,7 @@ pub fn apply_dedupe(
         JobMeta {
             kind: JobKind::Dedupe,
             source_root: layout.source_root.clone(),
+            ..JobMeta::default()
         },
     )?;
     if let Err(e) = save_plan(env.data_dir, writer.job_id(), &plan) {

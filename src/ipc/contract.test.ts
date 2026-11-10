@@ -5,6 +5,7 @@ import { BUILTIN_LAYOUTS, DEFAULT_SETTINGS, RANGES } from '@/lib/settingsRules';
 
 import requests from './contract.requests.json';
 import { ERROR_CODES, toBackendError } from './errors';
+import { normalizeOrganizePlanView } from './organizeWire';
 import sample from './contract.sample.json';
 import {
   CREDENTIAL_KEYS,
@@ -42,6 +43,18 @@ import {
   type ItemNote,
   type FixedFolder,
   type GameRole,
+  type GameLink,
+  type AddonFormat,
+  type AddonKind,
+  type AddonLink,
+  type EmulatorChoice,
+  type EmulatorId,
+  type HeaderFit,
+  type LinkVia,
+  type NotSupportedWhy,
+  type TranslatedGameView,
+  type TranslateNote,
+  type UnlinkedWhy,
   type IdSource,
   type NotARom,
   type OrganizeItemKind,
@@ -75,6 +88,7 @@ import {
   type OrganizeReportWire,
   type OrganizeCountsWire,
   type OrganizePlanView,
+  type OrganizePlanViewWire,
   type OrganizeProgressEvent,
   type OrganizeReport,
   type OrganizeRequest,
@@ -482,6 +496,7 @@ const ORGANIZE_REQUEST_KEYS = [
   'rescan',
   'duplicates',
   'game_folders',
+  'emulators',
 ] as const;
 
 /** Compiles only when `K` lists every member of the union `T`. */
@@ -614,8 +629,10 @@ const checks: [string, readonly string[], object][] = [
     'OrganizePlan',
     // `integration_notices` is optional and left out when empty; Rust
     // fills it once organise computes its notices (integrations plan IP-2).
+    // `translated` is left out when no emulator lays out a game (mods
+    // spec D16; its shape is pinned by `translated_game`).
     PLAN_KEYS satisfies AllKeys<
-      Omit<OrganizePlan, 'integration_notices'>,
+      Omit<OrganizePlan, 'integration_notices' | 'translated'>,
       typeof PLAN_KEYS
     >,
     {
@@ -1368,6 +1385,139 @@ describe('game folders contract', () => {
   });
 });
 
+describe('addons and emulator layouts contract', () => {
+  it('an addon row, its reasons and notes, and a translated layout use the Rust spellings', () => {
+    // addon_values_match_the_shared_sample
+    const item = sample.addon_item as OrganizeItem;
+    const link: GameLink = item.game!;
+    expect(link.role).toBe('cheat');
+    expect(link.addon).toEqual({
+      kind: 'cheat',
+      format: 'duck-station-cht',
+      key_text: 'SCUS-94900',
+      via: 'key',
+    } satisfies AddonLink);
+    // `header` is left out when there is no fit to tell.
+    expect('header' in link.addon!).toBe(false);
+    expect(item.notes).toEqual([{ kind: 'cheat-of', of: 'Crash Bandicoot' }]);
+    expect(JSON.parse(JSON.stringify(item))).toEqual(sample.addon_item);
+    // A part A link has no `addon`.
+    expect('addon' in (sample.game_folder_item as OrganizeItem).game!).toBe(
+      false,
+    );
+    const reasons = sample.addon_reasons as LeftReason[];
+    expect(reasons.map((r) => r.kind)).toEqual([
+      'addon-unlinked',
+      'addon-unlinked',
+      'addon-unlinked',
+      'addon-name-taken',
+      'addon-no-place',
+      'addon-for-emulator',
+      'not-supported',
+      'patch-not-applied',
+    ]);
+    expect(reasons[0]).toEqual({
+      kind: 'addon-unlinked',
+      addon: 'patch',
+      format: 'ips',
+      why: { kind: 'no-key' },
+    });
+    const whys: UnlinkedWhy[] = reasons.flatMap((r) =>
+      r.kind === 'addon-unlinked' ? [r.why] : [],
+    );
+    expect(whys).toEqual([
+      { kind: 'no-key' },
+      { kind: 'several', count: 2 },
+      { kind: 'many', count: 400 },
+    ]);
+    expect(reasons[4]).toEqual({ kind: 'addon-no-place', addon: 'mod' });
+    expect(reasons[6]).toEqual({
+      kind: 'not-supported',
+      emulator: 'RPCS3',
+      why: 'rpcs3-mods',
+    });
+    const notes = sample.addon_notes as ItemNote[];
+    expect(notes).toEqual([
+      { kind: 'mod-of', of: 'Zelda' },
+      { kind: 'patch-of', of: 'Zelda' },
+      { kind: 'cheat-of', of: 'Zelda' },
+      { kind: 'header-mismatch', needs: 'needs-headerless' },
+      { kind: 'point-emulator-here', emulator: 'shadPS4', folder: 'addcont' },
+    ]);
+    expect(sample.addon_kinds).toEqual(ADDON_KINDS);
+    expect(sample.addon_formats).toEqual(ADDON_FORMATS);
+    expect(sample.addon_vias).toEqual(LINK_VIAS);
+    expect(sample.header_fits).toEqual(HEADER_FITS);
+    expect(sample.emulator_ids).toEqual(EMULATOR_IDS);
+    expect(sample.not_supported_whys).toEqual(NOT_SUPPORTED_WHYS);
+    // Every reason an addon stays, in Rust's order, counts included.
+    const unlinked = sample.unlinked_whys as UnlinkedWhy[];
+    expect(unlinked.map((w) => w.kind)).toEqual(UNLINKED_WHY_KINDS);
+    expect(unlinked[1]).toEqual({ kind: 'several', count: 3 });
+    expect(unlinked[2]).toEqual({ kind: 'many', count: 400 });
+    const game = sample.translated_game as TranslatedGameView;
+    expect(game.emulator).toBe('shadps4');
+    expect(game.base).toBe(0);
+    expect(game.placements.map((p) => p.to.kind)).toEqual([
+      'system',
+      'system',
+      'library',
+      'emulator-data',
+      'system',
+    ]);
+    // A placement without a note leaves `note` out.
+    expect('note' in game.placements[0]!).toBe(false);
+    expect(game.placements[2]!.note).toEqual({ kind: 'extract-first' });
+    const translateNotes = sample.translate_notes as TranslateNote[];
+    expect(translateNotes.map((n) => n.kind)).toEqual([
+      'install-in-emulator',
+      'extract-first',
+      'not-supported',
+      'header-mismatch',
+      'point-emulator-here',
+      'patch-not-applied',
+    ]);
+    // The request names an emulator or `none` per system.
+    const emulators: Record<string, EmulatorChoice> | undefined = (
+      requests.organize_request as OrganizeRequest
+    ).emulators;
+    expect(emulators).toEqual({ ps4: 'shadps4', snes: 'none' });
+  });
+
+  it('a plan keeps its addon rows and translated layout, and an older plan reads without them', () => {
+    // a_plan_with_addons_and_a_translated_layout_round_trips
+    const wire = sample.organize_plan_view as unknown as OrganizePlanViewWire;
+    const withAddons: OrganizePlanViewWire = {
+      ...wire,
+      plan: {
+        ...wire.plan,
+        items: [...wire.plan.items, sample.addon_item as OrganizeItem],
+        translated: [sample.translated_game as TranslatedGameView],
+      },
+    };
+    const view = normalizeOrganizePlanView(
+      JSON.parse(JSON.stringify(withAddons)) as OrganizePlanViewWire,
+    );
+    expect(view.plan.translated).toEqual([sample.translated_game]);
+    expect(view.plan.items.at(-1)!.game!.addon!.format).toBe(
+      'duck-station-cht',
+    );
+    // A plan from before part B has no `translated` and no `addon`.
+    const old = normalizeOrganizePlanView(wire);
+    expect(old.plan.translated).toBeUndefined();
+    expect(old.plan.items.every((i) => !i.game?.addon)).toBe(true);
+  });
+
+  it('a request only names emulators, never a folder of theirs', () => {
+    const req = requests.organize_request as Record<string, unknown>;
+    expect(Object.keys(req)).toContain('emulators');
+    expect(Object.keys(req)).not.toContain('emulator_data');
+    // @ts-expect-error emulator data folders are CLI only (mods spec D16, Q2)
+    const bad: OrganizeRequest = { source: '/pile', emulator_data: {} };
+    void bad;
+  });
+});
+
 describe('adjustments contract', () => {
   it('game parts, declined items, the new notes and kinds use the Rust spellings', () => {
     const reasons = sample.adjustments_reasons as LeftReason[];
@@ -1477,7 +1627,115 @@ const GAME_ROLES = [
   'update',
   'dlc',
   'demo',
+  'mod',
+  'cheat',
 ] as const satisfies readonly GameRole[];
+/** Every addon kind, format, link, header fit, emulator and why, in
+ * Rust's order (mods spec D10, D16). */
+const ADDON_KINDS = [
+  'patch',
+  'cheat',
+  'mod',
+] as const satisfies readonly AddonKind[];
+const ADDON_FORMATS = [
+  'bps',
+  'ups',
+  'ips',
+  'xdelta',
+  'ppf',
+  'aps',
+  'retro-arch-cht',
+  'fceux-cht',
+  'duck-station-cht',
+  'pnach',
+  'dolphin-ini',
+  'ppsspp-ini',
+  'ctr-cheats',
+  'switch-cheats',
+  'pchtxt',
+  'rpcs3-patch',
+  'shadps4-cheat',
+  'shadps4-patch',
+  'xenia-patch',
+  'vita3k-patch',
+  'melon-ds-cheats',
+  'mgba-cheats',
+  'desmume-cheats',
+  'code-text',
+  'texture-pack',
+  'dolphin-graphic-mod',
+  'riivolution',
+  'layered-fs',
+  'switch-mod',
+  'exefs-patches',
+  'cemu-graphic-pack',
+  'vita-repatch',
+  'mesen-hd-pack',
+  'msu1',
+  'xenia-plugin',
+  'n64-hires-textures',
+  'shadps4-mods',
+] as const satisfies readonly AddonFormat[];
+const LINK_VIAS = [
+  'source-crc',
+  'dat',
+  'name',
+  'readme',
+  'key',
+  'folder',
+] as const satisfies readonly LinkVia[];
+const HEADER_FITS = [
+  'matches',
+  'needs-headerless',
+  'needs-headered',
+] as const satisfies readonly HeaderFit[];
+const EMULATOR_IDS = [
+  'shadps4',
+  'rpcs3',
+  'azahar',
+  'cemu',
+  'vita3k',
+  'ryujinx',
+  'yuzu-family',
+  'retroarch',
+  'duckstation',
+  'pcsx2',
+  'dolphin',
+  'ppsspp',
+  'xenia',
+  'flycast',
+  'mesen',
+] as const satisfies readonly EmulatorId[];
+const NOT_SUPPORTED_WHYS = [
+  'rpcs3-mods',
+  'vita-repatch',
+  'several-patches',
+  'older-update',
+  'config-exists',
+] as const satisfies readonly NotSupportedWhy[];
+const UNLINKED_WHY_KINDS = [
+  'no-match',
+  'several',
+  'many',
+  'no-key',
+  'budget',
+  'partial',
+] as const satisfies readonly UnlinkedWhy['kind'][];
+const _allUnlinkedWhys: AllMembers<
+  UnlinkedWhy['kind'],
+  typeof UNLINKED_WHY_KINDS
+> = UNLINKED_WHY_KINDS;
+const _allAddonKinds: AllMembers<AddonKind, typeof ADDON_KINDS> = ADDON_KINDS;
+const _allAddonFormats: AllMembers<AddonFormat, typeof ADDON_FORMATS> =
+  ADDON_FORMATS;
+const _allLinkVias: AllMembers<LinkVia, typeof LINK_VIAS> = LINK_VIAS;
+const _allHeaderFits: AllMembers<HeaderFit, typeof HEADER_FITS> = HEADER_FITS;
+const _allEmulatorIds: AllMembers<EmulatorId, typeof EMULATOR_IDS> =
+  EMULATOR_IDS;
+const _allNotSupportedWhys: AllMembers<
+  NotSupportedWhy,
+  typeof NOT_SUPPORTED_WHYS
+> = NOT_SUPPORTED_WHYS;
 const _allFixedFolders: Exclude<
   FixedFolder,
   (typeof FIXED_FOLDERS)[number]
@@ -1514,6 +1772,13 @@ void _allKinds;
 void _allTitleSources;
 void _allFixedFolders;
 void _allGameRoles;
+void _allAddonKinds;
+void _allAddonFormats;
+void _allLinkVias;
+void _allHeaderFits;
+void _allEmulatorIds;
+void _allNotSupportedWhys;
+void _allUnlinkedWhys;
 
 /** Every `IdSource`, in Rust's declaration order. */
 const ID_SOURCES = [

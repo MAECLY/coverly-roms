@@ -30,6 +30,7 @@ fn organise_job(root: &Path, data: &Path, source: &Path) -> Writer {
         JobMeta {
             kind: JobKind::Organize,
             source_root: Some(source.to_path_buf()),
+            ..JobMeta::default()
         },
     )
     .unwrap()
@@ -681,6 +682,7 @@ fn dedupe_job_undo_moves_files_back() {
         JobMeta {
             kind: JobKind::Dedupe,
             source_root: None,
+            ..JobMeta::default()
         },
     )
     .unwrap();
@@ -797,4 +799,64 @@ fn a_refused_folder_copy_leaves_no_empty_folder_behind() {
     let job = w.finish().unwrap();
     undo_job(&data, &job).unwrap();
     assert!(!root.join("GB").exists());
+}
+
+/// An organise job of `src` into `root` that may also write into `emu`.
+fn organise_job_with_extra(root: &Path, data: &Path, source: &Path, emu: &Path) -> Writer {
+    Writer::begin_with(
+        root,
+        data,
+        JobMeta {
+            kind: JobKind::Organize,
+            source_root: Some(source.to_path_buf()),
+            extra_roots: vec![emu.to_path_buf()],
+            ..JobMeta::default()
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_move_into_an_extra_root_undoes_back_to_the_source() {
+    let (tmp, src, root, data) = setup();
+    let emu = tmp.path().join("duckstation");
+    fs::create_dir_all(&emu).unwrap();
+    let from = src.join("SLUS-00594.cht");
+    fs::write(&from, b"cheat").unwrap();
+    let to = emu.join("cheats/SLUS-00594.cht");
+
+    // Without the extra root the emulator's folder is out of bounds.
+    let mut plain = organise_job(&root, &data, &src);
+    let err = plain
+        .move_file(&from, &to, Collision::Rename, None)
+        .unwrap_err();
+    assert!(matches!(err, WriteError::OutsideRoot(_)), "{err}");
+    plain.discard().unwrap();
+
+    let mut w = organise_job_with_extra(&root, &data, &src, &emu);
+    w.move_file(&from, &to, Collision::Rename, None).unwrap();
+    let job = w.finish().unwrap();
+    assert_eq!(fs::read(&to).unwrap(), b"cheat");
+    assert!(!from.exists());
+
+    // A resumed run keeps the extra root from the header.
+    let from2 = src.join("SLUS-00595.cht");
+    fs::write(&from2, b"cheat2").unwrap();
+    let mut w = Writer::resume(&root, &data, &job).unwrap();
+    w.move_file(
+        &from2,
+        &emu.join("cheats/SLUS-00595.cht"),
+        Collision::Rename,
+        None,
+    )
+    .unwrap();
+    w.finish().unwrap();
+
+    let report = undo_job(&data, &job).unwrap();
+    assert_eq!(fs::read(&from).unwrap(), b"cheat");
+    assert_eq!(fs::read(&from2).unwrap(), b"cheat2");
+    assert!(!emu.join("cheats").exists(), "the created folder goes");
+    assert!(emu.is_dir(), "the emulator's own folder stays");
+    assert_eq!(report.restored.len(), 2);
+    assert!(report.skipped_modified.is_empty() && report.skipped_occupied.is_empty());
 }

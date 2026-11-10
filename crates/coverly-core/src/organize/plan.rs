@@ -15,6 +15,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
+use crate::addons::{AddonFormat, AddonKind, AddonLink, HeaderFit, UnlinkedWhy};
 use crate::archive::names::UnsafeWhy;
 use crate::archive::{ContainerKind, Limits, Tool, ToolsOnDemand};
 use crate::cache::Cache;
@@ -34,7 +35,7 @@ use crate::game_folder::{ChildRole, FixedFolder};
 use crate::identify::dat::DatStore;
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::HeaderRule;
-use crate::identify::names::{parse_tags, Region};
+use crate::identify::names::{bare_region, parse_tags, Region};
 use crate::identify::sniff::{NotARom, Sniff};
 use crate::organize::apply::{cluster_size, large_transfer, user_available};
 use crate::organize::discsets::{self, HeaderDisc, SetEvidence};
@@ -48,7 +49,8 @@ use crate::organize::inspect::{
     Container, Inspection, Payload, ZipEntryInfo, NOTE_TOOL_FAILED,
 };
 use crate::organize::library_bases::{
-    demo_free_key, has_demo_tag, library_bases, LibraryIndex, LookupBudget,
+    demo_free_key, has_demo_tag, library_bases, pick_by_region, single_name_region, LibraryIndex,
+    LookupBudget,
 };
 use crate::organize::target::{
     assign_targets_in, attach_set_aside_companions, default_companion_exts, dlc_target,
@@ -67,6 +69,7 @@ use crate::scan::multifile::{group_sets, is_list_extension};
 use crate::scan::{find_dir_ignoring_case, scan_systems, ScanOptions, ScanWarning};
 use crate::settings::{ExternalTools, OrganizeDedupeMode, OrganizeModeSetting, Settings};
 use crate::systems::{System, SystemDb};
+use crate::translate::{EmulatorChoice, EmulatorId, NotSupportedWhy, TranslatedGameView};
 
 /// How files reach their system folder.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -264,6 +267,43 @@ pub enum LeftReason {
         folder: FixedFolder,
         of: String,
     },
+    /// An addon whose game is not known (mods spec D7): never moved,
+    /// never deleted. On the wire the addon kind is `addon` (`kind` is
+    /// the tag).
+    AddonUnlinked {
+        #[serde(rename = "addon")]
+        kind: AddonKind,
+        format: AddonFormat,
+        why: UnlinkedWhy,
+    },
+    /// A file of that name, with other content, is already in the
+    /// addon's fixed folder (D11): `at` is that folder, relative to the
+    /// target root. Never renamed to ` (2)`.
+    AddonNameTaken {
+        at: PathBuf,
+    },
+    /// A linked addon the layout has no place for (D12).
+    AddonNoPlace {
+        #[serde(rename = "addon")]
+        kind: AddonKind,
+    },
+    /// The addon goes in an emulator's own data folder, which the run did
+    /// not name (D16): `path` is where, relative to that folder.
+    /// `emulator` is the product name.
+    AddonForEmulator {
+        emulator: String,
+        path: PathBuf,
+    },
+    /// The chosen emulator does not use the item like this (D15).
+    NotSupported {
+        emulator: String,
+        why: NotSupportedWhy,
+    },
+    /// A patch the emulator would apply when playing, only renamed for it
+    /// when the user chooses that emulator (D16, Q11).
+    PatchNotApplied {
+        emulator: String,
+    },
 }
 
 /// The reason an inspection issue leaves an item in place (archives spec
@@ -389,6 +429,16 @@ pub enum ItemNote {
     /// An update or DLC whose game is neither in the plan nor in the
     /// library (game folders spec D13): review.
     BaseMissing,
+    /// A mod of `of` (its title), linked by its key (mods spec D10).
+    ModOf { of: String },
+    /// A translation patch or hack of `of`.
+    PatchOf { of: String },
+    /// Cheats or emulator patches of `of`.
+    CheatOf { of: String },
+    /// The patch expects the ROM with or without its header (D8).
+    HeaderMismatch { needs: HeaderFit },
+    /// The emulator (product name) has to be pointed at `folder` (D15).
+    PointEmulatorHere { emulator: String, folder: String },
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -503,6 +553,10 @@ pub enum GameRole {
     Update,
     Dlc,
     Demo,
+    /// A translation patch, hack, mod or texture pack (mods spec D10).
+    Mod,
+    /// A cheat or an emulator patch.
+    Cheat,
 }
 
 /// How an item belongs to a game folder (game folders spec D16): data
@@ -530,6 +584,10 @@ pub struct GameLink {
     /// Highest version present for this base (D24).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub newest_here: bool,
+    /// What a `Mod` or `Cheat` row is and how it was linked (mods spec
+    /// D10); absent in plans made before addons.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addon: Option<AddonLink>,
 }
 
 impl GameLink {
@@ -544,6 +602,7 @@ impl GameLink {
             folder_exists: false,
             demo_of: None,
             newest_here: false,
+            addon: None,
         }
     }
 }
@@ -748,6 +807,12 @@ pub struct OrganizeOptions {
     /// layout profile's own value; the app passes the user's override
     /// (`organize.game_folders`) resolved, the CLI its flag.
     pub game_folders: Option<bool>,
+    /// The emulator chosen per system for this run (mods spec D16): a
+    /// system absent here uses the layout's default.
+    pub emulators: BTreeMap<String, EmulatorChoice>,
+    /// Emulator data folders the run may write into (CLI only, D16):
+    /// absolute.
+    pub emulator_data: BTreeMap<EmulatorId, PathBuf>,
 }
 
 impl Default for OrganizeOptions {
@@ -771,6 +836,8 @@ impl Default for OrganizeOptions {
             quarantine_name: DEFAULT_QUARANTINE_NAME.to_string(),
             regions: Vec::new(),
             game_folders: None,
+            emulators: BTreeMap::new(),
+            emulator_data: BTreeMap::new(),
         }
     }
 }
@@ -906,6 +973,14 @@ pub enum OrganizeError {
     Cancelled,
     #[error("item {0} is not in the plan")]
     UnknownItem(usize),
+    /// The run's emulator data folder for `emulator` cannot be written
+    /// into (mods spec D16).
+    #[error("emulator data folder for {emulator} refused ({why}): {}", path.display())]
+    EmulatorData {
+        emulator: EmulatorId,
+        path: PathBuf,
+        why: super::translate_plan::EmulatorDataWhy,
+    },
 }
 
 /// The user's answer for one item.
@@ -1026,6 +1101,21 @@ pub struct OrganizePlan {
     /// the JSON when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub integration_notices: Vec<crate::integrations::Notice>,
+    /// Set when the target did not exist at plan time (mods/cheats spec
+    /// D19): its nearest existing ancestor, so apply can create the target
+    /// and still tell it from a vanished volume. Left out of the JSON when
+    /// the target existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_anchor: Option<super::roots::TargetAnchor>,
+    /// Games laid out for the emulator chosen for their system (mods spec
+    /// D16), for the preview. Left out of the JSON when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub translated: Vec<TranslatedGameView>,
+    /// Emulator data folders the plan writes into (D16, D17), with their
+    /// anchor when apply has to create them. Left out of the JSON when
+    /// empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emulator_roots: Vec<super::translate_plan::EmulatorRoot>,
 }
 
 /// One future plan item as the survey found it.
@@ -1372,6 +1462,7 @@ pub fn survey(
             probe: env.probe,
             max_depth: MAX_DEPTH,
             profile: Some(&profile),
+            cache: Some(env.cache),
         },
     )
     .map_err(|e| OrganizeError::Unreadable(source_abs.clone(), e.to_string()))?;
@@ -1386,6 +1477,7 @@ pub fn survey(
             }
         }
     }
+    walked.left.sort_by(|a, b| a.0.cmp(&b.0));
     progress(OrganizeProgress {
         phase: OrganizePhase::Walk,
         done: walked.candidates.len(),
@@ -1411,6 +1503,70 @@ pub fn survey(
                 inspection: None,
                 facts: None,
                 tree: None,
+                console: None,
+                disc_set: None,
+                role_hint: None,
+                game_dir: None,
+            },
+            candidate: None,
+            set_sniff: None,
+        });
+    }
+    // Every addon stays where it is, with the reason it would have if no
+    // game took it, until the plan's link pass places it (mods spec D7):
+    // a mod folder as one folder, an MSU-1 set as one set (D10).
+    let tree_opts = WalkOptions {
+        skip_dirs: Vec::new(),
+        roms_root: None,
+        art_dirs: &[],
+        ignored_dirs: &[],
+        now: env.now,
+        recent: Duration::from_secs(opts.recent_secs),
+        probe: env.probe,
+        max_depth: MAX_DEPTH,
+        profile: None,
+        cache: None,
+    };
+    for (sources, kind, reason) in super::addons::unlinked_entries(&walked.addons) {
+        let (fps, tree, reason) = if kind == ItemKind::Folder {
+            let tree = super::walk::tree_summary(&sources[0], &tree_opts);
+            let fp = SourceFp {
+                size: tree.bytes,
+                mtime_ns: tree.newest_mtime_ns,
+            };
+            // A mod folder passes a folder game's gates before the link
+            // pass may move it (a link, a partial download, a file still
+            // being written, a cloud placeholder inside stay).
+            let reason = if tree.symlink {
+                LeftReason::Symlink
+            } else if tree.partial {
+                LeftReason::PartialDownload
+            } else if tree.recent {
+                LeftReason::RecentlyModified
+            } else if tree.cloud_only {
+                LeftReason::CloudOnly
+            } else {
+                reason
+            };
+            (vec![fp], Some(tree), reason)
+        } else {
+            (
+                sources.iter().map(|p| fp_of(p)).collect::<Vec<_>>(),
+                None,
+                reason,
+            )
+        };
+        entries.push(Pending {
+            entry: SurveyEntry {
+                size: fps.iter().map(|f| f.size).sum(),
+                fps,
+                sources,
+                kind,
+                left: Some(reason),
+                identification: None,
+                inspection: None,
+                facts: None,
+                tree,
                 console: None,
                 disc_set: None,
                 role_hint: None,
@@ -1748,7 +1904,7 @@ fn group_loose_discs(entries: Vec<SurveyEntry>, db: &SystemDb) -> Vec<SurveyEntr
 const NO_PLAYLIST: [&str; 3] = ["ps2", "xbox", "xbox360"];
 
 /// The base title id and kind of an entry's console header (D11).
-fn title_group(entry: &SurveyEntry) -> Option<((String, String), TitleKind)> {
+pub(crate) fn title_group(entry: &SurveyEntry) -> Option<((String, String), TitleKind)> {
     let c = entry.console.as_ref()?;
     Some(((c.system.clone(), base_title_id(c)?), link_kind(c)))
 }
@@ -2453,7 +2609,7 @@ fn demo_folder_stem(stem: &str, region: Option<Region>) -> (String, Option<Regio
     }
     let stem = stem.trim();
     match region {
-        Some(r) if parse_tags(stem).regions.is_empty() => {
+        Some(r) if parse_tags(stem).regions.is_empty() && bare_region(stem) != Some(r) => {
             (format!("{stem} ({}) (Demo)", r.no_intro_word()), None)
         }
         _ => (format!("{stem} (Demo)"), None),
@@ -2652,8 +2808,18 @@ fn link_demos_and_orphans(
         libraries.insert(system, found);
     }
 
-    // Demos (D12).
-    let mut plan_bases: HashMap<(String, String), String> = HashMap::new();
+    // Demos (D12): every base of a title key with its region (header of
+    // the same system, else the single name-tag region), so a demo links
+    // to the base of its region (mods spec D20).
+    let header_region = |i: usize, system: &str| {
+        entries
+            .get(i)
+            .and_then(|e| e.console.as_ref())
+            .filter(|c| c.system == system)
+            .and_then(|c| c.region)
+    };
+    type Bases = HashMap<(String, String), Vec<(String, Option<Region>)>>;
+    let mut plan_bases: Bases = HashMap::new();
     for (i, item) in items.iter().enumerate() {
         let (Some(system), Some(entry)) = (item.system_id.clone(), entries.get(i)) else {
             continue;
@@ -2670,7 +2836,11 @@ fn link_demos_and_orphans(
         let stem = item_stem(item);
         let key = parse_tags(&stem).title_key;
         if !key.is_empty() {
-            plan_bases.entry((system, key)).or_insert(stem);
+            let region = header_region(i, &system).or_else(|| single_name_region(&stem));
+            plan_bases
+                .entry((system, key))
+                .or_default()
+                .push((stem, region));
         }
     }
     for i in demos {
@@ -2679,15 +2849,31 @@ fn link_demos_and_orphans(
         };
         let stem = item_stem(&items[i]);
         let key = demo_free_key(&stem);
-        let of = plan_bases
+        let demo_region = header_region(i, &system).or_else(|| single_name_region(&stem));
+        let in_plan = plan_bases
             .get(&(system.clone(), key.clone()))
-            .cloned()
-            .or_else(|| {
-                libraries
-                    .get(&system)
-                    .and_then(|l| l.by_title_key(&key))
-                    .and_then(|b| b.title.clone())
-            });
+            .and_then(|cands| pick_by_region(cands, demo_region, |c| c.1, |c| &c.0))
+            .map(|c| (c.0.clone(), c.1));
+        let in_library = libraries.get(&system).and_then(|l| {
+            pick_by_region(
+                l.by_title_key_all(&key),
+                demo_region,
+                |b| b.region,
+                |b| b.title.as_deref().unwrap_or(""),
+            )
+            .and_then(|b| b.title.clone().map(|t| (t, b.region)))
+        });
+        // The demo's own region wins wherever it is (plan first); else the
+        // plan's pick by preference, else the library's (D20).
+        let exact = |c: &Option<(String, Option<Region>)>| {
+            demo_region.is_some() && c.as_ref().is_some_and(|c| c.1 == demo_region)
+        };
+        let of = if !exact(&in_plan) && exact(&in_library) {
+            in_library
+        } else {
+            in_plan.or(in_library)
+        }
+        .map(|c| c.0);
         if let Some(of) = &of {
             let note = ItemNote::DemoOf { of: of.clone() };
             if !items[i].notes.contains(&note) {
@@ -3284,7 +3470,8 @@ fn identify_one(
 /// and disc counts (adjustments D33).
 /// 10: system titles, emulator caches and configs, and the kinds, versions
 /// and regions game folders read (game folders spec D11, D14, D18).
-const FACTS_VERSION: u32 = 10;
+/// 11: addon verdicts (mods spec D10).
+pub(crate) const FACTS_VERSION: u32 = 11;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -3431,6 +3618,7 @@ pub fn plan_from_survey(
     };
     let roms_dir = roms_dir_of(&target_root, &profile, opts.flat);
     let src = &survey.source_root;
+    super::translate_plan::check_emulator_data(opts, src, &target_root)?;
 
     // Switch names from the optional catalogue (adjustments D7, plan P-1).
     let named = with_switch_names(survey, env.titles);
@@ -3800,6 +3988,31 @@ pub fn plan_from_survey(
         &mut index,
         &mut dlc_names,
     );
+    // Mods, patches and cheats to their game (mods spec D5–D9, D13).
+    {
+        let mut budget =
+            LookupBudget::new(opts.limits.plan_head_budget, opts.limits.plan_wall_time);
+        let mut library = |system: &str| {
+            let (system_dir, _) = folder_dir(&layout, env.db, system);
+            let mut read = |path: &Path, meta: &fs::Metadata| {
+                library_header(path, meta, env, &opts.limits, &mut budget)
+            };
+            library_bases(&system_dir, system, env.db, true, &mut read)
+        };
+        let mut world = super::addons::LinkWorld {
+            layout: &layout,
+            db: env.db,
+            hash_budget: opts.limits.plan_head_budget,
+            library: &mut library,
+        };
+        super::addons::link_addons(
+            &mut items,
+            &survey.entries,
+            &survey.walked.addons,
+            &mut subdirs,
+            &mut world,
+        );
+    }
     let mut left_companions = assign_targets_in(
         &mut items,
         &shapes,
@@ -3817,7 +4030,23 @@ pub fn plan_from_survey(
         game_children_targets(&mut items, &layout, &mut index, &same_content, &|j| {
             dlc_names.get(&j).cloned()
         });
+        super::addons::fixed_folder_companions(&mut items, &layout, &mut index);
     }
+    super::addons::addon_targets(&mut items, &layout, &mut index, src, &same_content);
+    // Each system laid out for its emulator (mods spec D16).
+    let translated = super::translate_plan::apply(
+        &mut items,
+        &super::translate_plan::TranslateWorld {
+            layout: &layout,
+            db: env.db,
+            opts,
+            entries: &survey.entries,
+            addons: &survey.walked.addons,
+            src,
+        },
+        &mut index,
+        &same_content,
+    );
     // A folder game's deepest member must fit below its target (D27).
     for item in items.iter_mut().filter(|i| i.moves_in()) {
         let (Some(target), Some(tree)) = (
@@ -3939,6 +4168,7 @@ pub fn plan_from_survey(
     let mut counts = count(&items, &survey.walked);
     counts.in_library = dups.in_library;
 
+    let target_anchor = super::roots::anchor_of(&target_root, &super::roots::OsRootProbe);
     let mut plan = OrganizePlan {
         source_root: src.clone(),
         target_root,
@@ -3977,6 +4207,9 @@ pub fn plan_from_survey(
         duplicates: dups.groups,
         updates,
         integration_notices: Vec::new(),
+        target_anchor,
+        translated: translated.views,
+        emulator_roots: translated.roots,
     };
     // Informational: the gate runs on the decided plan at apply time; a
     // folder game extraction under the threshold is asked then, with no
@@ -4037,7 +4270,14 @@ fn duplicates_step(
     let mut by_primary: HashMap<PathBuf, usize> = HashMap::new();
     let mut listed: HashMap<PathBuf, Vec<ListedEntry>> = HashMap::new();
     let mut discs: HashMap<PathBuf, Option<DiscId>> = HashMap::new();
-    for item in items.iter().filter(|i| i.moves_in()) {
+    // Mods and cheats are never units (mods spec D10): they belong to
+    // their game.
+    let addon = |i: &OrganizeItem| {
+        i.game
+            .as_ref()
+            .is_some_and(|g| matches!(g.role, GameRole::Mod | GameRole::Cheat))
+    };
+    for item in items.iter().filter(|i| i.moves_in() && !addon(i)) {
         let (Some(system), Some(entry)) = (&item.system_id, survey.entries.get(item.id)) else {
             continue;
         };
@@ -5200,8 +5440,8 @@ mod tests {
             facts: f,
         })
         .unwrap();
-        assert_eq!(FACTS_VERSION, 10);
-        old["v"] = 9.into();
+        assert_eq!(FACTS_VERSION, 11);
+        old["v"] = 10.into();
         cache
             .put_organize_facts(&c.path, c.size, c.mtime_ns, &old.to_string())
             .unwrap();
@@ -5371,5 +5611,189 @@ mod tests {
             "Extra"
         );
         assert_eq!(dlc_rest("Zelda (USA) [DLC] - Pack", "zelda"), "Pack");
+    }
+
+    #[test]
+    fn demo_folder_stem_does_not_double_a_bare_region_word() {
+        assert_eq!(
+            demo_folder_stem("Game USA", Some(Region::Usa)),
+            ("Game USA (Demo)".to_string(), None)
+        );
+        assert_eq!(
+            demo_folder_stem("Game", Some(Region::Usa)),
+            ("Game (USA) (Demo)".to_string(), None)
+        );
+        // A name that has its demo tag keeps the region for the folder,
+        // which must not double a bare region word either.
+        let (wanted, region) = demo_folder_stem("Game USA (Demo)", Some(Region::Usa));
+        let tmp = tempfile::tempdir().unwrap();
+        let folder = crate::organize::target::game_folder_name(
+            &wanted,
+            region,
+            tmp.path(),
+            &mut crate::organize::target::DirIndex::new(),
+        )
+        .unwrap()
+        .0;
+        assert_eq!(folder, "Game USA (Demo)");
+    }
+
+    #[test]
+    fn addon_variants_serde() {
+        use crate::addons::{AddonFormat, AddonKind, AddonLink, HeaderFit, LinkVia, UnlinkedWhy};
+        use crate::translate::{EmulatorId, NotSupportedWhy};
+        use serde_json::{json, to_value};
+        for (role, wire) in [(GameRole::Mod, "mod"), (GameRole::Cheat, "cheat")] {
+            assert_eq!(to_value(role).unwrap(), json!(wire));
+            assert_eq!(
+                serde_json::from_value::<GameRole>(json!(wire)).unwrap(),
+                role
+            );
+        }
+        let reasons = [
+            (
+                LeftReason::AddonUnlinked {
+                    kind: AddonKind::Patch,
+                    format: AddonFormat::Ips,
+                    why: UnlinkedWhy::NoKey,
+                },
+                // The addon kind cannot be `kind`: that is the tag.
+                json!({"kind": "addon-unlinked", "addon": "patch", "format": "ips",
+                       "why": {"kind": "no-key"}}),
+            ),
+            (
+                LeftReason::AddonUnlinked {
+                    kind: AddonKind::Mod,
+                    format: AddonFormat::CemuGraphicPack,
+                    why: UnlinkedWhy::Several { count: 2 },
+                },
+                json!({"kind": "addon-unlinked", "addon": "mod", "format": "cemu-graphic-pack",
+                       "why": {"kind": "several", "count": 2}}),
+            ),
+            (
+                LeftReason::AddonNameTaken {
+                    at: PathBuf::from("Pokemon Y"),
+                },
+                json!({"kind": "addon-name-taken", "at": "Pokemon Y"}),
+            ),
+            (
+                LeftReason::AddonNoPlace {
+                    kind: AddonKind::Cheat,
+                },
+                json!({"kind": "addon-no-place", "addon": "cheat"}),
+            ),
+            (
+                LeftReason::AddonForEmulator {
+                    emulator: "DuckStation".into(),
+                    path: PathBuf::from("SLUS-00594.cht"),
+                },
+                json!({"kind": "addon-for-emulator", "emulator": "DuckStation",
+                       "path": "SLUS-00594.cht"}),
+            ),
+            (
+                LeftReason::NotSupported {
+                    emulator: "RPCS3".into(),
+                    why: NotSupportedWhy::Rpcs3Mods,
+                },
+                json!({"kind": "not-supported", "emulator": "RPCS3", "why": "rpcs3-mods"}),
+            ),
+            (
+                LeftReason::PatchNotApplied {
+                    emulator: "RetroArch".into(),
+                },
+                json!({"kind": "patch-not-applied", "emulator": "RetroArch"}),
+            ),
+        ];
+        for (reason, wire) in reasons {
+            assert_eq!(to_value(&reason).unwrap(), wire);
+            assert_eq!(serde_json::from_value::<LeftReason>(wire).unwrap(), reason);
+        }
+        let notes = [
+            (
+                ItemNote::ModOf { of: "Zelda".into() },
+                json!({"kind": "mod-of", "of": "Zelda"}),
+            ),
+            (
+                ItemNote::PatchOf { of: "Zelda".into() },
+                json!({"kind": "patch-of", "of": "Zelda"}),
+            ),
+            (
+                ItemNote::CheatOf { of: "Zelda".into() },
+                json!({"kind": "cheat-of", "of": "Zelda"}),
+            ),
+            (
+                ItemNote::HeaderMismatch {
+                    needs: HeaderFit::NeedsHeaderless,
+                },
+                json!({"kind": "header-mismatch", "needs": "needs-headerless"}),
+            ),
+            (
+                ItemNote::PointEmulatorHere {
+                    emulator: "shadPS4".into(),
+                    folder: "addcont".into(),
+                },
+                json!({"kind": "point-emulator-here", "emulator": "shadPS4", "folder": "addcont"}),
+            ),
+        ];
+        for (note, wire) in notes {
+            assert_eq!(to_value(&note).unwrap(), wire);
+            assert_eq!(serde_json::from_value::<ItemNote>(wire).unwrap(), note);
+        }
+        // A link with an addon carries it; one without leaves it out.
+        let mut link = GameLink::new(GameRole::Cheat);
+        assert!(to_value(&link).unwrap().get("addon").is_none());
+        link.addon = Some(AddonLink {
+            kind: AddonKind::Cheat,
+            format: AddonFormat::DuckStationCht,
+            key_text: "SLUS-00594".into(),
+            via: LinkVia::Key,
+            header: None,
+        });
+        let wire = to_value(&link).unwrap();
+        assert_eq!(
+            wire,
+            json!({"role": "cheat", "addon": {"kind": "cheat", "format": "duck-station-cht",
+                   "key_text": "SLUS-00594", "via": "key"}})
+        );
+        assert_eq!(serde_json::from_value::<GameLink>(wire).unwrap(), link);
+        // Emulator ids keep their product spelling, lower case.
+        assert_eq!(to_value(EmulatorId::RetroArch).unwrap(), json!("retroarch"));
+        assert_eq!(
+            to_value(EmulatorId::DuckStation).unwrap(),
+            json!("duckstation")
+        );
+        assert_eq!(
+            to_value(EmulatorId::YuzuFamily).unwrap(),
+            json!("yuzu-family")
+        );
+    }
+
+    #[test]
+    fn a_part_a_game_link_still_loads() {
+        let link: GameLink = serde_json::from_value(serde_json::json!({
+            "role": "update", "version": "1.5", "of": 1, "folder": "3DS/Pokemon Y",
+            "newest_here": true
+        }))
+        .unwrap();
+        assert_eq!(link.role, GameRole::Update);
+        assert_eq!(link.addon, None);
+    }
+
+    #[test]
+    fn an_older_plan_without_translated_layouts_still_loads() {
+        use serde_json::json;
+        let old = json!({
+            "source_root": "/pile", "target_root": "/lib", "roms_dir": "/lib",
+            "layout": "coverly-library", "mode": "move", "names": "keep", "items": [],
+            "counts": serde_json::to_value(Counts::default()).unwrap(),
+            "sorted_folders": [], "deep_folders": [], "other_files": [], "warnings": [],
+            "broad_root": false, "fat32": false, "move_allowed": true,
+            "target_detected": null, "created_at": "2026-10-24T00:00:00Z"
+        });
+        let plan: OrganizePlan = serde_json::from_value(old).unwrap();
+        assert!(plan.translated.is_empty());
+        assert_eq!(plan.target_anchor, None);
+        let back = serde_json::to_value(&plan).unwrap();
+        assert!(back.get("translated").is_none(), "{back}");
     }
 }

@@ -98,6 +98,10 @@ import {
   type Region,
   type DedupeSettings,
   type DupGroupView,
+  type AddonLink,
+  type EmulatorChoice,
+  type PlacementView,
+  type TranslatedGameView,
   type GameRole,
   type OrganizeDedupeMode,
   type SystemFamily,
@@ -126,6 +130,13 @@ import {
   type GameFolderFile,
 } from './gameFoldersFixture';
 import { FIXTURE_SYSTEMS } from './fixture';
+import {
+  EMULATOR_NAMES,
+  MOCK_MODS,
+  MODS_FILES,
+  MODS_TRANSLATIONS,
+  type ModsFile,
+} from './modsFixture';
 import type { MockExport } from './mockJobs';
 import { MOCK_SAMPLE_SORTED, type MockSortedFolder } from './sampleFixture';
 
@@ -143,7 +154,7 @@ export const MOCK_PICK_KEY = 'coverly.mock.pick';
 /**
  * What "Open folder…" picks in the browser mock, so the organise offer is
  * reachable from the start screen:
- * `?mockPick=downloads|loose|mixed|retro|modern|current|huge|switch|odd|discs|dupes-title|gamefolders|<absolute path>` (or
+ * `?mockPick=downloads|loose|mixed|retro|modern|current|huge|switch|odd|discs|dupes-title|gamefolders|mods|<absolute path>` (or
  * localStorage `coverly.mock.pick`). `downloads` is the owner's pile as it
  * is now (`MOCK_SAMPLE`), `loose` the same pile before any of it was sorted
  * (`MOCK_DOWNLOADS`), `retro` the systems batch 1 pile (`MOCK_RETRO`),
@@ -152,7 +163,9 @@ export const MOCK_PICK_KEY = 'coverly.mock.pick';
  * asked one by one (`MOCK_HUGE`, `adjustFixture.ts`), and `switch`, `odd`,
  * `discs` and `dupes-title` the other adjustments piles (spec §9.4), and
  * `gamefolders` the game folders pile (`MOCK_GAMEFOLDERS`, game folders
- * spec §9.3).
+ * spec §9.3), and `mods` the mods, patches and cheats pile (`MOCK_MODS`,
+ * `modsFixture.ts`, mods spec §9.3: a request's `emulators` re-derive its
+ * placements from the fixture's translator tables).
  * Null: the first fixture library, as before.
  */
 export function readMockPick(): string | null {
@@ -169,6 +182,7 @@ export function readMockPick(): string | null {
     if (v === 'discs') return MOCK_DISCS;
     if (v === 'dupes-title') return MOCK_DUPES_TITLE;
     if (v === 'gamefolders') return MOCK_GAMEFOLDERS;
+    if (v === 'mods') return MOCK_MODS;
     return v && v.startsWith('/') ? v : null;
   };
   try {
@@ -311,6 +325,9 @@ interface PileFile {
     dlcName?: string;
     demoOf?: string;
   };
+  /** A linked mod, patch or cheats (mods spec D5): `of` is its base's
+   * pile name, `title` the base's title for the row's note. */
+  addon?: { link: AddonLink; of: string; title: string };
 }
 
 interface PileDef {
@@ -452,6 +469,32 @@ function gameFolderPile(f: GameFolderFile): PileFile {
       ...(f.dlcName && { dlcName: f.dlcName }),
       ...(f.demoOf && { demoOf: f.demoOf }),
     };
+  return file;
+}
+
+/** A mods pile file (`modsFixture.ts`) as a pile file. */
+function modsPile(f: ModsFile): PileFile {
+  if (f.addon && f.of && f.system)
+    return {
+      name: f.name,
+      size: f.size,
+      system: f.system,
+      method: 'extension',
+      confidence: 0.9,
+      detail: f.addon.format,
+      ...(f.folder && { folder: true }),
+      addon: { link: { ...f.addon }, of: f.of, title: f.title ?? f.of },
+    };
+  if (!f.role && f.system && !f.left)
+    return {
+      name: f.name,
+      size: f.size,
+      ...(f.catalogue
+        ? { ...hash(f.system, f.catalogue, ''), detail: f.detail ?? '' }
+        : header(f.system, f.detail ?? '')),
+    };
+  const file = gameFolderPile(f);
+  if (f.folder) file.folder = true;
   return file;
 }
 
@@ -1223,6 +1266,11 @@ const PILES: readonly PileDef[] = [
     files: GAME_FOLDER_FILES.map(gameFolderPile),
     junk: [],
   },
+  {
+    path: MOCK_MODS,
+    files: MODS_FILES.map(modsPile),
+    junk: [],
+  },
 ];
 
 const ARCHIVE_EXTS = ['.zip', '.7z', '.rar', '.gz', '.tgz'];
@@ -1527,6 +1575,9 @@ interface Resolved {
   /** Game folders for this run: the request, else the user's override,
    * else the layout's own value (game folders spec D1). */
   gameFolders: boolean;
+  /** The emulator the run chose per system (mods spec D16); a system left
+   * out uses the layout's default. */
+  emulators: Record<string, EmulatorChoice>;
 }
 
 /** A file (or the files of an archive) an apply put in a target. */
@@ -1834,6 +1885,7 @@ export function createMockOrganize(
         s.game_folders?.[id] ??
         layout.profile.game_folders ??
         false,
+      emulators: { ...(req.emulators ?? {}) },
     };
   }
 
@@ -2096,6 +2148,8 @@ export function createMockOrganize(
       { dir: string; game: string; id: number }
     >();
     for (const [i, item] of items.entries()) {
+      // Addons are placed once every base has its target.
+      if (files[i]!.addon) continue;
       if (item.action === 'left' && item.reason.kind === 'folder-game') {
         // Move the whole folder to the system's folder of this layout.
         items[i] = {
@@ -2173,21 +2227,25 @@ export function createMockOrganize(
       if (gf) {
         const ext = extOf(source);
         const own = fileName(source);
+        // A folder game (an extracted PS4 game) is its own game folder:
+        // it keeps its name, its children go inside it.
+        const isDir = item.kind === 'folder';
         if (gf.role === 'base' || gf.role === 'demo') {
-          const game = gf.game ?? stemOf(own);
-          dirOf = join(dir, game);
-          name = `${game}${ext}`;
-          const prefix = `${dirOf.toLowerCase()}/`;
+          const game = isDir ? own : (gf.game ?? stemOf(own));
+          dirOf = isDir ? dir : join(dir, game);
+          name = isDir ? own : `${game}${ext}`;
+          const folder = join(dir, game);
+          const prefix = `${folder.toLowerCase()}/`;
           const exists = [...taken].some((k) => k.startsWith(prefix));
           item.game = {
             role: gf.role,
-            folder: dirOf,
+            folder,
             ...(gf.region && { region: gf.region }),
             ...(exists && { folder_exists: true }),
             ...(gf.demoOf && { demo_of: gf.demoOf }),
           };
           if (gf.role === 'base')
-            gameDirs.set(source, { dir: dirOf, game, id: item.id });
+            gameDirs.set(source, { dir: folder, game, id: item.id });
         } else {
           const base = file.baseOf ? gameDirs.get(file.baseOf) : undefined;
           const link = {
@@ -2205,8 +2263,9 @@ export function createMockOrganize(
             }
           } else {
             dirOf = join(base.dir, gf.role === 'update' ? 'Updates' : 'DLC');
-            name =
-              gf.role === 'update'
+            name = isDir
+              ? own
+              : gf.role === 'update'
                 ? `${base.game} (v${gf.version ?? ''})${ext}`
                 : `${base.game} - ${gf.dlcName ?? stemOf(own)}${ext}`;
             item.game = {
@@ -2276,13 +2335,226 @@ export function createMockOrganize(
         ...(playlist && { playlist }),
       };
     }
+    placeAddons(r, items, files, taken);
+    const translated = translateGames(r, items, files);
     if (
       r.gameFolders &&
       r.mode === 'move' &&
       volumeOf(r.source) === volumeOf(r.target)
     )
       licenceCompanions(items);
-    return { items, files };
+    return { items, files, translated };
+  }
+
+  /**
+   * Linked addons (mods spec D11, D12, like Rust's `addon_targets`): a
+   * mod or patch goes to its base's game folder `Mods/<own name>`,
+   * cheats to `Cheats/<own name>`, never renamed; a base without a game
+   * folder (retro, or game folders off) leaves it `addon-no-place`; a
+   * base that stays leaves it with the base's reason.
+   */
+  function placeAddons(
+    r: Resolved,
+    items: OrganizeItem[],
+    files: PileFile[],
+    taken: Set<string>,
+  ) {
+    for (const [i, file] of files.entries()) {
+      const a = file.addon;
+      const item = items[i]!;
+      if (!a || item.action !== 'auto') continue;
+      const kind = a.link.kind;
+      const b = files.findIndex((f) => f.name === a.of);
+      const base = b < 0 ? undefined : items[b];
+      if (!base) {
+        // Its game is already in the library (an earlier apply): linked
+        // to that library base, named by its note (no `of`); the mock's
+        // library bases have no game folder, so it stays.
+        items[i] = leave(
+          {
+            ...item,
+            game: {
+              role: kind === 'cheat' ? 'cheat' : 'mod',
+              addon: { ...a.link },
+            },
+            notes: [...item.notes, { kind: `${kind}-of`, of: a.title }],
+          },
+          { kind: 'addon-no-place', addon: kind },
+        );
+        continue;
+      }
+      item.game = {
+        role: kind === 'cheat' ? 'cheat' : 'mod',
+        of: base.id,
+        ...(base.game?.region && { region: base.game.region }),
+        addon: { ...a.link },
+      };
+      item.notes = [
+        ...item.notes,
+        { kind: `${kind}-of`, of: a.title },
+        ...(a.link.header === 'needs-headerless' ||
+        a.link.header === 'needs-headered'
+          ? [{ kind: 'header-mismatch' as const, needs: a.link.header }]
+          : []),
+      ];
+      if (base.action === 'left') {
+        items[i] = leave(item, { ...base.reason });
+        continue;
+      }
+      const folder =
+        r.gameFolders && base.action === 'auto' && base.target
+          ? base.game?.folder
+          : undefined;
+      if (!folder) {
+        items[i] = leave(item, { kind: 'addon-no-place', addon: kind });
+        continue;
+      }
+      const dirOf = join(folder, kind === 'cheat' ? 'Cheats' : 'Mods');
+      const target = join(dirOf, fileName(file.name));
+      if (taken.has(target.toLowerCase())) {
+        items[i] = leave(item, { kind: 'addon-name-taken', at: dirOf });
+        continue;
+      }
+      taken.add(target.toLowerCase());
+      item.game = { ...item.game, folder };
+      items[i] = {
+        ...item,
+        folder: base.folder,
+        target,
+        rename: null,
+        companions: [],
+      };
+    }
+  }
+
+  /**
+   * The emulator layouts (mods spec D16, like Rust's `translate_plan`),
+   * from `MODS_TRANSLATIONS`: each base whose system has an emulator (the
+   * run's choice, else the layout's default; `none`: the master layout)
+   * and its updates, DLC and addons. A default only adds notes and never
+   * renames a patch (`patch-not-applied`); a chosen emulator moves
+   * updates, DLC and patches where it reads them. A base never moves; an
+   * addon for the emulator's own folder keeps its game folder place, or
+   * stays (`addon-for-emulator`: the app never names that folder).
+   */
+  function translateGames(
+    r: Resolved,
+    items: OrganizeItem[],
+    files: PileFile[],
+  ): TranslatedGameView[] {
+    const views: TranslatedGameView[] = [];
+    const effects: (() => void)[] = [];
+    for (const [b, baseFile] of files.entries()) {
+      const base = items[b]!;
+      const system = base.system_id;
+      if (!system || baseFile.addon || baseFile.baseOf) continue;
+      const chosen = r.emulators[system];
+      const emulator = chosen ?? r.layout.profile.emulators?.[system] ?? 'none';
+      if (emulator === 'none') continue;
+      const table = MODS_TRANSLATIONS[baseFile.name]?.[emulator];
+      if (!table) continue;
+      const full = chosen !== undefined;
+      const name = EMULATOR_NAMES[emulator];
+      const dir = join(r.romsRel, folderFor(r, system));
+      const fromOf = (pos: number) => {
+        const t = items[pos]!.target;
+        return t && t.startsWith(`${dir}/`)
+          ? t.slice(dir.length + 1)
+          : files[pos]!.name;
+      };
+      const members = files.flatMap((f, pos) =>
+        pos === b || f.baseOf === baseFile.name || f.addon?.of === baseFile.name
+          ? [pos]
+          : [],
+      );
+      const placements: PlacementView[] = [];
+      for (const pos of members) {
+        const rule = MODS_TRANSLATIONS[files[pos]!.name]?.[emulator];
+        if (!rule) continue;
+        const from = fromOf(pos);
+        // A default emulator (Rust's conservative scope) keeps a base,
+        // update or DLC at its master place, with only an install or
+        // extract note: never «point the emulator at» a folder not made.
+        const gameEntry = !full && !files[pos]!.addon;
+        const ruleNote =
+          gameEntry &&
+          rule.note?.kind !== 'install-in-emulator' &&
+          rule.note?.kind !== 'extract-first'
+            ? undefined
+            : rule.note;
+        const to =
+          rule.to === 'same' || (gameEntry && rule.to.kind === 'system')
+            ? { kind: 'system' as const, path: from }
+            : { ...rule.to };
+        placements.push({ from, to, ...(ruleNote && { note: ruleNote }) });
+        if (pos !== b)
+          effects.push(() => {
+            items[pos] = translatedItem(
+              items[pos]!,
+              !!files[pos]!.addon,
+              full,
+              name,
+              dir,
+              to,
+              ruleNote,
+            );
+          });
+      }
+      views.push({ system, base: base.id, emulator, placements });
+    }
+    effects.forEach((e) => e());
+    return views;
+  }
+
+  /** One translated row: its new target, note or reason. */
+  function translatedItem(
+    item: OrganizeItem,
+    addon: boolean,
+    full: boolean,
+    emulator: string,
+    dir: string,
+    to: PlacementView['to'],
+    note: PlacementView['note'],
+  ): OrganizeItem {
+    if (item.action === 'left' && item.reason.kind !== 'addon-no-place')
+      return item;
+    const notSupported = note?.kind === 'not-supported';
+    // Only a patch a chosen emulator would place beside the game; one it
+    // could not use either way says why (core `conservative`).
+    if (addon && !full && to.kind === 'system')
+      return leave(item, { kind: 'patch-not-applied', emulator });
+    if (notSupported)
+      return leave(item, { kind: 'not-supported', emulator, why: note.why });
+    if (to.kind === 'emulator-data')
+      return item.target
+        ? item
+        : leave(item, { kind: 'addon-for-emulator', emulator, path: to.path });
+    const notes = [...item.notes];
+    const extra: ItemNote | null =
+      note?.kind === 'install-in-emulator'
+        ? { kind: 'install-first', emulator }
+        : note?.kind === 'point-emulator-here'
+          ? { kind: 'point-emulator-here', emulator, folder: note.folder }
+          : note?.kind === 'header-mismatch'
+            ? { kind: 'header-mismatch', needs: note.needs }
+            : null;
+    if (
+      extra &&
+      !notes.some((n) => JSON.stringify(n) === JSON.stringify(extra))
+    )
+      notes.push(extra);
+    if (to.kind !== 'system' || !full) return { ...item, notes };
+    const { reason: _left, ...moving } = item as Extract<
+      OrganizeItem,
+      { action: 'left' }
+    >;
+    return {
+      ...moving,
+      action: 'auto',
+      notes,
+      target: join(dir, to.path),
+      folder: item.folder ?? dir.slice(dir.lastIndexOf('/') + 1),
+    } as OrganizeItem;
   }
 
   /**
@@ -2424,7 +2696,7 @@ export function createMockOrganize(
     plan: OrganizePlan;
     files: PileFile[];
   } {
-    const { items, files } = buildPlan(r, decisions);
+    const { items, files, translated } = buildPlan(r, decisions);
     const duplicates = settleDuplicates(r, items);
     const moving = items.filter(
       (i) => i.action !== 'left' && i.action !== 'set-aside',
@@ -2500,6 +2772,8 @@ export function createMockOrganize(
       ...(updates > 0 && { updates }),
       // Rust leaves the notices out when there are none.
       ...(notices.length > 0 && { integration_notices: notices }),
+      // Rust leaves the emulator layouts out when there are none.
+      ...(translated.length > 0 && { translated }),
     };
     return { plan, files };
   }

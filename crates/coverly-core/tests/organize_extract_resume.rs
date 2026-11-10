@@ -185,6 +185,9 @@ fn plan_of(env: &Env, mut items: Vec<OrganizeItem>, mode: TransferMode) -> Organ
         set_aside_trash: false,
         updates: 0,
         integration_notices: Vec::new(),
+        target_anchor: None,
+        translated: Vec::new(),
+        emulator_roots: Vec::new(),
     }
 }
 

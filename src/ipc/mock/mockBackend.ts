@@ -5,6 +5,7 @@
 import type { Backend } from '../backend';
 import { BackendError } from '../errors';
 import type {
+  EmulatorId,
   EntryView,
   FoundTool,
   LibraryView,
@@ -38,6 +39,7 @@ import {
   type MockUpdateScenario,
 } from './mockUpdates';
 import { escapeXml } from './svg';
+import { RETROARCH_SYSTEMS } from '../../lib/emulators';
 
 export { escapeXml } from './svg';
 export { readMockExtract } from './mockOrganize';
@@ -134,6 +136,31 @@ export function mockArtSvg(e: EntryView, media: Media): string {
   );
 }
 
+/** RetroArch for every retro system: RetroArch and the handheld
+ * firmwares' default emulators (`profiles/builtin.rs`). */
+const RETRO_EMULATORS: Record<string, EmulatorId> = Object.fromEntries(
+  RETROARCH_SYSTEMS.map((s): [string, EmulatorId] => [s, 'retroarch']),
+);
+
+/** ES-DE and Batocera: a dedicated emulator per modern or disc system,
+ * RetroArch for the other retro systems (mods spec D16, Q9). */
+const FRONTEND_EMULATORS: Record<string, EmulatorId> = {
+  ...RETRO_EMULATORS,
+  ps4: 'shadps4',
+  ps3: 'rpcs3',
+  '3ds': 'azahar',
+  wiiu: 'cemu',
+  psvita: 'vita3k',
+  switch: 'ryujinx',
+  psx: 'duckstation',
+  ps2: 'pcsx2',
+  gamecube: 'dolphin',
+  wii: 'dolphin',
+  psp: 'ppsspp',
+  xbox360: 'xenia',
+  dreamcast: 'flycast',
+};
+
 const handheld = (
   id: string,
   name: string,
@@ -149,6 +176,7 @@ const handheld = (
     art_dirs: ['Imgs'],
     gamelist: false,
     host_folders: { ngpc: 'ngp', ...hosts, wonderswancolor: 'wonderswan' },
+    emulators: RETRO_EMULATORS,
     slots: {
       cover: {
         template: '{system_dir}/{rel_dir}/Imgs/{stem}.png',
@@ -399,6 +427,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'muos',
+      emulators: RETRO_EMULATORS,
       folder_names: MUOS_FOLDERS,
       name: 'muOS',
       roms_root: 'ROMS',
@@ -418,6 +447,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'minui',
+      emulators: RETRO_EMULATORS,
       accepts_containers: ['zip'],
       disc_layout: { kind: 'game-folder', m3u_for_multi: true },
       folder_names: MINUI_FOLDERS,
@@ -434,6 +464,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'esde',
+      emulators: FRONTEND_EMULATORS,
       folder_game_suffix: { ps3: '.ps3' },
       folder_stem_keeps_suffix: true,
       disc_layout: { kind: 'game-folder', m3u_for_multi: true },
@@ -461,6 +492,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'batocera',
+      emulators: FRONTEND_EMULATORS,
       folder_game_suffix: { ps3: '.ps3', ps4: '.ps4' },
       dlc_folder: { ps4: 'DLC/{title_id}' },
       disc_layout: { kind: 'flat', m3u_for_multi: true },
@@ -482,6 +514,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'retroarch',
+      emulators: RETRO_EMULATORS,
       disc_layout: { kind: 'flat', m3u_for_multi: true },
       name: 'RetroArch',
       roms_root: '',
