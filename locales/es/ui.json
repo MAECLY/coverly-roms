@@ -1321,7 +1321,8 @@
       "modOf": "Mod de {title}",
       "patchOf": "Parche de {title}",
       "cheatOf": "Trucos de {title}",
-      "pointEmulatorHere": "Indica esta carpeta en {emulator}: {folder}"
+      "pointEmulatorHere": "Indica esta carpeta en {emulator}: {folder}",
+      "regionLetterUnknown": "Letra de región «{letter}» sin identificar; no se añade región al nombre."
     },
     "pause": {
       "diskFull": "Disco lleno: faltan {needed}; se ha deshecho el juego a medias"

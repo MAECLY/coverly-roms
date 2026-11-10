@@ -1342,6 +1342,9 @@ export function noteKey(n: ItemNote): KeyedText | null {
         emulator: n.emulator,
         folder: n.folder,
       });
+    // 3DS region by product code (part C §5).
+    case 'region-letter-unknown':
+      return k('regionLetterUnknown', { letter: n.letter });
     // A note a newer core sends: no line, never a crash.
     default:
       return null;

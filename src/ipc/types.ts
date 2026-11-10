@@ -1240,7 +1240,9 @@ export type ItemNote =
   /** The patch expects the ROM with or without its header. */
   | { kind: 'header-mismatch'; needs: HeaderFit }
   /** The emulator (product name) has to be pointed at `folder`. */
-  | { kind: 'point-emulator-here'; emulator: string; folder: string };
+  | { kind: 'point-emulator-here'; emulator: string; folder: string }
+  /** A 3DS product code's region letter the verified table does not know. */
+  | { kind: 'region-letter-unknown'; letter: string };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =

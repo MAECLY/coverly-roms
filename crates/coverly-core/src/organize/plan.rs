@@ -439,6 +439,9 @@ pub enum ItemNote {
     HeaderMismatch { needs: HeaderFit },
     /// The emulator (product name) has to be pointed at `folder` (D15).
     PointEmulatorHere { emulator: String, folder: String },
+    /// A 3DS product code ends in a region letter the verified table does
+    /// not know: no region is added to the name (part C §5, P-1).
+    RegionLetterUnknown { letter: char },
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -3471,7 +3474,9 @@ fn identify_one(
 /// 10: system titles, emulator caches and configs, and the kinds, versions
 /// and regions game folders read (game folders spec D11, D14, D18).
 /// 11: addon verdicts (mods spec D10).
-pub(crate) const FACTS_VERSION: u32 = 11;
+/// 12: 3DS bases and demos take their region from the verified letter
+/// table and flag unknown letters (part C D12, P-1).
+pub(crate) const FACTS_VERSION: u32 = 12;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -3724,6 +3729,16 @@ pub fn plan_from_survey(
                     && !item.notes.contains(&ItemNote::Homebrew)
                 {
                     item.notes.push(ItemNote::Homebrew);
+                }
+                // A 3DS region letter the verified table does not know
+                // (part C P-1): said, never guessed.
+                if let Some(flag) = header.and_then(|con| con.region_letter.as_ref()) {
+                    let note = ItemNote::RegionLetterUnknown {
+                        letter: flag.letter,
+                    };
+                    if !item.is_left() && !item.notes.contains(&note) {
+                        item.notes.push(note);
+                    }
                 }
                 // A part's title id, once the catalogue had its say (D6).
                 if let OrganizeAction::Left {
@@ -5405,6 +5420,10 @@ mod tests {
                 json!({"kind": "missing-disc", "n": 2}),
             ),
             (ItemNote::EncryptedName, json!({"kind": "encrypted-name"})),
+            (
+                ItemNote::RegionLetterUnknown { letter: 'T' },
+                json!({"kind": "region-letter-unknown", "letter": "T"}),
+            ),
         ] {
             assert_eq!(to_value(&note).unwrap(), wire);
             assert_eq!(serde_json::from_value::<ItemNote>(wire).unwrap(), note);
@@ -5440,8 +5459,8 @@ mod tests {
             facts: f,
         })
         .unwrap();
-        assert_eq!(FACTS_VERSION, 11);
-        old["v"] = 10.into();
+        assert_eq!(FACTS_VERSION, 12);
+        old["v"] = 11.into();
         cache
             .put_organize_facts(&c.path, c.size, c.mtime_ns, &old.to_string())
             .unwrap();

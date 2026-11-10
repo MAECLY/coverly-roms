@@ -2905,7 +2905,8 @@ fn stored_facts(world: &World, path: &Path) -> Option<serde_json::Value> {
 
 #[test]
 fn facts_of_older_versions_are_read_again() {
-    // Mods spec D10: version 10 facts carry no addon verdict. Game folders
+    // Part C D12: version 11 facts carry 3DS regions from the old letter
+    // table. Mods spec D10: version 10 facts carry no addon verdict. Game folders
     // D11, D14, D18: version 9 facts carry no system title kind, emulator
     // cache or config verdict, nor the versions and regions game folders
     // read (version 8 lacked the adjustments D33 facts).
@@ -2920,7 +2921,7 @@ fn facts_of_older_versions_are_read_again() {
     };
     plan(&world, dir.path(), opts.clone());
     let mut stored = stored_facts(&world, &rom).expect("facts memoised");
-    assert_eq!(stored["v"], 11);
+    assert_eq!(stored["v"], 12);
 
     // A version 10 row with a stale verdict is not trusted.
     stored["v"] = 10.into();
@@ -2939,7 +2940,7 @@ fn facts_of_older_versions_are_read_again() {
         .find(|i| i.system_id.as_deref() == Some("gba"));
     assert!(item.is_some(), "the header is read again");
     let stored = stored_facts(&world, &rom).unwrap();
-    assert_eq!(stored["v"], 11);
+    assert_eq!(stored["v"], 12);
     assert_eq!(
         stored["inspection"]["payloads"][0]["sniff"]["hits"][0]["system"],
         "gba"

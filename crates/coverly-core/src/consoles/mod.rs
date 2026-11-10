@@ -226,6 +226,11 @@ pub struct ConsoleId {
     /// serial (game folders spec D10).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<Region>,
+    /// A 3DS base or demo whose product code ends in a letter the verified
+    /// table does not know (part C §5, P-1): `region` stays `None` and
+    /// Organizar notes it. No other system sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region_letter: Option<RegionLetterFlag>,
     /// GDK StoreId, ERA Identity Name, XVC ProductId GUID (systems
     /// batch 3 D14, D15).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -255,6 +260,14 @@ pub struct ConsoleId {
     pub detail: String,
 }
 
+/// The unknown region letter of a 3DS product code (part C P-1).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegionLetterFlag {
+    pub letter: char,
+    /// The product code as read, trimmed and upper-cased.
+    pub code: String,
+}
+
 impl ConsoleId {
     fn with(system: &str, confidence: f32, detail: &str) -> ConsoleId {
         ConsoleId {
@@ -271,6 +284,7 @@ impl ConsoleId {
             id_source: None,
             content_id: None,
             region: None,
+            region_letter: None,
             product_id: None,
             parent_id: None,
             media_id: None,
@@ -1690,6 +1704,8 @@ mod tests {
 
     #[test]
     fn region_from_product_codes_and_game_ids() {
+        // Wii U product codes and GameCube/Wii ids keep their table; 3DS
+        // codes go through the verified `ctr_region` table instead.
         for (letter, region) in [
             ('E', Region::Usa),
             ('P', Region::Europe),
@@ -1705,15 +1721,18 @@ mod tests {
             ('U', Region::Australia),
             ('H', Region::Netherlands),
         ] {
-            let code = format!("CTR-P-AXX{letter}");
+            let code = format!("WUP-P-AXX{letter}");
             assert_eq!(region_from_product_code(&code), Some(region), "{code}");
             let id = format!("RMC{letter}01");
             assert_eq!(region_from_game_id(&id), Some(region), "{id}");
         }
-        assert_eq!(region_from_product_code("CTR-P-EK2A"), Some(Region::World));
+        assert_eq!(
+            region_from_product_code("WUP-P-AXXU"),
+            Some(Region::Australia)
+        );
+        assert_eq!(region_from_product_code("AXXC01"), Some(Region::China));
         assert_eq!(region_from_product_code("WUP-P-ARDP"), Some(Region::Europe));
         assert_eq!(region_from_product_code("WUP-N-ARDE"), Some(Region::Usa));
-        assert_eq!(region_from_product_code("KTR-P-BXXJ"), Some(Region::Japan));
         assert_eq!(region_from_product_code("ARDP01"), Some(Region::Europe));
         assert_eq!(region_from_game_id("RMCE01"), Some(Region::Usa));
         assert_eq!(region_from_game_id("WAAE"), Some(Region::Usa));
@@ -1723,10 +1742,10 @@ mod tests {
             "Wii DLC code"
         );
         for bad in [
-            "CTR-P-AXXZ",
-            "CTR-P-AX",
+            "WUP-P-AXXZ",
+            "WUP-P-AX",
             "",
-            "CTR",
+            "WUP",
             "RMCQ01",
             "RM",
             "RMC-01",

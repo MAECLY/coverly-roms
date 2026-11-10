@@ -884,8 +884,9 @@ fn a_demo_is_its_own_game_linked_to_its_base_by_name() {
         &ps3_pkg("UP9000-NPUA80002_00-RESISTANCEKIOSK1", 3),
         3,
     );
-    // A 3DS demo by its header (`00040002`): ` (Demo)` is added (no
-    // region: a 3DS child's product code is not trusted for it, D10).
+    // A 3DS demo by its header (`00040002`): ` (Demo)` is added, and its
+    // product code's verified letter gives its region like a base's (part
+    // C D12: a demo is a game of its own).
     put(
         &pile,
         "Pokemon Y Special.cia",
@@ -922,7 +923,7 @@ fn a_demo_is_its_own_game_linked_to_its_base_by_name() {
     assert_eq!(kiosk.game.as_ref().map(|g| g.role), Some(GameRole::Demo));
 
     let special = item(&plan, "Pokemon Y Special.cia");
-    let game = "Pokemon Y Special (Demo)";
+    let game = "Pokemon Y Special (World) (Demo)";
     assert_eq!(
         target_parts(special),
         p(&["3DS", game, &format!("{game}.cia")])
@@ -2184,9 +2185,10 @@ fn a_full_game_folder_layout_plans_versions_demo_and_two_regions() {
             "Pokemon Y - Extra Pack (USA).cia",
             with_tail(&ct::cia(PY_DLC, true, false), 3),
         ),
+        // `Z` is only likely Europe (part C §5): the demo stays region-less.
         (
             "Pokemon Y (Demo).cia",
-            ct::cia_with_code(0x0004_0002_0005_5D00, "CTR-P-EK2A", false, false).head_bytes(),
+            ct::cia_with_code(0x0004_0002_0005_5D00, "CTR-P-EK2Z", false, false).head_bytes(),
         ),
         (
             "Pokemon Y (Europe).cia",
@@ -2235,4 +2237,48 @@ fn a_full_game_folder_layout_plans_versions_demo_and_two_regions() {
     assert_eq!(eu.game.as_ref().map(|g| g.role), Some(GameRole::Base));
     assert_ne!(below_system(eu)[0], world);
     insta::assert_json_snapshot!("game_folders_full_layout_plan", rows(&plan));
+}
+
+/// A 3DS cartridge `name` with product code `code` (encrypted, so the
+/// name comes from the file).
+fn pokemon_card(pile: &Path, name: &str, code: &str, n: u64) {
+    put(pile, name, &ct::ncsd(code, PY_BASE, false).head_bytes(), n);
+}
+
+/// The game folder (below the system folder) of the only item in a pile
+/// holding `name` with `code`, and the item's notes.
+fn card_folder(name: &str, code: &str) -> (String, Vec<ItemNote>) {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    pokemon_card(&pile, name, code, 1);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let it = item(&plan, name);
+    (below_system(it)[0].clone(), it.notes.clone())
+}
+
+#[test]
+fn a_3ds_game_is_named_by_its_verified_region_letter() {
+    // A country letter writes the country (part C §5, Q2).
+    let (folder, notes) = card_folder("Pokemon Y.3ds", "CTR-P-EK2S");
+    assert_eq!(folder, "Pokemon Y (Spain)");
+    assert!(!notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::RegionLetterUnknown { .. })));
+    // A letter not attested for 3DS adds nothing and is flagged.
+    let (folder, notes) = card_folder("Pokemon Y.3ds", "CTR-P-EK2T");
+    assert_eq!(folder, "Pokemon Y");
+    assert!(notes.contains(&ItemNote::RegionLetterUnknown { letter: 'T' }));
+    // A name that already carries a region keeps it.
+    let (folder, _) = card_folder("Pokemon Y (Europe).3ds", "CTR-P-EK2S");
+    assert_eq!(folder, "Pokemon Y (Europe)");
+    // `C` (likely China) and `U` (not attested) no longer add a region.
+    let (folder, notes) = card_folder("Pokemon Y.3ds", "CTR-P-EK2C");
+    assert_eq!(folder, "Pokemon Y");
+    assert!(!notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::RegionLetterUnknown { .. })));
+    let (folder, notes) = card_folder("Pokemon Y.3ds", "CTR-P-EK2U");
+    assert_eq!(folder, "Pokemon Y");
+    assert!(notes.contains(&ItemNote::RegionLetterUnknown { letter: 'U' }));
 }

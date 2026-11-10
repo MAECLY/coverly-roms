@@ -1321,7 +1321,8 @@
       "modOf": "Mod for {title}",
       "patchOf": "Patch for {title}",
       "cheatOf": "Cheats for {title}",
-      "pointEmulatorHere": "Point {emulator} at this folder: {folder}"
+      "pointEmulatorHere": "Point {emulator} at this folder: {folder}",
+      "regionLetterUnknown": "Region letter “{letter}” not identified; no region is added to the name."
     },
     "pause": {
       "diskFull": "Disk full: {needed} more needed; the half-extracted game was undone"

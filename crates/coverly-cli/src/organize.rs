@@ -1782,6 +1782,9 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::PointEmulatorHere { emulator, folder } => {
             format!("point {emulator} at this folder: {folder}")
         }
+        ItemNote::RegionLetterUnknown { letter } => {
+            format!("region letter “{letter}” not identified; no region is added to the name")
+        }
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })
@@ -3288,6 +3291,10 @@ mod tests {
             })
             .as_deref(),
             Some("point shadPS4 at this folder: addcont")
+        );
+        assert_eq!(
+            note_text(&ItemNote::RegionLetterUnknown { letter: 'T' }).as_deref(),
+            Some("region letter “T” not identified; no region is added to the name")
         );
         assert_eq!(
             addon_format_name(AddonFormat::CemuGraphicPack),

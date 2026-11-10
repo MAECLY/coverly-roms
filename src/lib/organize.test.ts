@@ -286,7 +286,15 @@ describe('organise plan helpers', () => {
         { kind: 'point-emulator-here', emulator: 'shadPS4', folder: 'addcont' },
         'organize.note.pointEmulatorHere',
       ],
+      [
+        { kind: 'region-letter-unknown', letter: 'T' },
+        'organize.note.regionLetterUnknown',
+      ],
     ];
+    expect(noteKey({ kind: 'region-letter-unknown', letter: 'T' })).toEqual({
+      key: 'organize.note.regionLetterUnknown',
+      vars: { letter: 'T' },
+    });
     for (const [note, want] of notes) {
       const keyed = noteKey(note);
       expect(keyed?.key ?? null, note.kind).toBe(want);
