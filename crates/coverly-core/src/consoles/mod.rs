@@ -23,6 +23,7 @@ use crate::identify::names::Region;
 use crate::identify::sniff::{NotARom, ReadAt};
 
 pub mod ctr;
+pub mod ctr_region;
 mod listing;
 pub mod loose;
 pub mod nintendo_disc;
@@ -38,6 +39,7 @@ pub mod xbox;
 pub mod zarchive;
 
 pub use crate::game_folder::FixedFolder;
+pub use ctr_region::{Certainty, RegionVerdict};
 pub(crate) use listing::MAX_CHILD_ENTRIES;
 pub use listing::{identify_dir_on_disk, on_disk, DirListing, DiskFs, EntryMeta, ListingFs};
 
