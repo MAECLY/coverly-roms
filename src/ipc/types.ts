@@ -37,6 +37,7 @@ export type Region =
   | 'italy'
   | 'korea'
   | 'netherlands'
+  | 'russia'
   | 'spain'
   | 'sweden'
   | 'taiwan'
@@ -58,6 +59,7 @@ export const REGIONS: readonly Region[] = [
   'italy',
   'korea',
   'netherlands',
+  'russia',
   'spain',
   'sweden',
   'taiwan',

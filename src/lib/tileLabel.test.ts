@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { titleWithoutRegions } from './tileLabel';
+import { REGION_CODE, titleWithoutRegions } from './tileLabel';
 
 describe('titleWithoutRegions', () => {
   it('drops the region group and keeps the other tags', () => {
@@ -20,5 +20,11 @@ describe('titleWithoutRegions', () => {
 
   it('never returns an empty title', () => {
     expect(titleWithoutRegions('(Europe)')).toBe('(Europe)');
+  });
+});
+
+describe('REGION_CODE', () => {
+  it('gives Russia the RU short code', () => {
+    expect(REGION_CODE.russia).toBe('RU');
   });
 });

@@ -496,6 +496,7 @@ const ALL_REGIONS: readonly RegionId[] = [
   'italy',
   'korea',
   'netherlands',
+  'russia',
   'spain',
   'sweden',
   'taiwan',
@@ -609,11 +610,11 @@ describe('formatOf', () => {
 
 describe('regionCode', () => {
   it('every_region_has_a_short_uppercase_code', () => {
-    expect(ALL_REGIONS).toHaveLength(19);
+    expect(ALL_REGIONS).toHaveLength(20);
     const codes = ALL_REGIONS.map(regionCode);
     for (const [i, code] of codes.entries())
       expect(code, ALL_REGIONS[i]).toMatch(/^[A-Z]{2,3}$/);
-    expect(new Set(codes).size).toBe(19);
+    expect(new Set(codes).size).toBe(20);
     expect(regionCode('europe')).toBe('EUR');
     expect(regionCode('united-kingdom')).toBe('UK');
   });

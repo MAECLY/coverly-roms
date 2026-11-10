@@ -408,6 +408,7 @@ export const REGION_CODES: Record<RegionId, string> = {
   italy: 'ITA',
   korea: 'KOR',
   netherlands: 'NLD',
+  russia: 'RUS',
   spain: 'ESP',
   sweden: 'SWE',
   taiwan: 'TWN',
