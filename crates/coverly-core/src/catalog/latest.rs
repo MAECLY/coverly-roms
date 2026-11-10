@@ -129,7 +129,9 @@ pub fn installed_version(system: &str, base: Option<&str>, updates: &[&str]) -> 
 }
 
 /// D6 in the library: the newest orphan update linked to this game (its
-/// index, its version) when it is strictly newer than `installed`. An
+/// index, its version) when it is strictly newer than `installed`.
+/// `installed: None` means the library holds no version of the game at
+/// all; a game in doubt must not reach here (see [`version_facts`]). An
 /// unparseable version on either side, or a tie at the top of the orphans,
 /// claims nothing.
 pub fn newer_elsewhere<'a>(
@@ -141,6 +143,43 @@ pub fn newer_elsewhere<'a>(
     match installed {
         None => Some((index, version)),
         Some(have) => (top > order(system, have)?).then_some((index, version)),
+    }
+}
+
+/// D5 and D6 for one game, computed together. Use this, not
+/// [`installed_version`] then [`newer_elsewhere`]: `installed_version`
+/// answers `None` both when the library holds no version of the game and
+/// when it is in doubt (a tie or an unparseable update), and only the first
+/// may compare against orphans. `updates` carries each own update's version
+/// as read from its name; an update without one is doubt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VersionFacts<'a> {
+    pub installed: Option<String>,
+    pub newer_elsewhere: Option<(usize, &'a str)>,
+}
+
+pub fn version_facts<'a>(
+    system: &str,
+    base: Option<&str>,
+    updates: &[Option<&str>],
+    orphans: &[(usize, &'a str)],
+) -> VersionFacts<'a> {
+    let Some(known) = updates.iter().copied().collect::<Option<Vec<&str>>>() else {
+        return VersionFacts {
+            installed: None,
+            newer_elsewhere: None,
+        };
+    };
+    let installed = installed_version(system, base, &known);
+    let in_doubt = installed.is_none() && !known.is_empty();
+    let newer_elsewhere = if in_doubt {
+        None
+    } else {
+        newer_elsewhere(system, installed.as_deref(), orphans)
+    };
+    VersionFacts {
+        installed,
+        newer_elsewhere,
     }
 }
 
@@ -250,6 +289,64 @@ mod tests {
         );
         assert_eq!(newer_elsewhere("ps4", Some("1.5"), &[(1, "1.05")]), None);
         assert_eq!(newer_elsewhere("switch", None, &[]), None);
+    }
+
+    #[test]
+    fn version_facts_never_warn_in_doubt() {
+        // A tie among the game's own updates: nothing installed is claimed,
+        // and an orphan must not be called «newer» either (D5: no warning).
+        let facts = version_facts("ps4", None, &[Some("1.05"), Some("1.5")], &[(7, "1.3")]);
+        assert_eq!(
+            facts,
+            VersionFacts {
+                installed: None,
+                newer_elsewhere: None
+            }
+        );
+        // An update whose name carries no version is doubt too.
+        let facts = version_facts("switch", Some("1.0"), &[None], &[(7, "1.3.0")]);
+        assert_eq!(
+            facts,
+            VersionFacts {
+                installed: None,
+                newer_elsewhere: None
+            }
+        );
+        let facts = version_facts("switch", None, &[Some("1.2"), Some("beta")], &[(7, "1.3")]);
+        assert_eq!(facts.newer_elsewhere, None);
+    }
+
+    #[test]
+    fn version_facts_compare_when_the_library_is_clear() {
+        let facts = version_facts(
+            "switch",
+            None,
+            &[Some("1.0.2"), Some("1.0.10")],
+            &[(7, "1.3.0")],
+        );
+        assert_eq!(facts.installed.as_deref(), Some("1.0.10"));
+        assert_eq!(facts.newer_elsewhere, Some((7, "1.3.0")));
+        // Nothing installed at all (no updates, no base version): any orphan is newer.
+        let facts = version_facts("switch", None, &[], &[(7, "1.3.0")]);
+        assert_eq!(
+            facts,
+            VersionFacts {
+                installed: None,
+                newer_elsewhere: Some((7, "1.3.0"))
+            }
+        );
+        // The base's own version stands when there are no updates.
+        let facts = version_facts("ps4", Some("1.00"), &[], &[(2, "1.00")]);
+        assert_eq!(
+            facts,
+            VersionFacts {
+                installed: Some("1.00".into()),
+                newer_elsewhere: None
+            }
+        );
+        // An unparseable base version is doubt: no claim against orphans.
+        let facts = version_facts("ps4", Some("beta"), &[], &[(2, "1.10")]);
+        assert_eq!(facts.newer_elsewhere, None);
     }
 
     #[test]
