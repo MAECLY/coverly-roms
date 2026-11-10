@@ -17,6 +17,10 @@ use crate::scan::ScanOptions;
 pub const SETTINGS_VERSION: u32 = 3;
 /// Recent libraries kept.
 pub const MAX_RECENT: usize = 10;
+/// Libraries whose revision defaults are kept (addon views D7): past this,
+/// the ones opened longest ago go first (roots no longer in the recent
+/// list before any that is).
+pub const MAX_REVISION_ROOTS: usize = 1_000;
 /// Every art source the settings know, in default order.
 pub const KNOWN_SOURCES: [&str; 4] = ["libretro", "steamgriddb", "screenscraper", "embedded"];
 
@@ -132,6 +136,14 @@ pub struct LibraryGroup {
     pub follow_symlinks: bool,
     /// Most recent first, at most [`MAX_RECENT`].
     pub recent: Vec<RecentLibrary>,
+    /// The revision the user chose to represent a retro game (addon views
+    /// D7): library root (as [`RecentLibrary::path`] stores it) → version
+    /// group → the chosen file's `rel_path`, `/`-separated. One global
+    /// file holds every library, so the map is keyed by root; at most
+    /// [`MAX_REVISION_ROOTS`] roots. Not written while empty, so a file
+    /// without it is unchanged and an older build ignores it.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub revision_defaults: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl Default for LibraryGroup {
@@ -144,6 +156,7 @@ impl Default for LibraryGroup {
             include_hidden: scan.include_hidden,
             follow_symlinks: scan.follow_symlinks,
             recent: Vec::new(),
+            revision_defaults: BTreeMap::new(),
         }
     }
 }
@@ -677,6 +690,16 @@ pub struct CatalogSettings {
     pub switch: SwitchCatalogSettings,
 }
 
+/// Whether two library-relative paths name the same file: compared by
+/// components, splitting on both `/` and `\`, so a choice made on Windows
+/// holds on macOS for the same card (addon views D7).
+pub fn same_rel(a: &str, b: &str) -> bool {
+    fn parts(s: &str) -> impl Iterator<Item = &str> {
+        s.split(['/', '\\']).filter(|p| !p.is_empty() && *p != ".")
+    }
+    parts(a).eq(parts(b))
+}
+
 /// Every setting of spec §9.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -760,6 +783,7 @@ impl Settings {
         let exts = std::mem::take(&mut self.library.ignored_exts);
         self.library.set_ignored_exts(exts);
         self.library.recent.truncate(MAX_RECENT);
+        self.normalise_revision_defaults();
         self.art.media = Media::ALL
             .into_iter()
             .filter(|m| self.art.media.contains(m))

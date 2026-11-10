@@ -304,6 +304,8 @@ const isSourceEntry: Kind = (v) =>
 const isFolderNames: Kind = (v) =>
   isObject(v) &&
   Object.values(v).every((m) => isObject(m) && Object.values(m).every(isStr));
+/* Library root → version group → rel path (addon views D7). */
+const isRevisionDefaults: Kind = isFolderNames;
 const isArcadeOrders: Kind = (v) =>
   isObject(v) && Object.values(v).every(listOf(isStr));
 const isGameFolders: Kind = (v) =>
@@ -351,6 +353,7 @@ const SHAPES: { [G in SettingsGroup]: Record<keyof Settings[G], Kind> } = {
     include_hidden: isBool,
     follow_symlinks: isBool,
     recent: listOf(isRecent),
+    revision_defaults: isRevisionDefaults,
   },
   art: {
     media: listOf(isMedia),

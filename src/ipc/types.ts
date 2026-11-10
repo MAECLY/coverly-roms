@@ -453,6 +453,9 @@ export interface Settings {
     include_hidden: boolean;
     follow_symlinks: boolean;
     recent: RecentEntry[];
+    /** Library root → version group → chosen `rel_path` (addon views D7).
+     *  Absent while empty; set only through `set_default_revision`. */
+    revision_defaults?: Record<string, Record<string, string>>;
   };
   art: {
     media: Media[];

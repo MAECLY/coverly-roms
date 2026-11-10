@@ -1,5 +1,6 @@
 //! Settings → the option structs the scan, fill and writes take.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -12,7 +13,7 @@ use crate::profiles::{ImageFormat, Profile};
 use crate::scan::ScanOptions;
 use crate::write::OverwritePolicy;
 
-use super::model::{OutputFormat, OverwriteSetting, ProxyChoice, Settings};
+use super::model::{OutputFormat, OverwriteSetting, ProxyChoice, Settings, MAX_REVISION_ROOTS};
 
 /// `template` with its image extension (any case: `.png`, `.JPG`,
 /// `.Jpeg`) set to `format`'s lowercase one.
@@ -198,4 +199,121 @@ impl Settings {
             || self.art.max_size != next.art.max_size
             || self.advanced.custom_dir != next.advanced.custom_dir
     }
+}
+
+/// Revision defaults keyed by library root (addon views D7).
+impl Settings {
+    /// The key of `root` in the revision defaults: an existing key naming
+    /// the same folder (compared by components, so `/SD` and `/SD/` are
+    /// one library), else `root` as [`super::RecentLibrary::path`] stores it.
+    fn revision_root_key(&self, root: &Path) -> Option<&String> {
+        self.library
+            .revision_defaults
+            .keys()
+            .find(|k| Path::new(k.as_str()) == root)
+    }
+
+    /// The `rel_path` (`/`-separated) chosen for version group `group` in
+    /// the library at `root`, if any. The caller checks it is still a
+    /// member of the group (compare with [`super::same_rel`]) and falls
+    /// back to the highest revision when it is not.
+    pub fn revision_default(&self, root: &Path, group: &str) -> Option<&str> {
+        let key = self.revision_root_key(root)?;
+        self.library.revision_defaults[key]
+            .get(group)
+            .map(String::as_str)
+    }
+
+    /// Chooses `rel_path` for `group` in the library at `root`, stored
+    /// `/`-separated, then keeps the map within [`MAX_REVISION_ROOTS`]
+    /// (never dropping `root` itself). An empty group or path is ignored.
+    pub fn set_revision_default(&mut self, root: &Path, group: &str, rel_path: &str) {
+        let rel = normalise_rel(rel_path);
+        if group.is_empty() || rel.is_empty() {
+            return;
+        }
+        let key = self
+            .revision_root_key(root)
+            .cloned()
+            .unwrap_or_else(|| root.to_string_lossy().into_owned());
+        self.library
+            .revision_defaults
+            .entry(key.clone())
+            .or_default()
+            .insert(group.to_string(), rel);
+        self.cap_revision_roots(Some(&key));
+    }
+
+    /// Drops the choices of the library at `root` for which
+    /// `live(group, rel_path)` is false (a file gone or no longer in a
+    /// group of more than one). Only that library's map is touched: the
+    /// others are not mounted, so nothing is known about them.
+    pub fn prune_revision_defaults(&mut self, root: &Path, live: &dyn Fn(&str, &str) -> bool) {
+        let Some(key) = self.revision_root_key(root).cloned() else {
+            return;
+        };
+        let map = self
+            .library
+            .revision_defaults
+            .get_mut(&key)
+            .expect("key just found");
+        map.retain(|group, rel| live(group, rel));
+        if map.is_empty() {
+            self.library.revision_defaults.remove(&key);
+        }
+    }
+
+    /// Paths `/`-separated, empty groups, paths and libraries dropped, the
+    /// map capped.
+    pub(super) fn normalise_revision_defaults(&mut self) {
+        let maps = std::mem::take(&mut self.library.revision_defaults);
+        for (root, groups) in maps {
+            let groups: BTreeMap<String, String> = groups
+                .into_iter()
+                .map(|(g, rel)| (g, normalise_rel(&rel)))
+                .filter(|(g, rel)| !g.trim().is_empty() && !rel.is_empty())
+                .collect();
+            if !root.trim().is_empty() && !groups.is_empty() {
+                self.library.revision_defaults.insert(root, groups);
+            }
+        }
+        self.cap_revision_roots(None);
+    }
+
+    /// Past [`MAX_REVISION_ROOTS`], drops the roots not in the recent list
+    /// first (by name, so the result is stable), then the ones opened
+    /// longest ago; `keep` is never dropped.
+    fn cap_revision_roots(&mut self, keep: Option<&str>) {
+        let map = &self.library.revision_defaults;
+        if map.len() <= MAX_REVISION_ROOTS {
+            return;
+        }
+        let excess = map.len() - MAX_REVISION_ROOTS;
+        let opened = |root: &str| {
+            self.library
+                .recent
+                .iter()
+                .filter(|r| r.path == Path::new(root))
+                .map(|r| r.opened_at)
+                .max()
+        };
+        let mut ranked: Vec<(Option<i64>, String)> = map
+            .keys()
+            .filter(|k| Some(k.as_str()) != keep)
+            .map(|k| (opened(k), k.clone()))
+            .collect();
+        // `None` (not in recent) sorts before any `Some`.
+        ranked.sort();
+        for (_, root) in ranked.into_iter().take(excess) {
+            self.library.revision_defaults.remove(&root);
+        }
+    }
+}
+
+/// `rel` trimmed of empty and `.` components, joined with `/`.
+fn normalise_rel(rel: &str) -> String {
+    rel.split(['/', '\\'])
+        .filter(|p| !p.is_empty() && *p != ".")
+        .collect::<Vec<_>>()
+        .join("/")
 }
