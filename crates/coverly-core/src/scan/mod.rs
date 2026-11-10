@@ -678,12 +678,22 @@ fn set_fixed_counts(
                 FixedFolder::Saves => &mut counts.saves,
                 FixedFolder::Updates | FixedFolder::Dlc => continue,
             };
-            // Two spellings of one folder on a case-sensitive disk add up,
-            // still within the cap.
-            *slot = slot.saturating_add(n).min(FIXED_CAP);
+            add_capped(slot, n, &mut counts.capped);
         }
         roms[i].fixed_counts = Some(counts);
     }
+}
+
+/// Adds `n` files to one fixed folder's count. Two spellings of one
+/// folder on a case-sensitive disk (`Mods/`, `mods/`) add up; a sum past
+/// [`FIXED_CAP`] stays at the cap and sets `capped`, so the cap is never
+/// shown as an exact count.
+fn add_capped(slot: &mut u32, n: u32, capped: &mut bool) {
+    let sum = slot.saturating_add(n);
+    if sum > FIXED_CAP {
+        *capped = true;
+    }
+    *slot = sum.min(FIXED_CAP);
 }
 
 /// Counts the regular files below one fixed folder (part C D9): metadata
@@ -1057,6 +1067,22 @@ mod tests {
             count_fixed(&exact.path().join("Mods"), &ScanOptions::default()),
             (FIXED_CAP, false)
         );
+    }
+
+    #[test]
+    fn two_spellings_over_the_cap_are_flagged_capped() {
+        // `Mods/` and `mods/` on a case-sensitive disk add up; a sum past
+        // the cap is the cap and says so.
+        let mut capped = false;
+        let mut slot = 3;
+        add_capped(&mut slot, 4, &mut capped);
+        assert_eq!((slot, capped), (FIXED_CAP, true));
+        let mut capped = false;
+        let mut slot = 2;
+        add_capped(&mut slot, 3, &mut capped);
+        assert_eq!((slot, capped), (FIXED_CAP, false));
+        add_capped(&mut slot, 0, &mut capped);
+        assert_eq!((slot, capped), (FIXED_CAP, false));
     }
 
     #[test]
