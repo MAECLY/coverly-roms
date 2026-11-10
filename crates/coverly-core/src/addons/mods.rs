@@ -539,7 +539,7 @@ fn read_small(dir: &Path, rel: &str) -> Option<String> {
     if is_key_material(&name) {
         return None;
     }
-    let file = crate::consoles::open_rom(&path).ok()?;
+    let file = super::open_regular(&path).ok()?;
     let mut bytes = Vec::new();
     file.take(SMALL_FILE_CAP).read_to_end(&mut bytes).ok()?;
     Some(String::from_utf8_lossy(&bytes).into_owned())

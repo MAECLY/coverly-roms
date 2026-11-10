@@ -16,6 +16,27 @@ use serde::{Deserialize, Serialize};
 use crate::game_folder::FixedFolder;
 use crate::write::safe_file_name;
 
+/// Opens `path` for the addon sniff only when it is a regular file, by
+/// its own metadata (a symlink is never followed, a FIFO or device never
+/// opened, so a planted special file cannot block or redirect a read),
+/// through the logged ROM opener (which refuses key material by name).
+pub(crate) fn open_regular(path: &Path) -> std::io::Result<std::fs::File> {
+    let not_regular = || {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file: never opened",
+        )
+    };
+    if !std::fs::symlink_metadata(path)?.file_type().is_file() {
+        return Err(not_regular());
+    }
+    let file = crate::consoles::open_rom(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(not_regular());
+    }
+    Ok(file)
+}
+
 pub mod cheat;
 pub mod link;
 pub mod mods;

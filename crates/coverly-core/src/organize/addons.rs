@@ -241,7 +241,7 @@ fn riivolution_xml(name: &str, text: &str) -> Option<(AddonFormat, AddonKey)> {
 /// At most [`SMALL_FILE_CAP`] bytes of a text file, UTF-8 lossy, opened
 /// through the logged ROM opener (which refuses key material by name).
 fn read_text(path: &Path) -> Option<String> {
-    let file = crate::consoles::open_rom(path).ok()?;
+    let file = crate::addons::open_regular(path).ok()?;
     let mut bytes = Vec::new();
     file.take(SMALL_FILE_CAP).read_to_end(&mut bytes).ok()?;
     Some(String::from_utf8_lossy(&bytes).into_owned())
@@ -447,7 +447,7 @@ pub(crate) fn msu1_candidates(
 }
 
 fn is_msu1_track(path: &Path) -> bool {
-    let Ok(file) = crate::consoles::open_rom(path) else {
+    let Ok(file) = crate::addons::open_regular(path) else {
         return false;
     };
     let mut head = [0u8; 4];
@@ -726,7 +726,7 @@ fn plan_candidate(
     let rule = w.db.get(&system).map(|s| s.header).unwrap_or_default();
     #[cfg(any(test, feature = "test-util"))]
     HASHED.with(|h| h.borrow_mut().push(path.clone()));
-    let hashed = crate::consoles::open_rom(path)
+    let hashed = crate::addons::open_regular(path)
         .and_then(|f| crate::identify::hash::hash_stream(f, item.size, rule));
     if let Ok(h) = hashed {
         cand.crc_full = hex_crc(&h.full.crc32);
@@ -764,7 +764,7 @@ fn library_candidate(system: &str, base: &LibraryBase) -> Candidate {
 
 /// The readme beside a keyless patch, at most [`README_MAX`] bytes.
 fn read_readme(path: &Path) -> Option<String> {
-    let file = crate::consoles::open_rom(path).ok()?;
+    let file = crate::addons::open_regular(path).ok()?;
     let mut bytes = Vec::new();
     file.take(README_MAX).read_to_end(&mut bytes).ok()?;
     Some(String::from_utf8_lossy(&bytes).into_owned())

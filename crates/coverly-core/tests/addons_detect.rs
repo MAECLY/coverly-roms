@@ -308,3 +308,80 @@ fn a_mod_folder_with_an_unreadable_sub_folder_is_not_a_mod() {
         assert_eq!(verdict, ModVerdict::NotAMod);
     }
 }
+
+/// Runs `f` on another thread and fails the test when it does not return
+/// within a few seconds (a FIFO opened for reading blocks forever).
+#[cfg(unix)]
+fn returns_in_time<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the sniff hung on a special file")
+}
+
+/// A manifest a mod folder names is read only when it is a regular file:
+/// a symlink is never followed out of the folder, and a FIFO (or other
+/// special file) never blocks the walk.
+#[cfg(unix)]
+#[test]
+fn a_mod_manifest_that_is_a_symlink_or_a_fifo_is_never_opened() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = TempDir::new().unwrap();
+    let outside = dir.path().join("outside.txt");
+    fs::write(&outside, "[Definition]\ntitleIds = 00050000101C9400\n").unwrap();
+    let linked = dir.path().join("graphicPacks").join("Linked");
+    fs::create_dir_all(&linked).unwrap();
+    std::os::unix::fs::symlink(&outside, linked.join("rules.txt")).unwrap();
+    let fifo = dir.path().join("graphicPacks").join("Fifo");
+    fs::create_dir_all(&fifo).unwrap();
+    let made = std::process::Command::new("mkfifo")
+        .arg(fifo.join("rules.txt"))
+        .status()
+        .unwrap();
+    assert!(made.success());
+
+    start_open_log();
+    let linked_verdict = sniff_mod_dir_on_disk(&linked).unwrap();
+    let opened = take_open_log();
+    assert!(opened.is_empty(), "{opened:?}");
+    assert!(
+        !matches!(
+            linked_verdict,
+            ModVerdict::Mod {
+                key: AddonKey::TitleIds { .. },
+                ..
+            }
+        ),
+        "{linked_verdict:?}"
+    );
+    let verdict = returns_in_time(move || sniff_mod_dir_on_disk(&fifo).unwrap());
+    assert!(
+        !matches!(
+            verdict,
+            ModVerdict::Mod {
+                key: AddonKey::TitleIds { .. },
+                ..
+            }
+        ),
+        "{verdict:?}"
+    );
+}
+
+/// A patch named like one but which is a FIFO is never opened: the read
+/// fails at once instead of blocking.
+#[cfg(unix)]
+#[test]
+fn a_patch_that_is_a_fifo_never_blocks() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = TempDir::new().unwrap();
+    let fifo = dir.path().join("Hack.ips");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let read = returns_in_time(move || read_patch(&fifo).ok().flatten());
+    assert_eq!(read, None);
+}

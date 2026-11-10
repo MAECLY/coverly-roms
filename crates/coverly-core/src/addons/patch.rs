@@ -204,10 +204,11 @@ pub fn read_patch_from<R: Read + Seek>(r: &mut R) -> io::Result<Option<(AddonFor
 /// Reads the bounded bytes of one file and sniffs it: the only function
 /// here that touches the file system. Callers check
 /// [`crate::consoles::is_key_material`] before calling; the file is
-/// opened through [`crate::consoles::open_rom`], which refuses key
-/// material by name all the same.
+/// opened only when it is a regular file (never a symlink or a FIFO),
+/// through [`crate::consoles::open_rom`], which refuses key material by
+/// name all the same.
 pub fn read_patch(path: &Path) -> io::Result<Option<(AddonFormat, AddonKey)>> {
-    let mut file = crate::consoles::open_rom(path)?;
+    let mut file = super::open_regular(path)?;
     read_patch_from(&mut file)
 }
 
