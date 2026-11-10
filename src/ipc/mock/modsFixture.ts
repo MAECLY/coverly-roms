@@ -15,6 +15,8 @@ import type {
   PlacementTo,
   TranslateNote,
 } from '../types';
+import { EMULATOR_NAMES } from '../../lib/emulators';
+
 import type { GameFolderFile } from './gameFoldersFixture';
 
 export const MOCK_MODS = '/Users/demo/Mods';
@@ -37,24 +39,7 @@ export interface MockRule {
   note?: TranslateNote;
 }
 
-/** The product name of each emulator (Rust `EmulatorId::display_name`). */
-export const EMULATOR_NAMES: Readonly<Record<EmulatorId, string>> = {
-  shadps4: 'shadPS4',
-  rpcs3: 'RPCS3',
-  azahar: 'Azahar',
-  cemu: 'Cemu',
-  vita3k: 'Vita3K',
-  ryujinx: 'Ryujinx',
-  'yuzu-family': 'yuzu',
-  retroarch: 'RetroArch',
-  duckstation: 'DuckStation',
-  pcsx2: 'PCSX2',
-  dolphin: 'Dolphin',
-  ppsspp: 'PPSSPP',
-  xenia: 'Xenia',
-  flycast: 'Flycast',
-  mesen: 'Mesen',
-};
+export { EMULATOR_NAMES };
 
 const SD3 = 'Seiken Densetsu 3 (Japan).sfc';
 const TMZ = 'Tengai Makyou Zero (Japan).sfc';

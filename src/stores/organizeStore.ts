@@ -9,6 +9,7 @@ import { create } from 'zustand';
 import { getBackend, type Backend } from '@/ipc/backend';
 import { toBackendError, type BackendError } from '@/ipc/errors';
 import type {
+  EmulatorChoice,
   LargeTransferDetail,
   OrganizeDecision,
   OrganizeJobView,
@@ -85,6 +86,10 @@ interface OrganizeState {
   submitting: boolean;
   start(source: string, launch?: OrganizeLaunch): Promise<void>;
   setOption(patch: Partial<OrganizeRequest>): Promise<void>;
+  /** The emulator `system` is laid out for in this run (mods spec D16):
+   * `null` takes the layout's default and sends nothing. Kept in the
+   * request for the session only, never in settings (Q14). */
+  setEmulator(system: string, choice: EmulatorChoice | null): Promise<void>;
   decide(
     itemIds: number[],
     choice: 'leave' | { system: string },
@@ -506,6 +511,20 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       }
       if (Object.keys(next).length === 0) return;
       set({ request: { ...request, ...next }, lastRefresh: null });
+      await plan();
+    },
+    async setEmulator(system, choice) {
+      const { request } = get();
+      if (!request || !editable()) return;
+      const current = request.emulators?.[system] ?? null;
+      if (current === choice) return;
+      const { emulators: _old, ...rest } = request;
+      const map = { ...(request.emulators ?? {}) };
+      if (choice === null) delete map[system];
+      else map[system] = choice;
+      const next: OrganizeRequest =
+        Object.keys(map).length > 0 ? { ...rest, emulators: map } : rest;
+      set({ request: next, lastRefresh: null });
       await plan();
     },
     async decide(itemIds, choice) {

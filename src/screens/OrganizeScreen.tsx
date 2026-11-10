@@ -57,6 +57,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import type {
+  EmulatorChoice,
   OrganizeDedupeMode,
   OrganizePlan,
   OrganizeRequest,
@@ -269,6 +270,10 @@ export function OrganizeScreen() {
     followTarget.current = true;
     setDetected(null);
     setOption({ target: path });
+  };
+  const setEmulator = (system: string, choice: EmulatorChoice | null) => {
+    setExported(null);
+    void useOrganizeStore.getState().setEmulator(system, choice);
   };
   const decide = (ids: number[], choice: OrganizeChoice) => {
     setExported(null);
@@ -527,6 +532,8 @@ export function OrganizeScreen() {
             systemName={systemName}
             profileName={profileName}
             onOption={setOption}
+            emulators={request?.emulators ?? NO_EMULATORS}
+            onEmulator={setEmulator}
             onPickTarget={() => void pickTarget()}
             onDecide={decide}
             onApply={() => void useOrganizeStore.getState().apply()}
@@ -567,6 +574,8 @@ export function OrganizeScreen() {
   );
 }
 
+const NO_EMULATORS: Readonly<Record<string, EmulatorChoice>> = {};
+
 interface ProposalProps {
   plan: OrganizePlan;
   /** The duplicates step the plan was made with. */
@@ -592,6 +601,9 @@ interface ProposalProps {
   systemName(id: string): string;
   profileName(id: string): string;
   onOption(patch: Partial<OrganizeRequest>): void;
+  /** The emulator chosen per system for this run (mods spec D16). */
+  emulators: Readonly<Record<string, EmulatorChoice>>;
+  onEmulator(system: string, choice: EmulatorChoice | null): void;
   onPickTarget(): void;
   onDecide(ids: number[], choice: OrganizeChoice): void;
   onApply(): void;
@@ -620,6 +632,8 @@ function Proposal({
   systemName,
   profileName,
   onOption,
+  emulators,
+  onEmulator,
   onPickTarget,
   onDecide,
   onApply,
@@ -752,6 +766,9 @@ function Proposal({
           disabled={busy}
           onDecide={onDecide}
           licenceStays={licenceStays}
+          emulators={emulators}
+          onEmulator={onEmulator}
+          {...(plan.translated && { translated: plan.translated })}
           {...(isNew ? { isNew } : {})}
         />
       )}

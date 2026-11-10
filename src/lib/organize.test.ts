@@ -54,7 +54,9 @@ import {
   targetDir,
   titleIdKey,
   titleSourceKey,
+  translatedFor,
   translatedPreview,
+  translatedTitle,
   updatesSummaryKey,
   updatesUnderBases,
   whyKey,
@@ -2095,6 +2097,33 @@ describe('mods and cheats (mods spec §9, §10)', () => {
     const small = translatedPreview(view, 1);
     expect(small.system).toEqual(['CUSA04943']);
     expect(small.more.system).toBe(1);
+  });
+
+  it('finds a base its translated layout and names it like its folder', () => {
+    const view: TranslatedGameView = {
+      system: 'ps4',
+      base: 3,
+      emulator: 'shadps4',
+      placements: [],
+    };
+    const library: TranslatedGameView = {
+      system: 'ps4',
+      emulator: 'shadps4',
+      placements: [],
+    };
+    expect(translatedFor([library, view], 3)).toBe(view);
+    expect(translatedFor([library], 3)).toBeNull();
+    expect(translatedFor(undefined, 3)).toBeNull();
+    const inFolder = autoItem(3, 'CUSA00900', 'ps4', 'ROMS/PS4', {
+      target: 'ROMS/PS4/Bloodborne (Europe)/CUSA00900',
+      game: { role: 'base', folder: 'ROMS/PS4/Bloodborne (Europe)' },
+    });
+    expect(translatedTitle(inFolder)).toBe('Bloodborne (Europe)');
+    const flat = autoItem(4, 'sd3.sfc', 'snes', 'ROMS/SFC', {
+      target: 'ROMS\\SFC\\Seiken Densetsu 3 (Japan).sfc',
+      game: { role: 'base' },
+    });
+    expect(translatedTitle(flat)).toBe('Seiken Densetsu 3 (Japan)');
   });
 
   it('a plan from before mods keeps its rows and preview as they were', () => {

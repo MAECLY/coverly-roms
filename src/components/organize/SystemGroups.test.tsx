@@ -1,11 +1,16 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SystemGroups } from '@/components/organize/SystemGroups';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { groupBySystem } from '@/lib/organize';
-import type { OrganizeItem, SystemInfo, TransferMode } from '@/ipc/types';
+import type {
+  EmulatorChoice,
+  OrganizeItem,
+  SystemInfo,
+  TransferMode,
+} from '@/ipc/types';
 import { autoItem, discItem, planOf } from '@/test/organizeFixtures';
 
 const NAMES: Record<string, string> = {
@@ -971,5 +976,201 @@ describe('SystemGroups mods and cheats (mods spec §9.1)', () => {
   it('a plan from before mods draws no addon line', () => {
     renderEs(pile().slice(2));
     expect(screen.queryByText(/^Enlazado por/)).toBeNull();
+  });
+});
+
+describe('SystemGroups: the emulator of a system', () => {
+  const ps4 = autoItem(0, 'CUSA00900', 'ps4', 'ROMS/PS4', { kind: 'folder' });
+  const odd = autoItem(1, 'thing.bin', 'nothing-runs-it', 'ROMS/ODD');
+  const ES_DE = {
+    disc_layout: { kind: 'flat' as const, m3u_for_multi: false },
+    emulators: { ps4: 'shadps4' as const },
+  };
+
+  function renderChoice(
+    props: {
+      chosen?: Record<string, EmulatorChoice>;
+      disabled?: boolean;
+      profile?: typeof ES_DE | null;
+      onEmulator?: (system: string, choice: EmulatorChoice | null) => void;
+    } = {},
+  ) {
+    const onEmulator = props.onEmulator ?? vi.fn();
+    const ui = (disabled: boolean) => (
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf([ps4, odd]))}
+          layoutName="ES-DE"
+          systemName={(id) => (id === 'ps4' ? 'PlayStation 4' : id)}
+          profile={props.profile === undefined ? ES_DE : props.profile}
+          emulators={props.chosen ?? {}}
+          onEmulator={onEmulator}
+          disabled={disabled}
+        />
+      </I18nProvider>
+    );
+    const view = render(ui(props.disabled ?? false));
+    return {
+      onEmulator,
+      rerender: (disabled: boolean) => view.rerender(ui(disabled)),
+    };
+  }
+
+  afterEach(cleanup);
+
+  it('shows a labelled select only for a system with translators', () => {
+    renderChoice();
+    const select = screen.getByRole('combobox', { name: 'Emulador' });
+    expect(select).toHaveAttribute('name', 'emulator');
+    expect(select.id).toMatch(/emulator-ps4$/);
+    // A real, visible label, and the group's system name describes it.
+    const label = document.querySelector(`label[for="${select.id}"]`);
+    expect(label).toHaveTextContent('Emulador');
+    expect(select).toHaveAccessibleDescription('PlayStation 4');
+    expect(screen.getAllByRole('combobox', { name: 'Emulador' })).toHaveLength(
+      1,
+    );
+  });
+
+  it('offers the default, every emulator of the system and none', () => {
+    renderChoice();
+    const select = screen.getByRole('combobox', { name: 'Emulador' });
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual([
+      'Predeterminado: shadPS4',
+      'shadPS4',
+      'Ninguno (estructura de la biblioteca)',
+    ]);
+    expect(select).toHaveValue('');
+  });
+
+  it('sends nothing for the default, the emulator or none when picked', async () => {
+    const { onEmulator } = renderChoice({ chosen: { ps4: 'none' } });
+    const select = screen.getByRole('combobox', { name: 'Emulador' });
+    expect(select).toHaveValue('none');
+    await userEvent.selectOptions(select, 'shadps4');
+    expect(onEmulator).toHaveBeenLastCalledWith('ps4', 'shadps4');
+    await userEvent.selectOptions(select, '');
+    expect(onEmulator).toHaveBeenLastCalledWith('ps4', null);
+  });
+
+  it('picks none explicitly', async () => {
+    const { onEmulator } = renderChoice();
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Emulador' }),
+      'none',
+    );
+    expect(onEmulator).toHaveBeenLastCalledWith('ps4', 'none');
+  });
+
+  it('without a default, none is the default and sends nothing', () => {
+    renderChoice({ profile: null });
+    const select = screen.getByRole('combobox', { name: 'Emulador' });
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => [o.getAttribute('value'), o.textContent]),
+    ).toEqual([
+      ['shadps4', 'shadPS4'],
+      ['', 'Ninguno (estructura de la biblioteca)'],
+    ]);
+    expect(select).toHaveValue('');
+  });
+
+  it('is disabled while planning and keeps focus after the re-plan', async () => {
+    const { rerender } = renderChoice();
+    const select = screen.getByRole('combobox', { name: 'Emulador' });
+    await userEvent.selectOptions(select, 'shadps4');
+    select.focus();
+    rerender(true);
+    expect(screen.getByRole('combobox', { name: 'Emulador' })).toBeDisabled();
+    rerender(false);
+    const after = screen.getByRole('combobox', { name: 'Emulador' });
+    expect(after).toBe(select);
+    expect(after).toHaveFocus();
+  });
+
+  it('draws no select without a handler (a plan shown read-only)', () => {
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf([ps4]))}
+          layoutName="ES-DE"
+          systemName={(id) => id}
+          profile={ES_DE}
+        />
+      </I18nProvider>,
+    );
+    expect(screen.queryByRole('combobox', { name: 'Emulador' })).toBeNull();
+  });
+
+  it('hands a base its translated layout for the preview', () => {
+    const base = autoItem(0, 'CUSA00900', 'ps4', 'ROMS/PS4', {
+      kind: 'folder',
+      target: 'ROMS/PS4/Bloodborne (Europe)/CUSA00900',
+      game: { role: 'base', folder: 'ROMS/PS4/Bloodborne (Europe)' },
+    });
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf([base]))}
+          layoutName="ES-DE"
+          systemName={(id) => id}
+          profile={ES_DE}
+          translated={[
+            {
+              system: 'ps4',
+              base: 0,
+              emulator: 'shadps4',
+              placements: [
+                {
+                  from: 'Bloodborne (Europe)/CUSA00900',
+                  to: { kind: 'system', path: 'CUSA00900' },
+                },
+              ],
+            },
+          ]}
+        />
+      </I18nProvider>,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Ver cómo queda para shadPS4' }),
+    ).toBeInTheDocument();
+  });
+
+  it('previews the layout of a base without a game folder too', () => {
+    // Game folders off (ES-DE): the base has no game link, only its view.
+    const base = autoItem(5, 'CUSA04943', 'ps4', 'ROMs/ps4', {
+      kind: 'folder',
+    });
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf([base]))}
+          layoutName="ES-DE"
+          systemName={(id) => id}
+          profile={ES_DE}
+          translated={[
+            {
+              system: 'ps4',
+              base: 5,
+              emulator: 'shadps4',
+              placements: [
+                {
+                  from: 'CUSA04943',
+                  to: { kind: 'system', path: 'CUSA04943' },
+                },
+              ],
+            },
+          ]}
+        />
+      </I18nProvider>,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Ver cómo queda para shadPS4' }),
+    ).toBeInTheDocument();
   });
 });

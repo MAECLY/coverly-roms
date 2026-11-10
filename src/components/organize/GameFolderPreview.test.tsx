@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { GameFolderPreview } from '@/components/organize/GameFolderPreview';
 import { I18nProvider } from '@/i18n/I18nProvider';
-import type { OrganizeItem } from '@/ipc/types';
+import type { OrganizeItem, TranslatedGameView } from '@/ipc/types';
 import { autoItem } from '@/test/organizeFixtures';
 
 const DIR = 'ROMS/3DS/Pokemon Y (World)';
@@ -43,12 +43,58 @@ function renderPreview(
   base: OrganizeItem,
   items: OrganizeItem[],
   locale: 'es' | 'en' = 'es',
+  translated?: TranslatedGameView,
 ) {
   return render(
     <I18nProvider locale={locale}>
-      <GameFolderPreview base={base} items={items} />
+      <GameFolderPreview
+        base={base}
+        items={items}
+        {...(translated && { translated })}
+      />
     </I18nProvider>,
   );
+}
+
+const PS4 = 'ROMS/PS4';
+
+/** A PS4 base laid out for shadPS4: the game and its update in the system
+ * folder, a mod in shadPS4's own folder, a DLC that stays. */
+function shadps4(extra: { updates?: number } = {}) {
+  const base = autoItem(0, 'CUSA00900', 'ps4', PS4, {
+    kind: 'folder',
+    target: `${PS4}/Bloodborne (Europe)/CUSA00900`,
+    game: { role: 'base', folder: `${PS4}/Bloodborne (Europe)` },
+  });
+  const updates = Array.from({ length: extra.updates ?? 1 }, (_, i) => ({
+    from: `Bloodborne (Europe)/Updates/CUSA00900 v1.${String(i).padStart(2, '0')}`,
+    to: {
+      kind: 'system' as const,
+      path: `CUSA00900-UPDATE${i === 0 ? '' : `-${i}`}`,
+    },
+  }));
+  const view: TranslatedGameView = {
+    system: 'ps4',
+    base: 0,
+    emulator: 'shadps4',
+    placements: [
+      {
+        from: 'Bloodborne (Europe)/CUSA00900',
+        to: { kind: 'system', path: 'CUSA00900' },
+      },
+      ...updates,
+      {
+        from: 'Bloodborne (Europe)/Mods/CUSA00900',
+        to: { kind: 'emulator-data', path: 'mods/CUSA00900' },
+      },
+      {
+        from: 'Bloodborne (Europe)/DLC/EP9000-CUSA00900_00-BBDLC',
+        to: { kind: 'library' },
+        note: { kind: 'install-in-emulator', emulator: 'shadps4' },
+      },
+    ],
+  };
+  return { base, view };
 }
 
 afterEach(() => {
@@ -239,5 +285,93 @@ describe('GameFolderPreview', () => {
     const { base } = pokemon();
     const { container } = renderPreview(base, [base]);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  describe('for an emulator', () => {
+    it('names the emulator on the disclosure and builds nothing until opened', () => {
+      const { base, view } = shadps4();
+      renderPreview(base, [base], 'es', view);
+      const button = screen.getByRole('button', {
+        name: 'Ver cómo queda para shadPS4',
+      });
+      expect(button).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('list')).toBeNull();
+    });
+
+    it('shows the system folder, the emulator folder and what stays', async () => {
+      const { base, view } = shadps4();
+      renderPreview(base, [base], 'es', view);
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Ver cómo queda para shadPS4' }),
+      );
+      const tree = screen.getByRole('list', {
+        name: 'Carpeta de Bloodborne (Europe) para shadPS4',
+      });
+      const heads = [
+        'En la carpeta del sistema',
+        'En la carpeta de shadPS4',
+        'Se queda en la biblioteca',
+      ].map((h) => within(tree).getByText(h));
+      for (let i = 1; i < heads.length; i += 1)
+        expect(
+          heads[i - 1]!.compareDocumentPosition(heads[i]!) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      expect(within(tree).getByText('CUSA00900')).toHaveClass('font-mono');
+      expect(within(tree).getByText('CUSA00900-UPDATE')).toHaveClass(
+        'font-mono',
+      );
+      expect(within(tree).getByText('mods/CUSA00900')).toHaveClass('font-mono');
+      // The app never knows the emulator's folder: it says so.
+      expect(
+        within(tree).getByText('Coverly no la toca si no le dices dónde está'),
+      ).toBeInTheDocument();
+      expect(
+        within(tree).getByText(
+          'Bloodborne (Europe)/DLC/EP9000-CUSA00900_00-BBDLC',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        within(tree).getByText('Instálalo en el emulador'),
+      ).toBeInTheDocument();
+    });
+
+    it('leaves out a list with nothing in it', async () => {
+      const { base, view } = shadps4();
+      const only = { ...view, placements: view.placements.slice(0, 2) };
+      renderPreview(base, [base], 'en', only);
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Show the layout for shadPS4' }),
+      );
+      expect(screen.getByText('In the system folder')).toBeInTheDocument();
+      expect(screen.queryByText("In shadPS4's folder")).toBeNull();
+      expect(screen.queryByText('Stays in the library')).toBeNull();
+    });
+
+    it('caps a list at 20 entries', async () => {
+      const { base, view } = shadps4({ updates: 24 });
+      renderPreview(base, [base], 'en', view);
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Show the layout for shadPS4' }),
+      );
+      const tree = screen.getByRole('list', {
+        name: 'Folder of Bloodborne (Europe) for shadPS4',
+      });
+      // The base and 19 updates, then the other 5 counted.
+      expect(within(tree).getByText('CUSA00900-UPDATE-18')).toBeInTheDocument();
+      expect(within(tree).queryByText('CUSA00900-UPDATE-19')).toBeNull();
+      expect(within(tree).getByText(whole('and 5 more'))).toBeInTheDocument();
+    });
+
+    it('drops the collapsible motion under reduced motion', () => {
+      const { base, view } = shadps4();
+      renderPreview(base, [base], 'es', view);
+      const button = screen.getByRole('button', {
+        name: 'Ver cómo queda para shadPS4',
+      });
+      expect(button.querySelector('svg')).toHaveClass(
+        'motion-reduce:transition-none',
+      );
+    });
   });
 });

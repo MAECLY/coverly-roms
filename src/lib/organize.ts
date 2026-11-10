@@ -28,6 +28,8 @@ import type {
   TranslatedGameView,
 } from '@/ipc/types';
 
+export { defaultEmulator, emulatorName, emulatorsFor } from './emulators';
+
 type Translate = (key: string, vars?: TranslateVars) => string;
 
 /** Rows a system group (or bucket) renders before "Show more". */
@@ -442,6 +444,24 @@ export function translatedPreview(
       library: more(all.library),
     },
   };
+}
+
+/** The translated layout of the base item `baseId`, if the plan has one. */
+export function translatedFor(
+  views: readonly TranslatedGameView[] | undefined,
+  baseId: number,
+): TranslatedGameView | null {
+  return views?.find((v) => v.base === baseId) ?? null;
+}
+
+/** A base's name in the translated preview: its game folder's name, else
+ * its file name without the extension. */
+export function translatedTitle(base: OrganizeItem): string {
+  const folder = base.game?.folder;
+  if (folder) return pathParts(folder).at(-1) ?? folder;
+  const name = pathParts(base.target ?? base.sources[0] ?? '').at(-1) ?? '';
+  const dot = name.lastIndexOf('.');
+  return base.kind !== 'folder' && dot > 0 ? name.slice(0, dot) : name;
 }
 
 /** The licence line of a row: its licence goes with it (a companion), or
