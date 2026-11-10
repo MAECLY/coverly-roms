@@ -509,3 +509,44 @@ fn fixed_counts_only_on_a_game_folder_base() {
         })
     );
 }
+
+/// Part C D6, D8: a demo links to its full game and an orphan update to
+/// the game its folder names, by index into the same system's entries;
+/// a game of the same name in another system is never a target.
+#[test]
+fn demos_and_orphans_link_to_their_game_in_the_same_system() {
+    let lib = TempDir::new().unwrap();
+    let root = lib.path();
+    let base = ct::cia(BASE, true, false).head_bytes();
+    put(root, "ROMS/3DS/Tidewalker (USA).cia", &base);
+    put(root, "ROMS/3DS/Tidewalker (USA) (Demo).cia", &base);
+    put(
+        root,
+        "ROMS/3DS/Downloads/Tidewalker/Updates/Tidewalker (v1.3).cia",
+        &ct::cia(UPDATE, true, false).head_bytes(),
+    );
+    put(root, "ROMS/GB/Lantern Harbor (Europe).gb", &[1u8; 64]);
+    put(root, "ROMS/3DS/Lantern Harbor (Europe) (Demo).cia", &base);
+    let s = scan(root, "coverly-library");
+    let ds = system(&s, "3DS");
+    let index = |n: &str| {
+        ds.roms
+            .iter()
+            .position(|r| r.path.file_name().is_some_and(|f| f == n))
+            .unwrap_or_else(|| panic!("no `{n}` in {:?}", names(&ds.roms)))
+    };
+    let game = index("Tidewalker (USA).cia");
+    let demo = &ds.roms[index("Tidewalker (USA) (Demo).cia")];
+    assert!(demo.is_demo);
+    assert_eq!(demo.demo_of, Some(game));
+    let orphan = &ds.roms[index("Tidewalker (v1.3).cia")];
+    assert_eq!(orphan.role, Some(ChildRole::Update));
+    assert_eq!(orphan.orphan_of, Some(game));
+    assert!(!orphan.is_demo);
+    let lone = &ds.roms[index("Lantern Harbor (Europe) (Demo).cia")];
+    assert!(lone.is_demo);
+    assert_eq!(lone.demo_of, None, "never linked across systems");
+    let full = &ds.roms[game];
+    assert!(!full.is_demo);
+    assert_eq!((full.demo_of, full.orphan_of), (None, None));
+}

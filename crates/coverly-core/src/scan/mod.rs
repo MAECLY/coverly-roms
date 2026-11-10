@@ -8,6 +8,7 @@
 //! symlinks become [`ScanWarning`]s.
 
 pub(crate) mod classify;
+mod links;
 pub(crate) mod multifile;
 
 pub use classify::not_a_game;
@@ -74,6 +75,17 @@ pub struct RomEntry {
     /// and `Saves/` (part C D9), set only on a base at a game folder's
     /// root (zeros when it has none of them); `None` elsewhere.
     pub fixed_counts: Option<FixedFolderCounts>,
+    /// The entry is a demo (part C D8): not an orphan, and its name has a
+    /// `(Demo)`, `(Trial)` or `(Kiosk Demo)` tag. A demo is a game of its
+    /// own and counts as one.
+    pub is_demo: bool,
+    /// The full game a demo belongs to (part C D8), by title key in the
+    /// same system: an index into the same [`SystemScan::roms`].
+    pub demo_of: Option<usize>,
+    /// The game an orphan update or DLC belongs to (part C D6), by the
+    /// title key of its game folder name in the same system: an index into
+    /// the same [`SystemScan::roms`].
+    pub orphan_of: Option<usize>,
 }
 
 /// How many regular files a game folder keeps in each of its non-game
@@ -516,6 +528,8 @@ fn scan_system(
             .then_with(|| a.stem.to_lowercase().cmp(&b.stem.to_lowercase()))
             .then_with(|| a.path.cmp(&b.path))
     });
+    // After the sort: the links are indexes into this order.
+    links::link_titles(&mut roms);
     roms
 }
 
@@ -792,7 +806,7 @@ fn list_children(
 /// title stem's tags (D15): system, title key (revision tags stripped),
 /// the regions as written in order, and the release class when it is not
 /// retail.
-fn set_version_group(rom: &mut RomEntry, system_id: &str) {
+pub(crate) fn set_version_group(rom: &mut RomEntry, system_id: &str) {
     let tags = parse_tags(rom.title_stem());
     rom.revision = tags.revision_text.clone();
     if tags.title_key.is_empty() {
@@ -890,6 +904,9 @@ fn folder_entry(
         version_group: None,
         revision: None,
         fixed_counts: None,
+        is_demo: false,
+        demo_of: None,
+        orphan_of: None,
     }
 }
 
@@ -964,6 +981,9 @@ fn rom_entry(
         version_group: None,
         revision: None,
         fixed_counts: None,
+        is_demo: false,
+        demo_of: None,
+        orphan_of: None,
     })
 }
 
