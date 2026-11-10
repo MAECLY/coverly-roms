@@ -17,8 +17,14 @@
 //! (`x.pkg`, `x.nsp`) share their slots, the same rule as top-level
 //! entries.
 //!
-//! This module only names paths and reads; writes go through the journaled
-//! writer (`write::ensure_within`, backup, undo).
+//! Writes go only through the journaled writer (`write::ensure_within`,
+//! backup, undo). [`read_child_art`] (D11) fills the slots with the art a
+//! child carries **in the clear** (3DS CIA meta SMDH, PS3 PKG `ICON0.PNG`,
+//! Vita/PS4/PS5 `sce_sys/icon0.png`, Wii U `meta/iconTex.tga`, Xbox 360
+//! STFS thumbnail; banners only from the plaintext files of a folder
+//! child). A key, ticket or licence file is refused by name before
+//! anything is opened, Switch children give nothing (their NCAs are
+//! encrypted), and an existing slot file is never replaced.
 
 use std::fs;
 use std::io::Read;
@@ -27,6 +33,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::organize::target::{MAX_NAME_BYTES, WINDOWS_MAX_PATH};
+use crate::sources::embedded;
+use crate::write::{OverwritePolicy, WriteError, WriteOutcome, Writer};
 
 /// Folder beside a child that holds its art (the library layout's art
 /// folder).
@@ -253,6 +261,163 @@ pub fn present(child: &Path) -> ChildArtMarks {
         icon_origin: origin(ChildMedia::Icon, icon),
         banner_origin: origin(ChildMedia::Banner, banner),
     }
+}
+
+/// Why [`read_child_art`] wrote nothing to a slot of a child.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SkipWhy {
+    /// A key, ticket or licence file (`consoles::is_key_material`): never
+    /// opened.
+    KeyMaterial,
+    /// The child carries no art in the clear (a Switch NSP, an encrypted
+    /// package, an unknown file).
+    NoArtInClear,
+    /// The slot already has a file (or a case-insensitive twin): kept.
+    Exists,
+    /// The slot path is too long for Windows or FAT ([`SlotError`]).
+    PathTooLong,
+    /// The library cannot be written (read-only volume, no permission).
+    ReadOnly,
+    /// The slot would land outside the library, or its name is not valid
+    /// on FAT/exFAT.
+    Refused,
+}
+
+/// What [`read_child_art`] did.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct ChildArtReport {
+    /// Slot files written, in the order of the children and slots.
+    pub written: Vec<PathBuf>,
+    /// Children (or one slot of a child) left without new art, and why.
+    pub skipped: Vec<(PathBuf, SkipWhy)>,
+}
+
+/// Reads the art each of `children` carries in the clear into its empty
+/// slots, through `writer` (journaled: undoing the job removes the files,
+/// restores the `.art.json` it replaced and drops a `.media/` folder it
+/// created once empty). Each written slot is stamped
+/// [`ChildOrigin::Package`] in `<stem>.art.json`.
+///
+/// Per child, at most one skip reason is reported: a key file, no art in
+/// the clear, every slot it has art for already filled, a path too long,
+/// or a refused or read-only write. The error is only for a failure that
+/// stops the job (disk full, a damaged journal, an I/O error).
+pub fn read_child_art(
+    children: &[&Path],
+    writer: &mut Writer,
+) -> Result<ChildArtReport, WriteError> {
+    let mut report = ChildArtReport::default();
+    for child in children {
+        if let Some(why) = read_one(child, writer, &mut report.written)? {
+            report.skipped.push((child.to_path_buf(), why));
+        }
+    }
+    Ok(report)
+}
+
+/// Fills the empty slots of `child`; the skip reason when it wrote none.
+fn read_one(
+    child: &Path,
+    writer: &mut Writer,
+    written: &mut Vec<PathBuf>,
+) -> Result<Option<SkipWhy>, WriteError> {
+    // Keys first, by name: nothing below opens a key file.
+    let name = child
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    if crate::consoles::is_key_material(&name) {
+        return Ok(Some(SkipWhy::KeyMaterial));
+    }
+    let mut slots = Vec::with_capacity(ChildMedia::ALL.len());
+    for media in ChildMedia::ALL {
+        match child_slot_path(child, media) {
+            Ok(path) => slots.push((media, path)),
+            Err(SlotError::PathTooLong) => return Ok(Some(SkipWhy::PathTooLong)),
+            Err(SlotError::NotAChild) => return Ok(Some(SkipWhy::NoArtInClear)),
+        }
+    }
+    // Never read a child whose slots could not be written anyway.
+    let json_path = art_json_path(child);
+    for path in slots.iter().map(|(_, p)| p).chain([&json_path]) {
+        if writer.ensure_within_any(path).is_err() {
+            return Ok(Some(SkipWhy::Refused));
+        }
+    }
+
+    let mut found = Vec::new();
+    for (media, path) in &slots {
+        let png = match media {
+            ChildMedia::Icon => embedded::child_locators(child)
+                .iter()
+                .find_map(|art| embedded::child_png(child, art).ok()),
+            ChildMedia::Banner => embedded::child_banner_locators(child)
+                .iter()
+                .find_map(|art| embedded::child_banner_png(child, art).ok()),
+        };
+        if let Some(png) = png {
+            found.push((*media, path.clone(), png));
+        }
+    }
+    if found.is_empty() {
+        return Ok(Some(SkipWhy::NoArtInClear));
+    }
+
+    let mut stamped = Vec::new();
+    let mut skip = None;
+    for (media, path, png) in found {
+        if let Some(dir) = path.parent() {
+            if let Err(e) = writer.ensure_dir(dir) {
+                return soft(e).map(Some);
+            }
+        }
+        match writer.write(&path, &png, OverwritePolicy::Never) {
+            Ok(WriteOutcome::Created { path } | WriteOutcome::Replaced { path, .. }) => {
+                written.push(path);
+                stamped.push(media);
+            }
+            Ok(WriteOutcome::SkippedExists { .. }) => skip = Some(SkipWhy::Exists),
+            Err(e) => skip = Some(soft(e)?),
+        }
+    }
+    if stamped.is_empty() {
+        return Ok(skip);
+    }
+    let mut art = read_art_json(child);
+    let at = now_unix();
+    for media in stamped {
+        art.set(
+            media,
+            Some(OriginStamp {
+                origin: ChildOrigin::Package,
+                at,
+            }),
+        );
+    }
+    // The origin file is ours: an older one is backed up and restored by
+    // undo.
+    if let Err(e) = writer.write(&json_path, &art.to_bytes(), OverwritePolicy::Backup) {
+        soft(e)?;
+    }
+    Ok(None)
+}
+
+/// A write error that only skips the child; anything else stops the job.
+fn soft(e: WriteError) -> Result<SkipWhy, WriteError> {
+    match e {
+        WriteError::Denied(_) => Ok(SkipWhy::ReadOnly),
+        WriteError::OutsideRoot(_) | WriteError::NameInvalid(_) | WriteError::NotAFile(_) => {
+            Ok(SkipWhy::Refused)
+        }
+        other => Err(other),
+    }
+}
+
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
 #[cfg(test)]
