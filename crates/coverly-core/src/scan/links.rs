@@ -52,8 +52,8 @@ pub(crate) fn link_titles(roms: &mut [RomEntry]) {
                 links.push((i, Link::Demo(t)));
             }
         } else if rom.role.is_some() {
-            let key = parse_tags(game_folder_name(rom)).title_key;
-            if let Some(t) = sole_game(roms, candidates(&by_key, &key)) {
+            let key = game_folder_name(rom).map(|name| parse_tags(name).title_key);
+            if let Some(t) = key.and_then(|k| sole_game(roms, candidates(&by_key, &k))) {
                 links.push((i, Link::Orphan(t)));
             }
         }
@@ -115,22 +115,24 @@ fn sole_game(roms: &[RomEntry], cands: &[usize]) -> Option<usize> {
 
 /// The name of the game folder an orphan sits in: the folder holding its
 /// nearest `Updates/` or `DLC/` (compared by component, any case); its own
-/// stem when it is not inside one with a parent.
-fn game_folder_name(rom: &RomEntry) -> &str {
-    let parts: Vec<&str> = rom
+/// stem when it is not inside one with a parent. `None` when that folder's
+/// name is not UTF-8: it is never skipped for the folder above it.
+fn game_folder_name(rom: &RomEntry) -> Option<&str> {
+    let parts: Vec<Option<&str>> = rom
         .rel_dir
         .components()
         .filter_map(|c| match c {
-            Component::Normal(s) => s.to_str(),
+            Component::Normal(s) => Some(s.to_str()),
             _ => None,
         })
         .collect();
-    let fixed = parts
-        .iter()
-        .rposition(|p| FixedFolder::from_dir_name(p).is_some_and(|f| f.child_role().is_some()));
+    let fixed = parts.iter().rposition(|p| {
+        p.and_then(FixedFolder::from_dir_name)
+            .is_some_and(|f| f.child_role().is_some())
+    });
     match fixed {
         Some(at) if at > 0 => parts[at - 1],
-        _ => rom.title_stem(),
+        _ => Some(rom.title_stem()),
     }
 }
 
@@ -344,6 +346,22 @@ mod tests {
         assert!(!roms[0].is_demo);
         assert_eq!(roms[0].demo_of, None);
         assert_eq!(roms[2].demo_of, None, "an orphan is not a full game");
+    }
+
+    /// A game folder name that is not UTF-8 is never skipped over: the
+    /// folder above it is not the game's folder.
+    #[cfg(unix)]
+    #[test]
+    fn a_game_folder_name_that_is_not_utf8_links_nothing() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let mut orphan = rom("Tidewalker (v1.3.0)", &[], Some(ChildRole::Update));
+        orphan.rel_dir = PathBuf::from("Downloads")
+            .join(OsStr::from_bytes(b"Tide\xffwalker"))
+            .join("Updates");
+        let roms = linked(vec![rom("Downloads", &[], None), orphan]);
+        assert_eq!(roms[1].orphan_of, None);
     }
 
     #[test]
