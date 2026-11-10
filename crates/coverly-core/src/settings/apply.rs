@@ -263,18 +263,27 @@ impl Settings {
         }
     }
 
-    /// Paths `/`-separated, empty groups, paths and libraries dropped, the
-    /// map capped.
+    /// Paths `/`-separated, empty groups, paths and libraries dropped, two
+    /// spellings of one root (`/SD`, `/SD/`) merged under the first (its
+    /// choice wins a clash), the map capped.
     pub(super) fn normalise_revision_defaults(&mut self) {
         let maps = std::mem::take(&mut self.library.revision_defaults);
+        // `Path` hashes and compares by components, so this finds the first
+        // spelling of a root without a scan per entry.
+        let mut first: std::collections::HashMap<PathBuf, String> = Default::default();
         for (root, groups) in maps {
             let groups: BTreeMap<String, String> = groups
                 .into_iter()
                 .map(|(g, rel)| (g, normalise_rel(&rel)))
                 .filter(|(g, rel)| !g.trim().is_empty() && !rel.is_empty())
                 .collect();
-            if !root.trim().is_empty() && !groups.is_empty() {
-                self.library.revision_defaults.insert(root, groups);
+            if root.trim().is_empty() || groups.is_empty() {
+                continue;
+            }
+            let key = first.entry(PathBuf::from(&root)).or_insert(root).clone();
+            let merged = self.library.revision_defaults.entry(key).or_default();
+            for (g, rel) in groups {
+                merged.entry(g).or_insert(rel);
             }
         }
         self.cap_revision_roots(None);

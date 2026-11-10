@@ -1815,3 +1815,25 @@ fn bad_revision_default_entries_are_dropped_one_by_one() {
         .fixed
         .contains(&"library.revision_defaults".to_string()));
 }
+
+#[test]
+fn two_spellings_of_one_root_in_the_file_are_one_library() {
+    // Hand edits or another OS can leave `/Volumes/SD` and `/Volumes/SD/`
+    // side by side: they are one library, so their choices merge (the
+    // first spelling's choice wins a clash) and the cap counts it once.
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"version":3,"library":{"revision_defaults":{
+            "/Volumes/SD":{"sfc:a":"SFC/A (Rev 1).sfc"},
+            "/Volumes/SD/":{"sfc:a":"SFC/A (Rev 2).sfc","sfc:b":"SFC/B (Rev 1).sfc"}}}}"#,
+    );
+    let (mut s, _) = load_settings(dir.path(), &known());
+    assert_eq!(s.library.revision_defaults.len(), 1);
+    let sd = Path::new("/Volumes/SD/");
+    assert_eq!(s.revision_default(sd, "sfc:a"), Some("SFC/A (Rev 1).sfc"));
+    assert_eq!(s.revision_default(sd, "sfc:b"), Some("SFC/B (Rev 1).sfc"));
+    // Pruning the library prunes every choice it had, whatever the spelling.
+    s.prune_revision_defaults(Path::new("/Volumes/SD"), &|_, _| false);
+    assert!(s.library.revision_defaults.is_empty());
+}
