@@ -55,6 +55,7 @@ import {
   titleIdKey,
   titleSourceKey,
   translatedFor,
+  translateNoteKey,
   translatedPreview,
   translatedTitle,
   updatesSummaryKey,
@@ -2089,7 +2090,9 @@ describe('mods and cheats (mods spec §9, §10)', () => {
     expect(p.system).toEqual(['CUSA04943', 'CUSA04943-UPDATE']);
     expect(p.emulatorData).toHaveLength(PREVIEW_NAMES);
     expect(p.emulatorData[0]).toBe('addcont/CUSA04943/pack00');
-    expect(p.library).toEqual(['Game/Updates/BLUS-patch.pkg']);
+    expect(p.library).toEqual([
+      { path: 'Game/Updates/BLUS-patch.pkg', why: null },
+    ]);
     expect(p.more).toEqual({ system: 0, emulatorData: 2, library: 0 });
     expect(t('organize.gameFolder.more', { count: p.more.emulatorData })).toBe(
       'y 2 más',
@@ -2097,6 +2100,33 @@ describe('mods and cheats (mods spec §9, §10)', () => {
     const small = translatedPreview(view, 1);
     expect(small.system).toEqual(['CUSA04943']);
     expect(small.more.system).toBe(1);
+  });
+
+  it('says why a translator leaves something in the library, in words', () => {
+    const line = (n: Parameters<typeof translateNoteKey>[0]) => {
+      const k = translateNoteKey(n);
+      return k ? keyedText(t, k) : null;
+    };
+    expect(line({ kind: 'install-in-emulator', emulator: 'rpcs3' })).toBeNull();
+    expect(line({ kind: 'header-mismatch', needs: 'needs-headerless' })).toBe(
+      'Este parche espera la ROM sin cabecera',
+    );
+    expect(line({ kind: 'header-mismatch', needs: 'matches' })).toBeNull();
+    expect(
+      line({
+        kind: 'not-supported',
+        emulator: 'vita3k',
+        why: 'vita-repatch',
+      }),
+    ).toBe(
+      'Vita3K no lo usa así: Vita3K no lee rePatch; hay que mezclar los archivos en el juego',
+    );
+    expect(line({ kind: 'patch-not-applied', emulator: 'retroarch' })).toBe(
+      'RetroArch lo aplicaría al jugar; elige RetroArch para este sistema si lo quieres',
+    );
+    expect(line({ kind: 'extract-first' })).toBe(
+      'Este paquete no se abre así: hay que extraerlo antes',
+    );
   });
 
   it('finds a base its translated layout and names it like its folder', () => {

@@ -25,8 +25,11 @@ import type {
   RenameReason,
   TitleIdRef,
   TransferMode,
+  TranslateNote,
   TranslatedGameView,
 } from '@/ipc/types';
+
+import { emulatorName } from './emulators';
 
 export { defaultEmulator, emulatorName, emulatorsFor } from './emulators';
 
@@ -402,14 +405,58 @@ export function addonViaKey(
   };
 }
 
+/** One entry of a translated preview's «stays in the library» list:
+ * `why` is null when the emulator installs it (the list's own hint). */
+export interface LibraryEntry {
+  path: string;
+  why: KeyedText | null;
+}
+
+/**
+ * Why a translator leaves a placement in the library, as a line (mods
+ * spec D14, §10); null for «install it in the emulator», which the
+ * library list already says once.
+ */
+export function translateNoteKey(note: TranslateNote): KeyedText | null {
+  switch (note.kind) {
+    case 'install-in-emulator':
+      return null;
+    case 'extract-first':
+      return { key: 'organize.note.extractFirst', vars: {} };
+    case 'not-supported':
+      return {
+        key: 'organize.left.notSupported',
+        vars: {
+          emulator: emulatorName(note.emulator),
+          why: `organize.translate.why.${NOT_SUPPORTED[note.why]}`,
+        },
+      };
+    case 'header-mismatch':
+      return noteKey(note);
+    case 'point-emulator-here':
+      return {
+        key: 'organize.note.pointEmulatorHere',
+        vars: { emulator: emulatorName(note.emulator), folder: note.folder },
+      };
+    case 'patch-not-applied':
+      return {
+        key: 'organize.left.patchNotApplied',
+        vars: { emulator: emulatorName(note.emulator) },
+      };
+    // A note a newer core sends: no line, never a crash.
+    default:
+      return null;
+  }
+}
+
 export interface TranslatedPreview {
   /** Paths relative to the device's system folder. */
   system: string[];
   /** Paths relative to the emulator's own data folder. */
   emulatorData: string[];
-  /** What stays in the library (installed in the emulator), by its path
-   * in the master layout. */
-  library: string[];
+  /** What stays in the library, by its path in the master layout, with
+   * why when it is not simply installed in the emulator. */
+  library: LibraryEntry[];
   /** How many of each list are past the cap. */
   more: { system: number; emulatorData: number; library: number };
 }
@@ -425,15 +472,21 @@ export function translatedPreview(
   const all = { system: [], emulatorData: [], library: [] } as {
     system: string[];
     emulatorData: string[];
-    library: string[];
+    library: LibraryEntry[];
   };
   for (const p of view.placements) {
     if (p.to.kind === 'system') all.system.push(p.to.path);
     else if (p.to.kind === 'emulator-data') all.emulatorData.push(p.to.path);
-    else if (p.to.kind === 'library') all.library.push(p.from);
+    else if (p.to.kind === 'library')
+      all.library.push({
+        path: p.from,
+        why: p.note ? translateNoteKey(p.note) : null,
+      });
   }
-  const capped = (list: string[]) => list.slice(0, cap);
-  const more = (list: string[]) => Math.max(0, list.length - cap);
+  function capped<T>(list: T[]): T[] {
+    return list.slice(0, cap);
+  }
+  const more = (list: readonly unknown[]) => Math.max(0, list.length - cap);
   return {
     system: capped(all.system),
     emulatorData: capped(all.emulatorData),

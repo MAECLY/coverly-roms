@@ -336,6 +336,54 @@ describe('GameFolderPreview', () => {
       ).toBeInTheDocument();
     });
 
+    it('says why a patch stays in the library instead of «install it»', async () => {
+      const base = autoItem(0, 'Mother (Japan).nes', 'nes', 'ROMS/FC', {
+        target: 'ROMS/FC/Mother (Japan).nes',
+      });
+      const view: TranslatedGameView = {
+        system: 'nes',
+        base: 0,
+        emulator: 'retroarch',
+        placements: [
+          {
+            from: 'Mother (Japan).nes',
+            to: { kind: 'system', path: 'Mother (Japan).nes' },
+          },
+          {
+            from: 'Mother (Japan) [T-En].bps',
+            to: { kind: 'library' },
+            note: { kind: 'header-mismatch', needs: 'needs-headerless' },
+          },
+          {
+            from: 'Mother (Japan) [Hack].ips',
+            to: { kind: 'library' },
+            note: {
+              kind: 'not-supported',
+              emulator: 'retroarch',
+              why: 'several-patches',
+            },
+          },
+        ],
+      };
+      renderPreview(base, [base], 'es', view);
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Ver cómo queda para RetroArch' }),
+      );
+      const tree = screen.getByRole('list', {
+        name: 'Carpeta de Mother (Japan) para RetroArch',
+      });
+      expect(
+        within(tree).getByText('Este parche espera la ROM sin cabecera'),
+      ).toBeInTheDocument();
+      expect(
+        within(tree).getByText(
+          'RetroArch no lo usa así: Varios parches para la misma ROM; RetroArch solo aplica uno',
+        ),
+      ).toBeInTheDocument();
+      // Nothing here is installed in the emulator.
+      expect(within(tree).queryByText('Instálalo en el emulador')).toBeNull();
+    });
+
     it('leaves out a list with nothing in it', async () => {
       const { base, view } = shadps4();
       const only = { ...view, placements: view.placements.slice(0, 2) };
