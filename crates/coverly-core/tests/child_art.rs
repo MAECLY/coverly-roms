@@ -238,7 +238,11 @@ fn an_existing_icon_is_kept() {
     cia_dlc(&child);
     let icon = child_slot_path(&child, ChildMedia::Icon).unwrap();
     put(&icon, b"the user's own icon");
+    start_open_log();
     let (report, _) = run(&lib, &[&child]);
+    // A filled slot is not read for: the package is never opened.
+    let opened = take_open_log();
+    assert!(!opened.contains(&child), "{opened:?}");
     assert_eq!(fs::read(&icon).unwrap(), b"the user's own icon");
     assert_eq!(skipped(&report, &child), [SkipWhy::Exists]);
     assert!(report.written.is_empty());
@@ -253,6 +257,45 @@ fn an_existing_icon_is_kept() {
     put(&twin, b"twin");
     let (report, _) = run(&lib, &[&child]);
     assert_eq!(fs::read(&twin).unwrap(), b"twin");
+    assert_eq!(skipped(&report, &child), [SkipWhy::Exists]);
+}
+
+/// Only the empty slot of a folder child is read for: with the icon slot
+/// filled, the banner is written and `sce_sys/icon0.png` is never opened;
+/// with both filled, nothing inside the child is opened at all.
+#[test]
+fn only_empty_slots_are_read_for() {
+    let _g = serial();
+    let lib = lib();
+    let child = at(&lib.root, "ROMS/PS4/Game/Updates/CUSA00900-patch");
+    ps4_app(
+        &child,
+        "CUSA00900",
+        "gp",
+        "UP9000-CUSA00900_00-BLOODBORNE000000",
+    );
+    put_file(&child, "sce_sys/pic1.png", &png_8x8());
+    let icon = child_slot_path(&child, ChildMedia::Icon).unwrap();
+    let banner = child_slot_path(&child, ChildMedia::Banner).unwrap();
+    put(&icon, b"mine");
+    start_open_log();
+    let (report, _) = run(&lib, &[&child]);
+    let opened = take_open_log();
+    assert!(
+        !opened.contains(&at(&child, "sce_sys/icon0.png")),
+        "{opened:?}"
+    );
+    assert_eq!(report.written, [banner], "{report:?}");
+    assert_eq!(fs::read(&icon).unwrap(), b"mine");
+    let art = read_art_json(&child);
+    assert_eq!(art.icon, None);
+    assert_eq!(art.banner.map(|s| s.origin), Some(ChildOrigin::Package));
+
+    start_open_log();
+    let (report, _) = run(&lib, &[&child]);
+    let opened = take_open_log();
+    assert!(!opened.iter().any(|p| p.starts_with(&child)), "{opened:?}");
+    assert!(report.written.is_empty());
     assert_eq!(skipped(&report, &child), [SkipWhy::Exists]);
 }
 

@@ -346,8 +346,22 @@ fn read_one(
         }
     }
 
+    // Only the empty slots are read for: a filled one (or its case
+    // twin) is kept, so the package is not even opened for it.
+    let mut empty = Vec::with_capacity(slots.len());
+    for (media, path) in slots {
+        match slot_taken(&path) {
+            Ok(true) => {}
+            Ok(false) => empty.push((media, path)),
+            Err(e) => return soft(e).map(Some),
+        }
+    }
+    if empty.is_empty() {
+        return Ok(Some(SkipWhy::Exists));
+    }
+
     let mut found = Vec::new();
-    for (media, path) in &slots {
+    for (media, path) in &empty {
         let png = match media {
             ChildMedia::Icon => embedded::child_locators(child)
                 .iter()
@@ -361,7 +375,14 @@ fn read_one(
         }
     }
     if found.is_empty() {
-        return Ok(Some(SkipWhy::NoArtInClear));
+        // A filled slot means the child's art is already there: that is
+        // the reason, not a package without art.
+        let filled = empty.len() < ChildMedia::ALL.len();
+        return Ok(Some(if filled {
+            SkipWhy::Exists
+        } else {
+            SkipWhy::NoArtInClear
+        }));
     }
 
     let mut stamped = Vec::new();
@@ -401,6 +422,18 @@ fn read_one(
         soft(e)?;
     }
     Ok(None)
+}
+
+/// Whether the slot `path` (or a case-insensitive twin of it) already
+/// holds an entry. A missing `.media/` folder means an empty slot.
+fn slot_taken(path: &Path) -> Result<bool, WriteError> {
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name().and_then(|n| n.to_str())) else {
+        return Ok(false);
+    };
+    if !dir.is_dir() {
+        return Ok(false);
+    }
+    Ok(crate::write::find_twin(dir, name)?.is_some())
 }
 
 /// A write error that only skips the child; anything else stops the job.
