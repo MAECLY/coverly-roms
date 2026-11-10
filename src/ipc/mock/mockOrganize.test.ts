@@ -2380,6 +2380,25 @@ describe('mock mods pile (mods spec §9.3)', () => {
     expect(plan.translated!.every((v) => v.system === 'ps4')).toBe(true);
   });
 
+  it('keeps PS4 DLC where it is under the ES-DE default, with no addcont note', async () => {
+    // Like Rust's conservative scope: a default emulator never moves a
+    // DLC and never tells the user to point it at a folder not made.
+    const b = backend();
+    const { plan } = await b.organizePlan({
+      source: MOCK_MODS,
+      layout: 'esde',
+    });
+    const dlc = one(plan.items, 'Gravity Rush 2 Raven Pack');
+    expect(dlc.notes).not.toContainEqual(
+      expect.objectContaining({ kind: 'point-emulator-here' }),
+    );
+    const view = plan.translated?.find((v) => v.system === 'ps4');
+    for (const p of view?.placements ?? []) {
+      expect(p.note?.kind).not.toBe('point-emulator-here');
+      if (p.to.kind === 'system') expect(p.to.path).not.toMatch(/^addcont\//);
+    }
+  });
+
   it('follows the ES-DE defaults and returns to the master layout on none', async () => {
     const b = backend();
     const esde = await b.organizePlan({ source: MOCK_MODS, layout: 'esde' });

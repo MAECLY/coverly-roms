@@ -2472,11 +2472,21 @@ export function createMockOrganize(
         const rule = MODS_TRANSLATIONS[files[pos]!.name]?.[emulator];
         if (!rule) continue;
         const from = fromOf(pos);
+        // A default emulator (Rust's conservative scope) keeps a base,
+        // update or DLC at its master place, with only an install or
+        // extract note: never «point the emulator at» a folder not made.
+        const gameEntry = !full && !files[pos]!.addon;
+        const ruleNote =
+          gameEntry &&
+          rule.note?.kind !== 'install-in-emulator' &&
+          rule.note?.kind !== 'extract-first'
+            ? undefined
+            : rule.note;
         const to =
-          rule.to === 'same'
+          rule.to === 'same' || (gameEntry && rule.to.kind === 'system')
             ? { kind: 'system' as const, path: from }
             : { ...rule.to };
-        placements.push({ from, to, ...(rule.note && { note: rule.note }) });
+        placements.push({ from, to, ...(ruleNote && { note: ruleNote }) });
         if (pos !== b)
           effects.push(() => {
             items[pos] = translatedItem(
@@ -2486,7 +2496,7 @@ export function createMockOrganize(
               name,
               dir,
               to,
-              rule.note,
+              ruleNote,
             );
           });
       }
