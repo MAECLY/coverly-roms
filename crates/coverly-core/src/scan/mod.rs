@@ -70,7 +70,33 @@ pub struct RomEntry {
     pub version_group: Option<String>,
     /// The revision as written (`Rev 1`, `Rev A`, `v1.1`), if any (D15).
     pub revision: Option<String>,
+    /// File counts of the game folder's `Mods/`, `Cheats/`, `Extras/`
+    /// and `Saves/` (part C D9), set only on a base at a game folder's
+    /// root (zeros when it has none of them); `None` elsewhere.
+    pub fixed_counts: Option<FixedFolderCounts>,
 }
+
+/// How many regular files a game folder keeps in each of its non-game
+/// fixed folders (part C D9). Metadata only: nothing is opened, symlinks
+/// are never followed, junk and AppleDouble twins are not counted, depth
+/// stops at 4 below the fixed folder, and each count stops at
+/// [`FIXED_CAP`] with `capped` set.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct FixedFolderCounts {
+    pub mods: u32,
+    pub cheats: u32,
+    pub extras: u32,
+    pub saves: u32,
+    /// At least one folder reached [`FIXED_CAP`]: its count is the cap.
+    pub capped: bool,
+}
+
+/// Most files counted in one fixed folder (part C D9). Small in unit
+/// tests so the cap is exercised without thousands of files.
+pub const FIXED_CAP: u32 = if cfg!(test) { 5 } else { 10_000 };
+
+/// Deepest level below a fixed folder whose files are counted (part C D9).
+const FIXED_COUNT_DEPTH: usize = 4;
 
 /// An update or DLC inside a game's folder (game folders spec D8): a file,
 /// or a folder a console probe recognises (a PS3 update folder in
@@ -365,6 +391,9 @@ fn scan_system(
     let mut child_dirs: Vec<(PathBuf, ChildRole, PathBuf)> = Vec::new();
     // `Updates/`/`DLC/` of a folder with no single base.
     let mut orphan_dirs: Vec<(PathBuf, ChildRole)> = Vec::new();
+    // `Mods/`, `Cheats/`, `Extras/`, `Saves/` of each game folder, counted
+    // for its base once the walk is done (part C D9).
+    let mut counted_dirs: HashMap<PathBuf, Vec<(FixedFolder, PathBuf)>> = HashMap::new();
     let walker = WalkDir::new(dir)
         .min_depth(1)
         .follow_links(opts.follow_symlinks)
@@ -407,8 +436,12 @@ fn scan_system(
             if let DirShape::GameFolder { base, fixed } = shape {
                 for (folder, spelling) in fixed {
                     let path = e.path().join(&spelling);
-                    if let Some(role) = folder.child_role() {
-                        child_dirs.push((path.clone(), role, e.path().to_path_buf()));
+                    match folder.child_role() {
+                        Some(role) => child_dirs.push((path.clone(), role, e.path().to_path_buf())),
+                        None => counted_dirs
+                            .entry(e.path().to_path_buf())
+                            .or_default()
+                            .push((folder, path.clone())),
                     }
                     fixed_dirs.push(path);
                 }
@@ -471,6 +504,7 @@ fn scan_system(
     attach_children(
         dir, system, profile, opts, &game_dirs, child_dirs, &mut roms, warnings,
     );
+    set_fixed_counts(&game_dirs, &counted_dirs, opts, &mut roms);
     for rom in &mut roms {
         if rom.role.is_none() {
             set_version_group(rom, &system.id);
@@ -580,14 +614,10 @@ fn attach_children(
         .collect();
     let mut orphans: Vec<RomEntry> = Vec::new();
     for (fixed_dir, role, game_dir) in child_dirs {
-        let children = list_children(dir, &fixed_dir, role, system, opts);
-        let base = game_dirs.get(&game_dir).and_then(|base| {
-            let key = match base {
-                GameBase::SelfIsFolderGame => (game_dir.clone(), true),
-                GameBase::File(name) | GameBase::Sheet(name) => (game_dir.join(name), false),
-            };
-            index.get(&key).copied()
-        });
+        let children = list_children(dir, &fixed_dir, role, system, profile, opts);
+        let base = game_dirs
+            .get(&game_dir)
+            .and_then(|base| index.get(&base_key(&game_dir, base)).copied());
         match base {
             Some(i) => roms[i].children.extend(children),
             None => orphans.extend(children.into_iter().filter_map(|child| {
@@ -607,14 +637,90 @@ fn attach_children(
     roms.extend(orphans);
 }
 
+/// The `(path, is_dir)` of the entry a game folder's base produces.
+fn base_key(game_dir: &Path, base: &GameBase) -> (PathBuf, bool) {
+    match base {
+        GameBase::SelfIsFolderGame => (game_dir.to_path_buf(), true),
+        GameBase::File(name) | GameBase::Sheet(name) => (game_dir.join(name), false),
+    }
+}
+
+/// Sets [`RomEntry::fixed_counts`] on the base at each game folder's root
+/// (part C D9): zeros when the folder keeps none of `Mods/`, `Cheats/`,
+/// `Extras/`, `Saves/`. An orphan never gets counts.
+fn set_fixed_counts(
+    game_dirs: &HashMap<PathBuf, GameBase>,
+    counted_dirs: &HashMap<PathBuf, Vec<(FixedFolder, PathBuf)>>,
+    opts: &ScanOptions,
+    roms: &mut [RomEntry],
+) {
+    if game_dirs.is_empty() {
+        return;
+    }
+    let index: HashMap<(PathBuf, bool), usize> = roms
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.role.is_none())
+        .map(|(i, r)| ((r.path.clone(), r.is_dir), i))
+        .collect();
+    for (game_dir, base) in game_dirs {
+        let Some(&i) = index.get(&base_key(game_dir, base)) else {
+            continue;
+        };
+        let mut counts = FixedFolderCounts::default();
+        for (folder, path) in counted_dirs.get(game_dir).into_iter().flatten() {
+            let (n, capped) = count_fixed(path, opts);
+            counts.capped |= capped;
+            let slot = match folder {
+                FixedFolder::Mods => &mut counts.mods,
+                FixedFolder::Cheats => &mut counts.cheats,
+                FixedFolder::Extras => &mut counts.extras,
+                FixedFolder::Saves => &mut counts.saves,
+                FixedFolder::Updates | FixedFolder::Dlc => continue,
+            };
+            // Two spellings of one folder on a case-sensitive disk add up,
+            // still within the cap.
+            *slot = slot.saturating_add(n).min(FIXED_CAP);
+        }
+        roms[i].fixed_counts = Some(counts);
+    }
+}
+
+/// Counts the regular files below one fixed folder (part C D9): metadata
+/// only, at most [`FIXED_COUNT_DEPTH`] levels deep, symlinks never
+/// followed whatever the options say (a symlink is not counted), entries
+/// [`is_skipped_entry`] leaves out not counted and not entered. Stops at
+/// [`FIXED_CAP`]; the flag says whether it did.
+fn count_fixed(dir: &Path, opts: &ScanOptions) -> (u32, bool) {
+    let mut count: u32 = 0;
+    let walker = WalkDir::new(dir)
+        .min_depth(1)
+        .max_depth(FIXED_COUNT_DEPTH)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| !is_skipped_entry(&e.file_name().to_string_lossy(), opts));
+    for entry in walker.flatten() {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if count == FIXED_CAP {
+            return (count, true);
+        }
+        count += 1;
+    }
+    (count, false)
+}
+
 /// The updates or DLC below one fixed folder: each ROM candidate file,
 /// and each folder a console probe recognises as one entry (not entered).
-/// Metadata only.
+/// The profile's art folders (`DLC/.media/`, part C D10 (a)) and the
+/// ignored folders are never entered. Metadata only.
 fn list_children(
     system_dir: &Path,
     fixed_dir: &Path,
     role: ChildRole,
     system: &System,
+    profile: &Profile,
     opts: &ScanOptions,
 ) -> Vec<ChildEntry> {
     let mut out = Vec::new();
@@ -633,7 +739,7 @@ fn list_children(
             if !e.file_type().is_dir() || e.depth() == 0 {
                 return true;
             }
-            if is_quarantine(&name, opts) {
+            if is_skipped_dir(&name, &profile.art_dir_names, opts) || is_quarantine(&name, opts) {
                 return false;
             }
             let listed = list_dir(e.path()).unwrap_or_default();
@@ -773,6 +879,7 @@ fn folder_entry(
         role: None,
         version_group: None,
         revision: None,
+        fixed_counts: None,
     }
 }
 
@@ -846,6 +953,7 @@ fn rom_entry(
         role: None,
         version_group: None,
         revision: None,
+        fixed_counts: None,
     })
 }
 
@@ -915,5 +1023,73 @@ fn io_warning(path: &Path, err: &std::io::Error) -> ScanWarning {
     ScanWarning {
         path: path.to_path_buf(),
         message: err.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn put(root: &Path, rel: &str) -> PathBuf {
+        let p = rel.split('/').fold(root.to_path_buf(), |p, c| p.join(c));
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, [0u8; 4]).unwrap();
+        crate::dedupe::testing::pin_mtime(&p, 1);
+        p
+    }
+
+    #[test]
+    fn counting_stops_at_the_cap() {
+        let tmp = TempDir::new().unwrap();
+        for i in 0..7 {
+            put(tmp.path(), &format!("Mods/m{i}.bps"));
+        }
+        assert_eq!(
+            count_fixed(&tmp.path().join("Mods"), &ScanOptions::default()),
+            (FIXED_CAP, true)
+        );
+        let exact = TempDir::new().unwrap();
+        for i in 0..FIXED_CAP {
+            put(exact.path(), &format!("Mods/m{i}.bps"));
+        }
+        assert_eq!(
+            count_fixed(&exact.path().join("Mods"), &ScanOptions::default()),
+            (FIXED_CAP, false)
+        );
+    }
+
+    #[test]
+    fn depth_and_symlinks() {
+        let tmp = TempDir::new().unwrap();
+        put(tmp.path(), "Mods/a/b/c/four.bps");
+        put(tmp.path(), "Mods/a/b/c/d/five.bps");
+        let opts = ScanOptions {
+            follow_symlinks: true,
+            ..ScanOptions::default()
+        };
+        #[cfg(unix)]
+        {
+            put(tmp.path(), "Elsewhere/one.bps");
+            put(tmp.path(), "Elsewhere/two.bps");
+            std::os::unix::fs::symlink(tmp.path().join("Elsewhere"), tmp.path().join("Mods/link"))
+                .unwrap();
+        }
+        assert_eq!(count_fixed(&tmp.path().join("Mods"), &opts), (1, false));
+    }
+
+    #[test]
+    fn hidden_files_count_only_with_hidden_on() {
+        let tmp = TempDir::new().unwrap();
+        put(tmp.path(), "Cheats/.hidden.cht");
+        put(tmp.path(), "Cheats/._twin.cht");
+        put(tmp.path(), "Cheats/c.cht");
+        let dir = tmp.path().join("Cheats");
+        assert_eq!(count_fixed(&dir, &ScanOptions::default()), (1, false));
+        let hidden = ScanOptions {
+            include_hidden: true,
+            ..ScanOptions::default()
+        };
+        assert_eq!(count_fixed(&dir, &hidden), (2, false));
     }
 }

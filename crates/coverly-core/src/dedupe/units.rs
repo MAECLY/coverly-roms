@@ -366,6 +366,7 @@ fn child_rom(system_dir: &Path, child: &ChildEntry) -> RomEntry {
         role: Some(child.role),
         version_group: None,
         revision: None,
+        fixed_counts: None,
     }
 }
 
