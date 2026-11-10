@@ -2466,4 +2466,41 @@ describe('mock mods pile (mods spec §9.3)', () => {
       note: { kind: 'header-mismatch', needs: 'needs-headerless' },
     });
   });
+
+  it('keeps the link of an addon whose game is already in the library', async () => {
+    const b = backend();
+    const { plan_id } = await b.organizePlan({
+      source: MOCK_MODS,
+      layout: 'coverly-library',
+    });
+    const done = ended(b);
+    await b.organizeApply(plan_id, []);
+    await done;
+    const { plan } = await b.organizePlan({
+      source: MOCK_MODS,
+      layout: 'coverly-library',
+      rescan: true,
+    });
+    // Nothing reads as moving without a target.
+    expect(
+      plan.items.filter((i) => i.action === 'auto' && i.target === null),
+    ).toEqual([]);
+    expect(plan.counts.auto).toBe(0);
+    // The patch still names its game; its base has no game folder.
+    const patch = one(plan.items, SD3_BPS);
+    expect(patch).toMatchObject({
+      action: 'left',
+      reason: { kind: 'addon-no-place', addon: 'patch' },
+      game: { role: 'mod', addon: { format: 'bps', via: 'source-crc' } },
+    });
+    expect(patch.game?.of).toBeUndefined();
+    expect(patch.notes).toContainEqual({
+      kind: 'patch-of',
+      of: 'Seiken Densetsu 3 (Japan)',
+    });
+    // Unlinked ones are still reported as before.
+    expect(one(plan.items, 'Unknown Hack v2.ips')).toMatchObject({
+      reason: { kind: 'addon-unlinked', why: { kind: 'no-match' } },
+    });
+  });
 });

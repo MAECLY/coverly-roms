@@ -2363,10 +2363,26 @@ export function createMockOrganize(
       const a = file.addon;
       const item = items[i]!;
       if (!a || item.action !== 'auto') continue;
-      const b = files.findIndex((f) => f.name === a.of);
-      const base = items[b];
-      if (!base) continue;
       const kind = a.link.kind;
+      const b = files.findIndex((f) => f.name === a.of);
+      const base = b < 0 ? undefined : items[b];
+      if (!base) {
+        // Its game is already in the library (an earlier apply): linked
+        // to that library base, named by its note (no `of`); the mock's
+        // library bases have no game folder, so it stays.
+        items[i] = leave(
+          {
+            ...item,
+            game: {
+              role: kind === 'cheat' ? 'cheat' : 'mod',
+              addon: { ...a.link },
+            },
+            notes: [...item.notes, { kind: `${kind}-of`, of: a.title }],
+          },
+          { kind: 'addon-no-place', addon: kind },
+        );
+        continue;
+      }
       item.game = {
         role: kind === 'cheat' ? 'cheat' : 'mod',
         of: base.id,
