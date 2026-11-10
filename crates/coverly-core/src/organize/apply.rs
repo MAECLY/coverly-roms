@@ -26,8 +26,9 @@ use crate::organize::extract::{
     ExtractTick,
 };
 use crate::organize::plan::{
-    ArchiveAfter, ExtractEntry, ExtractSource, GameRole, ItemKind, OrganizeAction, OrganizeItem,
-    OrganizePhase, OrganizePlan, OrganizeProgress, Transfer, TransferMode, SPACE_RESERVE,
+    ArchiveAfter, Companion, ExtractEntry, ExtractSource, GameRole, ItemKind, OrganizeAction,
+    OrganizeItem, OrganizePhase, OrganizePlan, OrganizeProgress, Transfer, TransferMode,
+    SPACE_RESERVE,
 };
 use crate::organize::target::DirIndex;
 use crate::organize::walk::{tree_summary, OsMetaProbe, WalkOptions};
@@ -2114,37 +2115,57 @@ impl<'a> Run<'a> {
             .and_then(|n| n.to_str())
             .unwrap_or("");
         let (planned_stem, actual_stem) = (stem(planned).to_string(), stem(actual).to_string());
-        for companion in &item.companions {
-            let from = self.plan.source_root.join(&companion.source);
-            if let Some(record) = record_of(&self.records, item.id, &from) {
-                targets.push(record.target.clone());
-                continue;
-            }
-            if !fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file()) {
-                continue;
-            }
-            let mut to = root.join(&companion.target);
+        let target_of = |companion: &Companion| {
+            let to = root.join(&companion.target);
             if planned_stem != actual_stem {
                 if let Some(rest) = to
                     .file_name()
                     .and_then(|n| n.to_str())
                     .and_then(|n| n.strip_prefix(planned_stem.as_str()))
                 {
-                    to = to.with_file_name(format!("{actual_stem}{rest}"));
+                    return to.with_file_name(format!("{actual_stem}{rest}"));
                 }
             }
+            to
+        };
+        // A child's art (part C D10 d) follows whole or not at all: one
+        // slot name taken since the plan keeps every one of them, and its
+        // origin file, where they were (the origin file would vouch for
+        // someone else's art).
+        let child_art_stays = item.companions.iter().any(|companion| {
+            if !companion.child_art {
+                return false;
+            }
+            let from = self.plan.source_root.join(&companion.source);
+            if record_of(&self.records, item.id, &from).is_some()
+                || !fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file())
+            {
+                return false;
+            }
+            split(&target_of(companion)).is_some_and(|(dir, name)| self.index.taken(dir, name))
+        });
+        for companion in &item.companions {
+            let from = self.plan.source_root.join(&companion.source);
+            if let Some(record) = record_of(&self.records, item.id, &from) {
+                targets.push(record.target.clone());
+                continue;
+            }
+            if companion.child_art && child_art_stays {
+                continue;
+            }
+            if !fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file()) {
+                continue;
+            }
+            let mut to = target_of(companion);
             if companion.licence {
                 if let Some(pause) = self.move_licence(item.id, &from, &to, targets) {
                     return Some(pause);
                 }
                 continue;
             }
-            // A child's art (part C D10 d) keeps its slot name or stays:
-            // a numbered or replaced slot would no longer map to its child.
+            // A child's art keeps its slot name: a numbered or replaced
+            // slot would no longer map to its child.
             let collision = if companion.child_art {
-                if split(&to).is_some_and(|(dir, name)| self.index.taken(dir, name)) {
-                    continue;
-                }
                 Collision::Skip
             } else {
                 to = self.free_name(&to);

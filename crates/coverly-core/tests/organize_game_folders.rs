@@ -2487,3 +2487,34 @@ fn a_taken_slot_in_the_library_keeps_the_child_art_where_it_was() {
         ART_JSON
     );
 }
+
+#[test]
+fn a_slot_taken_after_planning_keeps_all_the_child_art_where_it_was() {
+    let (_tmp, pile, lib, data) = child_art_world(false, true);
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let dlc = item(&plan, "Pack.cia");
+    assert_eq!(
+        dlc.companions.iter().filter(|c| c.child_art).count(),
+        2,
+        "{dlc:?}"
+    );
+    // Someone's own icon lands in the new slot between plan and apply.
+    let icon = child_slot_path(&lib.join(dlc.target.as_ref().unwrap()), ChildMedia::Icon).unwrap();
+    fs::create_dir_all(icon.parent().unwrap()).unwrap();
+    fs::write(&icon, b"mine").unwrap();
+    pin_mtime(&icon, 9);
+    let report = apply_in(&plan, &data);
+    assert!(report.paused.is_none(), "{report:?}");
+    assert_eq!(fs::read(&icon).unwrap(), b"mine");
+    // The origin file never follows without its slot: it would vouch for
+    // someone else's icon.
+    assert!(!art_json_path(&lib.join(dlc.target.as_ref().unwrap())).exists());
+    assert_eq!(
+        fs::read(pile.join("Pokemon Y/DLC/.media/Pack-icon.png")).unwrap(),
+        ICON
+    );
+    assert_eq!(
+        fs::read(pile.join("Pokemon Y/DLC/.media/Pack.art.json")).unwrap(),
+        ART_JSON
+    );
+}
