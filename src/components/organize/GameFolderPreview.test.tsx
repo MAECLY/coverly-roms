@@ -384,6 +384,53 @@ describe('GameFolderPreview', () => {
       expect(within(tree).queryByText('Instálalo en el emulador')).toBeNull();
     });
 
+    it('puts «install it» on its own entry when the library list is mixed', async () => {
+      const base = autoItem(0, 'Folklore (USA).pkg', 'ps3', 'ROMS/PS3', {
+        target: 'ROMS/PS3/Folklore (USA).pkg',
+      });
+      const view: TranslatedGameView = {
+        system: 'ps3',
+        base: 0,
+        emulator: 'rpcs3',
+        placements: [
+          {
+            from: 'Folklore (USA).pkg',
+            to: { kind: 'library' },
+            note: { kind: 'install-in-emulator', emulator: 'rpcs3' },
+          },
+          {
+            from: 'Folklore (USA) [Hack].ips',
+            to: { kind: 'library' },
+            note: { kind: 'patch-not-applied', emulator: 'rpcs3' },
+          },
+        ],
+      };
+      renderPreview(base, [base], 'es', view);
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Ver cómo queda para RPCS3' }),
+      );
+      const tree = screen.getByRole('list', {
+        name: 'Carpeta de Folklore (USA) para RPCS3',
+      });
+      const entry = (path: string) =>
+        within(tree).getByText(path).closest('li') as HTMLElement;
+      // Each entry carries its own line; the install hint is not a
+      // heading that would read as covering the patch too.
+      expect(
+        within(entry('Folklore (USA).pkg')).getByText(
+          'Instálalo en el emulador',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        within(entry('Folklore (USA) [Hack].ips')).queryByText(
+          'Instálalo en el emulador',
+        ),
+      ).toBeNull();
+      expect(
+        within(tree).getAllByText('Instálalo en el emulador'),
+      ).toHaveLength(1);
+    });
+
     it('leaves out a list with nothing in it', async () => {
       const { base, view } = shadps4();
       const only = { ...view, placements: view.placements.slice(0, 2) };

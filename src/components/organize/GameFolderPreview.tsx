@@ -192,8 +192,9 @@ function EmulatorTree({
 }
 
 /** What stays in the library: «install it in the emulator» once for the
- * list, and each other entry's own reason under its path (mods spec
- * D14, §10). */
+ * list when every entry is installed, else each entry's own line under
+ * its path, so the hint never reads as covering a patch (mods spec D14,
+ * §10). */
 function LibrarySection({
   entries,
   more,
@@ -204,20 +205,28 @@ function LibrarySection({
   const t = useT();
   const tr = useRichT();
   if (entries.length === 0) return null;
-  const installs = entries.some((e) => e.why === null);
+  const allInstall = entries.every((e) => e.why === null);
   return (
     <li className="grid gap-0.5">
       <span className="text-caption text-cr-text">
         {t('organize.translate.library')}
       </span>
-      {installs && (
+      {allInstall && (
         <span className={hintText}>{t('organize.translate.installHere')}</span>
       )}
       <ul className={nested}>
         {entries.map(({ path, why }, i) => (
           <li key={`${i}:${path}`} className="grid gap-0.5">
             <span className={`${pathText} text-cr-text`}>{path}</span>
-            {why && <span className={hintText}>{keyedText(t, why)}</span>}
+            {why ? (
+              <span className={hintText}>{keyedText(t, why)}</span>
+            ) : (
+              !allInstall && (
+                <span className={hintText}>
+                  {t('organize.translate.installHere')}
+                </span>
+              )
+            )}
           </li>
         ))}
         {more > 0 && (
