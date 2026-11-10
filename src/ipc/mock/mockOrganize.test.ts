@@ -2421,6 +2421,17 @@ describe('mock mods pile (mods spec §9.3)', () => {
       action: 'left',
       reason: { kind: 'patch-not-applied', emulator: 'RetroArch' },
     });
+    // Like the core's conservative scope: a patch RetroArch could not use
+    // even when chosen says why, not «choose RetroArch».
+    for (const n of FF5_IPS)
+      expect(one(items, n)).toMatchObject({
+        action: 'left',
+        reason: {
+          kind: 'not-supported',
+          emulator: 'RetroArch',
+          why: 'several-patches',
+        },
+      });
     // Without game folders, a Switch addon goes to Ryujinx's folder,
     // which this run did not name.
     expect(one(items, ACNH_ROMFS)).toMatchObject({

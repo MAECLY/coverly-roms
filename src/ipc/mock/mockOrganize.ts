@@ -2519,7 +2519,9 @@ export function createMockOrganize(
     if (item.action === 'left' && item.reason.kind !== 'addon-no-place')
       return item;
     const notSupported = note?.kind === 'not-supported';
-    if (addon && !full && (to.kind === 'system' || notSupported))
+    // Only a patch a chosen emulator would place beside the game; one it
+    // could not use either way says why (core `conservative`).
+    if (addon && !full && to.kind === 'system')
       return leave(item, { kind: 'patch-not-applied', emulator });
     if (notSupported)
       return leave(item, { kind: 'not-supported', emulator, why: note.why });
