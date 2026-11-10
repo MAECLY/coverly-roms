@@ -2004,7 +2004,8 @@ describe('mods and cheats (mods spec §9, §10)', () => {
     expect(p.folders.map((f) => [f.folder, f.disk, f.count, f.names])).toEqual([
       ['updates', 'Updates', 1, ['Pokemon Y (World) (v1.1.0).cia']],
       ['dlc', 'DLC', 1, ['Pokemon Y (World) - Pack 1.cia']],
-      ['mods', 'Mods', 1, ['0004000000055D00']],
+      // A folder reads as one, like the game folder itself (§9.1).
+      ['mods', 'Mods', 1, ['0004000000055D00/']],
       ['cheats', 'Cheats', 1, ['0004000000055D00.txt']],
     ]);
     expect(
@@ -2032,10 +2033,23 @@ describe('mods and cheats (mods spec §9, §10)', () => {
         folder: 'mods',
         disk: 'Mods',
         count: 1,
-        names: ['textures/SLUS-00594'],
+        names: ['textures/SLUS-00594/'],
         more: 0,
       },
     ]);
+    // A Windows plan keeps its own separator in the inner path.
+    const winBase = ds(10, 'Crash.cue', {
+      target: 'ROMS\\PS1\\Crash (USA)\\Crash (USA).cue',
+      game: { role: 'base', folder: 'ROMS\\PS1\\Crash (USA)' },
+    });
+    const winDeep = ds(11, 'SCUS-94900', {
+      kind: 'folder',
+      target: 'ROMS\\PS1\\Crash (USA)\\Mods\\textures\\SCUS-94900',
+      game: { role: 'mod', of: 10, addon: azaharMod },
+    });
+    expect(
+      gameFolderPreview([winBase, winDeep], winBase)!.folders[0]!.names,
+    ).toEqual(['textures\\SCUS-94900\\']);
   });
 
   it('shortens a mod or cheats target to its fixed folder and name', () => {

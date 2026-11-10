@@ -232,24 +232,27 @@ export function gameFolderPreview(
   };
   const files: string[] = [];
   const byFolder = new Map<FixedFolder, string[]>();
-  const add = (target: string | null | undefined) => {
+  const add = (target: string | null | undefined, isFolder = false) => {
     const rest = target ? below(target) : null;
     if (!rest) return;
     const fixed =
       rest.length >= 2 ? DISK_FOLDER.get(rest[0]!.toLowerCase()) : undefined;
+    // The plan's own separator (Windows targets use backslashes).
+    const sep = target!.includes('\\') && !target!.includes('/') ? '\\' : '/';
     // A mod can sit one level deeper (`Mods/textures/<serial>`): it keeps
-    // its inner path. Updates and DLC are always one name.
+    // its inner path. Updates and DLC are always one name. A folder reads
+    // as one (`0004000000055D00/`), like the game folder itself.
     const deep = fixed === 'mods' || fixed === 'cheats';
     if (fixed && (rest.length === 2 || deep))
       byFolder.set(fixed, [
         ...(byFolder.get(fixed) ?? []),
-        rest.slice(1).join('/'),
+        rest.slice(1).join(sep) + (isFolder ? sep : ''),
       ]);
     else if (rest.length === 1) files.push(rest[0]!);
   };
   add(base.target);
   for (const c of base.companions) add(c.target);
-  for (const k of kids) add(k.target);
+  for (const k of kids) add(k.target, k.kind === 'folder');
   const order = Object.keys(FIXED_FOLDER_DISK) as FixedFolder[];
   return {
     name: root[root.length - 1]!,

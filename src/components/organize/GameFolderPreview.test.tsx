@@ -221,7 +221,7 @@ describe('GameFolderPreview', () => {
       ).toBeTruthy();
     expect(within(tree).getByText('Mods/')).toBeInTheDocument();
     expect(within(tree).getByText('Cheats/')).toBeInTheDocument();
-    expect(within(tree).getByText(key)).toHaveClass('font-mono');
+    expect(within(tree).getByText(`${key}/`)).toHaveClass('font-mono');
     expect(within(tree).getByText(`${key}.txt`)).toBeInTheDocument();
   });
 
