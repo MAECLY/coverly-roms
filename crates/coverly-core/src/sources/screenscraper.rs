@@ -94,6 +94,7 @@ pub fn ss_region(code: &str) -> Option<Region> {
         "it" => Italy,
         "kr" => Korea,
         "nl" => Netherlands,
+        "ru" => Russia,
         "sp" => Spain,
         "se" => Sweden,
         "tw" => Taiwan,
@@ -713,6 +714,7 @@ mod tests {
     fn regions_and_query_encoding() {
         assert_eq!(ss_region("wor"), Some(Region::World));
         assert_eq!(ss_region("uk"), Some(Region::UnitedKingdom));
+        assert_eq!(ss_region("ru"), Some(Region::Russia));
         assert_eq!(ss_region("ss"), None);
         assert_eq!(enc("box-2D(us)"), "box-2D%28us%29");
         assert_eq!(enc("a b&c=d"), "a%20b%26c%3Dd");
