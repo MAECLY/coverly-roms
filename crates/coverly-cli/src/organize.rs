@@ -1785,6 +1785,12 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::RegionLetterUnknown { letter } => {
             format!("region letter “{letter}” not identified; no region is added to the name")
         }
+        ItemNote::ChildArtStays { count } => format!(
+            "{count} art {} of this update or DLC {} where {}",
+            if *count == 1 { "file" } else { "files" },
+            if *count == 1 { "stays" } else { "stay" },
+            if *count == 1 { "it is" } else { "they are" },
+        ),
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })
@@ -3027,6 +3033,7 @@ mod tests {
             source: p("BLUS30001.rap").into(),
             target: p("PS3").join("Resistance").join("BLUS30001.rap"),
             licence: true,
+            child_art: false,
         });
         let mut rap = test_item(1, "BLUS30001.rap");
         rap.action = OrganizeAction::Left {
@@ -3072,6 +3079,7 @@ mod tests {
             source: p("BLUS30001.rap").into(),
             target: p("PS3").join("Resistance").join("BLUS30001.rap"),
             licence: true,
+            child_art: false,
         });
         let mut rap = test_item(1, "BLUS30001.rap");
         rap.action = OrganizeAction::Left {
@@ -3295,6 +3303,14 @@ mod tests {
         assert_eq!(
             note_text(&ItemNote::RegionLetterUnknown { letter: 'T' }).as_deref(),
             Some("region letter “T” not identified; no region is added to the name")
+        );
+        assert_eq!(
+            note_text(&ItemNote::ChildArtStays { count: 2 }).as_deref(),
+            Some("2 art files of this update or DLC stay where they are")
+        );
+        assert_eq!(
+            note_text(&ItemNote::ChildArtStays { count: 1 }).as_deref(),
+            Some("1 art file of this update or DLC stays where it is")
         );
         assert_eq!(
             addon_format_name(AddonFormat::CemuGraphicPack),

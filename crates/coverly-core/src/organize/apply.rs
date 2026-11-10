@@ -26,7 +26,7 @@ use crate::organize::extract::{
     ExtractTick,
 };
 use crate::organize::plan::{
-    ArchiveAfter, ExtractEntry, ExtractSource, ItemKind, OrganizeAction, OrganizeItem,
+    ArchiveAfter, ExtractEntry, ExtractSource, GameRole, ItemKind, OrganizeAction, OrganizeItem,
     OrganizePhase, OrganizePlan, OrganizeProgress, Transfer, TransferMode, SPACE_RESERVE,
 };
 use crate::organize::target::DirIndex;
@@ -1502,6 +1502,7 @@ impl<'a> Run<'a> {
             }
             match self.apply_item(item) {
                 Step::Done(status, targets) => {
+                    self.read_child_art(item, &status, &targets);
                     record_outcome(&mut report, item.id, status, targets);
                     if let (Some(left), Some(outcome)) =
                         (self.licences_left.remove(&item.id), report.items.last_mut())
@@ -2069,6 +2070,33 @@ impl<'a> Run<'a> {
         Step::Done(status, targets)
     }
 
+    /// An update or DLC that landed in its game folder of the library gets
+    /// the art its package carries in the clear in its empty slots, in
+    /// this job's journal (part C D11 a). Best effort: the child is in
+    /// place either way, and a slot already filled (by its own art that
+    /// followed it) is kept without opening the package.
+    fn read_child_art(&mut self, item: &OrganizeItem, status: &ItemStatus, targets: &[PathBuf]) {
+        if self.plan.layout != crate::profiles::LIBRARY_PROFILE_ID
+            || !matches!(
+                status,
+                ItemStatus::Moved
+                    | ItemStatus::Copied
+                    | ItemStatus::CopiedNotRemoved
+                    | ItemStatus::Extracted
+                    | ItemStatus::ExtractedKept
+            )
+            || !item.game.as_ref().is_some_and(|g| {
+                matches!(g.role, GameRole::Update | GameRole::Dlc) && g.folder.is_some()
+            })
+        {
+            return;
+        }
+        let Some(child) = targets.first() else {
+            return;
+        };
+        let _ = crate::art::children::read_child_art(&[child.as_path()], &mut self.writer);
+    }
+
     /// Companions follow the ROM (already at `targets[0]`), under its final
     /// name; a companion an earlier run transferred is not done again.
     /// `Some` is a pause: the volume itself is the problem.
@@ -2111,8 +2139,18 @@ impl<'a> Run<'a> {
                 }
                 continue;
             }
-            let to = self.free_name(&to);
-            match self.transfer(&from, &to, Collision::Rename, item.id) {
+            // A child's art (part C D10 d) keeps its slot name or stays:
+            // a numbered or replaced slot would no longer map to its child.
+            let collision = if companion.child_art {
+                if split(&to).is_some_and(|(dir, name)| self.index.taken(dir, name)) {
+                    continue;
+                }
+                Collision::Skip
+            } else {
+                to = self.free_name(&to);
+                Collision::Rename
+            };
+            match self.transfer(&from, &to, collision, item.id) {
                 Ok(
                     MoveOutcome::Moved { to, .. }
                     | MoveOutcome::Copied { to, .. }

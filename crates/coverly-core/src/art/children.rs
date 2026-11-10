@@ -222,6 +222,45 @@ pub fn art_json_path(child: &Path) -> PathBuf {
     }
 }
 
+/// The origin file of a child whose stem is `stem`, in the art folder
+/// `dir`, with the same limits as [`slot_in`]. For a child that is not on
+/// disk yet (a planned move).
+pub fn art_json_in(dir: &Path, stem: &str) -> Result<PathBuf, SlotError> {
+    if stem.is_empty() {
+        return Err(SlotError::NotAChild);
+    }
+    let name = format!("{stem}{ART_JSON_SUFFIX}");
+    if name.len() > MAX_NAME_BYTES {
+        return Err(SlotError::PathTooLong);
+    }
+    let path = dir.join(name);
+    if path.to_string_lossy().encode_utf16().count() > WINDOWS_MAX_PATH {
+        return Err(SlotError::PathTooLong);
+    }
+    Ok(path)
+}
+
+/// The art files of `child` on disk (its filled slots, then its origin
+/// file), each with the slot it fills (`None`: the origin file). Nothing
+/// is opened: only the names beside the child are looked up.
+pub fn files_of(child: &Path) -> Vec<(Option<ChildMedia>, PathBuf)> {
+    let is_file = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_file());
+    let mut out: Vec<(Option<ChildMedia>, PathBuf)> = ChildMedia::ALL
+        .into_iter()
+        .filter_map(|media| {
+            child_slot_path(child, media)
+                .ok()
+                .filter(|p| is_file(p))
+                .map(|p| (Some(media), p))
+        })
+        .collect();
+    let json = art_json_path(child);
+    if !json.as_os_str().is_empty() && is_file(&json) {
+        out.push((None, json));
+    }
+    out
+}
+
 /// The origins of a child's art. A missing, oversized or invalid file
 /// reads as empty (no origin known).
 pub fn read_art_json(child: &Path) -> ArtJson {

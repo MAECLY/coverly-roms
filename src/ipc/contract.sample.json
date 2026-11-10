@@ -2863,6 +2863,15 @@
     "kind": "region-letter-unknown",
     "letter": "T"
   },
+  "child_art_note": {
+    "kind": "child-art-stays",
+    "count": 2
+  },
+  "child_art_companion": {
+    "source": "Pokemon Y/DLC/.media/Pack-icon.png",
+    "target": "3DS/Pokemon Y/DLC/.media/Pokemon Y - Pack-icon.png",
+    "child_art": true
+  },
   "adjustments_playlist": {
     "path": "ROMS/Saturn/Grandia (Japan).m3u",
     "discs": [

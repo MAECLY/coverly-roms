@@ -295,6 +295,14 @@ describe('organise plan helpers', () => {
       key: 'organize.note.regionLetterUnknown',
       vars: { letter: 'T' },
     });
+    expect(noteKey({ kind: 'child-art-stays', count: 2 })).toEqual({
+      key: 'organize.note.childArtStays',
+      vars: { count: 2 },
+    });
+    expect(noteKey({ kind: 'child-art-stays', count: 1 })).toEqual({
+      key: 'organize.note.childArtStaysOne',
+      vars: {},
+    });
     for (const [note, want] of notes) {
       const keyed = noteKey(note);
       expect(keyed?.key ?? null, note.kind).toBe(want);

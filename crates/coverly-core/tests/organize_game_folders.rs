@@ -2282,3 +2282,208 @@ fn a_3ds_game_is_named_by_its_verified_region_letter() {
     assert_eq!(folder, "Pokemon Y");
     assert!(notes.contains(&ItemNote::RegionLetterUnknown { letter: 'U' }));
 }
+
+// Part C D10 (d), D11 (a), D16: a child's own art follows it into the
+// library, is read from the package when it has none, and never goes to a
+// layout without game folders.
+
+use coverly_core::art::children::{art_json_path, child_slot_path, ChildMedia};
+
+const ICON: &[u8] = b"\x89PNG\r\n\x1a\nicon of the pack";
+const ART_JSON: &[u8] = br#"{"icon":{"origin":"user","at":1}}"#;
+
+/// `Pokemon Y/` as a pile game folder: its base, a DLC `Pack.cia`
+/// (`with_meta`: its CIA carries a meta SMDH) and, when `art`, the DLC's
+/// own icon and origin file in `DLC/.media/`.
+fn pokemon_with_pack(pile: &Path, with_meta: bool, art: bool) {
+    put(
+        pile,
+        "Pokemon Y/Pokemon Y.cia",
+        &ct::cia_with_code(PY_BASE, "CTR-P-EK2A", false, false).head_bytes(),
+        1,
+    );
+    put(
+        pile,
+        "Pokemon Y/DLC/Pack.cia",
+        &ct::cia(PY_DLC, false, with_meta).bytes(),
+        2,
+    );
+    if art {
+        put(pile, "Pokemon Y/DLC/.media/Pack-icon.png", ICON, 3);
+        put(pile, "Pokemon Y/DLC/.media/Pack.art.json", ART_JSON, 4);
+    }
+}
+
+fn child_art_world(with_meta: bool, art: bool) -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("lib"),
+        tmp.path().join("data"),
+    );
+    pokemon_with_pack(&pile, with_meta, art);
+    fs::create_dir_all(&lib).unwrap();
+    (tmp, pile, lib, data)
+}
+
+#[test]
+fn a_renamed_child_takes_its_art_to_its_new_stem() {
+    let (_tmp, pile, lib, data) = child_art_world(false, true);
+    let before = files_below(&pile);
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let dlc = item(&plan, "Pack.cia");
+    assert!(dlc.moves_in(), "{dlc:?}");
+    let target = dlc.target.clone().unwrap();
+    assert_ne!(target.file_name().unwrap(), "Pack.cia", "renamed: {dlc:?}");
+    let new_child = lib.join(&target);
+    let want_icon = child_slot_path(&new_child, ChildMedia::Icon).unwrap();
+    let want_json = art_json_path(&new_child);
+    let mut art: Vec<(Vec<String>, Vec<String>)> = dlc
+        .companions
+        .iter()
+        .filter(|c| c.child_art)
+        .map(|c| (parts(&c.source), parts(&lib.join(&c.target))))
+        .collect();
+    art.sort();
+    let mut want = vec![
+        (
+            p(&["Pokemon Y", "DLC", ".media", "Pack-icon.png"]),
+            parts(&want_icon),
+        ),
+        (
+            p(&["Pokemon Y", "DLC", ".media", "Pack.art.json"]),
+            parts(&want_json),
+        ),
+    ];
+    want.sort();
+    assert_eq!(art, want, "{dlc:?}");
+    assert!(!dlc
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::ChildArtStays { .. })));
+
+    let report = apply_in(&plan, &data);
+    assert!(report.paused.is_none(), "{report:?}");
+    assert_eq!(fs::read(&want_icon).unwrap(), ICON);
+    assert_eq!(fs::read(&want_json).unwrap(), ART_JSON);
+    assert!(!pile.join("Pokemon Y/DLC/.media/Pack-icon.png").exists());
+    // The same job: undo puts every file back where it was, the child's
+    // art first, then the child, then its base.
+    let undo = undo_job(&data, report.job.as_deref().unwrap()).unwrap();
+    assert_eq!(files_below(&pile), before);
+    let restored: Vec<Vec<String>> = undo
+        .restored
+        .iter()
+        .map(|r| parts(r.strip_prefix(&pile).unwrap()))
+        .collect();
+    let at = |want: &[&str]| {
+        restored
+            .iter()
+            .position(|r| *r == p(want))
+            .unwrap_or_else(|| panic!("{want:?} not restored: {restored:?}"))
+    };
+    let icon = at(&["Pokemon Y", "DLC", ".media", "Pack-icon.png"]);
+    let json = at(&["Pokemon Y", "DLC", ".media", "Pack.art.json"]);
+    let child = at(&["Pokemon Y", "DLC", "Pack.cia"]);
+    let base = at(&["Pokemon Y", "Pokemon Y.cia"]);
+    assert!(icon < child && json < child && child < base, "{restored:?}");
+    assert_eq!(files_below(&lib), Vec::<Vec<String>>::new());
+}
+
+#[test]
+fn a_child_without_art_gets_the_icon_its_package_carries() {
+    let (_tmp, pile, lib, data) = child_art_world(true, false);
+    let before = files_below(&pile);
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let dlc = item(&plan, "Pack.cia");
+    assert!(dlc.moves_in(), "{dlc:?}");
+    assert!(dlc.companions.iter().all(|c| !c.child_art), "{dlc:?}");
+    let new_child = lib.join(dlc.target.as_ref().unwrap());
+
+    let report = apply_in(&plan, &data);
+    assert!(report.paused.is_none(), "{report:?}");
+    let icon = child_slot_path(&new_child, ChildMedia::Icon).unwrap();
+    let bytes = fs::read(&icon).unwrap();
+    assert_eq!(
+        image::guess_format(&bytes).ok(),
+        Some(image::ImageFormat::Png)
+    );
+    let origin = coverly_core::art::children::read_art_json(&new_child);
+    assert_eq!(
+        origin.icon.map(|s| s.origin),
+        Some(coverly_core::art::children::ChildOrigin::Package)
+    );
+    // The base is a game, not a child: no slot of its own.
+    let base = lib.join(item(&plan, "Pokemon Y.cia").target.as_ref().unwrap());
+    assert!(!child_slot_path(&base, ChildMedia::Icon).unwrap().exists());
+
+    undo_job(&data, report.job.as_deref().unwrap()).unwrap();
+    assert_eq!(files_below(&pile), before);
+    assert_eq!(files_below(&lib), Vec::<Vec<String>>::new());
+    assert_eq!(fs::read_dir(&lib).unwrap().count(), 0, "every folder gone");
+}
+
+#[test]
+fn a_layout_without_child_art_copies_none_and_lists_it() {
+    let (_tmp, pile, lib, data) = child_art_world(true, true);
+    let before = files_below(&pile);
+    let plan = plan_of(&pile, &options("esde", &lib));
+    let dlc = item(&plan, "Pack.cia");
+    assert!(dlc.companions.iter().all(|c| !c.child_art), "{dlc:?}");
+    assert!(dlc.moves_in(), "{dlc:?}");
+    assert!(
+        dlc.notes.contains(&ItemNote::ChildArtStays { count: 2 }),
+        "{dlc:?}"
+    );
+    let report = apply_in(&plan, &data);
+    assert!(report.paused.is_none(), "{report:?}");
+    // Nothing with a child slot's name reached the device layout.
+    let slots: Vec<Vec<String>> = files_below(&lib)
+        .into_iter()
+        .filter(|f| {
+            f.last()
+                .is_some_and(|n| n.ends_with("-icon.png") || n.ends_with(".art.json"))
+        })
+        .collect();
+    assert!(slots.is_empty(), "{slots:?}");
+    assert_eq!(
+        fs::read(pile.join("Pokemon Y/DLC/.media/Pack-icon.png")).unwrap(),
+        ICON
+    );
+    if let Some(job) = report.job.as_deref() {
+        undo_job(&data, job).unwrap();
+    }
+    assert_eq!(files_below(&pile), before);
+}
+
+#[test]
+fn a_taken_slot_in_the_library_keeps_the_child_art_where_it_was() {
+    let (_tmp, pile, lib, data) = child_art_world(false, true);
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let target = item(&plan, "Pack.cia").target.clone().unwrap();
+    // Someone's own icon already sits in the new slot: never replaced.
+    let icon = child_slot_path(&lib.join(&target), ChildMedia::Icon).unwrap();
+    fs::create_dir_all(icon.parent().unwrap()).unwrap();
+    fs::write(&icon, b"mine").unwrap();
+    pin_mtime(&icon, 9);
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let dlc = item(&plan, "Pack.cia");
+    // The origin file never follows without its slot: it would vouch for
+    // someone else's icon.
+    assert!(dlc.companions.iter().all(|c| !c.child_art), "{dlc:?}");
+    assert!(
+        dlc.notes.contains(&ItemNote::ChildArtStays { count: 2 }),
+        "{dlc:?}"
+    );
+    let report = apply_in(&plan, &data);
+    assert!(report.paused.is_none(), "{report:?}");
+    assert_eq!(fs::read(&icon).unwrap(), b"mine");
+    assert_eq!(
+        fs::read(pile.join("Pokemon Y/DLC/.media/Pack-icon.png")).unwrap(),
+        ICON
+    );
+    assert_eq!(
+        fs::read(pile.join("Pokemon Y/DLC/.media/Pack.art.json")).unwrap(),
+        ART_JSON
+    );
+}

@@ -53,10 +53,11 @@ use crate::organize::library_bases::{
     LookupBudget,
 };
 use crate::organize::target::{
-    assign_targets_in, attach_set_aside_companions, default_companion_exts, dlc_target,
-    file_system_is_fat32, folder_dir, folder_gate, game_children_follow, game_children_targets,
-    game_folder_name, is_game_folder_system, licence_companions, limit_fat_folders, overlay_pairs,
-    sibling_targets, siblings_follow, windows_paths, DirIndex, ExtractShape, Subdir, TargetLayout,
+    assign_targets_in, attach_set_aside_companions, child_art_companions, default_companion_exts,
+    dlc_target, file_system_is_fat32, folder_dir, folder_gate, game_children_follow,
+    game_children_targets, game_folder_name, is_game_folder_system, licence_companions,
+    limit_fat_folders, overlay_pairs, sibling_targets, siblings_follow, windows_paths, DirIndex,
+    ExtractShape, Subdir, TargetLayout,
 };
 use crate::organize::walk::{
     is_broad_root, walk, MetaProbe, TreeSummary, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
@@ -442,6 +443,11 @@ pub enum ItemNote {
     /// A 3DS product code ends in a region letter the verified table does
     /// not know: no region is added to the name (part C §5, P-1).
     RegionLetterUnknown { letter: char },
+    /// `count` art files of this update or DLC (its slots beside it and
+    /// their origin file) stay where they are: the layout shows no child
+    /// art, or their name is taken or too long at the target (part C
+    /// D10 d, D16).
+    ChildArtStays { count: usize },
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -546,6 +552,11 @@ pub struct Companion {
     /// never opened, it follows by a same-volume rename or stays.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub licence: bool,
+    /// An art slot or origin file of an update or DLC (part C D10 d): it
+    /// keeps the child's new stem, and a name taken at its target leaves
+    /// it where it is (never a numbered name, never replaced).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub child_art: bool,
 }
 
 /// What an item is to its game (game folders spec D16).
@@ -4097,6 +4108,18 @@ pub fn plan_from_survey(
             licence_companions(&mut items, &layout, &mut index);
         }
     }
+    // An update's or DLC's own art follows it, or stays and is listed
+    // (part C D10 d, D16).
+    let is_child = |it: &OrganizeItem| {
+        it.game
+            .as_ref()
+            .is_some_and(|g| matches!(g.role, GameRole::Update | GameRole::Dlc))
+            || survey
+                .entries
+                .get(it.id)
+                .is_some_and(|e| matches!(effective_kind(e), TitleKind::Update | TitleKind::Dlc))
+    };
+    child_art_companions(&mut items, &layout, src, &is_child, &mut index);
     point_at_keepers(&mut items, &dups.keepers);
     attach_set_aside_companions(
         &mut items,
@@ -5078,6 +5101,7 @@ fn attach_chd_folders(
                     source: rel(src, chd),
                     target: to,
                     licence: false,
+                    child_art: false,
                 });
             }
         }
@@ -5584,6 +5608,7 @@ mod tests {
             source: "a.rap".into(),
             target: "b.rap".into(),
             licence: false,
+            child_art: false,
         };
         let bare = to_value(&c).unwrap();
         assert!(bare.get("licence").is_none(), "{bare}");
@@ -5595,6 +5620,12 @@ mod tests {
         let full = to_value(&c).unwrap();
         assert_eq!(full["licence"], true);
         assert_eq!(serde_json::from_value::<Companion>(full).unwrap(), c);
+        // Part C D10 d: the child art flag, the same way.
+        assert!(bare.get("child_art").is_none(), "{bare}");
+        c.child_art = true;
+        let art = to_value(&c).unwrap();
+        assert_eq!(art["child_art"], true);
+        assert_eq!(serde_json::from_value::<Companion>(art).unwrap(), c);
     }
 
     #[test]

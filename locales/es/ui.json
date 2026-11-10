@@ -1322,7 +1322,9 @@
       "patchOf": "Parche de {title}",
       "cheatOf": "Trucos de {title}",
       "pointEmulatorHere": "Indica esta carpeta en {emulator}: {folder}",
-      "regionLetterUnknown": "Letra de región «{letter}» sin identificar; no se añade región al nombre."
+      "regionLetterUnknown": "Letra de región «{letter}» sin identificar; no se añade región al nombre.",
+      "childArtStays": "{count} archivos de arte propios se quedan donde están; no se copian aquí.",
+      "childArtStaysOne": "Su archivo de arte propio se queda donde está; no se copia aquí."
     },
     "pause": {
       "diskFull": "Disco lleno: faltan {needed}; se ha deshecho el juego a medias"

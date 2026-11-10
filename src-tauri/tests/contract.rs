@@ -1171,6 +1171,7 @@ fn organise_set_aside_views_match_the_shared_sample() {
             source: "Tetris (1).sav".into(),
             target: "_Duplicados/Tetris (1).sav".into(),
             licence: false,
+            child_art: false,
         }],
         catalogue_name: Some("Tetris (World) (Rev 1)".into()),
         transfer: Transfer::AsIs,
@@ -1457,8 +1458,8 @@ fn adjustment_values_match_the_shared_sample() {
     use coverly_core::consoles::{IdSource, PartKind, TitleIdRef, TitleKind, TitleSource};
     use coverly_core::identify::evidence::{Evidence, IdLevel};
     use coverly_core::organize::{
-        Choice, Decision, ItemKind, ItemNote, LeftReason, OrganizeAction, OrganizeItem, Playlist,
-        SourceFp, Transfer,
+        Choice, Companion, Decision, ItemKind, ItemNote, LeftReason, OrganizeAction, OrganizeItem,
+        Playlist, SourceFp, Transfer,
     };
 
     // A cartridge the optional catalogue named through its NCA ids (D6, D7).
@@ -1525,6 +1526,14 @@ fn adjustment_values_match_the_shared_sample() {
         ],
         // A 3DS product code's unknown region letter (part C §5, P-1).
         "region_letter_note": ItemNote::RegionLetterUnknown { letter: 'T' },
+        // A child's own art that stays, and one that follows (part C D10 d).
+        "child_art_note": ItemNote::ChildArtStays { count: 2 },
+        "child_art_companion": Companion {
+            source: "Pokemon Y/DLC/.media/Pack-icon.png".into(),
+            target: "3DS/Pokemon Y/DLC/.media/Pokemon Y - Pack-icon.png".into(),
+            licence: false,
+            child_art: true,
+        },
         "adjustments_playlist": Playlist {
             path: "ROMS/Saturn/Grandia (Japan).m3u".into(),
             discs: vec![
@@ -1619,6 +1628,7 @@ fn game_folder_values_match_the_shared_sample() {
             source: "pky-update.tik".into(),
             target: "3DS/Pokemon Y/Updates/Pokemon Y (v1.5).tik".into(),
             licence: true,
+            child_art: false,
         }],
         catalogue_name: None,
         transfer: Transfer::AsIs,

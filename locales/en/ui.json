@@ -1322,7 +1322,9 @@
       "patchOf": "Patch for {title}",
       "cheatOf": "Cheats for {title}",
       "pointEmulatorHere": "Point {emulator} at this folder: {folder}",
-      "regionLetterUnknown": "Region letter “{letter}” not identified; no region is added to the name."
+      "regionLetterUnknown": "Region letter “{letter}” not identified; no region is added to the name.",
+      "childArtStays": "Its {count} own art files stay where they are; they are not copied here.",
+      "childArtStaysOne": "Its own art file stays where it is; it is not copied here."
     },
     "pause": {
       "diskFull": "Disk full: {needed} more needed; the half-extracted game was undone"

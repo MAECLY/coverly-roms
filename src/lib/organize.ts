@@ -1345,6 +1345,11 @@ export function noteKey(n: ItemNote): KeyedText | null {
     // 3DS region by product code (part C §5).
     case 'region-letter-unknown':
       return k('regionLetterUnknown', { letter: n.letter });
+    // A child's own art that stays at its source (part C D10 d, D16).
+    case 'child-art-stays':
+      return n.count === 1
+        ? k('childArtStaysOne')
+        : k('childArtStays', { count: n.count });
     // A note a newer core sends: no line, never a crash.
     default:
       return null;

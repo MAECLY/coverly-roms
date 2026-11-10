@@ -1248,7 +1248,10 @@ export type ItemNote =
   /** The emulator (product name) has to be pointed at `folder`. */
   | { kind: 'point-emulator-here'; emulator: string; folder: string }
   /** A 3DS product code's region letter the verified table does not know. */
-  | { kind: 'region-letter-unknown'; letter: string };
+  | { kind: 'region-letter-unknown'; letter: string }
+  /** `count` art files of this update or DLC stay at its source: the
+   * layout shows no child art, or a name is taken or too long there. */
+  | { kind: 'child-art-stays'; count: number };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =
@@ -1279,6 +1282,9 @@ export interface Companion {
   /** A licence recognised by its name only (never opened); Rust leaves
    * it out when false. */
   licence?: boolean;
+  /** An art slot or origin file of an update or DLC that follows it;
+   * Rust leaves it out when false. */
+  child_art?: boolean;
 }
 
 /** Size and mtime of a source when planned (apply re-validates them). */

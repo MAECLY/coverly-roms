@@ -477,6 +477,7 @@ pub fn assign_targets_in(
                         source,
                         target: rel(&target),
                         licence: false,
+                        child_art: false,
                     })
                     .collect();
                 item.notes
@@ -675,6 +676,7 @@ pub(crate) fn attach_set_aside_companions(
                     source: rel.to_path_buf(),
                     target: base.join(rel),
                     licence: false,
+                    child_art: false,
                 });
             }
         }
@@ -2627,10 +2629,107 @@ pub fn licence_companions(items: &mut [OrganizeItem], layout: &TargetLayout, ind
             source: source.clone(),
             target: dir.join(&new_name),
             licence: true,
+            child_art: false,
         });
         items[pos].action = OrganizeAction::Left {
             reason: LeftReason::LicenceOf { of },
         };
+    }
+}
+
+/// Whether `layout` keeps the art of updates and DLC beside them (part C
+/// D10, D16): only with game folders, in the library layout or under a
+/// profile that opts in with `child_art`.
+pub fn keeps_child_art(layout: &TargetLayout) -> bool {
+    layout.game_folders
+        && (layout.profile.id == crate::profiles::LIBRARY_PROFILE_ID || layout.profile.child_art)
+}
+
+/// The art of each update or DLC that moves (part C D10 d, D16): its
+/// filled slots and origin file beside it at the source
+/// (`.media/<stem>-icon.png`, `-banner.png`, `<stem>.art.json`) follow it
+/// as `Companion { child_art: true }` under its new stem, when the layout
+/// keeps child art. Otherwise, or when one of their names is taken or too
+/// long at the target, they all stay where they are, untouched, and the
+/// item says how many with [`ItemNote::ChildArtStays`] (the origin file
+/// never follows without its slots: it would vouch for another file).
+/// `is_child` tells an update or DLC. Nothing here opens a file.
+pub(crate) fn child_art_companions(
+    items: &mut [OrganizeItem],
+    layout: &TargetLayout,
+    source_root: &Path,
+    is_child: &dyn Fn(&OrganizeItem) -> bool,
+    index: &mut DirIndex,
+) {
+    use crate::art::children::{art_json_in, files_of, slot_in, CHILD_MEDIA_DIR};
+    let keeps = keeps_child_art(layout);
+    for item in items.iter_mut() {
+        if !item.moves_in() || !is_child(item) {
+            continue;
+        }
+        let (Some(source), Some(target)) = (item.sources.first(), item.target.as_ref()) else {
+            continue;
+        };
+        let from_child = source_root.join(source);
+        let files = files_of(&from_child);
+        if files.is_empty() {
+            continue;
+        }
+        let to_child = layout.target_root.join(target);
+        let stem = match item.kind {
+            ItemKind::Folder => to_child.file_name(),
+            _ => to_child.file_stem(),
+        }
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_string();
+        let dir = to_child
+            .parent()
+            .map(|p| p.join(CHILD_MEDIA_DIR))
+            .unwrap_or_default();
+        // Each file and where it would go; one already there is no move.
+        let moves: Vec<(PathBuf, Option<PathBuf>)> = files
+            .into_iter()
+            .map(|(media, from)| {
+                let to = match media {
+                    Some(media) => slot_in(&dir, &stem, media),
+                    None => art_json_in(&dir, &stem),
+                };
+                (from, to.ok())
+            })
+            .filter(|(from, to)| to.as_ref() != Some(from))
+            .collect();
+        if moves.is_empty() {
+            continue;
+        }
+        let mut follow = Vec::with_capacity(moves.len());
+        if keeps {
+            for (from, to) in &moves {
+                let Some(to) = to else { break };
+                let name = to
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                if index.taken(&dir, &name) {
+                    break;
+                }
+                follow.push((from.clone(), to.clone(), name));
+            }
+        }
+        if follow.len() < moves.len() {
+            item.notes
+                .push(ItemNote::ChildArtStays { count: moves.len() });
+            continue;
+        }
+        for (from, to, name) in follow {
+            index.claim(&dir, &name);
+            item.companions.push(Companion {
+                source: relative(source_root, &from),
+                target: relative(&layout.target_root, &to),
+                licence: false,
+                child_art: true,
+            });
+        }
     }
 }
 
