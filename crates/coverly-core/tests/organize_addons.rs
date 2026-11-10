@@ -1547,6 +1547,44 @@ fn emulator_data_given_vs_not() {
 }
 
 #[test]
+fn a_missing_target_and_emulator_folder_under_one_new_parent_are_both_created() {
+    // A fresh card: the ROMs folder and the emulator's folder side by side
+    // (or one inside the other) under a parent that does not exist yet.
+    // Creating the first must not make the second read as a pulled volume.
+    for nested in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let (pile, data) = (tmp.path().join("pile"), tmp.path().join("data"));
+        pokemon_with_addons(&pile);
+        let card = tmp.path().join("card");
+        let lib = card.join("roms");
+        let emu = if nested {
+            lib.join("emu").join("azahar")
+        } else {
+            card.join("azahar")
+        };
+        let cheat = format!("{MON_ID}.txt");
+        let mut opts = place_options("esde", &lib);
+        opts.emulator_data.insert(EmulatorId::Azahar, emu.clone());
+        let plan = plan_in(&pile, &opts);
+        assert_eq!(item(&plan, &cheat).action, OrganizeAction::Auto);
+        let before = files_below(&pile);
+        let report = apply_in(&plan, &data);
+        assert!(report.paused.is_none(), "nested {nested}: {report:?}");
+        assert_eq!(report.failed, 0, "nested {nested}: {report:?}");
+        assert!(
+            files_below(&emu).contains(&p(&["cheats", &cheat])),
+            "nested {nested}"
+        );
+        undo_job(&data, report.job.as_deref().unwrap()).unwrap();
+        assert_eq!(files_below(&pile), before);
+        assert!(
+            !card.exists(),
+            "nested {nested}: the folders it made are gone"
+        );
+    }
+}
+
+#[test]
 fn an_emulator_data_folder_inside_the_target_shows_as_emulator_data() {
     // A handheld card holds the ROMs and the emulator's own folder side
     // by side: the data folder may sit below the target root. The preview

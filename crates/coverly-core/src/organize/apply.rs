@@ -529,18 +529,26 @@ fn prepare_roots(plan: &OrganizePlan, resumed: bool) -> Result<Vec<PathBuf>, Ite
             .iter()
             .map(|r| (&r.path, r.anchor.as_ref())),
     );
-    let mut made = Vec::new();
+    // Every root is judged before any folder is made: creating the target
+    // first would otherwise move a sibling emulator folder's nearest
+    // existing ancestor off its recorded anchor (`card/roms` and
+    // `card/azahar` under a new `card/`).
+    let mut to_make = Vec::new();
     for (root, anchor) in roots {
-        let state = roots_state(&plan.source_root, root, anchor, &mounts, &OsRootProbe);
-        let missing = match state {
-            RootsState::Ready => continue,
-            RootsState::CreateTarget { missing } if !resumed => missing,
+        match roots_state(&plan.source_root, root, anchor, &mounts, &OsRootProbe) {
+            RootsState::Ready => {}
+            RootsState::CreateTarget { missing } if !resumed => to_make.push(missing),
             RootsState::VolumeGone | RootsState::CreateTarget { .. } => {
-                remove_created(&made);
                 return Err(ItemErrorKind::VolumeGone);
             }
-        };
+        }
+    }
+    let mut made: Vec<PathBuf> = Vec::new();
+    for missing in to_make {
         for dir in missing {
+            if made.contains(&dir) {
+                continue;
+            }
             // One level at a time, never `create_dir_all`: a volume
             // pulled meanwhile fails here instead of being recreated on
             // the system disk.
