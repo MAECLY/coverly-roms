@@ -1542,7 +1542,11 @@ fn nested_base<'a>(
         return None;
     }
     let base = *by_id.get(&link.of?)?;
-    (base.action == OrganizeAction::Auto && system_dir(base) == system_dir(item)).then_some(base)
+    // An addon bound for the emulator's own data folder (an absolute
+    // target) still reads under its game; `addon_dest` prints the path.
+    let elsewhere = item.target.as_deref().is_some_and(Path::is_absolute);
+    (base.action == OrganizeAction::Auto && (elsewhere || system_dir(base) == system_dir(item)))
+        .then_some(base)
 }
 
 /// Where an addon goes, seen from its game: `Mods/`, `beside it`, or the
@@ -2173,7 +2177,9 @@ fn render_table(
         if item.action != OrganizeAction::Auto {
             continue;
         }
-        groups.entry(system_dir(item)).or_default().push(item);
+        // An addon is grouped with its game, wherever its own target is.
+        let folder = nested_base(&by_id, item).map_or_else(|| system_dir(item), system_dir);
+        groups.entry(folder).or_default().push(item);
     }
     for (folder, items) in &groups {
         let system = items
@@ -3446,6 +3452,51 @@ mod tests {
         );
         assert!(!table.contains("mod for Pokemon Y"), "{table}");
         assert!(table.contains("3DS/  (3)"), "{table}");
+    }
+
+    #[test]
+    fn an_addon_for_the_emulator_data_folder_stays_under_its_base() {
+        let p = std::path::Path::new;
+        let game = p("3DS").join("Pokemon Y (World)");
+        let mut base = test_item(0, "Pokemon Y (World).cia");
+        base.system_id = Some("3ds".into());
+        base.folder = Some("3DS".into());
+        base.target = Some(game.join("Pokemon Y (World).cia"));
+        let data = std::env::temp_dir().join("azahar-data");
+        let target = data.join("cheats").join("0004000000055D00.txt");
+        let mut cheat = addon_item(
+            1,
+            "0004000000055D00.txt",
+            GameRole::Cheat,
+            0,
+            target.clone(),
+        );
+        cheat.notes = vec![ItemNote::CheatOf {
+            of: "Pokemon Y".into(),
+        }];
+        let plan = plan_with_items(vec![base, cheat]);
+        let table = render_table(
+            &plan,
+            &SystemDb::builtin(),
+            &OrganizeOptions::default(),
+            true,
+        );
+        let lines: Vec<&str> = table.lines().collect();
+        let at = lines
+            .iter()
+            .position(|l| l.contains("Pokemon Y (World).cia →"))
+            .unwrap_or_else(|| panic!("{table}"));
+        assert_eq!(
+            lines[at + 1],
+            format!(
+                "    + Cheats  0004000000055D00.txt  → {}  (linked by 0004000000055D00)",
+                table::one_line(&target.display().to_string())
+            ),
+            "{table}"
+        );
+        // No group of its own named after the absolute folder.
+        assert!(table.contains("3DS/  (2)"), "{table}");
+        assert!(!table.contains("cheats/  (1)"), "{table}");
     }
 
     #[test]
