@@ -256,7 +256,7 @@ Spanish: sentence case, no exclamation marks, exact counts, numbers, keys and pa
 | `organize.left.addonNameTaken` | Ya hay otro archivo con ese nombre en su carpeta | Another file with that name is already in its folder |
 | `organize.left.addonNoPlace` | Su juego no tiene carpeta propia en este perfil; se queda donde está | Its game has no folder of its own in this layout; it stays where it is |
 | `organize.left.addonPart` | Es solo una parte de un mod; se queda donde está | It is only part of a mod; it stays where it is |
-| `organize.left.patchNotApplied` | {emulator} lo aplicaría al jugar; elige {emulator} para este sistema si lo quieres | {emulator} would apply it when you play; choose {emulator} for this system if you want that |
+| `organize.left.patchNotApplied` | {emulator} lo aplicaría al jugar; para eso elige {emulator} en Emulador, no el predeterminado | {emulator} would apply it when you play; for that, choose {emulator} under Emulator, not the default |
 | `organize.left.addonForEmulator` | Va en la carpeta de {emulator}: {path}. Coverly no sabe dónde está | It goes in {emulator}'s folder: {path}. Coverly does not know where that is |
 | `organize.left.notSupported` | {emulator} no lo usa así: {why} | {emulator} does not use it like this: {why} |
 | `organize.note.pointEmulatorHere` | Indica esta carpeta en {emulator}: {folder} | Point {emulator} at this folder: {folder} |
@@ -267,7 +267,7 @@ Spanish: sentence case, no exclamation marks, exact counts, numbers, keys and pa
 | `organize.gameFolder.labelFor` | Carpeta de {title} para {emulator} | Folder of {title} for {emulator} |
 | `organize.translate.system` | En la carpeta del sistema | In the system folder |
 | `organize.translate.emulatorData` | En la carpeta de {emulator} | In {emulator}'s folder |
-| `organize.translate.emulatorDataUnknown` | Coverly no la toca si no le dices dónde está | Coverly leaves it alone unless you say where it is |
+| `organize.translate.emulatorDataUnknown` | Coverly no sabe dónde está, así que no la toca | Coverly does not know where it is, so it leaves it alone |
 | `organize.translate.library` | Se queda en la biblioteca | Stays in the library |
 | `organize.translate.installHere` | Instálalo en el emulador | Install it in the emulator |
 | `organize.translate.why.rpcs3Mods` | RPCS3 no tiene carpeta de mods; se reemplazan archivos del juego | RPCS3 has no mods folder; mods replace the game's files |

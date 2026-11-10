@@ -1419,7 +1419,7 @@
       "addonNameTaken": "Another file with that name is already in its folder",
       "addonNoPlace": "Its game has no folder of its own in this layout; it stays where it is",
       "addonPart": "It is only part of a mod; it stays where it is",
-      "patchNotApplied": "{emulator} would apply it when you play; choose {emulator} for this system if you want that",
+      "patchNotApplied": "{emulator} would apply it when you play; for that, choose {emulator} under Emulator, not the default",
       "addonForEmulator": "It goes in {emulator}'s folder: {path}. Coverly does not know where that is",
       "notSupported": "{emulator} does not use it like this: {why}"
     },
@@ -1680,7 +1680,7 @@
     "translate": {
       "system": "In the system folder",
       "emulatorData": "In {emulator}'s folder",
-      "emulatorDataUnknown": "Coverly leaves it alone unless you say where it is",
+      "emulatorDataUnknown": "Coverly does not know where it is, so it leaves it alone",
       "library": "Stays in the library",
       "installHere": "Install it in the emulator",
       "why": {

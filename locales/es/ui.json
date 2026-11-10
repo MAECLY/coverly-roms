@@ -1419,7 +1419,7 @@
       "addonNameTaken": "Ya hay otro archivo con ese nombre en su carpeta",
       "addonNoPlace": "Su juego no tiene carpeta propia en este perfil; se queda donde está",
       "addonPart": "Es solo una parte de un mod; se queda donde está",
-      "patchNotApplied": "{emulator} lo aplicaría al jugar; elige {emulator} para este sistema si lo quieres",
+      "patchNotApplied": "{emulator} lo aplicaría al jugar; para eso elige {emulator} en Emulador, no el predeterminado",
       "addonForEmulator": "Va en la carpeta de {emulator}: {path}. Coverly no sabe dónde está",
       "notSupported": "{emulator} no lo usa así: {why}"
     },
@@ -1680,7 +1680,7 @@
     "translate": {
       "system": "En la carpeta del sistema",
       "emulatorData": "En la carpeta de {emulator}",
-      "emulatorDataUnknown": "Coverly no la toca si no le dices dónde está",
+      "emulatorDataUnknown": "Coverly no sabe dónde está, así que no la toca",
       "library": "Se queda en la biblioteca",
       "installHere": "Instálalo en el emulador",
       "why": {

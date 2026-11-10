@@ -2122,7 +2122,7 @@ describe('mods and cheats (mods spec §9, §10)', () => {
       'Vita3K no lo usa así: Vita3K no lee rePatch; hay que mezclar los archivos en el juego',
     );
     expect(line({ kind: 'patch-not-applied', emulator: 'retroarch' })).toBe(
-      'RetroArch lo aplicaría al jugar; elige RetroArch para este sistema si lo quieres',
+      'RetroArch lo aplicaría al jugar; para eso elige RetroArch en Emulador, no el predeterminado',
     );
     expect(line({ kind: 'extract-first' })).toBe(
       'Este paquete no se abre así: hay que extraerlo antes',
@@ -2221,7 +2221,7 @@ describe('mods and cheats (mods spec §9, §10)', () => {
       'shadPS4 no lo usa así: shadPS4 solo usa la actualización más nueva',
     );
     expect(left({ kind: 'patch-not-applied', emulator: 'RetroArch' })[0]).toBe(
-      'RetroArch lo aplicaría al jugar; elige RetroArch para este sistema si lo quieres',
+      'RetroArch lo aplicaría al jugar; para eso elige RetroArch en Emulador, no el predeterminado',
     );
     expect(
       left({
@@ -2321,8 +2321,20 @@ describe('mods and cheats (mods spec §9, §10)', () => {
     expect(lookup(es, 'organize.emulator.none')).toBe(
       'Ninguno (estructura de la biblioteca)',
     );
+    // The app has no way to name that folder: the hint offers no action.
     expect(lookup(es, 'organize.translate.emulatorDataUnknown')).toBe(
-      'Coverly no la toca si no le dices dónde está',
+      'Coverly no sabe dónde está, así que no la toca',
+    );
+    expect(lookup(en, 'organize.translate.emulatorDataUnknown')).toBe(
+      'Coverly does not know where it is, so it leaves it alone',
+    );
+    // The select already reads «Predeterminado: RetroArch»: the hint says
+    // to pick the emulator itself, not the default that shows its name.
+    expect(lookup(es, 'organize.left.patchNotApplied')).toBe(
+      '{emulator} lo aplicaría al jugar; para eso elige {emulator} en Emulador, no el predeterminado',
+    );
+    expect(lookup(en, 'organize.left.patchNotApplied')).toBe(
+      '{emulator} would apply it when you play; for that, choose {emulator} under Emulator, not the default',
     );
   });
 });

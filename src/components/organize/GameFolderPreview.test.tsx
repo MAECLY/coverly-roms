@@ -324,7 +324,9 @@ describe('GameFolderPreview', () => {
       expect(within(tree).getByText('mods/CUSA00900')).toHaveClass('font-mono');
       // The app never knows the emulator's folder: it says so.
       expect(
-        within(tree).getByText('Coverly no la toca si no le dices dónde está'),
+        within(tree).getByText(
+          'Coverly no sabe dónde está, así que no la toca',
+        ),
       ).toBeInTheDocument();
       expect(
         within(tree).getByText(
