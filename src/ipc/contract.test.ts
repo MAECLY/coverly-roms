@@ -5,6 +5,7 @@ import { BUILTIN_LAYOUTS, DEFAULT_SETTINGS, RANGES } from '@/lib/settingsRules';
 
 import requests from './contract.requests.json';
 import { ERROR_CODES, toBackendError } from './errors';
+import { normalizeOrganizePlanView } from './organizeWire';
 import sample from './contract.sample.json';
 import {
   CREDENTIAL_KEYS,
@@ -87,6 +88,7 @@ import {
   type OrganizeReportWire,
   type OrganizeCountsWire,
   type OrganizePlanView,
+  type OrganizePlanViewWire,
   type OrganizeProgressEvent,
   type OrganizeReport,
   type OrganizeRequest,
@@ -1480,6 +1482,39 @@ describe('addons and emulator layouts contract', () => {
       requests.organize_request as OrganizeRequest
     ).emulators;
     expect(emulators).toEqual({ ps4: 'shadps4', snes: 'none' });
+  });
+
+  it('a plan keeps its addon rows and translated layout, and an older plan reads without them', () => {
+    // a_plan_with_addons_and_a_translated_layout_round_trips
+    const wire = sample.organize_plan_view as unknown as OrganizePlanViewWire;
+    const withAddons: OrganizePlanViewWire = {
+      ...wire,
+      plan: {
+        ...wire.plan,
+        items: [...wire.plan.items, sample.addon_item as OrganizeItem],
+        translated: [sample.translated_game as TranslatedGameView],
+      },
+    };
+    const view = normalizeOrganizePlanView(
+      JSON.parse(JSON.stringify(withAddons)) as OrganizePlanViewWire,
+    );
+    expect(view.plan.translated).toEqual([sample.translated_game]);
+    expect(view.plan.items.at(-1)!.game!.addon!.format).toBe(
+      'duck-station-cht',
+    );
+    // A plan from before part B has no `translated` and no `addon`.
+    const old = normalizeOrganizePlanView(wire);
+    expect(old.plan.translated).toBeUndefined();
+    expect(old.plan.items.every((i) => !i.game?.addon)).toBe(true);
+  });
+
+  it('a request only names emulators, never a folder of theirs', () => {
+    const req = requests.organize_request as Record<string, unknown>;
+    expect(Object.keys(req)).toContain('emulators');
+    expect(Object.keys(req)).not.toContain('emulator_data');
+    // @ts-expect-error emulator data folders are CLI only (mods spec D16, Q2)
+    const bad: OrganizeRequest = { source: '/pile', emulator_data: {} };
+    void bad;
   });
 });
 

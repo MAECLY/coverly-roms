@@ -1678,6 +1678,53 @@ fn game_folder_values_match_the_shared_sample() {
     }
 }
 
+/// Mods spec D16, §12: a plan holding an addon row, the new reasons and
+/// notes and a translated layout reads back as it was saved (a paused
+/// job's `jobs/<job>.plan.json`), and a plan saved before part B, without
+/// `translated` or `target_anchor`, still reads.
+#[test]
+fn a_plan_with_addons_and_a_translated_layout_round_trips() {
+    use coverly_core::organize::{
+        ItemNote, LeftReason, OrganizeAction, OrganizeItem, OrganizePlan, TranslatedGameView,
+    };
+
+    let sample: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    let mut plan = organize_plan_sample();
+    let addon: OrganizeItem = serde_json::from_value(sample["addon_item"].clone()).unwrap();
+    assert!(addon.game.as_ref().unwrap().addon.is_some());
+    plan.items.push(addon);
+    let reasons: Vec<LeftReason> = serde_json::from_value(sample["addon_reasons"].clone()).unwrap();
+    let notes: Vec<ItemNote> = serde_json::from_value(sample["addon_notes"].clone()).unwrap();
+    for (n, reason) in reasons.iter().enumerate() {
+        let mut item = plan.items[0].clone();
+        item.id = 10 + n;
+        item.action = OrganizeAction::Left {
+            reason: reason.clone(),
+        };
+        item.notes = notes.clone();
+        plan.items.push(item);
+    }
+    let game: TranslatedGameView =
+        serde_json::from_value(sample["translated_game"].clone()).unwrap();
+    plan.translated = vec![game];
+
+    let text = serde_json::to_string(&plan).unwrap();
+    let back: OrganizePlan = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, plan);
+    let wire: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(wire["translated"], json!([sample["translated_game"]]));
+
+    let mut old = serde_json::to_value(organize_plan_sample()).unwrap();
+    let fields = old.as_object_mut().unwrap();
+    assert!(!fields.contains_key("translated"), "left out when empty");
+    assert!(!fields.contains_key("target_anchor"), "left out when none");
+    fields.remove("emulator_roots");
+    let old: OrganizePlan = serde_json::from_value(old).unwrap();
+    assert!(old.translated.is_empty());
+    assert_eq!(old.target_anchor, None);
+}
+
 /// Fail to compile when an addon, emulator or translate value is added,
 /// so `addon_values_match_the_shared_sample` (and the TypeScript unions)
 /// get it too (mods spec D10, D16).

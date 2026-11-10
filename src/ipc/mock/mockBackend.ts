@@ -5,6 +5,7 @@
 import type { Backend } from '../backend';
 import { BackendError } from '../errors';
 import type {
+  EmulatorId,
   EntryView,
   FoundTool,
   LibraryView,
@@ -242,13 +243,13 @@ const RETROARCH_SYSTEMS = [
 
 /** RetroArch for every retro system: RetroArch and the handheld
  * firmwares' default emulators (`profiles/builtin.rs`). */
-const RETRO_EMULATORS: Record<string, string> = Object.fromEntries(
-  RETROARCH_SYSTEMS.map((s) => [s, 'retroarch']),
+const RETRO_EMULATORS: Record<string, EmulatorId> = Object.fromEntries(
+  RETROARCH_SYSTEMS.map((s): [string, EmulatorId] => [s, 'retroarch']),
 );
 
 /** ES-DE and Batocera: a dedicated emulator per modern or disc system,
  * RetroArch for the other retro systems (mods spec D16, Q9). */
-const FRONTEND_EMULATORS: Record<string, string> = {
+const FRONTEND_EMULATORS: Record<string, EmulatorId> = {
   ...RETRO_EMULATORS,
   ps4: 'shadps4',
   ps3: 'rpcs3',
