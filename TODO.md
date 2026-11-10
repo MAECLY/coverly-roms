@@ -36,7 +36,7 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
 
 ## Fallos conocidos
 
-- [ ] **`organize --apply` se para con «paused: volume-gone» si la carpeta de destino todavía no existe.** Lo encontró la verificación de la tanda de ajustes (PR #36), y en `origin/main` pasa lo mismo, así que viene de antes. Debería crear la carpeta de destino (o pedir confirmación) y distinguirla de un volumen desconectado de verdad.
+- [x] **`organize --apply` se para con «paused: volume-gone» si la carpeta de destino todavía no existe.** Lo encontró la verificación de la tanda de ajustes (PR #36), y en `origin/main` pasa lo mismo, así que viene de antes. Debería crear la carpeta de destino (o pedir confirmación) y distinguirla de un volumen desconectado de verdad. Hecho en el PR #46: crea la carpeta cuando su volumen y su carpeta padre existen, deshacer la quita, y solo da `volume-gone` si el volumen ya no está.
 
 - [ ] **Test inestable en CI:** `keys::tests::a_store_that_does_not_answer_times_out_as_unavailable` (`crates/coverly-cli/src/keys.rs`) exige que la espera termine en menos de 150 ms, y en un runner de macOS lento se pasa. Pasó al relanzarlo en el PR #44. Hay que medir el tiempo de espera de forma que no dependa de lo rápido que sea el runner (un reloj falso o un margen relativo).
 
@@ -303,10 +303,10 @@ Juego/Extras/
 Tareas:
 
 - [x] Crear y respetar las carpetas fijas en Organizar y en la biblioteca, con deshacer. Hecho en la parte A (PR #45).
-- [ ] Detectar y colocar mods, parches de traducción, trucos, licencias y extras oficiales por sistema (según la investigación de abajo).
+- [x] Detectar y colocar mods, parches de traducción, trucos, licencias y extras oficiales por sistema (según la investigación de abajo). Mods, parches y trucos hechos en la parte B (PR #46), licencias en la parte A (PR #45); los extras oficiales van con el CRUD de `Extras/` (parte D).
 - [ ] CRUD de `Extras/` en la ficha del juego: categorías sugeridas y propias, etiquetas, arrastrar y soltar, deshacer.
 - [ ] `extras.json` con tipo, origen y etiquetas; reproductor de audio y vídeo y visor de imágenes y PDF en la app.
-- [ ] Traducir `Mods/` y `Cheats/` a la ruta de cada emulador al organizar o sincronizar.
+- [x] Traducir `Mods/` y `Cheats/` a la ruta de cada emulador al organizar o sincronizar. Hecho para Organizar en la parte B (PR #46); la sincronización (bloque 4) usará los mismos traductores.
 
 ### Investigación de mods, trucos, licencias y extras por sistema
 
@@ -401,7 +401,7 @@ Hecha el 2026-11-01 (4 investigadores y un verificador crítico por grupo, que a
 - [x] Opción de perfil «carpeta por juego con `DLC/` y `Updates/`» para la biblioteca y los perfiles que la acepten.
 - [x] Organizar: mover base, actualizaciones y DLC a la carpeta del juego con deshacer; demos a su carpeta `(Demo)`.
 - [x] Nombres con versión y región sacadas de las cabeceras.
-- [ ] Traductores por emulador (shadPS4, RPCS3, Azahar, Cemu, Vita3K, Switch, ES-DE) usados por Organizar con perfil y por la sincronización del bloque 4.
+- [x] Traductores por emulador (shadPS4, RPCS3, Azahar, Cemu, Vita3K, Switch, ES-DE) usados por Organizar con perfil y por la sincronización del bloque 4. Hecho en la parte B (PR #46): módulo puro `coverly_core::translate`, usado por Organizar; el bloque 4 lo reutilizará.
 - [x] Extender la detección a todos los sistemas con actualizaciones o DLC (Tandas 1–3 y PSP, Wii/WiiWare…).
 - [x] Revisiones retro agrupadas como versiones de un juego en la biblioteca y en duplicados.
 - [ ] Interfaz: el juego con sus actualizaciones y DLC plegados debajo, versión instalada y la más nueva disponible. Hecho a medias en la parte A (PR #45): Organizar pliega actualizaciones y DLC bajo su juego con la versión; falta la ficha y «la más nueva disponible» (parte C, diseño aprobado arriba).
