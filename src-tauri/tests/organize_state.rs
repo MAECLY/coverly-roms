@@ -329,6 +329,7 @@ fn custom_layout(roms_root: &str) -> coverly_core::profiles::custom::ProfileFile
         dlc_folder: Default::default(),
         game_folders: false,
         emulators: Default::default(),
+        child_art: false,
     }
 }
 

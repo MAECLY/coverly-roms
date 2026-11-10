@@ -836,6 +836,7 @@ fn profile(
         dlc_folder: BTreeMap::new(),
         game_folders: false,
         emulators: BTreeMap::new(),
+        child_art: false,
     }
 }
 

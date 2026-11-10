@@ -40,6 +40,7 @@ fn sample() -> ProfileFile {
         dlc_folder: BTreeMap::new(),
         game_folders: false,
         emulators: Default::default(),
+        child_art: false,
     }
 }
 
@@ -1078,4 +1079,41 @@ fn a_copy_of_es_de_keeps_its_default_emulators() {
     );
     assert!(errors(&file).is_empty(), "{:?}", errors(&file));
     assert_eq!(file.to_profile().emulators, esde.emulators);
+}
+
+/// Every built-in profile exported as a file, TOML and JSON. Pinned so a
+/// new field that is off by default (part C D16 `child_art`) never changes
+/// what saved profiles and templates look like.
+#[test]
+fn builtin_profile_files_keep_their_shape() {
+    let mut out = String::new();
+    for p in builtin_profiles() {
+        let file = ProfileFile::from_profile(&p);
+        out.push_str(&format!("# {}\n", p.id));
+        out.push_str(&toml::to_string(&file).unwrap());
+        out.push_str(&serde_json::to_string(&file).unwrap());
+        out.push_str("\n\n");
+    }
+    assert!(!out.contains("child_art"));
+    insta::assert_snapshot!("builtin_profile_files", out);
+}
+
+/// Part C D16: `child_art` is off on every built-in, written only when on,
+/// and a file from before it loads with it off.
+#[test]
+fn child_art_is_off_by_default_and_written_only_when_on() {
+    assert!(builtin_profiles().iter().all(|p| !p.child_art));
+    let mut file = sample();
+    assert!(!file.child_art);
+    assert!(!toml::to_string(&file).unwrap().contains("child_art"));
+    file.child_art = true;
+    let text = toml::to_string(&file).unwrap();
+    assert!(text.contains("child_art = true"), "{text}");
+    let back: ProfileFile = toml::from_str(&text).unwrap();
+    assert!(back.child_art);
+    assert!(back.to_profile().child_art);
+    assert!(ProfileFile::from_profile(&back.to_profile()).child_art);
+    let legacy: ProfileFile = toml::from_str("id = \"old\"\nname = \"Old\"\n").unwrap();
+    assert!(!legacy.child_art);
+    assert!(!legacy.to_profile().child_art);
 }

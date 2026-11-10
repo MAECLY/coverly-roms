@@ -758,6 +758,9 @@ export interface ProfileFile {
    * → emulator id, `ps4 → shadps4` on ES-DE; mods spec D16); absent =
    * none. */
   emulators?: Record<string, EmulatorId>;
+  /** The frontend shows the art of updates and DLC (part C D16); absent =
+   * off, so Organizar never copies child art to it. */
+  child_art?: boolean;
 }
 
 /** `profiles::DiscLayout`. */
