@@ -4,8 +4,11 @@ import en from '../../locales/en/ui.json';
 import es from '../../locales/es/ui.json';
 import { translate, type TranslateVars } from '@/i18n/core';
 import type {
+  AddonLink,
   DiscId,
+  LinkVia,
   OrganizeReport,
+  TranslatedGameView,
   Evidence,
   ExtractEntry,
   ItemNote,
@@ -18,6 +21,8 @@ import { autoItem } from '@/test/organizeFixtures';
 
 import {
   actionOf,
+  addonText,
+  addonViaKey,
   childTarget,
   confidenceKey,
   contentIdKey,
@@ -31,6 +36,7 @@ import {
   itemKey,
   encryptedName,
   itemNotes,
+  keyedText,
   layoutNote,
   leftItems,
   leftReasonKey,
@@ -41,12 +47,14 @@ import {
   noteKey,
   organizeDupGroups,
   playlistKey,
+  PREVIEW_NAMES,
   reviewBuckets,
   ROWS_PER_GROUP,
   rowNotes,
   targetDir,
   titleIdKey,
   titleSourceKey,
+  translatedPreview,
   updatesSummaryKey,
   updatesUnderBases,
   whyKey,
@@ -194,33 +202,93 @@ describe('organise plan helpers', () => {
     }
   });
 
-  it('renders the addon reasons and notes with the generic text until their copy lands', () => {
-    const reasons: LeftReason[] = [
-      {
-        kind: 'addon-unlinked',
-        addon: 'patch',
-        format: 'ips',
-        why: { kind: 'no-key' },
-      },
-      { kind: 'addon-name-taken', at: 'PS1/Game/Cheats' },
-      { kind: 'addon-no-place', addon: 'mod' },
-      { kind: 'addon-for-emulator', emulator: 'DuckStation', path: 'cheats' },
-      { kind: 'not-supported', emulator: 'RPCS3', why: 'rpcs3-mods' },
-      { kind: 'patch-not-applied', emulator: 'RetroArch' },
+  it('maps every addon reason and note to its own key in both locales', () => {
+    const reasons: [LeftReason, string][] = [
+      [
+        {
+          kind: 'addon-unlinked',
+          addon: 'patch',
+          format: 'ips',
+          why: { kind: 'no-key' },
+        },
+        'organize.left.addonUnlinked',
+      ],
+      [
+        {
+          kind: 'addon-unlinked',
+          addon: 'mod',
+          format: 'cemu-graphic-pack',
+          why: { kind: 'several', count: 2 },
+        },
+        'organize.left.addonSeveral',
+      ],
+      [
+        {
+          kind: 'addon-unlinked',
+          addon: 'cheat',
+          format: 'rpcs3-patch',
+          why: { kind: 'many', count: 14 },
+        },
+        'organize.left.addonMany',
+      ],
+      [
+        {
+          kind: 'addon-unlinked',
+          addon: 'mod',
+          format: 'layered-fs',
+          why: { kind: 'partial' },
+        },
+        'organize.left.addonPart',
+      ],
+      [
+        { kind: 'addon-name-taken', at: 'PS1/Game/Cheats' },
+        'organize.left.addonNameTaken',
+      ],
+      [{ kind: 'addon-no-place', addon: 'mod' }, 'organize.left.addonNoPlace'],
+      [
+        { kind: 'addon-for-emulator', emulator: 'DuckStation', path: 'cheats' },
+        'organize.left.addonForEmulator',
+      ],
+      [
+        { kind: 'not-supported', emulator: 'RPCS3', why: 'rpcs3-mods' },
+        'organize.left.notSupported',
+      ],
+      [
+        { kind: 'patch-not-applied', emulator: 'RetroArch' },
+        'organize.left.patchNotApplied',
+      ],
     ];
-    for (const reason of reasons) {
-      const { key } = leftReasonKey(reason);
-      expect(key, reason.kind).toBe('organize.left.title');
-      expect(has(en, key) && has(es, key)).toBe(true);
+    for (const [reason, want] of reasons) {
+      const { key, vars } = leftReasonKey(reason);
+      expect(key, reason.kind).toBe(want);
+      expect(has(en, key) && has(es, key), key).toBe(true);
+      for (const v of Object.values(vars))
+        if (typeof v === 'string' && v.startsWith('organize.'))
+          expect(has(en, v) && has(es, v), v).toBe(true);
     }
-    const notes: ItemNote[] = [
-      { kind: 'mod-of', of: 'Zelda' },
-      { kind: 'patch-of', of: 'Zelda' },
-      { kind: 'cheat-of', of: 'Zelda' },
-      { kind: 'header-mismatch', needs: 'needs-headered' },
-      { kind: 'point-emulator-here', emulator: 'shadPS4', folder: 'addcont' },
+    const notes: [ItemNote, string | null][] = [
+      [{ kind: 'mod-of', of: 'Zelda' }, 'organize.note.modOf'],
+      [{ kind: 'patch-of', of: 'Zelda' }, 'organize.note.patchOf'],
+      [{ kind: 'cheat-of', of: 'Zelda' }, 'organize.note.cheatOf'],
+      [
+        { kind: 'header-mismatch', needs: 'needs-headered' },
+        'organize.addon.headered',
+      ],
+      [
+        { kind: 'header-mismatch', needs: 'needs-headerless' },
+        'organize.addon.headerless',
+      ],
+      [{ kind: 'header-mismatch', needs: 'matches' }, null],
+      [
+        { kind: 'point-emulator-here', emulator: 'shadPS4', folder: 'addcont' },
+        'organize.note.pointEmulatorHere',
+      ],
     ];
-    for (const note of notes) expect(noteKey(note), note.kind).toBeNull();
+    for (const [note, want] of notes) {
+      const keyed = noteKey(note);
+      expect(keyed?.key ?? null, note.kind).toBe(want);
+      if (keyed) expect(has(en, keyed.key) && has(es, keyed.key)).toBe(true);
+    }
   });
 
   it('renders a left reason with its nested fragment and data', () => {
@@ -1784,5 +1852,404 @@ describe('game folders (spec §9.1, §10)', () => {
       );
       expect(lookup(es, key), key).not.toMatch(/[!¡]/);
     }
+  });
+});
+
+describe('mods and cheats (mods spec §9, §10)', () => {
+  const t = (key: string, vars?: TranslateVars) =>
+    translate('es', key, vars ?? {});
+  const tEn = (key: string, vars?: TranslateVars) =>
+    translate('en', key, vars ?? {});
+  const DIR = 'ROMS/3DS/Pokemon Y (World)';
+  const ds = (id: number, name: string, extra: Partial<OrganizeItem> = {}) =>
+    autoItem(id, name, '3ds', 'ROMS/3DS', extra);
+  const names = (items: OrganizeItem[]) => items.map((i) => i.sources[0]);
+  const azaharMod: AddonLink = {
+    kind: 'mod',
+    format: 'layered-fs',
+    key_text: '0004000000055D00',
+    via: 'key',
+  };
+  const azaharCheat: AddonLink = {
+    kind: 'cheat',
+    format: 'ctr-cheats',
+    key_text: '0004000000055D00',
+    via: 'key',
+  };
+  const pokemon = () => {
+    const base = ds(0, 'Pokemon Y.cia', {
+      target: `${DIR}/Pokemon Y (World).cia`,
+      game: { role: 'base', folder: DIR },
+    });
+    const update = ds(1, 'upd.cia', {
+      target: `${DIR}/Updates/Pokemon Y (World) (v1.1.0).cia`,
+      game: { role: 'update', of: 0, version: '1.1.0' },
+    });
+    const dlc = ds(2, 'dlc.cia', {
+      target: `${DIR}/DLC/Pokemon Y (World) - Pack 1.cia`,
+      game: { role: 'dlc', of: 0 },
+    });
+    const mod = ds(3, '0004000000055D00', {
+      kind: 'folder',
+      target: `${DIR}/Mods/0004000000055D00`,
+      notes: [{ kind: 'mod-of', of: 'Pokemon Y' }],
+      game: { role: 'mod', of: 0, addon: azaharMod },
+    });
+    const cheat = ds(4, '0004000000055D00.txt', {
+      target: `${DIR}/Cheats/0004000000055D00.txt`,
+      notes: [{ kind: 'cheat-of', of: 'Pokemon Y' }],
+      game: { role: 'cheat', of: 0, addon: azaharCheat },
+    });
+    return { base, update, dlc, mod, cheat };
+  };
+
+  it('folds mods and cheats under their game after updates and DLC', () => {
+    const { base, update, dlc, mod, cheat } = pokemon();
+    expect(names(updatesUnderBases([cheat, mod, dlc, base, update]))).toEqual([
+      'Pokemon Y.cia',
+      'upd.cia',
+      'dlc.cia',
+      '0004000000055D00',
+      '0004000000055D00.txt',
+    ]);
+    // An addon linked to a library base (no `of`) keeps its place.
+    const loose = ds(5, 'loose.ips', {
+      game: { role: 'mod', addon: azaharMod },
+    });
+    const items = [loose, base];
+    expect(updatesUnderBases(items)).toBe(items);
+  });
+
+  it('says what an addon is in words, its format and key as data', () => {
+    const bps: AddonLink = {
+      kind: 'patch',
+      format: 'bps',
+      key_text: 'CRC32 1A2B3C4D',
+      via: 'source-crc',
+    };
+    expect(addonText(bps)).toEqual({
+      key: 'organize.addon.line',
+      vars: {
+        what: 'organize.addon.patch',
+        format: 'BPS',
+        key: 'CRC32 1A2B3C4D',
+      },
+    });
+    expect(keyedText(t, addonText(bps))).toBe(
+      'Parche de traducción o hack · BPS CRC32 1A2B3C4D',
+    );
+    expect(keyedText(tEn, addonText(bps))).toBe(
+      'Translation patch or hack · BPS CRC32 1A2B3C4D',
+    );
+    const cht: AddonLink = {
+      kind: 'cheat',
+      format: 'duck-station-cht',
+      key_text: 'SLUS-00594',
+      via: 'key',
+    };
+    expect(keyedText(t, addonText(cht))).toBe(
+      'Trucos · DuckStation SLUS-00594',
+    );
+    expect(keyedText(t, addonText(azaharCheat))).toBe(
+      'Trucos · Azahar 0004000000055D00',
+    );
+    expect(keyedText(t, addonText(azaharMod))).toBe(
+      'Mod · LayeredFS 0004000000055D00',
+    );
+    // A generic format adds no name of its own; the family says more.
+    expect(
+      keyedText(
+        t,
+        addonText({
+          kind: 'mod',
+          format: 'texture-pack',
+          key_text: 'SLUS-00594',
+          via: 'key',
+        }),
+      ),
+    ).toBe('Pack de texturas · SLUS-00594');
+    expect(
+      keyedText(
+        t,
+        addonText({
+          kind: 'cheat',
+          format: 'rpcs3-patch',
+          key_text: 'BLUS30443',
+          via: 'key',
+        }),
+      ),
+    ).toBe('Parches del emulador · RPCS3 BLUS30443');
+  });
+
+  it('words how each addon was linked, the key in the sentence', () => {
+    const via = (v: LinkVia) =>
+      addonViaKey({ ...azaharMod, via: v, key_text: 'SLUS-00594' });
+    expect(t(via('source-crc').key, via('source-crc').vars)).toBe(
+      'Enlazado por el CRC32 de la ROM de origen',
+    );
+    expect(t(via('dat').key)).toBe('Enlazado por el CRC32 y el DAT');
+    expect(t(via('name').key)).toBe('Enlazado por el nombre');
+    expect(t(via('readme').key)).toBe('Enlazado por el readme');
+    expect(via('key')).toEqual({
+      key: 'organize.addon.via.key',
+      vars: { key: 'SLUS-00594' },
+    });
+    expect(t(via('key').key, via('key').vars)).toBe('Enlazado por SLUS-00594');
+    expect(t(via('folder').key)).toBe('Ya estaba en la carpeta del juego');
+  });
+
+  it('previews Mods and Cheats only when something goes in them', () => {
+    const { base, update, dlc, mod, cheat } = pokemon();
+    const p = gameFolderPreview([base, update, dlc, mod, cheat], base)!;
+    expect(p.folders.map((f) => [f.folder, f.disk, f.count, f.names])).toEqual([
+      ['updates', 'Updates', 1, ['Pokemon Y (World) (v1.1.0).cia']],
+      ['dlc', 'DLC', 1, ['Pokemon Y (World) - Pack 1.cia']],
+      ['mods', 'Mods', 1, ['0004000000055D00']],
+      ['cheats', 'Cheats', 1, ['0004000000055D00.txt']],
+    ]);
+    expect(
+      t('organize.gameFolder.count', {
+        folder: t('gameFolder.mods'),
+        count: 1,
+      }),
+    ).toBe('Mods (1)');
+    expect(
+      t('organize.gameFolder.count', {
+        folder: t('gameFolder.cheats'),
+        count: 1,
+      }),
+    ).toBe('Trucos (1)');
+    const only = gameFolderPreview([base, update], base)!;
+    expect(only.folders.map((f) => f.folder)).toEqual(['updates']);
+    // A mod folder one level deeper keeps its inner path.
+    const deep = ds(6, 'SLUS-00594', {
+      kind: 'folder',
+      target: `${DIR}/Mods/textures/SLUS-00594`,
+      game: { role: 'mod', of: 0, addon: azaharMod },
+    });
+    expect(gameFolderPreview([base, deep], base)!.folders).toEqual([
+      {
+        folder: 'mods',
+        disk: 'Mods',
+        count: 1,
+        names: ['textures/SLUS-00594'],
+        more: 0,
+      },
+    ]);
+  });
+
+  it('shortens a mod or cheats target to its fixed folder and name', () => {
+    const { mod, cheat } = pokemon();
+    expect(childTarget(mod)).toBe('…/Mods/0004000000055D00');
+    expect(childTarget(cheat)).toBe('…/Cheats/0004000000055D00.txt');
+  });
+
+  it('a translated game reads as three lists, capped at 20 with the rest counted', () => {
+    const view: TranslatedGameView = {
+      system: 'ps4',
+      base: 0,
+      emulator: 'shadps4',
+      placements: [
+        { from: 'Game/CUSA04943', to: { kind: 'system', path: 'CUSA04943' } },
+        {
+          from: 'Game/Updates/CUSA04943-patch',
+          to: { kind: 'system', path: 'CUSA04943-UPDATE' },
+        },
+        ...Array.from({ length: 22 }, (_, i) => ({
+          from: `Game/DLC/pack${i}`,
+          to: {
+            kind: 'emulator-data' as const,
+            path: `addcont/CUSA04943/pack${String(i).padStart(2, '0')}`,
+          },
+        })),
+        {
+          from: 'Game/Updates/BLUS-patch.pkg',
+          to: { kind: 'library' },
+          note: { kind: 'install-in-emulator', emulator: 'rpcs3' },
+        },
+      ],
+    };
+    const p = translatedPreview(view);
+    expect(p.system).toEqual(['CUSA04943', 'CUSA04943-UPDATE']);
+    expect(p.emulatorData).toHaveLength(PREVIEW_NAMES);
+    expect(p.emulatorData[0]).toBe('addcont/CUSA04943/pack00');
+    expect(p.library).toEqual(['Game/Updates/BLUS-patch.pkg']);
+    expect(p.more).toEqual({ system: 0, emulatorData: 2, library: 0 });
+    expect(t('organize.gameFolder.more', { count: p.more.emulatorData })).toBe(
+      'y 2 más',
+    );
+    const small = translatedPreview(view, 1);
+    expect(small.system).toEqual(['CUSA04943']);
+    expect(small.more.system).toBe(1);
+  });
+
+  it('a plan from before mods keeps its rows and preview as they were', () => {
+    const { base, update, dlc } = pokemon();
+    const items = [base, update, dlc];
+    expect(updatesUnderBases(items)).toEqual(items);
+    expect(
+      gameFolderPreview(items, base)!.folders.map((f) => f.folder),
+    ).toEqual(['updates', 'dlc']);
+  });
+
+  it('reads the addon copy as the spec says, in both languages', () => {
+    const left = (r: LeftReason) => [
+      leftReasonText(t, r),
+      leftReasonText(tEn, r),
+    ];
+    expect(
+      left({
+        kind: 'addon-unlinked',
+        addon: 'mod',
+        format: 'cemu-graphic-pack',
+        why: { kind: 'several', count: 2 },
+      }),
+    ).toEqual([
+      'Encaja con 2 juegos; se queda donde está',
+      'It fits 2 games; it stays where it is',
+    ]);
+    expect(
+      left({
+        kind: 'addon-unlinked',
+        addon: 'cheat',
+        format: 'rpcs3-patch',
+        why: { kind: 'many', count: 14 },
+      }),
+    ).toEqual([
+      'Tiene parches de 14 juegos; se queda donde está',
+      'It holds patches for 14 games; it stays where it is',
+    ]);
+    for (const why of [
+      { kind: 'no-match' },
+      { kind: 'no-key' },
+      { kind: 'budget' },
+    ] as const)
+      expect(
+        leftReasonText(t, {
+          kind: 'addon-unlinked',
+          addon: 'patch',
+          format: 'ips',
+          why,
+        }),
+      ).toBe('No se sabe de qué juego es; se queda donde está');
+    expect(
+      left({ kind: 'not-supported', emulator: 'RPCS3', why: 'rpcs3-mods' }),
+    ).toEqual([
+      'RPCS3 no lo usa así: RPCS3 no tiene carpeta de mods; se reemplazan archivos del juego',
+      "RPCS3 does not use it like this: RPCS3 has no mods folder; mods replace the game's files",
+    ]);
+    expect(
+      leftReasonText(t, {
+        kind: 'not-supported',
+        emulator: 'shadPS4',
+        why: 'older-update',
+      }),
+    ).toBe(
+      'shadPS4 no lo usa así: shadPS4 solo usa la actualización más nueva',
+    );
+    expect(left({ kind: 'patch-not-applied', emulator: 'RetroArch' })[0]).toBe(
+      'RetroArch lo aplicaría al jugar; elige RetroArch para este sistema si lo quieres',
+    );
+    expect(
+      left({
+        kind: 'addon-for-emulator',
+        emulator: 'DuckStation',
+        path: 'textures/SLUS-00594',
+      })[0],
+    ).toBe(
+      'Va en la carpeta de DuckStation: textures/SLUS-00594. Coverly no sabe dónde está',
+    );
+    const line = (n: ItemNote) => {
+      const k = noteKey(n)!;
+      return t(k.key, k.vars);
+    };
+    expect(line({ kind: 'mod-of', of: 'Pokemon Y' })).toBe('Mod de Pokemon Y');
+    expect(line({ kind: 'patch-of', of: 'Mother' })).toBe('Parche de Mother');
+    expect(line({ kind: 'cheat-of', of: 'Pokemon Y' })).toBe(
+      'Trucos de Pokemon Y',
+    );
+    expect(
+      line({
+        kind: 'point-emulator-here',
+        emulator: 'shadPS4',
+        folder: 'PS4/CUSA04943',
+      }),
+    ).toBe('Indica esta carpeta en shadPS4: PS4/CUSA04943');
+  });
+
+  it('says whose an addon is before any other note', () => {
+    const row = ds(7, 'Mother [T-En].bps', {
+      rename: { kind: 'safe-name', from: 'Mother?.bps' },
+      notes: [
+        { kind: 'header-mismatch', needs: 'needs-headerless' },
+        { kind: 'patch-of', of: 'Mother' },
+      ],
+    });
+    expect(itemNotes(t, row, 'Coverly', (id) => id)).toEqual([
+      'Parche de Mother',
+      t('organize.renamedFrom', { name: 'Mother?.bps' }),
+      'Este parche espera la ROM sin cabecera',
+    ]);
+  });
+
+  it('every spec §10 key exists in both locales with the same placeholders', () => {
+    const keys = [
+      'organize.note.modOf',
+      'organize.note.patchOf',
+      'organize.note.cheatOf',
+      'organize.addon.patch',
+      'organize.addon.mod',
+      'organize.addon.texturePack',
+      'organize.addon.cheat',
+      'organize.addon.emulatorPatch',
+      'organize.addon.line',
+      'organize.addon.lineBare',
+      'organize.addon.via.sourceCrc',
+      'organize.addon.via.dat',
+      'organize.addon.via.name',
+      'organize.addon.via.readme',
+      'organize.addon.via.key',
+      'organize.addon.via.folder',
+      'organize.addon.headerless',
+      'organize.addon.headered',
+      'organize.left.addonUnlinked',
+      'organize.left.addonSeveral',
+      'organize.left.addonMany',
+      'organize.left.addonNameTaken',
+      'organize.left.addonNoPlace',
+      'organize.left.addonPart',
+      'organize.left.patchNotApplied',
+      'organize.left.addonForEmulator',
+      'organize.left.notSupported',
+      'organize.note.pointEmulatorHere',
+      'organize.emulator.label',
+      'organize.emulator.default',
+      'organize.emulator.none',
+      'organize.gameFolder.showFor',
+      'organize.gameFolder.labelFor',
+      'organize.translate.system',
+      'organize.translate.emulatorData',
+      'organize.translate.emulatorDataUnknown',
+      'organize.translate.library',
+      'organize.translate.installHere',
+      'organize.translate.why.rpcs3Mods',
+      'organize.translate.why.vitaRepatch',
+      'organize.translate.why.severalPatches',
+      'organize.translate.why.olderUpdate',
+      'organize.translate.why.configExists',
+    ];
+    for (const key of keys) {
+      expect(has(es, key) && has(en, key), key).toBe(true);
+      expect(placeholders(lookup(en, key)), key).toEqual(
+        placeholders(lookup(es, key)),
+      );
+      expect(lookup(es, key), key).not.toMatch(/[!¡]/);
+    }
+    expect(lookup(es, 'organize.emulator.none')).toBe(
+      'Ninguno (estructura de la biblioteca)',
+    );
+    expect(lookup(es, 'organize.translate.emulatorDataUnknown')).toBe(
+      'Coverly no la toca si no le dices dónde está',
+    );
   });
 });

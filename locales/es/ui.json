@@ -1316,7 +1316,11 @@
       "vita7z": "Vita3K solo instala .zip, .vpk o .vci",
       "missingDisc": "Falta el disco {n}",
       "demoOf": "Demo de {title}",
-      "baseMissing": "Su juego no está aquí ni en la biblioteca; revisa dónde va"
+      "baseMissing": "Su juego no está aquí ni en la biblioteca; revisa dónde va",
+      "modOf": "Mod de {title}",
+      "patchOf": "Parche de {title}",
+      "cheatOf": "Trucos de {title}",
+      "pointEmulatorHere": "Indica esta carpeta en {emulator}: {folder}"
     },
     "pause": {
       "diskFull": "Disco lleno: faltan {needed}; se ha deshecho el juego a medias"
@@ -1408,7 +1412,16 @@
       "title": "Se quedan donde están",
       "inLibrary": "Ya está en tu biblioteca como {path}",
       "gamePart": "Parte de un juego; no se mueve suelta",
-      "backup": "Copia de seguridad cifrada de Vita"
+      "backup": "Copia de seguridad cifrada de Vita",
+      "addonUnlinked": "No se sabe de qué juego es; se queda donde está",
+      "addonSeveral": "Encaja con {count} juegos; se queda donde está",
+      "addonMany": "Tiene parches de {count} juegos; se queda donde está",
+      "addonNameTaken": "Ya hay otro archivo con ese nombre en su carpeta",
+      "addonNoPlace": "Su juego no tiene carpeta propia en este perfil; se queda donde está",
+      "addonPart": "Es solo una parte de un mod; se queda donde está",
+      "patchNotApplied": "{emulator} lo aplicaría al jugar; elige {emulator} para este sistema si lo quieres",
+      "addonForEmulator": "Va en la carpeta de {emulator}: {path}. Coverly no sabe dónde está",
+      "notSupported": "{emulator} no lo usa así: {why}"
     },
     "planning": "Identificando {done} de {total}…",
     "walking": "Buscando archivos…",
@@ -1425,7 +1438,9 @@
       "count": "{folder} ({count})",
       "exists": "ya existe",
       "onDisk": "en disco: {name}",
-      "more": "y {count} más"
+      "more": "y {count} más",
+      "showFor": "Ver cómo queda para {emulator}",
+      "labelFor": "Carpeta de {title} para {emulator}"
     },
     "empty": {
       "title": "Nada que archivar",
@@ -1637,7 +1652,45 @@
       "movingLabel": "Moviendo a {folder}"
     },
     "encryptedLabel": "Cifrado",
-    "encryptedUnresolved": "No se puede leer el nombre sin descifrarlo"
+    "encryptedUnresolved": "No se puede leer el nombre sin descifrarlo",
+    "addon": {
+      "patch": "Parche de traducción o hack",
+      "mod": "Mod",
+      "texturePack": "Pack de texturas",
+      "cheat": "Trucos",
+      "emulatorPatch": "Parches del emulador",
+      "line": "{what} · {format} {key}",
+      "lineBare": "{what} · {key}",
+      "via": {
+        "sourceCrc": "Enlazado por el CRC32 de la ROM de origen",
+        "dat": "Enlazado por el CRC32 y el DAT",
+        "name": "Enlazado por el nombre",
+        "readme": "Enlazado por el readme",
+        "key": "Enlazado por {key}",
+        "folder": "Ya estaba en la carpeta del juego"
+      },
+      "headerless": "Este parche espera la ROM sin cabecera",
+      "headered": "Este parche espera la ROM con cabecera"
+    },
+    "emulator": {
+      "label": "Emulador",
+      "default": "Predeterminado: {emulator}",
+      "none": "Ninguno (estructura de la biblioteca)"
+    },
+    "translate": {
+      "system": "En la carpeta del sistema",
+      "emulatorData": "En la carpeta de {emulator}",
+      "emulatorDataUnknown": "Coverly no la toca si no le dices dónde está",
+      "library": "Se queda en la biblioteca",
+      "installHere": "Instálalo en el emulador",
+      "why": {
+        "rpcs3Mods": "RPCS3 no tiene carpeta de mods; se reemplazan archivos del juego",
+        "vitaRepatch": "Vita3K no lee rePatch; hay que mezclar los archivos en el juego",
+        "severalPatches": "Varios parches para la misma ROM; RetroArch solo aplica uno",
+        "olderUpdate": "{emulator} solo usa la actualización más nueva",
+        "configExists": "Ya hay un archivo de ajustes con ese nombre; Coverly no lo mezcla"
+      }
+    }
   },
   "gameFolder": {
     "updates": "Actualizaciones",

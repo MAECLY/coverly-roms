@@ -26,6 +26,7 @@ import {
   childTarget,
   confidenceKey,
   extractDetail,
+  isOwner,
   licenceLine,
   playlistKey,
   rowNotes,
@@ -37,7 +38,7 @@ import { systemOptionGroups } from '@/lib/systems';
 
 import { ExtractDetail } from './ExtractDetail';
 import { GameFolderPreview } from './GameFolderPreview';
-import { ItemName, TitleIdLine } from './ItemName';
+import { AddonLine, ItemName, TitleIdLine } from './ItemName';
 import { NewBadge, NewCount, newRow, type IsNew } from './NewMarks';
 import type { OrganizeChoice } from './ReviewBuckets';
 import {
@@ -212,11 +213,19 @@ function Row({
     [changeable, systems, t, locale],
   );
   const serials = item.disc?.serials.join(', ') ?? '';
-  const notes = rowNotes(t, item, layoutName, systemName);
+  const all = rowNotes(t, item, layoutName, systemName);
+  // An addon says whose it is right under its name, before what it is
+  // (mods spec §9.1); its other notes stay where they were.
+  const owner =
+    item.game?.addon && item.notes.some(isOwner)
+      ? (all.inline[0] ?? null)
+      : null;
+  const notes = owner ? { ...all, inline: all.inline.slice(1) } : all;
   // A loose multi-disc set's new playlist (D24), under its notes.
   const playlist = playlistKey(item);
   const licence = licenceLine(item, licenceStays);
-  // A linked update or DLC shows only its fixed folder and name (§9.1).
+  // A linked update, DLC, mod or cheats shows only its fixed folder and
+  // name (§9.1).
   const short = childTarget(item);
   return (
     <li className={fresh ? `${fileRow} ${newRow}` : fileRow}>
@@ -228,6 +237,7 @@ function Row({
             {...(short !== item.target && { fullTarget: item.target })}
           />
           <VersionLine item={item} />
+          <AddonLine item={item} owner={owner} />
           {serials && (
             <span className="font-mono text-caption tabular-nums text-cr-text-secondary">
               {serials}

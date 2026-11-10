@@ -175,6 +175,66 @@ describe('GameFolderPreview', () => {
     expect(button).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('adds Mods/ and Cheats/ after the updates and DLC when the game has them', async () => {
+    const { base, items } = pokemon({ dlc: 1 });
+    const key = '0004000000055D00';
+    const mod = autoItem(7, key, '3ds', 'ROMS/3DS', {
+      kind: 'folder',
+      target: `${DIR}/Mods/${key}`,
+      game: {
+        role: 'mod',
+        of: 0,
+        addon: { kind: 'mod', format: 'layered-fs', key_text: key, via: 'key' },
+      },
+    });
+    const cheat = autoItem(8, `${key}.txt`, '3ds', 'ROMS/3DS', {
+      target: `${DIR}/Cheats/${key}.txt`,
+      game: {
+        role: 'cheat',
+        of: 0,
+        addon: {
+          kind: 'cheat',
+          format: 'ctr-cheats',
+          key_text: key,
+          via: 'key',
+        },
+      },
+    });
+    renderPreview(base, [...items, cheat, mod]);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Ver cómo queda la carpeta' }),
+    );
+    const tree = screen.getByRole('list', {
+      name: 'Carpeta de Pokemon Y (World)',
+    });
+    const heads = [
+      'Actualizaciones (1)',
+      'Contenido descargable (1)',
+      'Mods (1)',
+      'Trucos (1)',
+    ].map((h) => within(tree).getByText(whole(h)));
+    // In the order of the fixed folders on disk.
+    for (let i = 1; i < heads.length; i += 1)
+      expect(
+        heads[i - 1]!.compareDocumentPosition(heads[i]!) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    expect(within(tree).getByText('Mods/')).toBeInTheDocument();
+    expect(within(tree).getByText('Cheats/')).toBeInTheDocument();
+    expect(within(tree).getByText(key)).toHaveClass('font-mono');
+    expect(within(tree).getByText(`${key}.txt`)).toBeInTheDocument();
+  });
+
+  it('shows no Mods/ or Cheats/ when the game has none', async () => {
+    const { base, items } = pokemon();
+    renderPreview(base, items);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Ver cómo queda la carpeta' }),
+    );
+    expect(screen.queryByText(whole('Mods (1)'))).toBeNull();
+    expect(screen.queryByText('Cheats/')).toBeNull();
+  });
+
   it('renders nothing for a base without children', () => {
     const { base } = pokemon();
     const { container } = renderPreview(base, [base]);

@@ -838,3 +838,138 @@ describe('SystemGroups game folders (spec §9.1)', () => {
     ).toBeInTheDocument();
   });
 });
+
+describe('SystemGroups mods and cheats (mods spec §9.1)', () => {
+  const DIR = 'ROMS/3DS/Pokemon Y (World)';
+  const KEY = '0004000000055D00';
+  const pile = (): OrganizeItem[] => [
+    autoItem(4, `${KEY}.txt`, '3ds', 'ROMS/3DS', {
+      target: `${DIR}/Cheats/${KEY}.txt`,
+      notes: [{ kind: 'cheat-of', of: 'Pokemon Y' }],
+      game: {
+        role: 'cheat',
+        of: 0,
+        addon: {
+          kind: 'cheat',
+          format: 'ctr-cheats',
+          key_text: KEY,
+          via: 'key',
+        },
+      },
+    }),
+    autoItem(3, KEY, '3ds', 'ROMS/3DS', {
+      kind: 'folder',
+      target: `${DIR}/Mods/${KEY}`,
+      notes: [{ kind: 'mod-of', of: 'Pokemon Y' }],
+      game: {
+        role: 'mod',
+        of: 0,
+        addon: { kind: 'mod', format: 'layered-fs', key_text: KEY, via: 'key' },
+      },
+    }),
+    autoItem(0, 'Pokemon Y.cia', '3ds', 'ROMS/3DS', {
+      target: `${DIR}/Pokemon Y (World).cia`,
+      game: { role: 'base', folder: DIR },
+    }),
+    autoItem(1, '0004000E00055D00.cia', '3ds', 'ROMS/3DS', {
+      target: `${DIR}/Updates/Pokemon Y (World) (v1.1.0).cia`,
+      notes: [{ kind: 'update', of: 'Pokemon Y' }],
+      game: { role: 'update', of: 0, version: '1.1.0' },
+    }),
+  ];
+
+  function renderEs(items: OrganizeItem[]) {
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf(items))}
+          layoutName="Coverly"
+          systemName={(id) => id}
+          profile={null}
+        />
+      </I18nProvider>,
+    );
+  }
+
+  it('folds a mod and cheats under their game, after its update', () => {
+    renderEs(pile());
+    const rows = screen.getAllByRole('listitem');
+    const at = (text: string) =>
+      rows.findIndex((r) => r.textContent?.includes(text));
+    const order = ['Pokemon Y.cia', '/Updates/', '/Mods/', '/Cheats/'].map(at);
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('says what an addon is in words, its key in mono and the proof as text', () => {
+    renderEs(pile());
+    const mod = screen
+      .getAllByRole('listitem')
+      .find((r) => r.textContent?.includes('Mods/'))!;
+    const owner = within(mod).getByText('Mod de Pokemon Y');
+    // Whose it is comes first, before what it is and the proof.
+    expect(
+      owner.compareDocumentPosition(within(mod).getByText(/^Enlazado por/)) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const keys = within(mod).getAllByText(KEY);
+    expect(keys.some((k) => k.closest('.mono'))).toBe(true);
+    expect(mod).toHaveTextContent(`Mod · LayeredFS ${KEY}`);
+    expect(mod).toHaveTextContent(`Enlazado por ${KEY}`);
+    // The target is short, the whole path kept for its tooltip.
+    expect(within(mod).getByTitle(`${DIR}/Mods/${KEY}`)).toHaveTextContent(
+      `…/Mods/${KEY}`,
+    );
+    const cheat = screen
+      .getAllByRole('listitem')
+      .find((r) => r.textContent?.includes('Cheats/'))!;
+    expect(within(cheat).getByText('Trucos de Pokemon Y')).toBeInTheDocument();
+    expect(cheat).toHaveTextContent(`Trucos · Azahar ${KEY}`);
+  });
+
+  it('a patch says it was linked by the source ROM and which header it needs', () => {
+    const base = autoItem(0, 'Mother (Japan).nes', 'nes', 'ROMS/NES', {
+      target: 'ROMS/NES/Mother (Japan)/Mother (Japan).nes',
+      game: { role: 'base', folder: 'ROMS/NES/Mother (Japan)' },
+    });
+    const patch = autoItem(1, 'Mother (Japan) [T-En].bps', 'nes', 'ROMS/NES', {
+      target: 'ROMS/NES/Mother (Japan)/Mods/Mother (Japan) [T-En].bps',
+      notes: [
+        { kind: 'patch-of', of: 'Mother (Japan)' },
+        { kind: 'header-mismatch', needs: 'needs-headerless' },
+      ],
+      game: {
+        role: 'mod',
+        of: 0,
+        addon: {
+          kind: 'patch',
+          format: 'bps',
+          key_text: 'CRC32 7F8E1A20',
+          via: 'source-crc',
+          header: 'needs-headerless',
+        },
+      },
+    });
+    renderEs([base, patch]);
+    const row = screen
+      .getAllByRole('listitem')
+      .find((r) => r.textContent?.includes('[T-En]'))!;
+    expect(
+      within(row).getByText('Parche de Mother (Japan)'),
+    ).toBeInTheDocument();
+    expect(row).toHaveTextContent(
+      'Parche de traducción o hack · BPS CRC32 7F8E1A20',
+    );
+    expect(
+      within(row).getByText('Enlazado por el CRC32 de la ROM de origen'),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByText('Este parche espera la ROM sin cabecera'),
+    ).toBeInTheDocument();
+  });
+
+  it('a plan from before mods draws no addon line', () => {
+    renderEs(pile().slice(2));
+    expect(screen.queryByText(/^Enlazado por/)).toBeNull();
+  });
+});

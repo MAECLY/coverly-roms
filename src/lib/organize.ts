@@ -4,15 +4,20 @@
  */
 import type { TranslateVars } from '@/i18n/core';
 import type {
+  AddonFormat,
+  AddonLink,
   ArchiveTool,
   DupGroupView,
   DiscId,
   Evidence,
   FixedFolder,
+  GameRole,
   ItemNote,
   IdSource,
   LeftReason,
+  LinkVia,
   NotARom,
+  NotSupportedWhy,
   OrganizeItem,
   OrganizePlan,
   OrganizeReport,
@@ -20,6 +25,7 @@ import type {
   RenameReason,
   TitleIdRef,
   TransferMode,
+  TranslatedGameView,
 } from '@/ipc/types';
 
 type Translate = (key: string, vars?: TranslateVars) => string;
@@ -84,6 +90,22 @@ function baseNames(item: OrganizeItem): string[] {
     .map((x) => x.toLowerCase());
 }
 
+/** The order of a base's children: updates, DLC, then mods and cheats
+ * (the order of the fixed folders, mods spec §9.1). */
+const CHILD_ORDER: Record<GameRole, number> = {
+  base: 0,
+  demo: 0,
+  update: 1,
+  dlc: 2,
+  mod: 3,
+  cheat: 4,
+};
+
+/** A row matched by name (a plan without links) keeps its order. */
+function childRank(item: OrganizeItem): number {
+  return item.game ? (CHILD_ORDER[item.game.role] ?? 0) : 0;
+}
+
 /**
  * Puts every update and DLC row right under its base (spec §9.1), keeping
  * the order of everything else; the core already sends them so, this only
@@ -91,7 +113,8 @@ function baseNames(item: OrganizeItem): string[] {
  * carries a game link (`game.of`, game folders P-5) goes under that base,
  * so two bases with one name keep their own children; a row without a
  * link (plans made before game folders, or the option off) is matched by
- * name. A row whose base is not in the group keeps its place.
+ * name. A row whose base is not in the group keeps its place. Mods and
+ * cheats (mods spec §9.1) fold by their link only, after updates and DLC.
  */
 export function updatesUnderBases(items: OrganizeItem[]): OrganizeItem[] {
   const children = new Map<OrganizeItem, OrganizeItem[]>();
@@ -129,7 +152,13 @@ export function updatesUnderBases(items: OrganizeItem[]): OrganizeItem[] {
   const out: OrganizeItem[] = [];
   for (const item of items) {
     if (placed.has(item)) continue;
-    out.push(item, ...(children.get(item) ?? []));
+    const kids = children.get(item) ?? [];
+    // Stable: same-kind children keep the order they came in.
+    const sorted = kids
+      .map((k, i) => [k, i] as const)
+      .sort(([a, i], [b, j]) => childRank(a) - childRank(b) || i - j)
+      .map(([k]) => k);
+    out.push(item, ...sorted);
   }
   return out;
 }
@@ -207,8 +236,15 @@ export function gameFolderPreview(
     const rest = target ? below(target) : null;
     if (!rest) return;
     const fixed =
-      rest.length === 2 ? DISK_FOLDER.get(rest[0]!.toLowerCase()) : undefined;
-    if (fixed) byFolder.set(fixed, [...(byFolder.get(fixed) ?? []), rest[1]!]);
+      rest.length >= 2 ? DISK_FOLDER.get(rest[0]!.toLowerCase()) : undefined;
+    // A mod can sit one level deeper (`Mods/textures/<serial>`): it keeps
+    // its inner path. Updates and DLC are always one name.
+    const deep = fixed === 'mods' || fixed === 'cheats';
+    if (fixed && (rest.length === 2 || deep))
+      byFolder.set(fixed, [
+        ...(byFolder.get(fixed) ?? []),
+        rest.slice(1).join('/'),
+      ]);
     else if (rest.length === 1) files.push(rest[0]!);
   };
   add(base.target);
@@ -237,13 +273,18 @@ export function gameFolderPreview(
 }
 
 /**
- * A linked update's or DLC's target shortened to its fixed folder and
- * name (`…/Updates/<name>`, spec §9.1); the whole target otherwise.
+ * A linked update's, DLC's, mod's or cheats' target shortened to its fixed
+ * folder and name (`…/Updates/<name>`, spec §9.1); the whole target
+ * otherwise.
  */
 export function childTarget(item: OrganizeItem): string | null {
   const target = item.target;
   const role = item.game?.role;
-  if (!target || (role !== 'update' && role !== 'dlc')) return target;
+  if (
+    !target ||
+    (role !== 'update' && role !== 'dlc' && role !== 'mod' && role !== 'cheat')
+  )
+    return target;
   const sep = target.includes('\\') && !target.includes('/') ? '\\' : '/';
   const parts = pathParts(target);
   if (
@@ -252,6 +293,152 @@ export function childTarget(item: OrganizeItem): string | null {
   )
     return target;
   return `…${sep}${parts.slice(-2).join(sep)}`;
+}
+
+/**
+ * An addon format's short name: a product or format name, never
+ * translated (mods spec §9.1). `null` for a generic format, whose family
+ * («Pack de texturas», «Trucos») already says it.
+ */
+const ADDON_FORMAT_NAMES: Record<AddonFormat, string | null> = {
+  bps: 'BPS',
+  ups: 'UPS',
+  ips: 'IPS',
+  xdelta: 'xdelta',
+  ppf: 'PPF',
+  aps: 'APS',
+  'retro-arch-cht': 'RetroArch',
+  'fceux-cht': 'FCEUX',
+  'duck-station-cht': 'DuckStation',
+  pnach: 'PCSX2',
+  'dolphin-ini': 'Dolphin',
+  'ppsspp-ini': 'PPSSPP',
+  'ctr-cheats': 'Azahar',
+  'switch-cheats': null,
+  pchtxt: 'IPSwitch',
+  'rpcs3-patch': 'RPCS3',
+  'shadps4-cheat': 'shadPS4',
+  'shadps4-patch': 'shadPS4',
+  'xenia-patch': 'Xenia',
+  'vita3k-patch': 'Vita3K',
+  'melon-ds-cheats': 'melonDS',
+  'mgba-cheats': 'mGBA',
+  'desmume-cheats': 'DeSmuME',
+  'code-text': null,
+  'texture-pack': null,
+  'dolphin-graphic-mod': 'Dolphin',
+  riivolution: 'Riivolution',
+  'layered-fs': 'LayeredFS',
+  'switch-mod': null,
+  'exefs-patches': 'ExeFS',
+  'cemu-graphic-pack': 'Cemu',
+  'vita-repatch': 'rePatch',
+  'mesen-hd-pack': 'Mesen HD Pack',
+  msu1: 'MSU-1',
+  'xenia-plugin': 'Xenia',
+  'n64-hires-textures': null,
+  'shadps4-mods': 'shadPS4',
+};
+
+/** What an addon is, in words: its kind, or the format family when that
+ * says more (texture packs, emulator patches), like the CLI. */
+function addonWhat(link: Pick<AddonLink, 'kind' | 'format'>): string {
+  switch (link.format) {
+    case 'texture-pack':
+    case 'n64-hires-textures':
+      return 'texturePack';
+    case 'rpcs3-patch':
+    case 'shadps4-patch':
+    case 'xenia-patch':
+    case 'vita3k-patch':
+    case 'pchtxt':
+    case 'exefs-patches':
+      return 'emulatorPatch';
+    default:
+      return link.kind;
+  }
+}
+
+/**
+ * An addon row's line (mods spec §9.1): what it is in words, then its
+ * format and key as data («Parche de traducción o hack · BPS CRC32
+ * 1A2B3C4D»). `what` is a fragment to translate first (`keyedText`);
+ * `format` and `key` go in mono.
+ */
+export function addonText(link: AddonLink): KeyedText {
+  const what = `organize.addon.${addonWhat(link)}`;
+  const format = ADDON_FORMAT_NAMES[link.format] ?? null;
+  return format
+    ? {
+        key: 'organize.addon.line',
+        vars: { what, format, key: link.key_text },
+      }
+    : { key: 'organize.addon.lineBare', vars: { what, key: link.key_text } };
+}
+
+const VIA_KEYS: Record<LinkVia, string> = {
+  'source-crc': 'sourceCrc',
+  dat: 'dat',
+  name: 'name',
+  readme: 'readme',
+  key: 'key',
+  folder: 'folder',
+};
+
+/** How an addon was linked to its game, in plain words (§10); a key
+ * (serial, title id) is data in the sentence. */
+export function addonViaKey(
+  link: Pick<AddonLink, 'via' | 'key_text'>,
+): KeyedText {
+  const name = VIA_KEYS[link.via] ?? 'name';
+  return {
+    key: `organize.addon.via.${name}`,
+    vars: link.via === 'key' ? { key: link.key_text } : {},
+  };
+}
+
+export interface TranslatedPreview {
+  /** Paths relative to the device's system folder. */
+  system: string[];
+  /** Paths relative to the emulator's own data folder. */
+  emulatorData: string[];
+  /** What stays in the library (installed in the emulator), by its path
+   * in the master layout. */
+  library: string[];
+  /** How many of each list are past the cap. */
+  more: { system: number; emulatorData: number; library: number };
+}
+
+/**
+ * A translated game as the preview's three lists (mods spec §9.1), in the
+ * translator's order, at most `cap` entries each and the rest counted.
+ */
+export function translatedPreview(
+  view: Pick<TranslatedGameView, 'placements'>,
+  cap: number = PREVIEW_NAMES,
+): TranslatedPreview {
+  const all = { system: [], emulatorData: [], library: [] } as {
+    system: string[];
+    emulatorData: string[];
+    library: string[];
+  };
+  for (const p of view.placements) {
+    if (p.to.kind === 'system') all.system.push(p.to.path);
+    else if (p.to.kind === 'emulator-data') all.emulatorData.push(p.to.path);
+    else if (p.to.kind === 'library') all.library.push(p.from);
+  }
+  const capped = (list: string[]) => list.slice(0, cap);
+  const more = (list: string[]) => Math.max(0, list.length - cap);
+  return {
+    system: capped(all.system),
+    emulatorData: capped(all.emulatorData),
+    library: capped(all.library),
+    more: {
+      system: more(all.system),
+      emulatorData: more(all.emulatorData),
+      library: more(all.library),
+    },
+  };
 }
 
 /** The licence line of a row: its licence goes with it (a companion), or
@@ -585,17 +772,45 @@ export function leftReasonKey(
     // A Vita backup is its own sentence; every other part stays alike.
     case 'game-part':
       return r.part === 'backup' ? k('backup') : k('gamePart');
-    // Addons and emulator layouts (mods spec D7, D16): the generic
-    // «staying» text until their own copy lands.
+    // Addons and emulator layouts (mods spec D7, D16, §10).
     case 'addon-unlinked':
+      switch (r.why.kind) {
+        case 'several':
+          return k('addonSeveral', { count: r.why.count });
+        case 'many':
+          return k('addonMany', { count: r.why.count });
+        case 'partial':
+          return k('addonPart');
+        default:
+          return k('addonUnlinked');
+      }
     case 'addon-name-taken':
+      return k('addonNameTaken');
     case 'addon-no-place':
+      return k('addonNoPlace');
     case 'addon-for-emulator':
+      return k('addonForEmulator', { emulator: r.emulator, path: r.path });
     case 'not-supported':
+      return k('notSupported', {
+        emulator: r.emulator,
+        why: `organize.translate.why.${NOT_SUPPORTED[r.why]}`,
+      });
     case 'patch-not-applied':
+      return k('patchNotApplied', { emulator: r.emulator });
+    // A reason a newer core sends: the generic «staying» text, never a crash.
+    default:
       return k('title');
   }
 }
+
+/** The fragment of `organize.left.notSupported` for each reason. */
+const NOT_SUPPORTED: Record<NotSupportedWhy, string> = {
+  'rpcs3-mods': 'rpcs3Mods',
+  'vita-repatch': 'vitaRepatch',
+  'several-patches': 'severalPatches',
+  'older-update': 'olderUpdate',
+  'config-exists': 'configExists',
+};
 
 /** The fragment of `organize.left.notARom` for each kind of non-ROM. */
 const NOT_A_ROM: Record<NotARom, string> = {
@@ -616,15 +831,28 @@ export function leftReasonText(
   r: LeftReason,
   systemName?: (id: string) => string,
 ): string {
-  const { key, vars } = leftReasonKey(r, systemName);
+  return keyedText(t, leftReasonKey(r, systemName));
+}
+
+/**
+ * A keyed text with its nested fragments (a var whose value is itself an
+ * `organize.*` or `gameFolder.*` key) translated first, with the same
+ * data (`{emulator}` inside a «why» fragment).
+ */
+export function keyedText(t: Translate, { key, vars }: KeyedText): string {
+  const isFragment = (v: unknown): v is string =>
+    typeof v === 'string' &&
+    (v.startsWith('organize.') || v.startsWith('gameFolder.'));
+  const data: TranslateVars = {};
+  for (const [name, v] of Object.entries(vars))
+    if (!isFragment(v)) data[name] = v;
   const resolved: TranslateVars = {};
-  for (const [name, v] of Object.entries(vars)) {
-    resolved[name] =
-      typeof v === 'string' &&
-      (v.startsWith('organize.') || v.startsWith('gameFolder.'))
-        ? t(v)
-        : v;
-  }
+  for (const [name, v] of Object.entries(vars))
+    resolved[name] = isFragment(v)
+      ? Object.keys(data).length > 0
+        ? t(v, data)
+        : t(v)
+      : v;
   return t(key, resolved);
 }
 
@@ -813,8 +1041,18 @@ export function itemNotes(
 /** Update and DLC notes first: the row sits under its base, so the first
  * line under it says whose it is (spec §9.1); the rest keep their order. */
 function ownerFirst(notes: ItemNote[]): ItemNote[] {
-  const owner = (n: ItemNote) => n.kind === 'update' || n.kind === 'dlc';
-  return [...notes.filter(owner), ...notes.filter((n) => !owner(n))];
+  return [...notes.filter(isOwner), ...notes.filter((n) => !isOwner(n))];
+}
+
+/** A note that says whose a row is (an update, DLC, mod, patch, cheats). */
+export function isOwner(n: ItemNote): boolean {
+  return (
+    n.kind === 'update' ||
+    n.kind === 'dlc' ||
+    n.kind === 'mod-of' ||
+    n.kind === 'patch-of' ||
+    n.kind === 'cheat-of'
+  );
 }
 
 /** Moves the owner line (just after the rename line, when there is one)
@@ -824,8 +1062,7 @@ function ownerLineFirst(
   at: number,
   notes: ItemNote[],
 ): string[] {
-  if (at === 0 || !notes.some((n) => n.kind === 'update' || n.kind === 'dlc'))
-    return lines;
+  if (at === 0 || !notes.some(isOwner)) return lines;
   return [lines[at]!, ...lines.slice(0, at), ...lines.slice(at + 1)];
 }
 
@@ -990,13 +1227,30 @@ export function noteKey(n: ItemNote): KeyedText | null {
       return k('demoOf', { title: n.of });
     case 'base-missing':
       return k('baseMissing');
-    // Addons and emulator layouts (mods spec D10, D15): no line of their
-    // own until their copy lands.
+    // Addons and emulator layouts (mods spec D10, D15, §10).
     case 'mod-of':
+      return k('modOf', { title: n.of });
     case 'patch-of':
+      return k('patchOf', { title: n.of });
     case 'cheat-of':
+      return k('cheatOf', { title: n.of });
     case 'header-mismatch':
+      return n.needs === 'matches'
+        ? null
+        : {
+            key:
+              n.needs === 'needs-headerless'
+                ? 'organize.addon.headerless'
+                : 'organize.addon.headered',
+            vars: {},
+          };
     case 'point-emulator-here':
+      return k('pointEmulatorHere', {
+        emulator: n.emulator,
+        folder: n.folder,
+      });
+    // A note a newer core sends: no line, never a crash.
+    default:
       return null;
   }
 }
