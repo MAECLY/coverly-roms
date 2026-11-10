@@ -145,21 +145,27 @@ pub enum SlotError {
     /// file name over [`MAX_NAME_BYTES`] bytes (the «path too long» item
     /// reason). Checked on every OS.
     PathTooLong,
-    /// The child path has no parent folder or no file name.
+    /// The child path has no parent folder or no file name, or its name
+    /// is not UTF-8.
     NotAChild,
 }
 
 /// The stem a child's slots are named after: the file name without its
 /// extension, or a folder child's whole name (folders are named like
 /// top-level folder entries, whose stem is the whole name).
+///
+/// `None` for a name that is not UTF-8: its slot names would carry U+FFFD,
+/// so two such children would share slots and the file would no longer map
+/// back to its child (and no portable card stores such a name anyway).
 pub fn child_stem(child: &Path) -> Option<String> {
     let stem = if child.is_dir() {
         child.file_name()
     } else {
         child.file_stem()
     };
-    stem.map(|s| s.to_string_lossy().into_owned())
+    stem.and_then(|s| s.to_str())
         .filter(|s| !s.is_empty())
+        .map(str::to_owned)
 }
 
 /// The child's art folder: `<dir of child>/.media`.
@@ -405,6 +411,28 @@ mod tests {
         );
         assert_eq!(art_json_path(Path::new("x.pkg")), PathBuf::new());
         assert_eq!(read_art_json(Path::new("x.pkg")), ArtJson::default());
+    }
+
+    /// A name that is not UTF-8 would be written with U+FFFD in its slot
+    /// names: two such children would share one slot and the file would no
+    /// longer map back to its child, so it gets no slot at all.
+    #[cfg(unix)]
+    #[test]
+    fn a_child_whose_name_is_not_utf8_has_no_slot() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = at(Path::new("lib"), "Game/DLC");
+        let a = dir.join(OsStr::from_bytes(b"Pack \xff.pkg"));
+        let b = dir.join(OsStr::from_bytes(b"Pack \xfe.pkg"));
+        for child in [&a, &b] {
+            assert_eq!(child_stem(child), None);
+            for media in ChildMedia::ALL {
+                assert_eq!(child_slot_path(child, media), Err(SlotError::NotAChild));
+            }
+            assert_eq!(art_json_path(child), PathBuf::new());
+            assert_eq!(present(child), ChildArtMarks::default());
+        }
     }
 
     #[test]
