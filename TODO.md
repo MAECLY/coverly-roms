@@ -25,6 +25,7 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
    1.6. [Reordenar los ajustes de Biblioteca](#16-reordenar-los-ajustes-de-biblioteca)
 2. [Sistemas que faltan](#2-sistemas-que-faltan)
    2.1. [Actualizaciones, DLC, demos y revisiones dentro de su juego](#21-actualizaciones-dlc-demos-y-revisiones-dentro-de-su-juego)
+   2.2. [Arcade de PC: Taito Type X y Cave](#22-arcade-de-pc-taito-type-x-y-cave)
 3. [Biblioteca](#3-biblioteca)
    - 3.1. [Fuentes de nombres y arte por title ID](#31-fuentes-de-nombres-y-arte-por-title-id)
 4. [Sincronizar con dispositivos](#4-sincronizar-con-dispositivos)
@@ -158,7 +159,7 @@ Cartuchos, cintas y discos que ya entran en los lectores actuales.
   - [x] LowRes NX (`lowresnx`). Formato: `.nx`.
   - [x] Vircon32 (`vircon32`). Formato: `.v32`.
 - [x] Ports y motores: PrBoom/Doom (`.wad`), Quake (`.pak`), Cave Story (NXEngine), Wolfenstein 3D (ECWolf), Mr. Boom, Dinothawr, Lutro, Solarus, Flashback (REminiscence), Rick Dangerous (XRick). Necesitan reglas de «juego = carpeta» como ScummVM.
-- [ ] Arcade adicional: Model 2, Model 3, Naomi 2, Triforce, Sega System 16/18/24/32, Taito Type X, Konami, Cave, CHD de MAME por juego. Hecho en el PR #32: Model 2, Model 3, Naomi 2, Triforce y CHD de MAME por juego; System 16/18/24/32 y Konami siguen en `mame`/`fbneo`. Pendiente de decisión: Taito Type X y Cave (`cave3rd`).
+- [ ] Arcade adicional: Model 2, Model 3, Naomi 2, Triforce, Sega System 16/18/24/32, Taito Type X, Konami, Cave, CHD de MAME por juego. Hecho en el PR #32: Model 2, Model 3, Naomi 2, Triforce y CHD de MAME por juego; System 16/18/24/32 y Konami siguen en `mame`/`fbneo`. Taito Type X y Cave (`cave3rd`) pasan a su propio punto, [2.2](#22-arcade-de-pc-taito-type-x-y-cave) (Miguel, 2026-11-09).
 
 ### Tanda 2: discos grandes y portátiles con formato propio
 
@@ -346,7 +347,18 @@ Muchas actualizaciones, DLC y demos traen su propia portada o arte, distinto del
 - [ ] Slots de arte por archivo hijo (actualización, DLC) además del del juego, con el origen anotado.
 - [ ] Mostrarlo en la ficha y en Organizar, y copiarlo al dispositivo solo cuando su frontend lo use.
 
-### Cómo se ve en las seis vistas (pendiente de diseñar)
+### Cómo se ve en las seis vistas (diseño aprobado, 2026-11-09)
+
+Maqueta aprobada por Miguel: https://claude.ai/artifact/UPUWX45c9Mj5B1o5hgFrTg (las seis vistas, ficha, filtros, claro/oscuro, 390 px, y la sección «Decisiones» con las referencias de la industria). Respuestas a sus preguntas abiertas:
+
+1. **Versión instalada** = la más nueva que hay en la biblioteca. La del dispositivo llega con el bloque 4.
+2. **La más nueva disponible** sale de la lista offline de títulos de 3.1 donde exista; si no, solo se compara dentro de la biblioteca.
+3. **Las demos cuentan** en el total de juegos, y la barra de estado lo dice.
+4. La barra de estado dice **«juegos»**, no «ROMs»: «9 juegos · dentro de ellos: 5 actualizaciones y 5 DLC (no cuentan como juegos)».
+5. **Estantes:** los cantos de los DLC asoman detrás de la caja; «Al lado» como opción.
+6. **Portadas pequeñas:** el recuento se reduce a un punto en la esquina.
+7. **Revisiones retro:** por defecto la Rev más alta; se puede cambiar en la ficha.
+8. Entrada **«Complementos sin juego base»** para actualizaciones y DLC cuyo juego no está en la biblioteca.
 
 > **Nota:** todavía no está decidido cómo mostrar en cada vista que un juego tiene varias actualizaciones, DLC, una demo o varias revisiones. Antes de implementarlo:
 >
@@ -392,7 +404,16 @@ Hecha el 2026-11-01 (4 investigadores y un verificador crítico por grupo, que a
 - [ ] Traductores por emulador (shadPS4, RPCS3, Azahar, Cemu, Vita3K, Switch, ES-DE) usados por Organizar con perfil y por la sincronización del bloque 4.
 - [x] Extender la detección a todos los sistemas con actualizaciones o DLC (Tandas 1–3 y PSP, Wii/WiiWare…).
 - [x] Revisiones retro agrupadas como versiones de un juego en la biblioteca y en duplicados.
-- [ ] Interfaz: el juego con sus actualizaciones y DLC plegados debajo, versión instalada y la más nueva disponible. Hecho a medias en la parte A (PR #45): Organizar pliega actualizaciones y DLC bajo su juego con la versión; falta la ficha y «la más nueva disponible» (parte C).
+- [ ] Interfaz: el juego con sus actualizaciones y DLC plegados debajo, versión instalada y la más nueva disponible. Hecho a medias en la parte A (PR #45): Organizar pliega actualizaciones y DLC bajo su juego con la versión; falta la ficha y «la más nueva disponible» (parte C, diseño aprobado arriba).
+- [ ] Región de 3DS por el código de producto (Miguel, 2026-11-09: «entre más info y más precisa, mejor»). La última letra del código (`CTR-P-AXXE`, `KTR-…`) da la región y, cuando existe, el país: `E` EE. UU., `P` Europa, `J` Japón, `K` Corea, `C` China, `T` Taiwán, `A` todas las regiones, y las de un solo país (`S` España, `D` Alemania, `F` Francia, `I` Italia, `H` Países Bajos, `R` Rusia, `U` Australia, `V`/`X`/`Y`/`Z` variantes europeas). Usarla para poner la región en el nombre y en la ficha, con el país cuando la letra lo indique, solo si el nombre no la trae ya; la tabla, verificada contra fuentes (GameTDB, 3dbrew) antes de implementarla, y la letra desconocida se marca en vez de adivinarse.
+
+## 2.2. Arcade de PC: Taito Type X y Cave
+
+Pedido por Miguel el 2026-11-09 (salió como «pendiente de decisión» de la Tanda 1). No son ROMs de MAME: son juegos arcade que corren sobre hardware de PC, con ejecutables y datos sueltos.
+
+- [ ] Investigar cómo se distribuyen y se reconocen sin claves: Taito Type X / X² / X³ (carpetas de juego con su ejecutable y datos; se juegan con cargadores como TeknoParrot o JConfig) y Cave CV1000 (`cave3rd`, que en MAME sí son ROMs) frente a sus versiones de PC. Qué carpeta o archivo identifica el juego y su título sin abrir nada protegido.
+- [ ] Decidir con Miguel si entran como sistema propio, como «juego = carpeta» (igual que ScummVM y los ports) o se quedan en `mame`/`fbneo`.
+- [ ] Implementarlo: sistema, detección, nombres, portadas y perfiles de dispositivo que los acepten, con datos de prueba sintéticos.
 
 ## 3. Biblioteca
 
