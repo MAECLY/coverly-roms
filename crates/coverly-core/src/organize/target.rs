@@ -29,9 +29,9 @@ use crate::write::{name_key, safe_file_name};
 const FAT32_LIMIT: u64 = 4 << 30;
 /// Longest path many Windows emulators and Explorer cope with, in UTF-16
 /// units (`MAX_PATH` minus the terminating nul).
-const WINDOWS_MAX_PATH: usize = 259;
+pub(crate) const WINDOWS_MAX_PATH: usize = 259;
 /// Longest file name FAT/exFAT and most file systems store, in bytes.
-const MAX_NAME_BYTES: usize = 255;
+pub(crate) const MAX_NAME_BYTES: usize = 255;
 /// Longest file name FAT/NTFS store, in UTF-16 units.
 const MAX_NAME_UNITS: usize = 255;
 /// Deepest an extracted file may lie below its system folder, in

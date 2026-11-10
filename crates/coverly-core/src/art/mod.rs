@@ -8,6 +8,13 @@
 //! the profile writes `.png`) counts as present. Names are compared in
 //! Unicode NFC, so `é` written decomposed (NFD, as some macOS tools do)
 //! matches a precomposed `é`. Read-only.
+//!
+//! The art slots of a game's updates and DLC ([`children`], part C D10)
+//! are claimed too: `<stem>-icon` and `<stem>-banner` in the `.media/`
+//! beside every child and every orphan update or DLC entry are never
+//! reported as orphan images.
+
+pub mod children;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -112,6 +119,10 @@ pub fn resolve_art(
     let mut index = DirIndex::new(&scan.root);
     // (resolved art folder, lowercase stem) of every expected image.
     let mut claimed: HashSet<(PathBuf, String)> = HashSet::new();
+    // (rendered folder, lowercase stem) of child art slots (D10 b),
+    // claimed at the end only if that folder turned out to be an art
+    // folder: no folder is read for them.
+    let mut child_claims: Vec<(PathBuf, String)> = Vec::new();
     let mut result = Vec::with_capacity(scan.systems.len());
     let mut art_dirs: Vec<Vec<PathBuf>> = Vec::with_capacity(scan.systems.len());
 
@@ -197,6 +208,7 @@ pub fn resolve_art(
                     }
                 }
             }
+            claim_child_slots(rom, &mut child_claims);
             roms.push(RomArt {
                 rom: rom.clone(),
                 art,
@@ -217,6 +229,12 @@ pub fn resolve_art(
         art_dirs.push(dirs);
     }
 
+    for (dir, stem) in child_claims {
+        if let Some(Some(dir)) = index.resolved.get(&dir) {
+            claimed.insert((dir.clone(), stem));
+        }
+    }
+
     let mut owned: HashSet<PathBuf> = HashSet::new();
     for (system_art, dirs) in result.iter_mut().zip(art_dirs) {
         for dir in dirs {
@@ -233,6 +251,31 @@ pub fn resolve_art(
         take_failures(&mut index, scan, profile, &mut system_art.warnings);
     }
     result
+}
+
+/// Records the child art slot stems (`<stem>-icon`, `<stem>-banner`,
+/// lowercase) of every child of `rom`, and of `rom` itself when it is an
+/// orphan update or DLC, in the `.media/` beside each (D10 b).
+fn claim_child_slots(rom: &RomEntry, claims: &mut Vec<(PathBuf, String)>) {
+    let mut claim = |parent: Option<&Path>, stem: &str| {
+        let Some(parent) = parent else {
+            return;
+        };
+        let dir = parent.join(children::CHILD_MEDIA_DIR);
+        for media in children::ChildMedia::ALL {
+            let name = format!("{stem}{}", media.file_suffix());
+            let slot_stem = name.strip_suffix(".png").unwrap_or(&name);
+            claims.push((dir.clone(), key(slot_stem)));
+        }
+    };
+    if rom.role.is_some() {
+        claim(rom.path.parent(), &rom.stem);
+    }
+    for child in &rom.children {
+        if let Some(stem) = children::child_stem(&child.path) {
+            claim(child.path.parent(), &stem);
+        }
+    }
 }
 
 /// Moves the folders `index` failed to read since the last call into
