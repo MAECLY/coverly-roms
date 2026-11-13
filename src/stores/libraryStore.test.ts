@@ -188,6 +188,27 @@ describe('library store', () => {
     expect(useLibraryStore.getState().view).toBeNull();
   });
 
+  it('moves the selection to the revision chosen as its game default (D1, D7)', async () => {
+    setBackend(
+      createMockBackend({ delayMs: 0, now: FIXTURE_NOW, storage: null }),
+    );
+    await useLibraryStore.getState().open(MOCK_ADDONS);
+    const view = useLibraryStore.getState().view!;
+    const named = (name: string) => view.entries.find((e) => e.name === name)!;
+    const untagged = named('Star Courier (USA)');
+    const rev1 = named('Star Courier (USA) (Rev 1)');
+    const other = named('Kite Days');
+    // The game is selected through its default (Rev 1): the selection
+    // follows the new default, which is now the game's handle.
+    useSelectionStore.getState().select(rev1.id);
+    await useLibraryStore.getState().setDefaultRevision(untagged.id);
+    expect(useSelectionStore.getState().selectedId).toBe(untagged.id);
+    // Another game's selection is left alone.
+    useSelectionStore.getState().select(other.id);
+    await useLibraryStore.getState().setDefaultRevision(rev1.id);
+    expect(useSelectionStore.getState().selectedId).toBe(other.id);
+  });
+
   it('keeps the revision defaults and updates them on a new choice (D7)', async () => {
     setBackend(
       createMockBackend({ delayMs: 0, now: FIXTURE_NOW, storage: null }),

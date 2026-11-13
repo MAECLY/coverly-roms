@@ -167,6 +167,22 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
     const choices = await backend.setDefaultRevision(view.generation, entryId);
     if (get().view?.generation !== view.generation) return;
     set({ revisionDefaults: choices });
+    // A game is selected through its default revision (D1): when another
+    // revision of the same game was selected, the selection follows the
+    // new default so every view still finds the game.
+    const chosen = view.entries.find((e) => e.id === entryId);
+    const selection = useSelectionStore.getState();
+    const selected =
+      selection.selectedId === null
+        ? undefined
+        : view.entries.find((e) => e.id === selection.selectedId);
+    if (
+      chosen?.version_group !== undefined &&
+      selected !== undefined &&
+      selected.id !== entryId &&
+      selected.version_group === chosen.version_group
+    )
+      selection.select(entryId);
   },
   close() {
     requestSeq += 1;
