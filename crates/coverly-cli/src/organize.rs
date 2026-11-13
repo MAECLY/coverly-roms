@@ -3485,21 +3485,43 @@ mod tests {
         base.folder = Some("3DS".into());
         base.target = Some(p("3DS").join("Zelda").join("Zelda CTR-P-AXXT.cia"));
         base.notes = vec![ItemNote::RegionLetterUnknown { letter: 'T' }];
-        let plan = plan_with_items(vec![base]);
+        base.game = Some(GameLink::new(GameRole::Base));
+        // Its update (the table does not nest updates, only addons): the
+        // base's note stays on the base's row and never reaches the update.
+        let mut update = test_item(1, "Zelda Update v1.1.cia");
+        update.system_id = Some("3ds".into());
+        update.folder = Some("3DS".into());
+        update.target = Some(
+            p("3DS")
+                .join("Zelda")
+                .join("Updates")
+                .join("Zelda Update v1.1.cia"),
+        );
+        let mut link = GameLink::new(GameRole::Update);
+        link.of = Some(0);
+        link.version = Some("1.1".into());
+        update.game = Some(link);
+        let plan = plan_with_items(vec![base, update]);
         let table = render_table(
             &plan,
             &SystemDb::builtin(),
             &OrganizeOptions::default(),
             true,
         );
-        let line = table
-            .lines()
-            .find(|l| l.contains("Zelda CTR-P-AXXT.cia →"))
+        let lines: Vec<&str> = table.lines().collect();
+        let at = lines
+            .iter()
+            .position(|l| l.contains("Zelda CTR-P-AXXT.cia →"))
             .unwrap_or_else(|| panic!("{table}"));
         assert!(
-            line.contains("region letter “T” not identified; no region is added to the name"),
+            lines[at].contains("region letter “T” not identified; no region is added to the name"),
             "{table}"
         );
+        let update_row = lines
+            .iter()
+            .find(|l| l.contains("Zelda Update v1.1.cia →"))
+            .unwrap_or_else(|| panic!("{table}"));
+        assert!(!update_row.contains("region letter"), "{table}");
         assert_eq!(table.matches("region letter").count(), 1, "{table}");
     }
 
