@@ -3491,6 +3491,29 @@
         "of": 10,
         "of_name": "Tidewalker (Rev 1) (v1.0.0)"
       }
+    },
+    {
+      "id": 13,
+      "system": 1,
+      "rel_path": "switch/Coral Drift",
+      "dir": "switch",
+      "name": "Coral Drift",
+      "ext": "nsp",
+      "size": 2000000,
+      "mtime": 1700000000,
+      "regions": [],
+      "art": {
+        "cover": "present",
+        "screenshot": "unsupported",
+        "title": "unsupported"
+      },
+      "addons": {
+        "mods": 0,
+        "cheats": 1,
+        "extras": 0,
+        "saves": 0
+      },
+      "folder_root": true
     }
   ],
   "game_details": {

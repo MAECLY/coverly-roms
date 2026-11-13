@@ -2285,7 +2285,7 @@ fn integration_views_match_the_shared_sample() {
 }
 
 /// Addon views D2: a game with every content field, an orphan linked to
-/// it and a demo of it; the plain retro entry of `library_view` keeps its
+/// it, a demo of it and a folder game that is its own game folder; the plain retro entry of `library_view` keeps its
 /// shape (no content field at all).
 #[test]
 fn game_content_entries_match_the_shared_sample() {
@@ -2382,7 +2382,24 @@ fn game_content_entries_match_the_shared_sample() {
             ..GameContent::default()
         },
     );
-    let actual = json!({ "game_content_entries": [game, orphan, demo] });
+    // A folder game that is its own game folder (Columns keeps it in place).
+    let folder = entry(
+        13,
+        "switch/Coral Drift",
+        "Coral Drift",
+        GameContent {
+            addons: Some(FolderCountsView {
+                mods: 0,
+                cheats: 1,
+                extras: 0,
+                saves: 0,
+                capped: false,
+            }),
+            folder_root: true,
+            ..GameContent::default()
+        },
+    );
+    let actual = json!({ "game_content_entries": [game, orphan, demo, folder] });
     let expected: Value =
         serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
     for (key, value) in actual.as_object().unwrap() {

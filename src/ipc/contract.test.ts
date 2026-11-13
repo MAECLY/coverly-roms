@@ -167,6 +167,7 @@ const ENTRY_CONTENT_KEYS = [
   'installed',
   'newer_elsewhere',
   'addons',
+  'folder_root',
 ] as const;
 const ENTRY_ALL_KEYS = [...ENTRY_KEYS, ...ENTRY_CONTENT_KEYS] as const;
 const CHILD_KEYS = [
