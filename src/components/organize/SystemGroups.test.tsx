@@ -1366,6 +1366,63 @@ describe('SystemGroups: child thumbnails (addon views D15)', () => {
     expect(container.querySelector('.art-placeholder')).toBeNull();
   });
 
+  const ui = (items: OrganizeItem[], planId: number | null) => (
+    <I18nProvider locale="es">
+      <SystemGroups
+        groups={groupBySystem(planOf(items))}
+        layoutName="ES-DE"
+        systemName={(id) => id}
+        planId={planId}
+      />
+    </I18nProvider>
+  );
+
+  it('a plan that closes while the list stays drops its waiting reads and icons', async () => {
+    const { pending, calls } = held();
+    const items = dlcRows(10);
+    const view = render(ui(items, 7));
+    FakeObserver.showAll();
+    await waitFor(() => expect(pending).toHaveLength(4));
+    await act(async () => pending.shift()!.resolve(PNG));
+    await waitFor(() =>
+      expect(view.container.querySelector('img')).not.toBeNull(),
+    );
+    view.rerender(ui(items, null));
+    for (const p of pending.splice(0)) await act(async () => p.resolve(PNG));
+    await act(async () => {});
+    // Only the first four ever started; the six waiting never did.
+    expect(calls).toHaveLength(5);
+    expect(view.container.querySelector('img')).toBeNull();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:1');
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it('a new plan reads its own icons and never shows the old ones', async () => {
+    const { pending, organizeChildThumb } = held();
+    const items = dlcRows(1);
+    const view = render(ui(items, 7));
+    FakeObserver.showAll();
+    await waitFor(() => expect(pending).toHaveLength(1));
+    await act(async () => pending.shift()!.resolve(PNG));
+    await waitFor(() =>
+      expect(view.container.querySelector('img')).toHaveAttribute(
+        'src',
+        'blob:1',
+      ),
+    );
+    view.rerender(ui(items, 8));
+    expect(view.container.querySelector('img')).toBeNull();
+    await waitFor(() => expect(pending).toHaveLength(1));
+    expect(organizeChildThumb).toHaveBeenLastCalledWith(8, 1);
+    await act(async () => pending.shift()!.resolve(PNG));
+    await waitFor(() =>
+      expect(view.container.querySelector('img')).toHaveAttribute(
+        'src',
+        'blob:2',
+      ),
+    );
+  });
+
   it('a base or a plain ROM reads nothing', async () => {
     const { organizeChildThumb } = held();
     renderThumbs([
