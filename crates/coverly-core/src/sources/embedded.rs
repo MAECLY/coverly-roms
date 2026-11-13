@@ -442,7 +442,8 @@ fn decode_within(
     reader.decode().map_err(drop)
 }
 
-#[cfg(test)]
+// Symlinks need unix; Windows has no test here (and no unused import).
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
@@ -450,7 +451,6 @@ mod tests {
     /// real folder inside the game: a symlinked `meta/` or `sce_sys/`
     /// pointing outside the library is never followed, not just a
     /// symlinked file.
-    #[cfg(unix)]
     #[test]
     fn read_inside_never_follows_a_linked_folder() {
         let outside = tempfile::TempDir::new().unwrap();
