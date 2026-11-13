@@ -1,15 +1,24 @@
 //! Reading, serializing and listing `Extras/extras.json` (extras spec D2–D5).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::{Component, Path};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use serde_json::{Map, Value};
 use unicode_normalization::UnicodeNormalization;
+use walkdir::WalkDir;
 
-use super::{CategoryMeta, ExtraRecord, ExtrasFile, EXTRAS_JSON};
+use super::{
+    type_of, CategoryMeta, CategoryRef, ExtraRecord, ExtrasCategory, ExtrasFile, Origin, OriginHow,
+    Provenance, EXTRAS_JSON,
+};
+use crate::scan::classify::is_skipped_entry;
+use crate::scan::ScanOptions;
+use crate::time::rfc3339_utc;
+use crate::write::{mtime_ns as write_mtime_ns, name_key};
 
 /// A larger `extras.json` is never parsed and counts as malformed (D5).
 pub const MAX_INDEX_BYTES: u64 = 8 << 20;
@@ -268,6 +277,465 @@ fn sort_value(value: Value) -> Value {
     }
 }
 
+/// Most files one listing returns (D4).
+pub const LIST_CAP: usize = 10_000;
+/// Deepest a listed file sits below `Extras/` (D4): `Category/a/b/file`.
+pub const LIST_DEPTH: usize = 4;
+
+/// How a listed file found its record (D4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Match {
+    /// The record's `path`, compared by NFC components.
+    Path,
+    /// Moved or renamed outside the app: one unclaimed file with the
+    /// record's size and mtime, or with its file name and size.
+    Moved,
+    /// No record: an implicit `user` record with `origin.how = "found"`.
+    Found,
+}
+
+/// What reading `extras.json` found, for the panel (D5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum IndexState {
+    Ok,
+    Absent,
+    Malformed {
+        bad_records: usize,
+        unreadable: Option<UnreadableKind>,
+    },
+    Newer {
+        version: u32,
+    },
+}
+
+/// One file below `Extras/`, with its reconciled record.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ListedFile {
+    /// The on-disk spelling, `/`-joined, relative to `Extras/`.
+    pub path: String,
+    pub category: CategoryRef,
+    /// The file name on disk.
+    pub name: String,
+    pub size: u64,
+    pub mtime_ns: i64,
+    /// A symlink: listed, never followed or served.
+    pub link: bool,
+    /// The matched record carried to this path, or an implicit `found` one.
+    pub record: ExtraRecord,
+    pub matched: Match,
+}
+
+/// One category folder (or the files loose in `Extras/`, [`CategoryRef::Root`]).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ListedCategory {
+    pub category: CategoryRef,
+    /// Every spelling on disk of this one category (D1), in name order.
+    pub spellings: Vec<String>,
+    /// A spelling is a symlink: listed, never entered.
+    pub link: bool,
+    pub count: usize,
+}
+
+/// `Extras/` as it is on disk, reconciled with `extras.json` in memory
+/// (D3, D4). Built without writing anything.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Listing {
+    pub index: IndexState,
+    /// Fixed categories in their order, then user ones by name, then
+    /// [`CategoryRef::Root`].
+    pub categories: Vec<ListedCategory>,
+    pub files: Vec<ListedFile>,
+    /// Records with no file («No encontrados»): never dropped.
+    pub missing: Vec<ExtraRecord>,
+    /// The walk stopped at [`LIST_CAP`] files.
+    pub capped: bool,
+    /// What was read (whole, salvaged or partial), the base of the next write.
+    pub base: Option<ExtrasFile>,
+}
+
+/// Lists `extras_dir` and reconciles its files with `extras.json` (D1, D4):
+/// regular files at most [`LIST_DEPTH`] deep, symlinks listed but never
+/// followed, hidden and junk names always skipped, and the index and its
+/// malformed-file backups at the root left out. Never writes.
+pub fn list(extras_dir: &Path) -> Listing {
+    let (index, base) = match read_index(extras_dir) {
+        IndexRead::Ok(f) => (IndexState::Ok, Some(f)),
+        IndexRead::Absent => (IndexState::Absent, None),
+        IndexRead::Malformed {
+            salvaged,
+            bad_records,
+            unreadable_kind,
+        } => (
+            IndexState::Malformed {
+                bad_records,
+                unreadable: unreadable_kind,
+            },
+            salvaged,
+        ),
+        IndexRead::Newer { version, partial } => (IndexState::Newer { version }, Some(partial)),
+    };
+    let walked = walk(extras_dir);
+    let records = base.as_ref().map_or(&[][..], |b| b.files.as_slice());
+    let (mut files, missing) = reconcile(extras_dir, walked.files, records, walked.capped);
+    let categories = categories(&walked.dirs, &files);
+    canonical_categories(&mut files, &categories);
+    Listing {
+        index,
+        categories,
+        files,
+        missing,
+        capped: walked.capped,
+        base,
+    }
+}
+
+/// A file found by the walk, before reconcile.
+struct OnDisk {
+    parts: Vec<String>,
+    size: u64,
+    mtime_ns: i64,
+    link: bool,
+}
+
+/// A direct sub-folder (or symlink to one) of `Extras/`.
+struct TopDir {
+    name: String,
+    link: bool,
+}
+
+struct Walked {
+    dirs: Vec<TopDir>,
+    files: Vec<OnDisk>,
+    capped: bool,
+}
+
+/// Whether a name is never listed: hidden whatever `include_hidden` says,
+/// AppleDouble twins, OS junk and partial downloads (D4).
+fn skipped_name(name: &str) -> bool {
+    name.starts_with('.') || is_skipped_entry(name, &ScanOptions::default())
+}
+
+/// The index and its malformed-file backups, exactly (D4, D9).
+fn is_index_name(name: &str) -> bool {
+    name == EXTRAS_JSON || (name.starts_with("extras.broken-") && name.ends_with(".json"))
+}
+
+fn walk(extras_dir: &Path) -> Walked {
+    let mut out = Walked {
+        dirs: Vec::new(),
+        files: Vec::new(),
+        capped: false,
+    };
+    if !std::fs::symlink_metadata(extras_dir).is_ok_and(|m| m.is_dir()) {
+        return out;
+    }
+    let walker = WalkDir::new(extras_dir)
+        .min_depth(1)
+        .max_depth(LIST_DEPTH)
+        .follow_links(false)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            !skipped_name(&name) && !(e.depth() == 1 && is_index_name(&name))
+        });
+    for entry in walker.flatten() {
+        let ft = entry.file_type();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // A symlink at the top is a category when it points at a folder;
+        // the target is only stat'ed, never entered.
+        let link_to_dir =
+            ft.is_symlink() && std::fs::metadata(entry.path()).is_ok_and(|m| m.is_dir());
+        if entry.depth() == 1 && (ft.is_dir() || link_to_dir) {
+            out.dirs.push(TopDir {
+                name,
+                link: ft.is_symlink(),
+            });
+            continue;
+        }
+        if !(ft.is_file() || (ft.is_symlink() && !link_to_dir)) {
+            continue;
+        }
+        if out.files.len() == LIST_CAP {
+            out.capped = true;
+            break;
+        }
+        let Ok(meta) = entry.path().symlink_metadata() else {
+            continue;
+        };
+        let Ok(rel) = entry.path().strip_prefix(extras_dir) else {
+            continue;
+        };
+        out.files.push(OnDisk {
+            parts: rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect(),
+            size: meta.len(),
+            mtime_ns: meta.modified().map_or(0, write_mtime_ns),
+            link: ft.is_symlink(),
+        });
+    }
+    out
+}
+
+/// The category of a file from its parts: a fixed or user folder, or the
+/// root for a file loose in `Extras/` (D1).
+fn category_of(parts: &[String]) -> CategoryRef {
+    match parts {
+        [_] | [] => CategoryRef::Root,
+        [first, ..] => dir_category(first),
+    }
+}
+
+fn dir_category(name: &str) -> CategoryRef {
+    ExtrasCategory::from_dir_name(name)
+        .map_or_else(|| CategoryRef::User(name.to_owned()), CategoryRef::Fixed)
+}
+
+/// A path compared by its NFC components, case kept (D4).
+fn nfc_key<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
+    parts
+        .into_iter()
+        .map(|c| c.nfc().collect::<String>())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Matches records to files in the three passes of D4. A pass only
+/// pairs a record and a file that are each other's only candidate, so
+/// identical twins never merge and two records never share one file.
+fn reconcile(
+    extras_dir: &Path,
+    disk: Vec<OnDisk>,
+    records: &[ExtraRecord],
+    capped: bool,
+) -> (Vec<ListedFile>, Vec<ExtraRecord>) {
+    let mut file_rec: Vec<Option<(usize, Match)>> = vec![None; disk.len()];
+    let mut rec_done = vec![false; records.len()];
+
+    // (1) Same path by NFC components.
+    let mut by_path: HashMap<String, usize> = HashMap::new();
+    for (i, f) in disk.iter().enumerate() {
+        by_path
+            .entry(nfc_key(f.parts.iter().map(String::as_str)))
+            .or_insert(i);
+    }
+    for (r, rec) in records.iter().enumerate() {
+        let Some(parts) = rel_components(&rec.path) else {
+            continue;
+        };
+        if let Some(&i) = by_path.get(&nfc_key(parts)) {
+            if file_rec[i].is_none() {
+                file_rec[i] = Some((r, Match::Path));
+                rec_done[r] = true;
+            }
+        }
+    }
+
+    // (2) Same size and mtime; (3) same file name and size.
+    let by_fingerprint =
+        |f: &OnDisk, rec: &ExtraRecord| !f.link && f.size == rec.size && f.mtime_ns == rec.mtime_ns;
+    let by_name = |f: &OnDisk, rec: &ExtraRecord| {
+        let name = f.parts.last().map(|n| n.nfc().collect::<String>());
+        let rec_name = rec
+            .path
+            .rsplit('/')
+            .next()
+            .map(|n| n.nfc().collect::<String>());
+        !f.link && f.size == rec.size && name.is_some() && name == rec_name
+    };
+    for pass in [
+        &by_fingerprint as &dyn Fn(&OnDisk, &ExtraRecord) -> bool,
+        &by_name,
+    ] {
+        let open_recs: Vec<usize> = (0..records.len()).filter(|&r| !rec_done[r]).collect();
+        let open_files: Vec<usize> = (0..disk.len()).filter(|&i| file_rec[i].is_none()).collect();
+        let mut pairs = Vec::new();
+        for &r in &open_recs {
+            let mut cands = open_files.iter().filter(|&&i| pass(&disk[i], &records[r]));
+            let (Some(&i), None) = (cands.next(), cands.next()) else {
+                continue;
+            };
+            let rivals = open_recs
+                .iter()
+                .filter(|&&o| pass(&disk[i], &records[o]))
+                .count();
+            if rivals == 1 {
+                pairs.push((r, i));
+            }
+        }
+        for (r, i) in pairs {
+            file_rec[i] = Some((r, Match::Moved));
+            rec_done[r] = true;
+        }
+    }
+
+    let files = disk
+        .into_iter()
+        .zip(file_rec)
+        .map(|(f, matched)| listed(f, matched.map(|(r, m)| (&records[r], m))))
+        .collect();
+    let missing = records
+        .iter()
+        .zip(rec_done)
+        .filter(|(rec, done)| !done && !(capped && past_the_cap(extras_dir, rec)))
+        .map(|(rec, _)| rec.clone())
+        .collect();
+    (files, missing)
+}
+
+/// When the walk stopped early, a record whose path still holds something
+/// was only not reached: it is not «No encontrado».
+fn past_the_cap(extras_dir: &Path, rec: &ExtraRecord) -> bool {
+    rel_components(&rec.path).is_some_and(|parts| {
+        let path = parts
+            .iter()
+            .fold(extras_dir.to_path_buf(), |p, c| p.join(c));
+        std::fs::symlink_metadata(path).is_ok()
+    })
+}
+
+fn listed(f: OnDisk, matched: Option<(&ExtraRecord, Match)>) -> ListedFile {
+    let path = f.parts.join("/");
+    let name = f.parts.last().cloned().unwrap_or_default();
+    let kind = type_of(
+        Path::new(&name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or(""),
+    );
+    let (record, matched) = match matched {
+        Some((rec, how)) => {
+            let mut rec = rec.clone();
+            rec.path.clone_from(&path);
+            rec.kind = kind;
+            rec.size = f.size;
+            rec.mtime_ns = f.mtime_ns;
+            (rec, how)
+        }
+        None => (
+            ExtraRecord {
+                path: path.clone(),
+                kind,
+                provenance: Provenance::User,
+                origin: Origin {
+                    how: OriginHow::Found,
+                    format: None,
+                    from_name: None,
+                    rip: None,
+                    rest: BTreeMap::new(),
+                },
+                tags: Vec::new(),
+                size: f.size,
+                mtime_ns: f.mtime_ns,
+                added_at: rfc3339_utc(time_of(f.mtime_ns)),
+                rest: BTreeMap::new(),
+            },
+            Match::Found,
+        ),
+    };
+    ListedFile {
+        category: category_of(&f.parts),
+        path,
+        name,
+        size: f.size,
+        mtime_ns: f.mtime_ns,
+        link: f.link,
+        record,
+        matched,
+    }
+}
+
+fn time_of(ns: i64) -> SystemTime {
+    let d = Duration::from_nanos(ns.unsigned_abs());
+    if ns >= 0 {
+        UNIX_EPOCH + d
+    } else {
+        UNIX_EPOCH - d
+    }
+}
+
+/// The categories: every top folder (spellings of one category merged by
+/// name key, D1) and the root when files sit loose in `Extras/`.
+fn categories(dirs: &[TopDir], files: &[ListedFile]) -> Vec<ListedCategory> {
+    let mut out: Vec<ListedCategory> = Vec::new();
+    for d in dirs {
+        let cat = dir_category(&d.name);
+        let key = cat_key(&cat);
+        match out.iter_mut().find(|c| cat_key(&c.category) == key) {
+            Some(c) => {
+                c.spellings.push(d.name.clone());
+                c.link |= d.link;
+            }
+            None => out.push(ListedCategory {
+                category: cat,
+                spellings: vec![d.name.clone()],
+                link: d.link,
+                count: 0,
+            }),
+        }
+    }
+    let mut root = 0;
+    for f in files {
+        if f.category == CategoryRef::Root {
+            root += 1;
+            continue;
+        }
+        let key = cat_key(&f.category);
+        if let Some(c) = out.iter_mut().find(|c| cat_key(&c.category) == key) {
+            c.count += 1;
+        }
+    }
+    out.sort_by_cached_key(|c| sort_key(&c.category));
+    if root > 0 {
+        out.push(ListedCategory {
+            category: CategoryRef::Root,
+            spellings: Vec::new(),
+            link: false,
+            count: root,
+        });
+    }
+    out
+}
+
+/// A file in a second spelling of a user category carries the category
+/// under its first spelling, as the category list does (D1).
+fn canonical_categories(files: &mut [ListedFile], cats: &[ListedCategory]) {
+    for f in files {
+        if let CategoryRef::User(_) = f.category {
+            let key = cat_key(&f.category);
+            if let Some(c) = cats.iter().find(|c| cat_key(&c.category) == key) {
+                f.category.clone_from(&c.category);
+            }
+        }
+    }
+}
+
+/// One key per category whatever its spelling (D1).
+fn cat_key(c: &CategoryRef) -> (u8, String) {
+    match c {
+        CategoryRef::Fixed(f) => (0, f.dir_name().to_owned()),
+        CategoryRef::User(n) => (1, name_key(n)),
+        CategoryRef::Root => (2, String::new()),
+    }
+}
+
+/// Fixed in their order, user by name ignoring case, root last.
+fn sort_key(c: &CategoryRef) -> (u8, usize, String) {
+    match c {
+        CategoryRef::Fixed(f) => (
+            0,
+            ExtrasCategory::ALL.iter().position(|a| a == f).unwrap_or(0),
+            String::new(),
+        ),
+        CategoryRef::User(n) => (1, 0, name_key(n)),
+        CategoryRef::Root => (2, 0, String::new()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,6 +764,47 @@ mod tests {
         // SAFETY: a valid NUL-terminated path.
         assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
         assert_eq!(open_index(&fifo).err(), Some(UnreadableKind::Io));
+    }
+
+    fn on_disk(rel: &str) -> OnDisk {
+        OnDisk {
+            parts: rel.split('/').map(str::to_owned).collect(),
+            size: 1,
+            mtime_ns: 0,
+            link: false,
+        }
+    }
+
+    /// Spellings of one category merge on any disk; the test that writes
+    /// both spellings only runs on case-sensitive disks.
+    #[test]
+    fn spellings_of_one_category_merge_and_files_carry_the_first() {
+        let dirs: Vec<TopDir> = ["Remixes", "Soundtrack", "remixes", "soundtrack"]
+            .into_iter()
+            .map(|n| TopDir {
+                name: n.into(),
+                link: false,
+            })
+            .collect();
+        let mut files: Vec<ListedFile> =
+            ["Soundtrack/a.flac", "soundtrack/b.flac", "remixes/c.flac"]
+                .into_iter()
+                .map(|r| listed(on_disk(r), None))
+                .collect();
+        let cats = categories(&dirs, &files);
+        canonical_categories(&mut files, &cats);
+        assert_eq!(cats.len(), 2);
+        assert_eq!(
+            cats[0].category,
+            CategoryRef::Fixed(ExtrasCategory::Soundtrack)
+        );
+        assert_eq!(cats[0].spellings, ["Soundtrack", "soundtrack"]);
+        assert_eq!(cats[0].count, 2);
+        assert_eq!(cats[1].category, CategoryRef::User("Remixes".into()));
+        assert_eq!(cats[1].spellings, ["Remixes", "remixes"]);
+        assert_eq!(cats[1].count, 1);
+        assert_eq!(files[2].category, CategoryRef::User("Remixes".into()));
+        assert_eq!(files[2].path, "remixes/c.flac");
     }
 
     #[test]
