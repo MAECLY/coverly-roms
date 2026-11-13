@@ -2142,14 +2142,15 @@ impl<'a> Run<'a> {
             .first()
             .and_then(|t| t.file_name())
             .and_then(|n| n.to_str())
-            .unwrap_or("");
+            .unwrap_or("")
+            .to_string();
         let target_of = |companion: &Companion| {
             companion_target(
                 &root.join(&companion.target),
                 item.kind,
                 companion.child_art,
                 planned,
-                actual,
+                &actual,
             )
         };
         // A child's art (part C D10 d) follows whole or not at all: one
