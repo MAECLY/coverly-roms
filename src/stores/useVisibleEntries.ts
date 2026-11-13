@@ -104,11 +104,15 @@ export function useVisibleEntries(): VisibleEntries {
   // The content chips work on games (D14); the panel filters and the
   // search then run on what is left, so all of them combine with AND.
   // No title list yet (3.1): «missing» compares within the library only.
+  // The orphans list shows no chips (they describe games), so a chip
+  // pressed on the games never empties it; it holds again on the way back.
   const content = filters.content;
+  const orphansScope = scope.kind === 'orphans';
   const contentPassed = useMemo(() => {
+    if (orphansScope) return scoped;
     const kept = applyGameFilters(scopedGames, { content });
     return kept === scopedGames ? scoped : kept.map((g) => g.entry);
-  }, [scopedGames, scoped, content]);
+  }, [orphansScope, scopedGames, scoped, content]);
   const systemNames = useMemo(
     () => view?.systems.map((s) => s.name) ?? [],
     [view],

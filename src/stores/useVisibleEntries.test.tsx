@@ -200,6 +200,24 @@ describe('useVisibleEntries on games (D1, D4, D13)', () => {
     expect(result.current.visible).toHaveLength(games.length);
   });
 
+  it('content chips never hide the orphans list, which has no chips (D13, D14)', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    act(() => {
+      useFilterStore.getState().toggleContent('dlc');
+      useViewStore.getState().setScope({ kind: 'orphans' });
+    });
+    expect(result.current.visible.map((e) => e.orphan)).toEqual([
+      'update',
+      'dlc',
+    ]);
+    // Back on the games, the chip still holds.
+    act(() => useViewStore.getState().setScope({ kind: 'all' }));
+    expect(result.current.visibleGames.every((g) => g.dlc.length > 0)).toBe(
+      true,
+    );
+    act(() => useFilterStore.getState().reset());
+  });
+
   it('«Le falta la última actualización» finds the game with a newer orphan', () => {
     const { result } = renderHook(() => useVisibleEntries());
     act(() => useFilterStore.getState().toggleContent('missing'));
