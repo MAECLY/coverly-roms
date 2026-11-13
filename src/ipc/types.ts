@@ -136,6 +136,9 @@ export interface GameDetailsView {
   region?: RegionVerdictView;
   /** Only when a title list answered. */
   latest?: LatestView;
+  /** With `latest`: whether the library holds that version (Rust
+   * `version_order`); left out when nothing can be claimed. */
+  latest_installed?: boolean;
   children: ChildDetailView[];
 }
 

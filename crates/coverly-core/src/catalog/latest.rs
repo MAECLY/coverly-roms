@@ -183,6 +183,16 @@ pub fn version_facts<'a>(
     }
 }
 
+/// D6 with a title list: whether the library already holds the newest
+/// version the list knows. `Some(true)` when `installed` is that version or
+/// newer, `Some(false)` when it is older, `None` (nothing claimed) when the
+/// library holds no known version or either side does not parse.
+pub fn has_latest(system: &str, installed: Option<&str>, latest: &str) -> Option<bool> {
+    let have = order(system, installed?)?;
+    let known = order(system, latest)?;
+    Some(have >= known)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,6 +231,19 @@ mod tests {
         assert_eq!(version_in_name("Game (v1.)"), None);
         assert_eq!(version_in_name("Game v1.05 (Europe)"), None);
         assert_eq!(version_in_name(""), None);
+    }
+
+    #[test]
+    fn has_latest_compares_by_version_order() {
+        assert_eq!(has_latest("switch", Some("1.3.0"), "1.3.0"), Some(true));
+        assert_eq!(has_latest("switch", Some("1.0.2"), "1.3.0"), Some(false));
+        assert_eq!(has_latest("switch", Some("1.4"), "v1.3"), Some(true));
+        // 1.05 == 1.5: the library has it
+        assert_eq!(has_latest("ps4", Some("1.5"), "1.05"), Some(true));
+        assert_eq!(has_latest("xbox360", Some("9"), "A"), Some(false));
+        assert_eq!(has_latest("switch", None, "1.3.0"), None);
+        assert_eq!(has_latest("switch", Some("beta"), "1.3.0"), None);
+        assert_eq!(has_latest("switch", Some("1.0"), "x"), None);
     }
 
     #[test]

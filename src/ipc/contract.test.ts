@@ -186,6 +186,7 @@ const GAME_DETAILS_KEYS = [
   'product_code',
   'region',
   'latest',
+  'latest_installed',
   'children',
 ] as const;
 const REGION_VERDICT_KEYS = [

@@ -22,7 +22,9 @@ use coverly_core::identify::names::parse_name;
 use coverly_core::organize::{count_library_loose_roms, DEFAULT_LAYOUT};
 use coverly_core::profiles::custom::{find_profile, ProfileFile};
 use coverly_core::profiles::{detect_with_fallback, fit_to_root, Media, Profile};
-use coverly_core::scan::{scan_library_with_progress, RomEntry, ScanOptions, ScanProgress};
+use coverly_core::scan::{
+    scan_library_with_progress, ChildEntry, RomEntry, ScanOptions, ScanProgress,
+};
 use coverly_core::settings::Settings;
 use coverly_core::systems::SystemDb;
 
@@ -429,6 +431,31 @@ fn game_contents(
         .collect()
 }
 
+/// The name a child shows: its stem without the art suffixes.
+fn child_name(child: &ChildEntry) -> String {
+    child_stem(&child.path).unwrap_or_else(|| {
+        child
+            .path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    })
+}
+
+/// D5 for one game: the newest version its own folder holds (the same
+/// facts `game_contents` sends as `installed`, without the orphans).
+pub(crate) fn installed_of(system_id: &str, rom: &RomEntry) -> Option<String> {
+    let updates: Vec<Option<String>> = rom
+        .children
+        .iter()
+        .filter(|c| c.role == ChildRole::Update)
+        .map(|c| version_in_name(&child_name(c)))
+        .collect();
+    let updates: Vec<Option<&str>> = updates.iter().map(Option::as_deref).collect();
+    let base = version_in_name(rom.title_stem());
+    version_facts(system_id, base.as_deref(), &updates, &[]).installed
+}
+
 /// The children of a game, newest version first by `version_order`
 /// (a child without a version, or whose version does not parse, after
 /// every versioned one), then by name.
@@ -438,13 +465,7 @@ fn child_views(root: &Path, system_id: &str, rom: &RomEntry) -> Vec<ChildView> {
         .iter()
         .enumerate()
         .map(|(index, child)| {
-            let name = child_stem(&child.path).unwrap_or_else(|| {
-                child
-                    .path
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-            });
+            let name = child_name(child);
             let version = version_in_name(&name);
             let order = version.as_deref().and_then(|v| version_order(system_id, v));
             let view = ChildView {

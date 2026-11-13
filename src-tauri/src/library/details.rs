@@ -17,7 +17,7 @@ use std::path::Path;
 use std::time::UNIX_EPOCH;
 
 use coverly_core::cache::Cache;
-use coverly_core::catalog::latest::{LatestKnown, LatestVersions};
+use coverly_core::catalog::latest::{has_latest, LatestKnown, LatestVersions};
 use coverly_core::consoles::ctr_region::{ctr_region, Certainty};
 use coverly_core::consoles::{base_title_id, is_key_material, ConsoleId, TitleKind};
 use coverly_core::identify::names::Region;
@@ -26,7 +26,7 @@ use coverly_core::sources::embedded::console_on_disk;
 use serde::Serialize;
 
 use super::art::inside_root;
-use super::Session;
+use super::{installed_of, Session};
 use crate::error::IpcError;
 
 /// The 3DS region verdict of a product code, as the panel shows it
@@ -74,6 +74,10 @@ pub struct GameDetailsView {
     /// Only when a title list answered (never invented, D6).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest: Option<LatestKnown>,
+    /// With `latest`: whether the library already holds that version
+    /// (`version_order`, D5); left out when nothing can be claimed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_installed: Option<bool>,
     /// One per child, in `RomEntry.children` order.
     pub children: Vec<ChildDetailView>,
 }
@@ -108,6 +112,13 @@ pub fn game_details(
             entry.system_id.as_str()
         };
         view.latest = base_title_id(&console).and_then(|tid| latest.latest(system, &tid));
+        view.latest_installed = view.latest.as_ref().and_then(|known| {
+            has_latest(
+                system,
+                installed_of(system, &entry.rom).as_deref(),
+                &known.version,
+            )
+        });
     }
     view.children = entry
         .rom
@@ -264,6 +275,45 @@ mod tests {
             serde_json::to_value(&view).unwrap()["latest"],
             serde_json::json!({ "version": "1.3.0", "source": "title-db" })
         );
+    }
+
+    /// With a title list, Rust says whether the library holds its newest
+    /// version (one ordering, D5); nothing is claimed without a version.
+    #[test]
+    fn game_details_says_whether_the_latest_is_installed() {
+        let lib = TempDir::new().unwrap();
+        let head = ct::ncsd("CTR-P-AXXE", TID, true).head_bytes();
+        put(lib.path(), "ROMS/3DS/Kite Days (v1.3.0).3ds", &head);
+        put(lib.path(), "ROMS/3DS/Moss Garden (v1.0).3ds", &head);
+        put(lib.path(), "ROMS/3DS/Paper Skies.3ds", &head);
+        let session = open(lib.path());
+
+        let at =
+            |stem: &str| game_details(&session, id_of(&session, stem), 1, &Knows, None).unwrap();
+        let has = at("Kite Days (v1.3.0)");
+        assert_eq!(has.latest_installed, Some(true));
+        assert_eq!(
+            serde_json::to_value(&has).unwrap()["latest_installed"],
+            serde_json::json!(true)
+        );
+        assert_eq!(at("Moss Garden (v1.0)").latest_installed, Some(false));
+        let none = at("Paper Skies");
+        assert!(none.latest.is_some());
+        assert_eq!(none.latest_installed, None);
+        assert!(serde_json::to_value(&none)
+            .unwrap()
+            .get("latest_installed")
+            .is_none());
+
+        let quiet = game_details(
+            &session,
+            id_of(&session, "Kite Days (v1.3.0)"),
+            2,
+            &NoTitleList,
+            None,
+        )
+        .unwrap();
+        assert_eq!((quiet.latest, quiet.latest_installed), (None, None));
     }
 
     type DetailsFn = fn(

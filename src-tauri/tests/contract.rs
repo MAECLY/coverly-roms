@@ -2439,6 +2439,7 @@ fn game_panel_answers_match_the_shared_sample() {
             version: "1.3.0".into(),
             source: LatestSource::TitleDb,
         }),
+        latest_installed: Some(false),
         children: vec![
             ChildDetailView {
                 index: 0,
