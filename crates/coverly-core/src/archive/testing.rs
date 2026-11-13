@@ -1541,18 +1541,27 @@ pub fn fake_script_path(exe: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// The built `coverly-fake-tool` binary: `COVERLY_FAKE_TOOL_BIN` when set,
-/// else next to the running test's `deps` directory (where Cargo puts the
-/// package's binaries).
+/// else the nearest one above the running test. Cargo puts the package's
+/// binaries in the profile directory; the test itself sits in `deps` (older
+/// layouts) or deeper under `build/<package>/<hash>/out` (the build-dir
+/// layout of Cargo 1.100), so every ancestor is tried in turn.
 pub fn fake_tool_binary() -> std::path::PathBuf {
     if let Some(bin) = std::env::var_os("COVERLY_FAKE_TOOL_BIN") {
         return bin.into();
     }
+    let name = format!("coverly-fake-tool{}", std::env::consts::EXE_SUFFIX);
     let exe = std::env::current_exe().expect("current exe");
-    let mut dir = exe.parent().expect("exe dir").to_path_buf();
-    if dir.ends_with("deps") {
-        dir.pop();
-    }
-    dir.join(format!("coverly-fake-tool{}", std::env::consts::EXE_SUFFIX))
+    let dir = exe.parent().expect("exe dir");
+    dir.ancestors()
+        .map(|d| d.join(&name))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| {
+            let mut d = dir.to_path_buf();
+            if d.ends_with("deps") {
+                d.pop();
+            }
+            d.join(&name)
+        })
 }
 
 /// Copies the fake tool into `dir` as `name` (`7zz`, `unrar`, `bsdtar`…;
