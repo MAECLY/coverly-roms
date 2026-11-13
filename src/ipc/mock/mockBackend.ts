@@ -5,6 +5,8 @@
 import type { Backend } from '../backend';
 import { BackendError } from '../errors';
 import type {
+  ChildMedia,
+  ChildView,
   EmulatorId,
   EntryView,
   FoundTool,
@@ -14,6 +16,14 @@ import type {
   RecentLibrary,
   ScanProgress,
 } from '../types';
+import {
+  addonDetails,
+  addonViewsHuge,
+  addonViewsLibrary,
+  MOCK_ADDONS,
+  MOCK_ADDONS_HUGE,
+  MOCK_REVISIONS_KEY,
+} from './addonViewsFixture';
 import { FIXTURE_SYSTEMS, generateLibrary } from './fixture';
 import { createMockDedupe, type MockDedupeScenario } from './mockDedupe';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
@@ -45,6 +55,11 @@ export { escapeXml } from './svg';
 export { readMockExtract } from './mockOrganize';
 export type { MockExport } from './mockJobs';
 export type { MockDedupeScenario } from './mockDedupe';
+export {
+  MOCK_ADDONS,
+  MOCK_ADDONS_HUGE,
+  MOCK_REVISIONS_KEY,
+} from './addonViewsFixture';
 export {
   MOCK_DOWNLOADS,
   MOCK_MIXED,
@@ -132,6 +147,25 @@ export function mockArtSvg(e: EntryView, media: Media): string {
     `<rect width="100%" height="100%" fill="hsl(${hue} 55% 42%)"/>` +
     `<text x="50%" y="50%" fill="#fff" font-family="system-ui" font-size="16" text-anchor="middle">${label}</text>` +
     `<text x="50%" y="${h - 16}" fill="#fff" opacity=".7" font-family="system-ui" font-size="12" text-anchor="middle">${media}</text>` +
+    `</svg>`
+  );
+}
+
+/** A child's icon (square) or banner (wide) read from its package. */
+export function mockChildArtSvg(
+  e: EntryView,
+  child: ChildView,
+  slot: ChildMedia,
+): string {
+  const hue = (e.id * 47 + child.index * 71) % 360;
+  const [w, h] = slot === 'icon' ? [256, 256] : [320, 120];
+  const label = escapeXml(
+    child.name.length > 32 ? `${child.name.slice(0, 31)}…` : child.name,
+  );
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
+    `<rect width="100%" height="100%" fill="hsl(${hue} 45% 38%)"/>` +
+    `<text x="50%" y="50%" fill="#fff" font-family="system-ui" font-size="13" text-anchor="middle">${label}</text>` +
     `</svg>`
   );
 }
@@ -579,8 +613,9 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const revealed: number[] = [];
   let generation = 0;
   let current: LibraryView | null = null;
+  const storage = opts.storage === undefined ? defaultStorage() : opts.storage;
   const settings = createMockSettings({
-    storage: opts.storage === undefined ? defaultStorage() : opts.storage,
+    storage,
     builtins: [...MOCK_BUILTIN_PROFILES],
     ...(opts.externalTools ? { externalTools: opts.externalTools } : {}),
     catalogMs: delayMs > 0 ? 2000 : 0,
@@ -686,8 +721,35 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     },
   ];
 
-  /** Revision defaults chosen per library root (part C D7). */
-  const revisionChoices = new Map<string, Record<string, string>>();
+  /** Revision defaults chosen per library root (part C D7), kept in
+   * `MOCK_REVISIONS_KEY` so a choice survives a reload, as Rust keeps them
+   * in the settings. */
+  const loadRevisionChoices = (): Map<string, Record<string, string>> => {
+    try {
+      const raw = storage?.getItem(MOCK_REVISIONS_KEY);
+      const parsed: unknown = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return new Map(
+          Object.entries(parsed as Record<string, Record<string, string>>),
+        );
+      }
+    } catch {
+      /* unreadable or blocked storage: memory only */
+    }
+    return new Map();
+  };
+  const revisionChoices = loadRevisionChoices();
+  const saveRevisionChoices = () => {
+    try {
+      storage?.setItem(
+        MOCK_REVISIONS_KEY,
+        JSON.stringify(Object.fromEntries(revisionChoices)),
+      );
+    } catch {
+      /* memory only */
+    }
+  };
+  let childArtJobs = 0;
 
   const entryOf = (gen: number, id: number): EntryView => {
     if (!current) throw new BackendError('no-library');
@@ -743,7 +805,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       emit({ done: 0, total: 0, folder: '', roms: 0 });
       const lib = MOCK_LIBRARIES.find((l) => l.path === path);
       // A pile organised by the mock opens with its layout; a loose one is `no-profile`.
-      const view = lib
+      const scanned = lib
         ? generateLibrary({
             seed: lib.seed,
             count: lib.count,
@@ -751,8 +813,18 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
             generation: gen,
             now,
           })
-        : organize.library(path, gen);
-      if (!view) throw new BackendError('not-found', path);
+        : path === MOCK_ADDONS
+          ? addonViewsLibrary(gen, now)
+          : path === MOCK_ADDONS_HUGE
+            ? addonViewsHuge(gen, now)
+            : organize.library(path, gen);
+      if (!scanned) throw new BackendError('not-found', path);
+      // Like Rust: the revision defaults saved for this root.
+      const chosen = revisionChoices.get(scanned.root);
+      const view: LibraryView =
+        chosen && Object.keys(chosen).length > 0
+          ? { ...scanned, revision_defaults: { ...chosen } }
+          : scanned;
       let roms = 0;
       for (const [i, s] of view.systems.entries()) {
         await sleep(delayMs);
@@ -853,15 +925,12 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       entryOf(gen, id);
       revealed.push(id);
     },
-    // Part C: the panel's commands. The add-ons mock library (Task 13)
-    // gives them richer answers; these keep Rust's checks and shapes.
+    // Part C: the panel's commands, with Rust's checks and shapes; the
+    // add-ons mock library (`?mockPick=addons`) gives them header facts.
     async gameDetails(gen, id, request) {
       const e = entryOf(gen, id);
       await sleep(delayMs);
-      return {
-        request,
-        children: (e.children ?? []).map((c) => ({ index: c.index })),
-      };
+      return addonDetails(e, request);
     },
     async setDefaultRevision(gen, id) {
       const e = entryOf(gen, id);
@@ -884,17 +953,53 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
         [group]: e.rel_path,
       };
       revisionChoices.set(root, choices);
+      saveRevisionChoices();
       return { ...choices };
     },
+    // «Leer el arte incluido»: an empty icon slot gets the package's icon;
+    // a taken one is «exists»; Switch packages are encrypted, so nothing.
     async readChildArt(gen, id) {
       const e = entryOf(gen, id);
-      return { written: 0, skipped: [], children: e.children ?? [] };
+      const system = current!.systems[e.system]?.system_id;
+      const skipped: { index: number; why: 'exists' | 'no-art-in-clear' }[] =
+        [];
+      let written = 0;
+      const children = (e.children ?? []).map((c): ChildView => {
+        if (system === 'switch') {
+          skipped.push({ index: c.index, why: 'no-art-in-clear' });
+          return c;
+        }
+        if (c.art.icon) {
+          skipped.push({ index: c.index, why: 'exists' });
+          return c;
+        }
+        written += 1;
+        return { ...c, art: { ...c.art, icon: true, icon_origin: 'package' } };
+      });
+      if (written === 0) return { written, skipped, children };
+      childArtJobs += 1;
+      current = {
+        ...current!,
+        entries: current!.entries.map((x) =>
+          x.id === id ? { ...x, children } : x,
+        ),
+      };
+      return {
+        job: `mock-child-art-${childArtJobs}`,
+        written,
+        skipped,
+        children,
+      };
     },
     async readChildArtBytes(gen, id, childIndex, slot) {
       const e = entryOf(gen, id);
       const child = e.children?.find((c) => c.index === childIndex);
       if (!child) throw new BackendError('unknown-child', String(childIndex));
-      throw new BackendError('art-missing', slot);
+      if (!child.art[slot]) throw new BackendError('art-missing', slot);
+      return {
+        bytes: new TextEncoder().encode(mockChildArtSvg(e, child, slot)),
+        mime: 'image/svg+xml',
+      };
     },
     pickFolder: () =>
       Promise.resolve(opts.folder ?? readMockPick() ?? MOCK_LIBRARIES[0].path),
