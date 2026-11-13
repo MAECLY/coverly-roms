@@ -1,0 +1,64 @@
+{
+  "categories": {
+    "Manuals": {
+      "sync": false
+    },
+    "Remixes": {
+      "sync": null
+    },
+    "Soundtrack": {
+      "sync": null
+    }
+  },
+  "files": [
+    {
+      "added_at": "2026-11-13T10:00:00Z",
+      "mtime_ns": 1700000000000000000,
+      "origin": {
+        "how": "added"
+      },
+      "path": "Artwork/Box front.png",
+      "provenance": "user",
+      "rating": 5,
+      "size": 2048,
+      "tags": [],
+      "type": "image"
+    },
+    {
+      "added_at": "2026-11-13T10:01:00Z",
+      "mtime_ns": 1700000000000000000,
+      "origin": {
+        "format": "spc",
+        "from_name": "smetroid-01.spc",
+        "how": "organize",
+        "rip": {
+          "artist": "Kenji Yamamoto",
+          "game": "Super Metroid",
+          "title": "Opening"
+        }
+      },
+      "path": "Soundtrack/01 Opening.spc",
+      "provenance": "user",
+      "size": 66048,
+      "tags": ["tema del jefe final", "versión orquestal"],
+      "type": "audio"
+    },
+    {
+      "added_at": "2026-11-13T10:02:00Z",
+      "mtime_ns": 0,
+      "origin": {
+        "format": "ps3-p3t",
+        "how": "organize"
+      },
+      "path": "Themes/Theme.p3t",
+      "provenance": "official",
+      "size": 4096,
+      "tags": [],
+      "type": "other"
+    }
+  ],
+  "future": {
+    "kept": true
+  },
+  "version": 1
+}
