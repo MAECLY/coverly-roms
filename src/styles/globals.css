@@ -1694,6 +1694,29 @@ time {
   font: var(--cr-type-app-base);
 }
 
+/* Phone widths: the 280px facts pane would push the page sideways, so it
+   goes under the filmstrip at the full width and the stage keeps the rest. */
+@media (max-width: 40rem) {
+  .gallery,
+  .gallery--content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(16rem, 1fr) 88px auto;
+    overflow-y: auto;
+  }
+
+  .gallery--content {
+    grid-template-rows: minmax(16rem, 1fr) 104px auto;
+  }
+
+  .gallery__meta {
+    grid-column: 1;
+    grid-row: 3;
+    overflow-y: visible;
+    border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+    border-left: 0;
+  }
+}
+
 /* The add-on tray (addon views §8.3): under the big cover, each update
    with its own art and every DLC at 48px, captioned. Each is a button that
    opens the panel at that child. */
