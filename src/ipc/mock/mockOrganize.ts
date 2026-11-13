@@ -1717,6 +1717,29 @@ function addedFile(name: string): PileFile {
     : { name, size: 32_768, left: { kind: 'unknown' } };
 }
 
+/** Systems whose updates and DLC carry an icon in the clear (part C
+ * D11): not Switch, whose NCAs are encrypted. */
+const THUMB_SYSTEMS: ReadonlySet<string> = new Set([
+  '3ds',
+  'ps3',
+  'ps4',
+  'ps5',
+  'psvita',
+  'wiiu',
+  'xbox360',
+]);
+
+/** A child's 256 px icon as the mock reads it from its package. */
+function childThumbSvg(itemId: number): string {
+  const hue = (itemId * 71 + 23) % 360;
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">` +
+    `<rect width="100%" height="100%" fill="hsl(${hue} 45% 38%)"/>` +
+    `<circle cx="128" cy="128" r="72" fill="hsl(${(hue + 180) % 360} 50% 62%)"/>` +
+    `</svg>`
+  );
+}
+
 type OrganizeApi = Pick<
   Backend,
   | 'probeFolder'
@@ -1727,6 +1750,7 @@ type OrganizeApi = Pick<
   | 'organizeCancelApply'
   | 'organizeUndo'
   | 'organizeExportPlan'
+  | 'organizeChildThumb'
   | 'onOrganizeProgress'
   | 'onOrganizeChanged'
 > & {
@@ -3422,6 +3446,21 @@ export function createMockOrganize(
         text: JSON.stringify(plan, null, 2),
       });
       return MOCK_PLAN_EXPORT;
+    },
+    async organizeChildThumb(planId, itemId) {
+      const { plan } = planOf(stored(planId), []);
+      const item = plan.items.find((i) => i.id === itemId);
+      if (!item) throw new BackendError('unknown-entry', String(itemId));
+      const role = item.game?.role;
+      const child = role === 'update' || role === 'dlc' || role === 'demo';
+      // Like Rust: only a child, and only a package with art in the clear
+      // (a Switch NCA is encrypted, so it has none).
+      if (!child || !THUMB_SYSTEMS.has(item.system_id ?? ''))
+        throw new BackendError('art-missing', 'icon');
+      return {
+        bytes: new TextEncoder().encode(childThumbSvg(itemId)),
+        mime: 'image/svg+xml',
+      };
     },
     onOrganizeProgress: (cb) => listen(progress, cb),
     onOrganizeChanged: (cb) => listen(changed, cb),

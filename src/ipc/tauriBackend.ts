@@ -229,6 +229,8 @@ export function createTauriBackend(): Backend {
       ),
     organizeExportPlan: (planId) =>
       call<string | null>('organize_export_plan', { planId }),
+    organizeChildThumb: (planId, itemId) =>
+      image('organize_child_thumb', { planId, itemId }),
     onOrganizeProgress: (cb) =>
       listen<OrganizeProgressEvent>(ORGANIZE_PROGRESS_EVENT, (e) =>
         cb(e.payload),

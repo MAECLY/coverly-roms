@@ -1,5 +1,14 @@
 import { Archive, ChevronRight, Folder } from 'lucide-react';
-import { useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 
 import { SystemIcon } from '@/components/system/SystemIcon';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +22,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { NativeSelect } from '@/components/ui/select';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
+import { getBackend } from '@/ipc/backend';
 import type {
   EmulatorChoice,
   EmulatorId,
@@ -22,6 +32,7 @@ import type {
   TransferMode,
   TranslatedGameView,
 } from '@/ipc/types';
+import { createChildThumbs, type ChildThumbs } from '@/lib/childThumbs';
 import { formatDecimalSize } from '@/lib/format';
 import {
   ROWS_PER_GROUP,
@@ -86,6 +97,10 @@ interface Props {
   onEmulator?(system: string, choice: EmulatorChoice | null): void;
   /** The plan's games laid out for their system's emulator. */
   translated?: readonly TranslatedGameView[];
+  /** The plan the rows belong to: its updates, DLC and demos show the
+   * icon their package carries in the clear (addon views D15). No plan,
+   * no thumbnails. */
+  planId?: number | null;
 }
 
 interface RowProps {
@@ -103,26 +118,53 @@ interface RowProps {
 
 const NONE: ReadonlySet<number> = new Set();
 
+/** The plan's child icons, shared by every row (D15). */
+const ThumbsContext = createContext<ChildThumbs | null>(null);
+
+/** One read queue per plan, closed when the plan goes away. */
+function usePlanThumbs(planId: number | null | undefined): ChildThumbs | null {
+  const thumbs = useMemo(
+    () =>
+      planId == null
+        ? null
+        : createChildThumbs(async (itemId) =>
+            (await getBackend()).organizeChildThumb(planId, itemId),
+          ),
+    [planId],
+  );
+  useEffect(() => () => thumbs?.close(), [thumbs]);
+  return thumbs;
+}
+
 /** The items that move, one collapsible per system folder (spec §4.2.3). */
-export function SystemGroups({ groups, emulators, onEmulator, ...row }: Props) {
+export function SystemGroups({
+  groups,
+  emulators,
+  onEmulator,
+  planId,
+  ...row
+}: Props) {
   const total = groups.reduce((n, g) => n + g.items.length, 0);
   // Large piles start closed so thousands of rows never reach the DOM at once.
   const startOpen = total <= ROWS_PER_GROUP;
+  const thumbs = usePlanThumbs(planId);
   return (
-    <div className="flex flex-col gap-2">
-      {/* The folder is a stable key: a re-plan after an emulator change
+    <ThumbsContext.Provider value={thumbs}>
+      <div className="flex flex-col gap-2">
+        {/* The folder is a stable key: a re-plan after an emulator change
           keeps the group, and the select its focus (§9.1). */}
-      {groups.map((g) => (
-        <Group
-          key={g.folder}
-          group={g}
-          startOpen={startOpen}
-          chosen={emulators?.[g.systemId] ?? null}
-          {...(onEmulator && { onEmulator })}
-          {...row}
-        />
-      ))}
-    </div>
+        {groups.map((g) => (
+          <Group
+            key={g.folder}
+            group={g}
+            startOpen={startOpen}
+            chosen={emulators?.[g.systemId] ?? null}
+            {...(onEmulator && { onEmulator })}
+            {...row}
+          />
+        ))}
+      </div>
+    </ThumbsContext.Provider>
   );
 }
 
@@ -274,9 +316,13 @@ function Row({
   const short = childTarget(item);
   // Its emulator's layout, also for a base without a game folder.
   const view = translatedFor(translated, item.id);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const role = item.game?.role;
+  const child = role === 'update' || role === 'dlc' || role === 'demo';
   return (
-    <li className={fresh ? `${fileRow} ${newRow}` : fileRow}>
+    <li ref={rowRef} className={fresh ? `${fileRow} ${newRow}` : fileRow}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {child && <RowThumb itemId={item.id} rowRef={rowRef} />}
         <span className="grid min-w-0 flex-[1_1_16rem] gap-0.5">
           <ItemName
             item={item}
@@ -353,6 +399,70 @@ function Row({
         notes={notes.detail}
       />
     </li>
+  );
+}
+
+/** Whether `ref` has come into view once; with no observer (an old
+ * engine), at once. */
+function useSeen(ref: RefObject<Element | null>, enabled: boolean): boolean {
+  const [seen, setSeen] = useState(false);
+  const noObserver = typeof IntersectionObserver === 'undefined';
+  useEffect(() => {
+    const el = ref.current;
+    if (!enabled || seen || noObserver || !el) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        setSeen(true);
+        io.disconnect();
+      }
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ref, enabled, seen, noObserver]);
+  return seen || (enabled && noObserver);
+}
+
+/**
+ * The 24 px icon an update, DLC or demo carries in the clear (addon views
+ * D15), read from its source file once its row is in view. Decorative:
+ * the row's name says what it is. None → nothing at all, no placeholder.
+ */
+function RowThumb({
+  itemId,
+  rowRef,
+}: {
+  itemId: number;
+  rowRef: RefObject<HTMLLIElement | null>;
+}) {
+  const thumbs = useContext(ThumbsContext);
+  const seen = useSeen(rowRef, thumbs !== null);
+  const [icon, setIcon] = useState<{
+    thumbs: ChildThumbs;
+    url: string | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!seen || !thumbs) return;
+    let alive = true;
+    void thumbs.get(itemId).then((url) => {
+      if (alive) setIcon({ thumbs, url });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [seen, thumbs, itemId]);
+  // An icon of an earlier plan is not shown (its URL is revoked).
+  const url = icon?.thumbs === thumbs ? icon.url : null;
+  if (!url) return null;
+  return (
+    <span aria-hidden="true" className="child-thumb child-thumb--24">
+      <img
+        src={url}
+        alt=""
+        draggable={false}
+        decoding="async"
+        className="child-thumb__img"
+      />
+    </span>
   );
 }
 

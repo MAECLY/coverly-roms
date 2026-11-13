@@ -192,3 +192,28 @@ describe('mock game folders pile (spec §9.3)', () => {
     });
   });
 });
+
+describe('mock child icons for Organizar (addon views D15)', () => {
+  it('serves a child’s icon by plan and item id, none for a base or Switch', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_GAMEFOLDERS,
+      layout: 'coverly-library',
+    });
+    const dlc = by(plan, 'Pokemon Y - Extra Pack (USA).cia');
+    const icon = await b.organizeChildThumb(plan_id, dlc.id);
+    expect(icon.mime).toBe('image/svg+xml');
+    await expect(
+      b.organizeChildThumb(plan_id, by(plan, 'Pokemon Y.cia').id),
+    ).rejects.toMatchObject({ code: 'art-missing' });
+    const switchDlc = plan.items.find(
+      (i) => i.system_id === 'switch' && i.game?.role === 'dlc',
+    )!;
+    await expect(
+      b.organizeChildThumb(plan_id, switchDlc.id),
+    ).rejects.toMatchObject({ code: 'art-missing' });
+    await expect(b.organizeChildThumb(plan_id, 9999)).rejects.toMatchObject({
+      code: 'unknown-entry',
+    });
+  });
+});

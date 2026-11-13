@@ -186,6 +186,11 @@ export interface Backend {
   organizeUndo(job: string, includeLater: boolean): Promise<OrganizeUndoView>;
   /** Saves plan `planId` as JSON through a native dialog; null when cancelled. */
   organizeExportPlan(planId: number): Promise<string | null>;
+  /** The icon a pile's update, DLC or demo carries in the clear, read
+   * from its source file for its row (addon views D15); by plan and item
+   * id, never a path. Nothing is written; rejects with `art-missing` when
+   * the package has none in the clear. */
+  organizeChildThumb(planId: number, itemId: number): Promise<ArtImage>;
   onOrganizeProgress(
     cb: (e: OrganizeProgressEvent) => void,
   ): Promise<() => void>;

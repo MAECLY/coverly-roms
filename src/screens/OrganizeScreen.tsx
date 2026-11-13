@@ -644,6 +644,8 @@ function Proposal({
 }: ProposalProps) {
   const t = useT();
   const tr = useRichT();
+  // The rows' child icons are read for this plan only (D15).
+  const planId = useOrganizeStore((s) => s.planId);
   const locale = useContext(LocaleContext);
   const groups = useMemo(() => groupBySystem(plan), [plan]);
   const licenceStays = useMemo(() => licencesStaying(plan), [plan]);
@@ -758,6 +760,7 @@ function Proposal({
       ) : (
         <SystemGroups
           groups={groups}
+          planId={planId}
           layoutName={profileName(plan.layout)}
           mode={plan.mode}
           profile={layoutProfile}

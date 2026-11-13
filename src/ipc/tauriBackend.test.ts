@@ -96,6 +96,19 @@ describe('Tauri backend', () => {
     ]);
   });
 
+  it('reads an Organizar child icon by plan and item id (D15)', async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((cmd, args) => {
+      calls.push([cmd, args]);
+      return PNG.buffer;
+    });
+    const icon = await createTauriBackend().organizeChildThumb(4, 12);
+    expect(icon.mime).toBe('image/png');
+    expect(calls).toEqual([
+      ['organize_child_thumb', { planId: 4, itemId: 12 }],
+    ]);
+  });
+
   it('refuses child art that is not an image', async () => {
     mockIPC(() => new TextEncoder().encode('<svg/>').buffer);
     await expect(
