@@ -278,7 +278,10 @@ export function ViewOptions() {
                   setSort({ key: e.target.value as SortKey, dir: sort.dir })
                 }
               >
-                {SORT_KEYS.map((k) => (
+                {(SORT_KEYS.includes(sort.key)
+                  ? SORT_KEYS
+                  : [...SORT_KEYS, sort.key]
+                ).map((k) => (
                   <option key={k} value={k}>
                     {t(SORT_LABEL[k])}
                   </option>
