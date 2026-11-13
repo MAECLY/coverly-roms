@@ -1,5 +1,5 @@
 import { FolderOpen, X } from 'lucide-react';
-import { useContext, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 
 import { SystemLabel } from '@/components/system/SystemLabel';
 import { Alert } from '@/components/ui/alert';
@@ -9,16 +9,29 @@ import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
-import type { EntryView, LibraryView, Media } from '@/ipc/types';
+import type {
+  EntryView,
+  GameDetailsView,
+  LibraryView,
+  Media,
+} from '@/ipc/types';
 import { formatDate, formatSize } from '@/lib/format';
+import type { Game } from '@/lib/games';
 import { revealLabelKey } from '@/lib/reveal';
 import {
   identityKey,
   useIdentityStore,
   type IdentityState,
 } from '@/stores/identityStore';
+import { useLibraryStore } from '@/stores/libraryStore';
+import { useSelectionStore } from '@/stores/selectionStore';
+import { useViewStore } from '@/stores/viewStore';
 
 import { ArtWorkspace } from './ArtWorkspace';
+import { RegionLine } from './game/RegionLine';
+import { RevisionsSection } from './game/RevisionsSection';
+import { hasVersionFacts } from './game/versionFacts';
+import { VersionSection } from './game/VersionSection';
 import { Tip } from './Tip';
 import { usePanelSection } from './usePanelSection';
 
@@ -106,6 +119,42 @@ function IdentityBlock({
   );
 }
 
+let detailsSeq = 0;
+
+/**
+ * The game panel's lazy, offline facts (part C D3) for the selected entry.
+ * Each request carries its own id and only the answer to the latest one is
+ * kept: a slow answer for a game the user already left is dropped. A
+ * failure leaves no facts (the panel then shows none of them).
+ */
+function useGameDetails(
+  generation: number,
+  entryId: number,
+): GameDetailsView | null {
+  const [state, setState] = useState<{
+    key: string;
+    details: GameDetailsView | null;
+  } | null>(null);
+  const key = `${generation}:${entryId}`;
+  useEffect(() => {
+    const request = (detailsSeq += 1);
+    let live = true;
+    void (async () => {
+      try {
+        const backend = await getBackend();
+        const details = await backend.gameDetails(generation, entryId, request);
+        if (live && details.request === request) setState({ key, details });
+      } catch {
+        if (live) setState({ key, details: null });
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [generation, entryId, key]);
+  return state?.key === key ? state.details : null;
+}
+
 /**
  * The details of one entry, in a pane on the right. Opened with Enter or a
  * click; `docked` (the Inspector switch, ⌘I) keeps it open and following the
@@ -115,12 +164,16 @@ function IdentityBlock({
 export function DetailDrawer({
   view,
   entry,
+  game,
   docked = false,
   workspaceMedia = null,
   onClose,
 }: {
   view: LibraryView;
   entry: EntryView;
+  /** The game the entry stands for (addon views D1): its updates, DLC and
+   * revisions. Absent, the panel shows the entry alone. */
+  game?: Game | undefined;
   docked?: boolean;
   /** Open the art workspace on this slot (Art slots view). */
   workspaceMedia?: Media | null;
@@ -136,6 +189,14 @@ export function DetailDrawer({
   const system = view.systems[entry.system];
   const asideRef = useRef<HTMLElement>(null);
   usePanelSection(asideRef);
+  const details = useGameDetails(view.generation, entry.id);
+  const setDefaultRevision = useLibraryStore((s) => s.setDefaultRevision);
+
+  /** «Ver dónde está»: the orphan update, in «Complementos sin juego base». */
+  function showElsewhere(id: number) {
+    useViewStore.getState().setScope({ kind: 'orphans' });
+    useSelectionStore.getState().select(id);
+  }
 
   async function reveal() {
     setRevealError(null);
@@ -187,6 +248,21 @@ export function DetailDrawer({
             detail: revealError.detail ?? '',
           })}
         </Alert>
+      )}
+      <RegionLine
+        systemName={system?.name ?? ''}
+        nameHasRegion={entry.regions.length > 0}
+        details={details}
+      />
+      {game && hasVersionFacts(game, details) && (
+        <VersionSection
+          game={game}
+          details={details}
+          onShowElsewhere={showElsewhere}
+        />
+      )}
+      {game && game.revisions.length > 1 && (
+        <RevisionsSection game={game} onUse={setDefaultRevision} />
       )}
       <ArtWorkspace
         key={`${view.generation}:${entry.id}:${workspaceMedia ?? ''}`}

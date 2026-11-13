@@ -75,7 +75,7 @@ const NAMES = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
  * highest, then the untagged file, then revisions that do not parse, by
  * name. The first one is the default when the user chose none.
  */
-function byRevisionDesc(a: EntryView, b: EntryView): number {
+export function byRevisionDesc(a: EntryView, b: EntryView): number {
   const ka = revisionKey(a.revision);
   const kb = revisionKey(b.revision);
   const rank = DESC_RANK[ka.kind] - DESC_RANK[kb.kind];

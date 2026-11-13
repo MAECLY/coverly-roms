@@ -2095,5 +2095,39 @@
     "showGameNamed": "Ver el juego «{name}»",
     "kind": "Tipo",
     "game": "Juego"
+  },
+  "panel": {
+    "version": "Versión",
+    "updates": "{n} actualizaciones",
+    "updatesOne": "1 actualización",
+    "noUpdates": "sin actualizaciones",
+    "newestInLibrary": "la más nueva de tu biblioteca",
+    "baseVersion": "(la del juego base)",
+    "latestOk": "Es la última que existe, según la {source}.",
+    "latestMissing": "Existe la v{v} y no está en tu biblioteca. Dato de la {source}.",
+    "latestElsewhere": "La v{v} está en tu biblioteca, fuera de la carpeta del juego.",
+    "showIt": "Ver dónde está",
+    "source": {
+      "title-db": "lista de títulos",
+      "game-tdb": "base de datos de GameTDB"
+    },
+    "versions": "Versiones",
+    "notInLibrary": "No está en la biblioteca",
+    "newestPill": "La más nueva",
+    "basePill": "Juego base",
+    "missingPill": "Falta",
+    "revisions": "Revisiones",
+    "revisionsSub": "{n} archivos, un juego",
+    "revDefault": "Predeterminada",
+    "revUse": "Usar esta",
+    "revUseLabel": "Usar {rev} como predeterminada",
+    "revUntagged": "Original",
+    "revNote": "La predeterminada es la que se ve en la biblioteca y la que se copiará al dispositivo cuando llegue la sincronización.",
+    "revChanged": "{rev} es ahora la predeterminada.",
+    "region": "{system}, {region}",
+    "regionCountry": "{system}, {region}, {country}",
+    "regionLikely": "{system}, {region} (probable, según GameTDB y 3dbrew)",
+    "regionUnknown": "Letra de región «{letter}» sin identificar ({code})",
+    "titleId": "ID de título"
   }
 }

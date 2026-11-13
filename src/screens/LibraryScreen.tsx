@@ -336,6 +336,7 @@ export function LibraryScreen() {
           <DetailDrawer
             view={view}
             entry={selected}
+            game={byEntry.get(selected.id)}
             docked={docked}
             workspaceMedia={workspaceMedia}
             onClose={() => {
