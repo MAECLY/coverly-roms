@@ -22,8 +22,9 @@ use coverly_roms_lib::jobs::view::{
 use coverly_roms_lib::library::identify::IdentityView;
 use coverly_roms_lib::library::refresh::EntryArtUpdate;
 use coverly_roms_lib::library::view::{
-    ArtMark, ArtMarks, EntryView, LibrarySettingsView, LibraryView, ProfileView, RecentView,
-    ScanProgressEvent, SystemView, WarningView,
+    ArtMark, ArtMarks, ChildView, DemoView, EntryView, FolderCountsView, GameContent,
+    LibrarySettingsView, LibraryView, NewerView, ProfileView, RecentView, ScanProgressEvent,
+    SystemView, WarningView,
 };
 use coverly_roms_lib::sources::SourceInfoView;
 use coverly_roms_lib::update::{
@@ -99,6 +100,7 @@ fn rust_serialises_the_shared_sample() {
                 screenshot: ArtMark::Unsupported,
                 title: ArtMark::Unsupported,
             },
+            content: GameContent::default(),
         }],
         warnings: vec![WarningView {
             path: "/Volumes/SD/ROMS/BAD".into(),
@@ -106,6 +108,11 @@ fn rust_serialises_the_shared_sample() {
         }],
         scan_ms: 42,
         loose_files: 3,
+        revision_defaults: [(
+            "snes:star courier (usa)".to_string(),
+            "ROMS/SFC/Star Courier (USA) (Rev 1).sfc".to_string(),
+        )]
+        .into(),
     };
     let actual = json!({
         "library_view": view,
@@ -2256,6 +2263,117 @@ fn integration_views_match_the_shared_sample() {
             Notice { integration: "switch-catalog".into(), problem: Problem::Off },
         ],
     });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+/// Addon views D2: a game with every content field, an orphan linked to
+/// it and a demo of it; the plain retro entry of `library_view` keeps its
+/// shape (no content field at all).
+#[test]
+fn game_content_entries_match_the_shared_sample() {
+    use coverly_core::art::children::{ChildArtMarks, ChildOrigin};
+    use coverly_core::game_folder::ChildRole;
+
+    let entry = |id: u32, rel: &str, name: &str, content: GameContent| EntryView {
+        id,
+        system: 1,
+        rel_path: rel.into(),
+        dir: rel.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap(),
+        name: name.into(),
+        ext: "nsp".into(),
+        size: 2_000_000,
+        mtime: 1_700_000_000,
+        regions: vec![],
+        art: ArtMarks {
+            cover: ArtMark::Present,
+            screenshot: ArtMark::Unsupported,
+            title: ArtMark::Unsupported,
+        },
+        content,
+    };
+    let game = entry(
+        10,
+        "switch/Tidewalker/Tidewalker (Rev 1) (v1.0.0).nsp",
+        "Tidewalker (Rev 1) (v1.0.0)",
+        GameContent {
+            children: vec![
+                ChildView {
+                    index: 1,
+                    rel_path: "switch/Tidewalker/Updates/Tidewalker (v1.0.2).nsp".into(),
+                    name: "Tidewalker (v1.0.2)".into(),
+                    role: ChildRole::Update,
+                    version: Some("1.0.2".into()),
+                    size: 300_000,
+                    mtime: 1_700_000_100,
+                    art: ChildArtMarks {
+                        icon: true,
+                        banner: false,
+                        icon_origin: Some(ChildOrigin::Package),
+                        banner_origin: None,
+                    },
+                },
+                ChildView {
+                    index: 0,
+                    rel_path: "switch/Tidewalker/DLC/Tidewalker - Reef Pack.nsp".into(),
+                    name: "Tidewalker - Reef Pack".into(),
+                    role: ChildRole::Dlc,
+                    version: None,
+                    size: 50_000,
+                    mtime: 1_700_000_200,
+                    art: ChildArtMarks::default(),
+                },
+            ],
+            version_group: Some("switch:tidewalker".into()),
+            revision: Some("Rev 1".into()),
+            version: Some("1.0.0".into()),
+            installed: Some("1.0.2".into()),
+            newer_elsewhere: Some(NewerView {
+                entry: 11,
+                version: "1.3.0".into(),
+            }),
+            addons: Some(FolderCountsView {
+                mods: 1,
+                cheats: 2,
+                extras: 3,
+                saves: 0,
+                capped: true,
+            }),
+            ..GameContent::default()
+        },
+    );
+    let orphan = entry(
+        11,
+        "switch/Tidewalker (Update)/Updates/Tidewalker (v1.3.0).nsp",
+        "Tidewalker (v1.3.0)",
+        GameContent {
+            orphan: Some(ChildRole::Update),
+            orphan_of: Some(10),
+            version: Some("1.3.0".into()),
+            ..GameContent::default()
+        },
+    );
+    let demo = entry(
+        12,
+        "switch/Tidewalker (Demo).nsp",
+        "Tidewalker (Demo)",
+        GameContent {
+            demo: Some(DemoView {
+                of: Some(10),
+                of_name: Some("Tidewalker (Rev 1) (v1.0.0)".into()),
+            }),
+            ..GameContent::default()
+        },
+    );
+    let actual = json!({ "game_content_entries": [game, orphan, demo] });
     let expected: Value =
         serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
     for (key, value) in actual.as_object().unwrap() {

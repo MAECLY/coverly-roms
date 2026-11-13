@@ -66,6 +66,9 @@ import {
   type Transfer,
   type EntriesUpdated,
   type EntryView,
+  type ChildView,
+  type ChildArtMarks,
+  type ChildOrigin,
   type FillRequest,
   type IdentityView,
   type ItemErrorKind,
@@ -131,6 +134,7 @@ const VIEW_KEYS = [
   'warnings',
   'scan_ms',
   'loose_files',
+  'revision_defaults',
 ] as const;
 const ENTRY_KEYS = [
   'id',
@@ -143,6 +147,36 @@ const ENTRY_KEYS = [
   'mtime',
   'regions',
   'art',
+] as const;
+/** Addon views D2: optional, left out by Rust when empty. */
+const ENTRY_CONTENT_KEYS = [
+  'children',
+  'orphan',
+  'orphan_of',
+  'version_group',
+  'revision',
+  'demo',
+  'version',
+  'installed',
+  'newer_elsewhere',
+  'addons',
+] as const;
+const ENTRY_ALL_KEYS = [...ENTRY_KEYS, ...ENTRY_CONTENT_KEYS] as const;
+const CHILD_KEYS = [
+  'index',
+  'rel_path',
+  'name',
+  'role',
+  'version',
+  'size',
+  'mtime',
+  'art',
+] as const;
+const CHILD_ART_KEYS = [
+  'icon',
+  'banner',
+  'icon_origin',
+  'banner_origin',
 ] as const;
 const SYSTEM_KEYS = [
   'index',
@@ -522,10 +556,23 @@ const checks: [string, readonly string[], object][] = [
     VIEW_KEYS satisfies AllKeys<LibraryView, typeof VIEW_KEYS>,
     sample.library_view,
   ],
+  ['EntryView', ENTRY_KEYS, sample.library_view.entries[0]!],
   [
-    'EntryView',
-    ENTRY_KEYS satisfies AllKeys<EntryView, typeof ENTRY_KEYS>,
-    sample.library_view.entries[0]!,
+    'EntryView with game content',
+    ENTRY_ALL_KEYS satisfies AllKeys<EntryView, typeof ENTRY_ALL_KEYS>,
+    Object.assign({}, ...sample.game_content_entries) as object,
+  ],
+  [
+    'ChildView',
+    CHILD_KEYS satisfies AllKeys<ChildView, typeof CHILD_KEYS>,
+    sample.game_content_entries[0]!.children![0]!,
+  ],
+  [
+    'ChildArtMarks',
+    CHILD_ART_KEYS satisfies AllKeys<ChildArtMarks, typeof CHILD_ART_KEYS>,
+    Object.assign({}, sample.game_content_entries[0]!.children![0]!.art, {
+      banner_origin: 'user',
+    }) as object,
   ],
   [
     'SystemView',
@@ -863,6 +910,47 @@ const checks: [string, readonly string[], object][] = [
 describe('wire contract', () => {
   it.each(checks)('%s keys match the Rust sample', (_name, keys, value) => {
     expect(Object.keys(value).sort()).toEqual([...keys].sort());
+  });
+
+  it('game content uses the Rust spellings and ids (addon views D2)', () => {
+    const [game, orphan, demo] = sample.game_content_entries as EntryView[];
+    expect(game!.children!.map((c) => [c.index, c.role, c.version])).toEqual([
+      [1, 'update', '1.0.2'],
+      [0, 'dlc', undefined],
+    ]);
+    expect(game!.children![0]!.art).toEqual({
+      icon: true,
+      banner: false,
+      icon_origin: 'package',
+    });
+    expect(game!.addons).toEqual({
+      mods: 1,
+      cheats: 2,
+      extras: 3,
+      saves: 0,
+      capped: true,
+    });
+    expect(game!.newer_elsewhere).toEqual({
+      entry: orphan!.id,
+      version: '1.3.0',
+    });
+    expect(orphan!.orphan).toBe('update');
+    expect(orphan!.orphan_of).toBe(game!.id);
+    expect(demo!.demo).toEqual({ of: game!.id, of_name: game!.name });
+    const origins: ChildOrigin[] = [
+      'package',
+      'screenscraper',
+      'steamgriddb',
+      'user',
+    ];
+    expect(origins).toHaveLength(4);
+    // A plain retro entry carries none of the content fields.
+    const plain = sample.library_view.entries[0]!;
+    for (const key of ENTRY_CONTENT_KEYS) expect(plain).not.toHaveProperty(key);
+    // Round trip: the wire value reads back unchanged.
+    expect(JSON.parse(JSON.stringify(game))).toEqual(
+      sample.game_content_entries[0],
+    );
   });
 
   it('art marks and media use the Rust spellings', () => {

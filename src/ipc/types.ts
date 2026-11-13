@@ -66,6 +66,32 @@ export const REGIONS: readonly Region[] = [
   'united-kingdom',
 ];
 
+/** Where a child's art came from (`.art.json` beside its slots). */
+export type ChildOrigin = 'package' | 'screenscraper' | 'steamgriddb' | 'user';
+
+/** Which art slots of an update or DLC have a file, with each present
+ * slot's origin. */
+export interface ChildArtMarks {
+  icon: boolean;
+  banner: boolean;
+  icon_origin?: ChildOrigin;
+  banner_origin?: ChildOrigin;
+}
+
+/** An update or DLC inside a game's folder (addon views D2). Addressed by
+ * the entry id and `index`; `rel_path` is for display only. */
+export interface ChildView {
+  index: number;
+  rel_path: string;
+  name: string;
+  role: 'update' | 'dlc';
+  /** The version its name carries. */
+  version?: string;
+  size: number;
+  mtime: number;
+  art: ChildArtMarks;
+}
+
 export interface EntryView {
   id: number;
   system: number;
@@ -77,6 +103,36 @@ export interface EntryView {
   mtime: number;
   regions: Region[];
   art: ArtMarks;
+  // Game content (addon views D2): every field is left out when empty, so
+  // a plain retro entry has none of them. Rust decides every ordering.
+  /** Updates and DLC in the game's folder, newest version first (Rust
+   * `version_order`), then by name. */
+  children?: ChildView[];
+  /** An update or DLC with no base at its folder's root. */
+  orphan?: 'update' | 'dlc';
+  /** The entry id of the game an orphan belongs to (by title key). */
+  orphan_of?: number;
+  /** Shared by the revisions of one retro game (only when there are two
+   * or more). */
+  version_group?: string;
+  /** The revision as written (`Rev 1`). */
+  revision?: string;
+  /** Set on a demo, with its full game when the library has it. */
+  demo?: { of?: number; of_name?: string };
+  /** The entry's own version, only when its name carries one. */
+  version?: string;
+  /** The newest version in the library for this game (D5, Rust). */
+  installed?: string;
+  /** A linked orphan update newer than `installed` (D6, in-library). */
+  newer_elsewhere?: { entry: number; version: string };
+  /** File counts of the game folder's Mods/Cheats/Extras/Saves (D9). */
+  addons?: {
+    mods: number;
+    cheats: number;
+    extras: number;
+    saves: number;
+    capped?: true;
+  };
 }
 
 export interface SystemView {
@@ -116,6 +172,9 @@ export interface LibraryView {
   /** ROM-like files directly in the root or the ROMs folder, outside any
    * system folder (what "Organise loose files" sorts). */
   loose_files: number;
+  /** The revision chosen per version group in this library (D7): version
+   * group → `rel_path`. Left out when none was chosen. */
+  revision_defaults?: Record<string, string>;
 }
 
 export interface ScanProgress {
