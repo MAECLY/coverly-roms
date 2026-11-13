@@ -13,7 +13,7 @@ use coverly_core::art::children::{
     ChildMedia, ChildOrigin, SkipWhy,
 };
 use coverly_core::consoles::testing::{
-    cia, nsp, png_8x8, ps4_app, put_file, vita_sfo, wiiu_folder,
+    cia, nsp, png_8x8, ps3_sfo, ps4_app, ps5_app, ps5_param_json, put_file, vita_sfo, wiiu_folder,
 };
 use coverly_core::consoles::{start_open_log, take_open_log};
 use coverly_core::dedupe::testing::pin_mtime;
@@ -582,4 +582,45 @@ fn art_is_never_read_through_a_linked_folder_inside_a_child() {
         assert!(!child_slot_path(&child, media).unwrap().exists());
     }
     assert_eq!(icon_preview(&child), None);
+}
+
+#[test]
+fn a_folder_ps5_update_gets_icon0_and_never_opens_its_licence() {
+    let _g = serial();
+    let lib = lib();
+    let child = at(&lib.root, "ROMS/PS5/Returnal/Updates/PPSA01284-patch");
+    ps5_app(
+        &child,
+        &ps5_param_json("PPSA01284", "Returnal", false),
+        false,
+    );
+    start_open_log();
+    let (report, _) = run(&lib, &[&child]);
+    let opened = take_open_log();
+    let licence = at(&child, "sce_sys/license.dat");
+    assert!(!opened.contains(&licence), "{opened:?}");
+    let icon = child_slot_path(&child, ChildMedia::Icon).unwrap();
+    assert!(is_png(&icon), "{report:?}");
+    assert_eq!(
+        read_art_json(&child).icon.map(|s| s.origin),
+        Some(ChildOrigin::Package)
+    );
+}
+
+#[test]
+fn a_folder_ps3_update_gets_its_icon0_png() {
+    let _g = serial();
+    let lib = lib();
+    let child = at(&lib.root, "ROMS/PS3/Game/Updates/BLES00001 (v1.02)");
+    put(&at(&child, "PARAM.SFO"), &ps3_sfo("BLES00001", "GD"));
+    put(&at(&child, "ICON0.PNG"), &png_8x8());
+    put(&at(&child, "USRDIR/EBOOT.BIN"), &[0u8; 64]);
+    let (report, _) = run(&lib, &[&child]);
+    let icon = child_slot_path(&child, ChildMedia::Icon).unwrap();
+    assert!(is_png(&icon), "{report:?}");
+    assert_eq!(report.written, [icon]);
+    assert_eq!(
+        read_art_json(&child).icon.map(|s| s.origin),
+        Some(ChildOrigin::Package)
+    );
 }
