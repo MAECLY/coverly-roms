@@ -1,7 +1,7 @@
 //! Reading, serializing and listing `Extras/extras.json` (extras spec D2–D5).
 
 use std::collections::BTreeMap;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::{Component, Path};
 
@@ -74,18 +74,10 @@ pub fn read_index(extras_dir: &Path) -> IndexRead {
     if let Some(kind) = unreadable_kind(&meta) {
         return IndexRead::unreadable(kind);
     }
-    let Ok(file) = File::open(&path) else {
-        return IndexRead::unreadable(UnreadableKind::Io);
+    let file = match open_index(&path) {
+        Ok(f) => f,
+        Err(kind) => return IndexRead::unreadable(kind),
     };
-    // The open handle is checked again: the path may have changed since.
-    match file.metadata() {
-        Ok(m) => {
-            if let Some(kind) = unreadable_kind(&m) {
-                return IndexRead::unreadable(kind);
-            }
-        }
-        Err(_) => return IndexRead::unreadable(UnreadableKind::Io),
-    }
     let mut bytes = Vec::new();
     if file
         .take(MAX_INDEX_BYTES + 1)
@@ -98,6 +90,42 @@ pub fn read_index(extras_dir: &Path) -> IndexRead {
         return IndexRead::unreadable(UnreadableKind::TooLarge);
     }
     parse_index(&bytes)
+}
+
+/// Opens `path` for reading without following a final symlink (`O_NOFOLLOW`
+/// on Unix, the reparse point itself on Windows) and without blocking on a
+/// FIFO (`O_NONBLOCK`), then checks the open handle again: the path may have
+/// been swapped since the `symlink_metadata` check.
+fn open_index(path: &Path) -> Result<File, UnreadableKind> {
+    let mut opts = OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        opts.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = opts.open(path).map_err(|e| open_error_kind(&e))?;
+    let meta = file.metadata().map_err(|_| UnreadableKind::Io)?;
+    match unreadable_kind(&meta) {
+        Some(kind) => Err(kind),
+        None => Ok(file),
+    }
+}
+
+/// `ELOOP` is what `O_NOFOLLOW` answers for a symlink.
+fn open_error_kind(e: &std::io::Error) -> UnreadableKind {
+    #[cfg(unix)]
+    if e.raw_os_error() == Some(libc::ELOOP) {
+        return UnreadableKind::Symlink;
+    }
+    #[cfg(not(unix))]
+    let _ = e;
+    UnreadableKind::Io
 }
 
 fn unreadable_kind(meta: &std::fs::Metadata) -> Option<UnreadableKind> {
@@ -243,6 +271,32 @@ fn sort_value(value: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The open itself refuses a symlink, so one swapped in after the
+    /// `symlink_metadata` check is never followed either.
+    #[cfg(unix)]
+    #[test]
+    fn opening_never_follows_a_symlink() {
+        let d = tempfile::tempdir().unwrap();
+        let target = d.path().join("outside.json");
+        std::fs::write(&target, b"{\"version\":1}").unwrap();
+        let link = d.path().join(EXTRAS_JSON);
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert_eq!(open_index(&link).err(), Some(UnreadableKind::Symlink));
+        assert!(open_index(&target).is_ok());
+    }
+
+    /// A FIFO swapped in after the check is refused without blocking.
+    #[cfg(unix)]
+    #[test]
+    fn opening_a_fifo_never_blocks() {
+        let d = tempfile::tempdir().unwrap();
+        let fifo = d.path().join(EXTRAS_JSON);
+        let c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        assert_eq!(open_index(&fifo).err(), Some(UnreadableKind::Io));
+    }
 
     #[test]
     fn plain_relative_paths_split_into_components() {
