@@ -10,7 +10,8 @@ export type SortKey =
   | 'mtime'
   /** Details' Versión column (addon views §8.4): display order only. */
   | 'version'
-  /** Details' Contenido column: how many updates and DLC a game holds. */
+  /** Details' Contenido column: how much a game holds (updates, DLC,
+   *  other revisions, demos). */
   | 'content';
 export interface Sort {
   key: SortKey;
@@ -23,11 +24,14 @@ const collator = new Intl.Collator(undefined, {
   numeric: true,
 });
 
-/** A sorted copy; ties keep library (scan) order. */
+/** A sorted copy; ties keep library (scan) order. `contentOf` counts
+ *  what a game holds for Contenido (its games know its other revisions
+ *  and demos); without it, the entry's updates and DLC. */
 export function sortEntries(
   entries: readonly EntryView[],
   sort: Sort,
   systemNames: readonly string[],
+  contentOf: (e: EntryView) => number = (e) => e.children?.length ?? 0,
 ): EntryView[] {
   if (sort.key === 'library') {
     return sort.dir === 'asc' ? [...entries] : [...entries].reverse();
@@ -59,7 +63,7 @@ export function sortEntries(
       case 'size':
         return a.size - b.size;
       case 'content':
-        return (a.children?.length ?? 0) - (b.children?.length ?? 0);
+        return contentOf(a) - contentOf(b);
       case 'mtime':
       case 'library':
       case 'version':

@@ -12,6 +12,7 @@ import { useFilterStore } from './filterStore';
 import { useJobStore } from './jobStore';
 import { resetLibraryStore, useLibraryStore } from './libraryStore';
 import { useVisibleEntries } from './useVisibleEntries';
+import { DEFAULT_SORT } from '@/lib/sort';
 import { useViewStore } from './viewStore';
 
 describe('useVisibleEntries', () => {
@@ -158,6 +159,21 @@ describe('useVisibleEntries on games (D1, D4, D13)', () => {
       g.children.map((c) => c.index),
     );
     expect([...after].sort()).toEqual([...before].sort());
+  });
+
+  it('sorting by Contenido counts revisions and demos, as the cell does', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    act(() => useViewStore.getState().setSort({ key: 'content', dir: 'desc' }));
+    const order = result.current.visibleGames.map(
+      (g) => g.children.length + g.revisions.length - 1 + g.demos.length,
+    );
+    expect(order).toEqual([...order].sort((a, b) => b - a));
+    // Star Courier holds two revisions and nothing else: it is no empty game.
+    const names = result.current.visible.map((e) => e.name);
+    expect(names.indexOf('Star Courier (USA) (Rev 1)')).toBeLessThan(
+      names.indexOf('Pebble League'),
+    );
+    act(() => useViewStore.getState().setSort(DEFAULT_SORT));
   });
 
   it('the orphans scope lists only them and falls back to all', () => {

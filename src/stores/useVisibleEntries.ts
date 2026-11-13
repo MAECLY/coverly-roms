@@ -125,8 +125,14 @@ export function useVisibleEntries(): VisibleEntries {
         applyFilters(contentPassed, keys, filters),
         sort,
         systemNames,
+        (e) => {
+          const g = byEntry.get(e.id);
+          return g
+            ? g.children.length + g.revisions.length - 1 + g.demos.length
+            : (e.children?.length ?? 0);
+        },
       ),
-    [contentPassed, keys, filters, sort, systemNames],
+    [contentPassed, keys, filters, sort, systemNames, byEntry],
   );
 
   // Art groups stay as they were when a fill started, so applied art does

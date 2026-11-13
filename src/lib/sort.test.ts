@@ -80,4 +80,25 @@ describe('sortEntries by Versión and Contenido (addon views §8.4)', () => {
       ids(sortEntries(list, { key: 'content', dir: 'desc' }, names)),
     ).toEqual([0, 2, 1]);
   });
+
+  it('orders by what the Contenido cell counts, when told', () => {
+    // A retro game with two revisions and a game with a demo hold
+    // content the entry's children do not show.
+    const list = [v(0, {}), v(1, { children: [child(0)] }), v(2, {}), v(3, {})];
+    const held = new Map([
+      [1, 1],
+      [2, 3],
+      [3, 2],
+    ]);
+    expect(
+      ids(
+        sortEntries(
+          list,
+          { key: 'content', dir: 'desc' },
+          names,
+          (e) => held.get(e.id) ?? 0,
+        ),
+      ),
+    ).toEqual([2, 3, 1, 0]);
+  });
 });
