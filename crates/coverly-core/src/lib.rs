@@ -15,6 +15,7 @@ pub mod credits;
 mod csv_util;
 pub mod dedupe;
 pub mod disc;
+pub mod extras;
 pub mod fill;
 pub mod game_folder;
 pub mod gamelist;

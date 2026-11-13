@@ -1266,7 +1266,7 @@ fn temp_number(job: &str, name: &str) -> Option<u32> {
 
 /// The key file names are compared by: NFC, lower case. FAT and exFAT
 /// are case-insensitive and macOS hands out decomposed names.
-pub(crate) fn name_key(name: &str) -> String {
+pub fn name_key(name: &str) -> String {
     name.nfc().collect::<String>().to_lowercase()
 }
 
