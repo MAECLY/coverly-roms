@@ -193,14 +193,19 @@ export function FillWizard({
   const selectionCount =
     scopeIds('selection', selectedId, visible, games)?.length ?? 0;
   const filterCount = scopeIds('filter', null, visible, games)?.length ?? 0;
-  const [scope, setScope] = useState<FillScope>(
-    restored?.scope ??
-      (selectedId !== null
-        ? 'selection'
-        : filterCount < view.entries.length
-          ? 'filter'
-          : 'library'),
-  );
+  // The filter is narrower than the library only when it leaves out some
+  // game file: add-ons without their game are never shown among the games,
+  // so they do not make an unfiltered library look filtered (D13).
+  const [scope, setScope] = useState<FillScope>(() => {
+    if (restored?.scope) return restored.scope;
+    if (selectedId !== null) return 'selection';
+    const gameFiles = view.entries.reduce(
+      (n, e) => (e.orphan === undefined ? n + 1 : n),
+      0,
+    );
+    const orphansShown = visible.some((e) => e.orphan !== undefined);
+    return orphansShown || filterCount < gameFiles ? 'filter' : 'library';
+  });
   const [media, setMedia] = useState<Media[]>(
     restored?.media ?? defaults.media,
   );
