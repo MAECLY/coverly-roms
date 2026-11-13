@@ -93,6 +93,19 @@ describe('spokenSummary', () => {
     expect(spokenSummary(pebble, 'Switch', tEs)).toBe('Pebble League, Switch');
   });
 
+  it('speaks every part the chip shows, even without updates', () => {
+    // The chip shows `v1.0` (the base's own version) and the warning for a
+    // game with no children; the phrase must say both (§8.9).
+    const versioned: Game = { ...pebble, installed: '1.0' };
+    expect(spokenSummary(versioned, 'Switch', tEs)).toBe(
+      'Pebble League, Switch. v1.0',
+    );
+    const bare: Game = { ...pebble, missing: { entry: 99, version: '1.3.0' } };
+    expect(spokenSummary(bare, 'Switch', tEs)).toBe(
+      'Pebble League, Switch. falta la última actualización, v1.3.0',
+    );
+  });
+
   it('formats numbers for the locale', () => {
     const big: Game = {
       ...neon,
@@ -159,5 +172,12 @@ describe('hasContent', () => {
     expect(hasContent([star])).toBe(true);
     expect(hasContent([lanternDemo])).toBe(true);
     expect(hasContent([])).toBe(false);
+  });
+
+  it('is true for a game whose only content is a newer update elsewhere', () => {
+    // A bare game with a linked orphan update (Rust's `newer_elsewhere`):
+    // its warning needs the summary line even with nothing else around.
+    const bare: Game = { ...pebble, missing: { entry: 99, version: '1.3.0' } };
+    expect(hasContent([pebble, bare])).toBe(true);
   });
 });

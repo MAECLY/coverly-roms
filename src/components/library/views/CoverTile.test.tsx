@@ -16,6 +16,7 @@ import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend } from '@/ipc/mock/mockBackend';
 import type { ArtImage, EntryView, SystemView } from '@/ipc/types';
 import { clearArtCache } from '@/lib/artCache';
+import { metrics as coverMetrics } from '@/lib/coverSizes';
 import { buildGames, type Game } from '@/lib/games';
 import { DEFAULT_SETTINGS } from '@/lib/settingsRules';
 import type { CoverSize } from '@/lib/viewPrefs';
@@ -243,6 +244,49 @@ describe('CoverTile: add-on summary under the cover (addon views §8.2)', () => 
     expect(cell.getAttribute('title')).toBe(phrase);
     expect(container.querySelector('.sr-only')!.textContent).toBe(phrase);
     expect(cell.textContent).toContain('Tidewalker');
+  });
+
+  it('speaks the warning of a game whose only content is the missing update', () => {
+    const bare: Game = {
+      ...named('Pebble League'),
+      missing: { entry: 99, version: '1.3.0' },
+    };
+    for (const size of ['l', 'xs'] as const) {
+      const { container, unmount } = gameTile(bare, size);
+      const phrase =
+        'Pebble League, Nintendo Switch. falta la última actualización, v1.3.0';
+      expect(container.querySelector('.sr-only')!.textContent).toBe(phrase);
+      expect(screen.getByRole('gridcell').getAttribute('title')).toBe(phrase);
+      unmount();
+    }
+  });
+
+  it('says the version a game without updates shows in its chip', () => {
+    const versioned: Game = { ...named('Pebble League'), installed: '1.0' };
+    const { container } = gameTile(versioned);
+    expect(parts(container)).toEqual(['v1.0']);
+    expect(container.querySelector('.sr-only')!.textContent).toBe(
+      'Pebble League, Nintendo Switch. v1.0',
+    );
+  });
+
+  it('keeps the row height when a tile has no game in a library with content', () => {
+    render(
+      <I18nProvider locale="es">
+        <CoverTile
+          entry={named('Pebble League').entry}
+          system={SWITCH}
+          generation={1}
+          art="cover"
+          size="m"
+          selected={false}
+          contentLine
+        />
+      </I18nProvider>,
+    );
+    expect(screen.getByRole('gridcell').style.height).toBe(
+      `${coverMetrics('m', true).tileH}px`,
+    );
   });
 
   it('keeps a plain game as it is today', () => {

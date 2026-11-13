@@ -66,6 +66,7 @@ const NEW_TAG_PAD_PX = 14;
 function speaksContent(game: Game, isNew: boolean): boolean {
   return (
     isNew ||
+    game.missing !== null ||
     game.children.length > 0 ||
     game.revisions.length > 1 ||
     game.isDemo ||
@@ -121,16 +122,19 @@ export function CoverTile({
 }: CoverTileProps): JSX.Element {
   const t = useT();
   const locale = useContext(LocaleContext);
-  const metrics = coverMetrics(size, contentLine && game !== undefined);
+  // The library flag alone: every tile of a row keeps the row's height,
+  // with or without a game behind it.
+  const metrics = coverMetrics(size, contentLine);
   const hasLine = metrics.meta !== 'badge';
   const badge = systemMark === 'badge' || (systemMark === 'auto' && !hasLine);
   const labelInLine = systemMark === 'auto' && hasLine;
   const systemName = system?.name ?? '';
+  const parts = game ? summaryParts(game) : [];
+  // Whatever the chip or the dot shows is also said (§8.9).
   const phrase =
-    game && speaksContent(game, isNew)
+    game && (parts.length > 0 || speaksContent(game, isNew))
       ? spokenSummary(game, systemName, t, undefined, { isNew, locale })
       : null;
-  const parts = game ? summaryParts(game) : [];
   const missing = parts.some((p) => p.kind === 'missing');
   const demoOf = game?.isDemo
     ? game.entry.demo?.of_name !== undefined

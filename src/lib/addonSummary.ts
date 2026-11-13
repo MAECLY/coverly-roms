@@ -77,12 +77,16 @@ export function fitSummary(
 }
 
 /**
- * Whether any game shows add-on content (updates, DLC, more revisions, or
- * is a demo): the library flag that gives cover tiles their summary line.
+ * Whether any game shows add-on content (updates, DLC, more revisions, a
+ * newer update elsewhere, or is a demo): the library flag that gives cover tiles their summary line.
  */
 export function hasContent(games: readonly Game[]): boolean {
   return games.some(
-    (g) => g.children.length > 0 || g.revisions.length > 1 || g.isDemo,
+    (g) =>
+      g.children.length > 0 ||
+      g.revisions.length > 1 ||
+      g.isDemo ||
+      g.missing !== null,
   );
 }
 
@@ -127,6 +131,10 @@ function build(
     parts.push(count('spoken.updates', game.updates.length));
     if (game.installed !== null)
       parts.push(t('spoken.newest', { v: displayVersion(game.installed) }));
+  } else if (game.installed !== null && !game.missing && !game.isDemo) {
+    // No update in the library: the chip still shows the base's own
+    // version (`summaryParts`), so the phrase says it too.
+    parts.push(displayVersion(game.installed));
   }
   if (game.missing)
     parts.push(
