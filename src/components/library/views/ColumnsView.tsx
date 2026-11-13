@@ -363,13 +363,17 @@ export function ColumnsView({
   // Panes 4 and 5: the shown game's typed groups and the chosen group's
   // files (§8.5). A demo link is offered only while the demo is listed.
   const shownGame = gameIndex >= 0 ? gameOf(games[gameIndex]!.id) : undefined;
-  const groups: GameGroup[] = useMemo(() => {
-    if (!shownGame) return [];
-    const all = gameGroups(shownGame).filter(
+  /** A game's groups as Columns opens them: the demo only while it is
+   * listed; none when the base would be alone. */
+  const groupsOf = (game: Game | undefined): GameGroup[] => {
+    if (!game) return [];
+    const all = gameGroups(game).filter(
       (g) => g.kind !== 'demo' || indexOf.has(g.demo),
     );
     return all.length > 1 ? all : [];
-  }, [shownGame, indexOf]);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- groupsOf reads only indexOf
+  const groups = useMemo(() => groupsOf(shownGame), [shownGame, indexOf]);
   const [inner, setInner] = useState<{
     game: number | null;
     group: number;
@@ -775,6 +779,13 @@ export function ColumnsView({
                   {part.text}
                 </span>
               ))}
+              {groupsOf(gameOf(entry.id)).length > 0 && (
+                <ChevronRight
+                  aria-hidden="true"
+                  className="miller__chevron"
+                  size={14}
+                />
+              )}
             </div>
           );
         }}

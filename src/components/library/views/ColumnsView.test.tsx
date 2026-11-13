@@ -401,6 +401,27 @@ describe('ColumnsView: games with content (addon views §8.5)', () => {
     expect(row).toHaveTextContent('↑ v1.3.0 missing');
   });
 
+  it('marks a game that opens with a chevron, as a folder is', () => {
+    render(<GamesHarness initial={idOf('Lantern Harbor (USA)')} />);
+    const row = (name: string) =>
+      options('Games').find((o) => o.textContent?.startsWith(name))!;
+    expect(
+      row('Lantern Harbor (USA)').querySelector('.miller__chevron'),
+    ).not.toBeNull();
+    // The chevron is decoration: the name stays the game's.
+    expect(
+      row('Lantern Harbor (USA)').querySelector('.miller__chevron'),
+    ).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('draws no chevron on a game that does not open', () => {
+    render(<GamesHarness initial={idOf('Pebble League')} />);
+    const row = options('Games').find((o) =>
+      o.textContent?.startsWith('Pebble League'),
+    )!;
+    expect(row.querySelector('.miller__chevron')).toBeNull();
+  });
+
   it('keeps SFC/Hacks a folder', () => {
     render(<GamesHarness initial={hack.id} />);
     expect(options('Folders').map((o) => o.textContent)).toEqual([
