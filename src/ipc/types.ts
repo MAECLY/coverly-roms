@@ -199,6 +199,9 @@ export interface EntryView {
     saves: number;
     capped?: true;
   };
+  /** A folder game whose own folder holds its Updates/, DLC/ or fixed
+   * folders: the entry is its game folder already (Rust `folder_root`). */
+  folder_root?: true;
 }
 
 export interface SystemView {

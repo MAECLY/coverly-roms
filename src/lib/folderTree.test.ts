@@ -89,6 +89,19 @@ describe('game nodes (addon views §8.5)', () => {
     expect(columnDir('Hacks', undefined)).toBe('Hacks');
   });
 
+  it('leaves a folder game that is its own game folder where it is', () => {
+    // A Wii U or PS3 folder game holding its own Updates/: the entry is
+    // the game folder already, listed in its parent (Rust `folder_root`).
+    const lh = named('Lantern Harbor (USA)');
+    const folderGame = {
+      ...lh,
+      entry: { ...lh.entry, folder_root: true as const },
+    };
+    expect(isGameFolder(folderGame)).toBe(true);
+    expect(columnDir('Sony', folderGame)).toBe('Sony');
+    expect(columnDir('', folderGame)).toBe('');
+  });
+
   it('keeps an ordinary sub-folder a folder beside collapsed game folders', () => {
     const lh = named('Lantern Harbor (USA)');
     const pl = named('Pebble League');

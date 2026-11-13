@@ -111,6 +111,11 @@ pub struct GameContent {
     /// `Saves/` (D9), on a base at a game folder's root.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub addons: Option<FolderCountsView>,
+    /// Set on a folder game whose own folder is its game folder (it holds
+    /// the `Updates/`, `DLC/` or fixed folders): the entry already is that
+    /// folder, so Columns lists it where it is instead of a folder up.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub folder_root: bool,
 }
 
 /// An update or DLC inside a game's folder. Addressed by the entry id and

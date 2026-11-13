@@ -123,10 +123,12 @@ export function isGameFolder(game: Game): boolean {
  * The folder Columns lists an entry under (`/`-separated, relative to the
  * system folder): a game folder's base goes up to the folder that holds the
  * game folder, so the game folder is the game, not a folder; anything else
- * stays where it is.
+ * stays where it is. A folder game that is its own game folder (Rust
+ * `folder_root`) is already listed in the folder that holds it.
  */
 export function columnDir(rel: string, game: Game | undefined): string {
-  if (!game || !isGameFolder(game) || rel === '') return rel;
+  if (!game || !isGameFolder(game) || game.entry.folder_root || rel === '')
+    return rel;
   const slash = rel.lastIndexOf('/');
   return slash < 0 ? '' : rel.slice(0, slash);
 }

@@ -399,6 +399,9 @@ fn game_contents(
                     saves: f.saves,
                     capped: f.capped,
                 }),
+                folder_root: rom.is_dir
+                    && rom.role.is_none()
+                    && (!rom.children.is_empty() || rom.fixed_counts.is_some()),
                 ..GameContent::default()
             };
             if rom.role.is_none() {
@@ -671,6 +674,55 @@ mod tests {
             wire["addons"],
             json!({ "mods": 1, "cheats": 2, "extras": 0, "saves": 0 })
         );
+    }
+
+    /// A folder game holding its own `Updates/` (Wii U, PS3) is the game
+    /// folder itself: the webview must not lift it one folder up, so it
+    /// says so; a file base at a game folder's root and a plain folder game
+    /// say nothing.
+    #[test]
+    fn a_folder_game_with_content_says_its_folder_is_the_game() {
+        let r = root();
+        let mut folder = rom(&r, "Lantern Harbor", &["Nintendo"]);
+        folder.path = r
+            .join("ROMS")
+            .join(SYSTEM)
+            .join("Nintendo")
+            .join("Lantern Harbor");
+        folder.is_dir = true;
+        folder.children = vec![ChildEntry {
+            path: folder
+                .path
+                .join("Updates")
+                .join("Lantern Harbor (v1.05).nsp"),
+            role: ChildRole::Update,
+            size: 5,
+            modified: at(),
+        }];
+        let mut counted = rom(&r, "Pebble League", &[]);
+        counted.path = r.join("ROMS").join(SYSTEM).join("Pebble League");
+        counted.is_dir = true;
+        counted.fixed_counts = Some(FixedFolderCounts {
+            mods: 0,
+            cheats: 1,
+            extras: 0,
+            saves: 0,
+            capped: false,
+        });
+        let mut plain = rom(&r, "Doom", &[]);
+        plain.path = r.join("ROMS").join(SYSTEM).join("Doom");
+        plain.is_dir = true;
+        let mut file = rom(&r, "Tidewalker", &["Tidewalker"]);
+        file.children = vec![child(&file, "DLC", "Tidewalker - Reef", ChildRole::Dlc)];
+        let content = game_contents(&r, SYSTEM, &[&folder, &counted, &plain, &file], 0);
+        let wire: Vec<serde_json::Value> = content
+            .iter()
+            .map(|c| serde_json::to_value(c).unwrap())
+            .collect();
+        assert_eq!(wire[0]["folder_root"], json!(true));
+        assert_eq!(wire[1]["folder_root"], json!(true));
+        assert!(wire[2].get("folder_root").is_none());
+        assert!(wire[3].get("folder_root").is_none());
     }
 
     /// D5/D6 together: a game in doubt (an own update whose name carries
