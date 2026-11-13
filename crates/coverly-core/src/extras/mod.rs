@@ -180,6 +180,12 @@ fn portable(name: &str) -> bool {
     !name.contains(['/', '\\']) && safe_file_name(name).is_ok_and(|s| s == name)
 }
 
+/// Whether a name key (see [`name_key`]) is the index or one of its
+/// malformed-file backups, which no folder or file may take (D1, D5).
+fn is_reserved_key(key: &str) -> bool {
+    key == EXTRAS_JSON || (key.starts_with("extras.broken-") && key.ends_with(".json"))
+}
+
 /// A user category name: trimmed, NFC, refused (never rewritten) when it
 /// would not be the same name on every system (D1).
 pub fn validate_category_name(raw: &str, existing_user: &[String]) -> Result<String, NameRefusal> {
@@ -197,7 +203,7 @@ pub fn validate_category_name(raw: &str, existing_user: &[String]) -> Result<Str
         return Err(NameRefusal::NotPortable);
     }
     let key = name_key(&name);
-    if key == EXTRAS_JSON || key.starts_with("extras.broken-") {
+    if is_reserved_key(&key) {
         return Err(NameRefusal::Reserved);
     }
     if ExtrasCategory::from_dir_name(&name).is_some()
@@ -227,6 +233,9 @@ pub fn validate_file_stem(dir: &Path, stem: &str, ext: &str) -> Result<String, N
     }
     if !portable(&name) {
         return Err(NameRefusal::NotPortable);
+    }
+    if is_reserved_key(&name_key(&name)) {
+        return Err(NameRefusal::Reserved);
     }
     if dir.join(&name).to_string_lossy().encode_utf16().count() > WINDOWS_MAX_PATH {
         return Err(NameRefusal::PathTooLong);
@@ -317,6 +326,8 @@ pub struct RipTags {
     /// System ids the format implies (D15), for linking; not stored.
     #[serde(skip)]
     pub systems: &'static [&'static str],
+    #[serde(flatten)]
+    pub rest: BTreeMap<String, Value>,
 }
 
 /// Where a file came from; unknown fields are kept as they were.
@@ -387,14 +398,18 @@ impl ExtrasFile {
         }
     }
 
-    /// The sync flag of `category` (matched ignoring case); `None` when
+    /// The sync flag of `category`: the exact spelling first, else any
+    /// spelling equal ignoring case and normalization (D1); `None` when
     /// unset or inheriting.
     pub fn sync_for(&self, category: &str) -> Option<bool> {
-        let key = name_key(category);
-        self.categories
-            .iter()
-            .find(|(k, _)| name_key(k) == key)
-            .and_then(|(_, m)| m.sync)
+        let meta = self.categories.get(category).or_else(|| {
+            let key = name_key(category);
+            self.categories
+                .iter()
+                .find(|(k, _)| name_key(k) == key)
+                .map(|(_, m)| m)
+        });
+        meta.and_then(|m| m.sync)
     }
 }
 
@@ -545,5 +560,59 @@ mod tests {
         let back = serde_json::to_value(&f).unwrap();
         assert_eq!(back["future"]["a"], 1);
         assert_eq!(back["files"][0]["rating"], 5);
+    }
+
+    #[test]
+    fn sync_false_is_kept_apart_from_inherit() {
+        let text = r#"{"version":1,"categories":{"Videos":{"sync":false},"Manuals":{}}}"#;
+        let f: ExtrasFile = serde_json::from_str(text).unwrap();
+        assert_eq!(f.sync_for("videos"), Some(false));
+        assert_eq!(f.sync_for("Manuals"), None);
+        let back = serde_json::to_value(&f).unwrap();
+        assert_eq!(back["categories"]["Videos"]["sync"], false);
+        assert!(back["categories"]["Manuals"]["sync"].is_null());
+    }
+
+    #[test]
+    fn sync_prefers_the_exact_spelling_of_a_category() {
+        let text =
+            r#"{"version":1,"categories":{"Manuals":{"sync":null},"manuals":{"sync":true}}}"#;
+        let f: ExtrasFile = serde_json::from_str(text).unwrap();
+        assert_eq!(f.sync_for("manuals"), Some(true));
+        assert_eq!(f.sync_for("Manuals"), None);
+    }
+
+    #[test]
+    fn unknown_rip_fields_survive_a_rewrite() {
+        let text =
+            r#"{"how":"organize","format":"spc","rip":{"game":"Super Metroid","album":"OST"}}"#;
+        let o: Origin = serde_json::from_str(text).unwrap();
+        assert_eq!(
+            o.rip.as_ref().unwrap().game.as_deref(),
+            Some("Super Metroid")
+        );
+        let back = serde_json::to_value(&o).unwrap();
+        assert_eq!(back["rip"]["album"], "OST");
+    }
+
+    #[test]
+    fn a_file_is_never_renamed_to_the_index_or_its_backups() {
+        let dir = std::path::Path::new("/L/Game/Extras");
+        assert_eq!(
+            validate_file_stem(dir, "extras", "json"),
+            Err(NameRefusal::Reserved)
+        );
+        assert_eq!(
+            validate_file_stem(dir, "Extras", "JSON"),
+            Err(NameRefusal::Reserved)
+        );
+        assert_eq!(
+            validate_file_stem(dir, "extras.broken-20261113-120000", "json"),
+            Err(NameRefusal::Reserved)
+        );
+        assert_eq!(
+            validate_file_stem(dir, "extras notes", "json"),
+            Ok("extras notes.json".into())
+        );
     }
 }
