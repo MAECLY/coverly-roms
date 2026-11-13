@@ -1,11 +1,15 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight } from 'lucide-react';
 import {
   useCallback,
   useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type FocusEvent,
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
@@ -24,37 +28,56 @@ import {
   COLUMN_DEFS,
   MAX_COLUMN_WIDTH,
   ROW_HEIGHT,
+  contentCell,
   fitWidth,
   gridMinWidth,
   gridTemplate,
   resizeColumn,
+  versionCell,
   widthOf,
 } from '@/lib/detailsColumns';
 import { formatDate, formatSize } from '@/lib/format';
+import type { Game } from '@/lib/games';
 import { relativeDir } from '@/lib/grouping';
-import { nextIndex } from '@/lib/keyboardNav';
-import { buildRowModel, coveringSections } from '@/lib/rowModel';
+import {
+  buildTreeModel,
+  coveringSections,
+  treeKey,
+  type TreeModel,
+  type TreeRow,
+} from '@/lib/rowModel';
 import type { Sort, SortKey } from '@/lib/sort';
 import { REGION_CODE } from '@/lib/tileLabel';
-import { displayVersion } from '@/lib/versions';
+import { useReducedMotion } from '@/lib/useReducedMotion';
 import { cn } from '@/lib/utils';
+import { displayVersion } from '@/lib/versions';
 import type {
   DetailsColumn,
   DetailsColumnId,
   ViewPrefs,
 } from '@/lib/viewPrefs';
+import { useViewStore } from '@/stores/viewStore';
 
 import { ArtStatusIcon } from '../ArtStatusIcon';
 import { ArtThumb } from '../ArtThumb';
+import { ChildThumb } from '../game/ChildThumb';
 import { ColumnPicker } from './ColumnPicker';
 import { SECTION_ROW_H, SectionHeaderRow } from './SectionHeaderRow';
-import { entryIdOf, type ViewProps } from './types';
+import type { ViewProps } from './types';
 import { useViewKeys } from './useViewKeys';
 
 /** The column header row keeps its height at both densities. */
 const HEAD_H = ROW_HEIGHT.comfortable;
 /** ←/→ on a focused column edge. */
 const KEY_STEP = 8;
+/** Narrower than this (a phone, 390 px) the view drops three columns. */
+const NARROW_PX = 480;
+const NARROW_HIDDEN: ReadonlySet<DetailsColumnId> = new Set([
+  'system',
+  'content',
+  'size',
+]);
+const NO_GAMES: ReadonlySet<number> = new Set();
 
 export interface DetailsViewProps extends ViewProps {
   sort: Sort;
@@ -68,6 +91,8 @@ interface CellContext {
   locale: string;
   systems: readonly SystemView[];
   generation: number;
+  /** The game an entry stands for, when the view has games. */
+  gameOf(e: EntryView): Game | null;
 }
 
 function regionText(e: EntryView, t: CellContext['t']): string {
@@ -90,25 +115,21 @@ const CELLS: Readonly<
     />
   ),
   name: (e) => e.name,
-  // The plain facts until the treegrid writes the full cells (§8.4): the
-  // installed version (Rust, D5), else the base's own, else the revision.
-  version: (e) => {
-    const v = e.installed ?? e.version;
-    if (v !== undefined) return displayVersion(v);
-    return e.revision ?? '—';
+  version: (e, ctx) => {
+    const cell = versionCell(e, ctx.gameOf(e), ctx.t);
+    return (
+      <span className="tree-version">
+        {cell.text}
+        {cell.warning && (
+          <>
+            {' '}
+            <span className="tree-warning">{cell.warning}</span>
+          </>
+        )}
+      </span>
+    );
   },
-  content: (e, ctx) => {
-    const children = e.children ?? [];
-    const updates = children.filter((c) => c.role === 'update').length;
-    const dlc = children.length - updates;
-    const n = new Intl.NumberFormat(ctx.locale);
-    const parts: string[] = [];
-    if (updates === 1) parts.push(ctx.t('content.cell.updatesOne'));
-    else if (updates > 1)
-      parts.push(ctx.t('content.cell.updates', { n: n.format(updates) }));
-    if (dlc > 0) parts.push(`${n.format(dlc)} DLC`);
-    return parts.length > 0 ? parts.join(', ') : '—';
-  },
+  content: (e, ctx) => contentCell(ctx.gameOf(e), ctx.t, ctx.locale, e),
   system: (e, ctx) => {
     const system = ctx.systems[e.system];
     return (
@@ -130,6 +151,157 @@ const CELLS: Readonly<
     <ArtStatusIcon media="screenshot" mark={e.art.screenshot} />
   ),
 };
+
+/** A row under a game (§8.4): an update, DLC, revision, demo, the
+ *  add-on folder or the ghost of a missing update. */
+type ContentTreeRow = Exclude<TreeRow, { kind: 'section' } | { kind: 'game' }>;
+
+const KIND_KEY: Readonly<Record<ContentTreeRow['kind'], string>> = {
+  ghost: 'content.kind.update',
+  child: '',
+  revision: 'content.kind.revision',
+  demo: 'content.kind.demo',
+  folder: 'content.kind.folder',
+};
+
+function kindLabel(row: ContentTreeRow, t: CellContext['t']): string {
+  if (row.kind === 'child')
+    return t(
+      row.child.role === 'update' ? 'content.kind.update' : 'content.kind.dlc',
+    );
+  return t(KIND_KEY[row.kind]);
+}
+
+/** The file a content row stands for, when it is an entry of its own. */
+function rowEntry(
+  row: ContentTreeRow,
+  games: ReadonlyMap<number, Game> | undefined,
+): EntryView | null {
+  if (row.kind === 'revision') return row.entry;
+  if (row.kind === 'demo') return games?.get(row.demo)?.entry ?? null;
+  return null;
+}
+
+/** The name a content row shows after its kind. */
+function rowName(
+  row: ContentTreeRow,
+  ctx: CellContext,
+  games: ReadonlyMap<number, Game> | undefined,
+): string {
+  switch (row.kind) {
+    case 'child':
+      return row.child.name;
+    case 'ghost':
+      return ctx.t('content.notInLibrary');
+    case 'folder':
+      return ctx.t('content.folderSummary');
+    default:
+      return rowEntry(row, games)?.name ?? '';
+  }
+}
+
+/** «Mods: 1, Trucos: 2» for the folders that hold anything. */
+function folderCounts(
+  addons: NonNullable<EntryView['addons']>,
+  ctx: CellContext,
+): string {
+  const n = new Intl.NumberFormat(ctx.locale);
+  return (['mods', 'cheats', 'extras', 'saves'] as const)
+    .filter((k) => addons[k] > 0)
+    .map((k) =>
+      ctx.t('content.cell.count', {
+        label: ctx.t(`gameFolder.${k}`),
+        n: n.format(addons[k]),
+      }),
+    )
+    .join(', ');
+}
+
+function extOf(path: string): string {
+  const name = path.split(/[\\/]/).pop() ?? '';
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot + 1) : '';
+}
+
+/** What each column shows for a content row; blank where it has no fact. */
+function contentRowCell(
+  id: DetailsColumnId,
+  row: ContentTreeRow,
+  game: EntryView,
+  ctx: CellContext,
+  games: ReadonlyMap<number, Game> | undefined,
+): ReactNode {
+  const own = rowEntry(row, games);
+  switch (id) {
+    case 'thumb':
+      if (row.kind === 'child')
+        return (
+          <ChildThumb
+            generation={ctx.generation}
+            entry={game}
+            child={row.child}
+            systemId={ctx.systems[game.system]?.system_id}
+            size={24}
+          />
+        );
+      return own ? (
+        <ArtThumb
+          generation={ctx.generation}
+          entry={own}
+          media="cover"
+          className="details-thumb"
+          placeholder=""
+        />
+      ) : null;
+    case 'name':
+      return (
+        <span className="tree-name">
+          <span className="tree-kind">{kindLabel(row, ctx.t)}</span>
+          <span className="tree-name__text">{rowName(row, ctx, games)}</span>
+        </span>
+      );
+    case 'version':
+      if (row.kind === 'ghost')
+        return (
+          <span className="tree-warning">
+            {ctx.t('content.ghost', { v: row.version.replace(/^[vV]/, '') })}
+          </span>
+        );
+      if (row.kind === 'child')
+        return (
+          <span className="tree-version">
+            {row.child.version === undefined
+              ? '—'
+              : displayVersion(row.child.version)}
+            {row.newest && (
+              <>
+                {' '}
+                <span className="tree-note">{ctx.t('content.newest')}</span>
+              </>
+            )}
+          </span>
+        );
+      if (row.kind === 'revision') return row.entry.revision ?? '—';
+      return own ? CELLS.version(own, ctx) : null;
+    case 'content':
+      return row.kind === 'folder' ? folderCounts(row.addons, ctx) : null;
+    case 'ext':
+      if (row.kind === 'child') return extOf(row.child.rel_path);
+      return own?.ext ?? null;
+    case 'size':
+      if (row.kind === 'child') return formatSize(row.child.size, ctx.locale);
+      return own ? formatSize(own.size, ctx.locale) : null;
+    case 'mtime':
+      if (row.kind === 'child') return formatDate(row.child.mtime, ctx.locale);
+      return own ? formatDate(own.mtime, ctx.locale) : null;
+    case 'cover':
+    case 'title':
+    case 'screenshot':
+      return own ? CELLS[id](own, ctx) : null;
+    default:
+      return null;
+  }
+}
 
 /** A plain-text tooltip for cells that can truncate. */
 function cellTitle(
@@ -184,7 +356,28 @@ function renderedWidth(col: DetailsColumn, edge: Element): number {
   return Math.max(widthOf(col), measured);
 }
 
-/** Details (⌘2): one row per game, the columns the user picked. */
+/** The keys the treegrid answers itself, even where they do nothing. */
+const TREE_KEYS: ReadonlySet<string> = new Set([
+  'ArrowDown',
+  'ArrowUp',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageDown',
+  'PageUp',
+]);
+
+/** The mounted row element with `key`. */
+function rowElement(root: HTMLElement, key: string): HTMLElement | null {
+  for (const el of root.querySelectorAll<HTMLElement>('[data-row-key]'))
+    if (el.dataset.rowKey === key) return el;
+  return null;
+}
+
+/** Details (⌘2): one row per game, the columns the user picked, as a
+ *  treegrid whose games open on their updates, DLC, revisions and demos
+ *  (addon views §8.4). */
 export function DetailsView({
   entries,
   sections,
@@ -198,9 +391,11 @@ export function DetailsView({
   onPreview,
   sort,
   onSort,
+  content,
 }: DetailsViewProps) {
   const t = useT();
   const locale = useContext(LocaleContext);
+  const hintId = useId();
   const [ref, size, element] = useElementSize<HTMLDivElement>();
   const compact = prefs.density === 'compact';
   const rowH = ROW_HEIGHT[prefs.density];
@@ -222,33 +417,75 @@ export function DetailsView({
   } | null>(null);
 
   const withHeaders = prefs.groupBy !== 'none';
-  const model = useMemo(
+  const games = content?.byEntry;
+  const reduced = useReducedMotion();
+  const expanded = useViewStore((s) => s.expanded) ?? NO_GAMES;
+  const setExpanded = useViewStore((s) => s.setExpanded);
+  const initExpanded = useViewStore((s) => s.initExpanded);
+  const model: TreeModel = useMemo(
     () =>
-      buildRowModel(coveringSections(sections, entries.length), 1, withHeaders),
-    [sections, entries.length, withHeaders],
+      buildTreeModel(
+        coveringSections(sections, entries.length),
+        entries,
+        games,
+        expanded,
+        withHeaders,
+      ),
+    [sections, entries, games, expanded, withHeaders],
   );
-  const { rows, rowOfIndex, headerRows } = model;
+  const { rows, gameRow, headerRows } = model;
+  const rowByKey = useMemo(
+    () => new Map(rows.map((r, i) => [r.key, i])),
+    [rows],
+  );
   const indexOf = useMemo(
     () => new Map(entries.map((e, i) => [e.id, i])),
     [entries],
   );
+  // A revision that is not the default (opened from its row) still
+  // selects its game's row.
+  const selectedGame =
+    selectedId === null ? null : (games?.get(selectedId) ?? null);
+  const selectedEntry = selectedGame ? selectedGame.entry.id : selectedId;
   const selectedIndex =
-    selectedId === null ? -1 : (indexOf.get(selectedId) ?? -1);
-  const activeRow = selectedIndex < 0 ? -1 : (rowOfIndex[selectedIndex] ?? -1);
-  // The selected row (and its group row) stays mounted when the wheel
-  // scrolls it away, so aria-activedescendant always names an element.
+    selectedEntry === null ? -1 : (indexOf.get(selectedEntry) ?? -1);
+  const selectedRow = selectedIndex < 0 ? -1 : (gameRow[selectedIndex] ?? -1);
+
+  // The first time Details shows, the selected game starts open (§8.4).
+  const startOpen =
+    selectedGame && selectedRow >= 0 && rows[selectedRow]?.kind === 'game'
+      ? selectedGame.entry.id
+      : null;
+  useEffect(() => {
+    initExpanded(startOpen === null ? [] : [startOpen]);
+  }, [initExpanded, startOpen]);
+
+  // Row-first roving focus: the focused row is the selected game's row,
+  // or one of its content rows the keyboard moved to.
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const keyed = activeKey === null ? undefined : rowByKey.get(activeKey);
+  const activeRow =
+    keyed !== undefined &&
+    rows[keyed]?.kind !== 'game' &&
+    rows[keyed]?.parent === selectedRow &&
+    selectedRow >= 0
+      ? keyed
+      : selectedRow;
+  const focusRow =
+    activeRow >= 0 ? activeRow : rows.findIndex((r) => r.kind !== 'section');
+  const focusKey = rows[focusRow]?.key ?? null;
+  // The focused row (and its group row) stays mounted when the wheel
+  // scrolls it away, so the focus never sits on a removed element.
   const rangeExtractor = useActiveRange(
-    activeRow,
-    activeRow < 0 ? null : stickyHeaderAt(headerRows, activeRow),
+    focusRow,
+    focusRow < 0 ? null : stickyHeaderAt(headerRows, focusRow),
     headerRows,
   );
   const getItemKey = useCallback(
     (i: number) => {
       const row = rows[i];
       if (!row) return i;
-      return row.kind === 'header'
-        ? `h:${row.section.key}`
-        : `r:${prefs.density}:${row.start}`;
+      return `${prefs.density}:${row.key}`;
     },
     [rows, prefs.density],
   );
@@ -256,7 +493,7 @@ export function DetailsView({
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => element.current,
-    estimateSize: (i) => (rows[i]?.kind === 'header' ? SECTION_ROW_H : rowH),
+    estimateSize: (i) => (rows[i]?.kind === 'section' ? SECTION_ROW_H : rowH),
     overscan: 8,
     getItemKey,
     // The sticky column header sits inside the scroll element above the
@@ -274,21 +511,152 @@ export function DetailsView({
   const topRow = items.find((item) => item.end - HEAD_H > offset)?.index ?? 0;
   const stuck = stickyHeaderAt(headerRows, topRow);
 
-  const onKeyDown = useViewKeys({
+  // The focus follows the focused row while it is in the view (a key, a
+  // new selection from Quick look), never pulled in from elsewhere.
+  useLayoutEffect(() => {
+    const root = element.current;
+    const now = document.activeElement;
+    if (!root || focusKey === null || !(now instanceof HTMLElement)) return;
+    const inView =
+      now === root ||
+      (now.getAttribute('role') === 'row' && root.contains(now));
+    if (!inView) return;
+    const target = rowElement(root, focusKey);
+    if (target && target !== now) target.focus({ preventScroll: true });
+  });
+
+  const viewKeys = useViewKeys({
     entries,
     sections,
     selectedIndex,
     onSelect,
     onOpen,
     onPreview,
-    scrollToIndex: (i) =>
-      virtualizer.scrollToIndex(rowOfIndex[i] ?? 0, { align: 'auto' }),
-    move: (key) => nextIndex(key, selectedIndex, entries.length, 1, pageRows),
+    // The selected game's row, or its content row the focus is on.
+    scrollToIndex: (i) => {
+      const row = gameRow[i] ?? 0;
+      const to = rows[activeRow]?.parent === row ? activeRow : row;
+      virtualizer.scrollToIndex(to, { align: 'auto' });
+    },
+    // ↑/↓, Home, End and the page keys are the treegrid's (below).
+    move: () => null,
+    rowFocus: true,
   });
 
+  /** The game entry a row belongs to. */
+  function ownerOf(row: TreeRow): EntryView | undefined {
+    return row.kind === 'section' ? undefined : entries[row.index];
+  }
+
+  function focusTo(r: number) {
+    const row = rows[r];
+    const owner = row && ownerOf(row);
+    if (!row || !owner) return;
+    setActiveKey(row.key);
+    if (owner.id !== selectedEntry) onSelect(owner.id);
+    virtualizer.scrollToIndex(r, { align: 'auto' });
+  }
+
+  /** Enter or a click: the panel, at what the row stands for. */
+  function activate(row: TreeRow) {
+    const owner = ownerOf(row);
+    if (!owner) return;
+    setActiveKey(row.key);
+    switch (row.kind) {
+      case 'section':
+        return;
+      case 'child':
+        if (content?.onOpenChild)
+          content.onOpenChild(owner.id, row.child.index);
+        else onOpen(owner.id);
+        return;
+      case 'ghost':
+        if (content?.onOpenVersion) content.onOpenVersion(owner.id);
+        else onOpen(owner.id);
+        return;
+      case 'revision':
+        onOpen(row.entry.id);
+        return;
+      case 'demo':
+        onOpen(row.demo);
+        return;
+      default:
+        onOpen(owner.id);
+    }
+  }
+
+  function onKeyDown(ev: KeyboardEvent<HTMLDivElement>) {
+    const target = ev.target;
+    const onRow =
+      target === ev.currentTarget ||
+      (target instanceof HTMLElement && target.getAttribute('role') === 'row');
+    if (!onRow || ev.nativeEvent.isComposing) return;
+    const plain = !ev.altKey && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey;
+    if (plain && ev.key === 'Enter') {
+      const row = rows[focusRow];
+      if (row) {
+        ev.preventDefault();
+        activate(row);
+      }
+      return;
+    }
+    if (plain && activeRow < 0 && TREE_KEYS.has(ev.key) && focusRow >= 0) {
+      // Nothing selected yet: the first key lands on the first row (the
+      // last for End), as in the other views.
+      ev.preventDefault();
+      const last = treeKey(model, focusRow, 'End', 1);
+      focusTo(ev.key === 'End' && 'row' in last ? last.row : focusRow);
+      return;
+    }
+    if (plain && focusRow >= 0) {
+      const move = treeKey(model, focusRow, ev.key, pageRows);
+      if ('row' in move) {
+        ev.preventDefault();
+        focusTo(move.row);
+        return;
+      }
+      if ('expand' in move || 'collapse' in move) {
+        ev.preventDefault();
+        if ('expand' in move) setExpanded(move.expand, true);
+        else setExpanded(move.collapse, false);
+        setActiveKey(rows[focusRow]?.key ?? null);
+        return;
+      }
+      if (TREE_KEYS.has(ev.key)) {
+        // At an edge, or → on a row with nothing under it: stay put.
+        ev.preventDefault();
+        return;
+      }
+    }
+    viewKeys(ev);
+  }
+
+  function onFocus(ev: FocusEvent<HTMLDivElement>) {
+    // The view's root takes the focus from the app (after the panel
+    // closes): hand it to the focused row.
+    if (ev.target !== ev.currentTarget || focusKey === null) return;
+    rowElement(ev.currentTarget, focusKey)?.focus({ preventScroll: true });
+  }
+
   function onClick(ev: MouseEvent<HTMLDivElement>) {
-    const id = entryIdOf(ev.target);
-    if (id !== null) onOpen(id);
+    const el =
+      ev.target instanceof Element
+        ? ev.target.closest<HTMLElement>('[data-row-key]')
+        : null;
+    const at = el ? rowByKey.get(el.dataset.rowKey ?? '') : undefined;
+    const row = at === undefined ? undefined : rows[at];
+    if (!row) return;
+    if (
+      row.kind === 'game' &&
+      row.expandable &&
+      ev.target instanceof Element &&
+      ev.target.closest('[data-tree-toggle]')
+    ) {
+      setActiveKey(row.key);
+      setExpanded(row.id, !row.expanded);
+      return;
+    }
+    activate(row);
   }
 
   function saveColumns(next: DetailsColumn[]) {
@@ -376,31 +744,48 @@ export function DetailsView({
     );
   }
 
-  const ctx: CellContext = { t, locale, systems, generation };
+  const ctx: CellContext = {
+    t,
+    locale,
+    systems,
+    generation,
+    gameOf: (e) => games?.get(e.id) ?? null,
+  };
+  // A phone-width window keeps the name, its version and the art (§8.4).
+  const narrow = size.width > 0 && size.width < NARROW_PX;
+  const shown = narrow
+    ? columns.filter((c) => !NARROW_HIDDEN.has(c.id))
+    : columns;
   const gridStyle = {
-    '--details-cols': gridTemplate(columns),
-    '--details-min-width': `${gridMinWidth(columns)}px`,
+    '--details-cols': gridTemplate(shown),
+    '--details-min-width': `${gridMinWidth(shown)}px`,
   } as CSSProperties;
   const rowClass = cn('entry-row', compact && 'entry-row--compact');
+  // Games open on their content: the chevron column and the key hint.
+  const tree = content?.line === true;
+  const chevronClass = (open: boolean) =>
+    cn(
+      'tree-chevron',
+      open && 'tree-chevron--open',
+      !reduced && 'tree-chevron--animated',
+    );
 
   return (
-    <>
+    <div className="details-tree">
       <div
         ref={ref}
-        role="grid"
+        role="treegrid"
         aria-label={t('layouts.announce', { view: t('layouts.details') })}
+        aria-describedby={tree ? hintId : undefined}
         data-view-root=""
         aria-rowcount={rows.length + 1}
-        aria-colcount={columns.length}
-        aria-activedescendant={
-          selectedIndex < 0 || selectedId === null
-            ? undefined
-            : `entry-${selectedId}`
-        }
-        tabIndex={0}
+        aria-colcount={shown.length}
+        // Rows hold the focus (roving tabIndex); with none, the view does.
+        tabIndex={rows.length > 0 ? -1 : 0}
         className="entry-table"
         style={gridStyle}
         onKeyDown={onKeyDown}
+        onFocus={onFocus}
         onClick={onClick}
       >
         <div
@@ -409,7 +794,7 @@ export function DetailsView({
           className="entry-row entry-row--head"
           style={{ height: HEAD_H }}
         >
-          {columns.map((col) => {
+          {shown.map((col) => {
             const def = COLUMN_DEFS[col.id];
             const label = t(def.labelKey);
             const { sortKey } = def;
@@ -495,15 +880,22 @@ export function DetailsView({
           {items.map((item) => {
             const row = rows[item.index];
             if (!row) return null;
-            if (row.kind === 'header') {
+            const place = {
+              'aria-rowindex': item.index + 2,
+              'aria-level': row.level,
+              'aria-setsize': row.setsize,
+              'aria-posinset': row.posinset,
+            };
+            if (row.kind === 'section') {
               const sticky = item.index === stuck;
               return (
                 <SectionHeaderRow
                   key={item.key}
                   section={row.section}
-                  colSpan={columns.length}
+                  colSpan={shown.length}
                   rowIndex={item.index + 1}
                   sticky={sticky}
+                  tree={row}
                   style={
                     sticky
                       ? { height: SECTION_ROW_H, top: HEAD_H }
@@ -515,30 +907,84 @@ export function DetailsView({
                 />
               );
             }
-            const e = entries[row.start];
-            if (!e) return null;
+            const style = {
+              transform: `translateY(${item.start - HEAD_H}px)`,
+              height: rowH,
+            };
+            const tabIndex = item.index === focusRow ? 0 : -1;
+            const owner = entries[row.index];
+            if (!owner) return null;
+            if (row.kind === 'game') {
+              const e = owner;
+              return (
+                <div
+                  key={item.key}
+                  id={`entry-${e.id}`}
+                  role="row"
+                  {...place}
+                  aria-expanded={row.expandable ? row.expanded : undefined}
+                  aria-selected={e.id === selectedEntry}
+                  tabIndex={tabIndex}
+                  data-entry-id={e.id}
+                  data-row-key={row.key}
+                  className={cn(rowClass, 'tree-row')}
+                  style={style}
+                >
+                  {shown.map((col) => (
+                    <div
+                      key={col.id}
+                      role="gridcell"
+                      className={`cell cell--${col.id}`}
+                      title={cellTitle(col.id, e, ctx)}
+                    >
+                      {col.id === 'name' && tree ? (
+                        <span className="tree-name">
+                          {row.expandable ? (
+                            <span
+                              aria-hidden="true"
+                              data-tree-toggle=""
+                              className={chevronClass(row.expanded)}
+                            >
+                              <ChevronRight className="size-3.5" />
+                            </span>
+                          ) : (
+                            <span aria-hidden="true" className="tree-chevron" />
+                          )}
+                          <span className="tree-name__text">
+                            {CELLS.name(e, ctx)}
+                          </span>
+                        </span>
+                      ) : (
+                        CELLS[col.id](e, ctx)
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            }
+            // Content rows are never selected and carry no entry id, so
+            // bulk actions and counts never see them.
             return (
               <div
                 key={item.key}
-                id={`entry-${e.id}`}
                 role="row"
-                aria-rowindex={item.index + 2}
-                aria-selected={e.id === selectedId}
-                data-entry-id={e.id}
-                className={rowClass}
-                style={{
-                  transform: `translateY(${item.start - HEAD_H}px)`,
-                  height: rowH,
-                }}
+                {...place}
+                tabIndex={tabIndex}
+                data-row-key={row.key}
+                className={cn(
+                  rowClass,
+                  'tree-row tree-row--child',
+                  row.kind === 'ghost' && 'tree-row--ghost',
+                )}
+                style={style}
               >
-                {columns.map((col) => (
+                {shown.map((col) => (
                   <div
                     key={col.id}
                     role="gridcell"
                     className={`cell cell--${col.id}`}
-                    title={cellTitle(col.id, e, ctx)}
                   >
-                    {CELLS[col.id](e, ctx)}
+                    {contentRowCell(col.id, row, owner, ctx, games)}
                   </div>
                 ))}
               </div>
@@ -546,6 +992,11 @@ export function DetailsView({
           })}
         </div>
       </div>
+      {tree && (
+        <p id={hintId} className="tree-hint">
+          {t('content.keysHint')}
+        </p>
+      )}
       <ColumnPicker
         at={menu}
         columns={columns}
@@ -553,6 +1004,6 @@ export function DetailsView({
         onClose={() => setMenu(null)}
         returnFocus={menuReturn}
       />
-    </>
+    </div>
   );
 }

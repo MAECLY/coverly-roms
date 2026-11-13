@@ -1979,11 +1979,13 @@
     },
     "newest": "the newest",
     "notInLibrary": "not in the library",
+    "ghost": "↑ v{v} missing",
     "cell": {
       "updates": "{n} upd.",
       "updatesOne": "1 upd.",
       "demoApart": "separate demo",
-      "revisions": "{n} revisions"
+      "revisions": "{n} revisions",
+      "count": "{label}: {n}"
     },
     "demoOf": "Demo of {name}",
     "folderSummary": "Mods, cheats, extras and saves",

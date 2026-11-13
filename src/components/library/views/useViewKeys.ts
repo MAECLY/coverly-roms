@@ -30,6 +30,20 @@ export interface ViewKeysOptions {
    *  beside the view, the window is resized) the selection is brought
    *  back into view once the new layout is in place. */
   layout?: string;
+  /** Rows hold the focus themselves (Details' treegrid, roving
+   *  `tabIndex`): keys pressed on one of the view's rows belong to the
+   *  view too, not only keys on the view's root. */
+  rowFocus?: boolean;
+}
+
+/** The key was pressed on a row of the view (not on a control in it). */
+function isRowOf(ev: KeyboardEvent<HTMLElement>): boolean {
+  const target = ev.target;
+  return (
+    target instanceof HTMLElement &&
+    target.getAttribute('role') === 'row' &&
+    ev.currentTarget.contains(target)
+  );
 }
 
 /** A single printable character (not Space, which previews). */
@@ -69,7 +83,8 @@ export function useViewKeys(
 
   return (ev) => {
     // Keys pressed on a focusable child belong to that child.
-    if (ev.target !== ev.currentTarget || ev.key === 'Tab') return;
+    if (ev.key === 'Tab') return;
+    if (ev.target !== ev.currentTarget && !(o.rowFocus && isRowOf(ev))) return;
     // An input method is still composing: the key is not a letter yet.
     if (ev.nativeEvent.isComposing) return;
     const selected = o.entries[o.selectedIndex];

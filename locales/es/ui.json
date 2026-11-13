@@ -1979,11 +1979,13 @@
     },
     "newest": "la más nueva",
     "notInLibrary": "no está en la biblioteca",
+    "ghost": "↑ v{v} falta",
     "cell": {
       "updates": "{n} act.",
       "updatesOne": "1 act.",
       "demoApart": "demo aparte",
-      "revisions": "{n} revisiones"
+      "revisions": "{n} revisiones",
+      "count": "{label}: {n}"
     },
     "demoOf": "Demo de {name}",
     "folderSummary": "Mods, trucos, extras y partidas",

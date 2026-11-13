@@ -165,9 +165,11 @@ describe('Library screen', () => {
     await userEvent.click(
       within(layout).getByRole('radio', { name: 'Details' }),
     );
-    expect(document.activeElement).toBe(
-      screen.getByRole('grid', { name: 'Details view' }),
-    );
+    // The treegrid hands the focus on to its focused row (roving tabIndex).
+    expect(
+      screen.getByRole('treegrid', { name: 'Details view' }),
+    ).toContainElement(document.activeElement as HTMLElement);
+    expect(document.activeElement).toHaveAttribute('role', 'row');
     fireEvent.keyDown(document.activeElement!, { key: '4', ctrlKey: true });
     const gallery = await screen.findByRole('group', { name: 'Gallery view' });
     expect(gallery).toContainElement(document.activeElement as HTMLElement);
@@ -187,7 +189,7 @@ describe('Library screen', () => {
     await openLibrary();
     expect(useViewStore.getState().root).toBe(SMALL);
     expect(
-      screen.getByRole('grid', { name: 'Details view' }),
+      screen.getByRole('treegrid', { name: 'Details view' }),
     ).toBeInTheDocument();
     expect(screen.queryByRole('grid', { name: 'Covers view' })).toBeNull();
     // Opening a library is not a switch: the focus is left where it was.
@@ -417,9 +419,9 @@ const VIEW_NAMES: Record<ViewId, string> = {
   shelves: 'Shelves',
 };
 /** The role of each view's root (spec §B.8). */
-const VIEW_ROLES: Record<ViewId, 'grid' | 'group'> = {
+const VIEW_ROLES: Record<ViewId, 'grid' | 'treegrid' | 'group'> = {
   covers: 'grid',
-  details: 'grid',
+  details: 'treegrid',
   columns: 'group',
   gallery: 'group',
   mounts: 'grid',
@@ -492,8 +494,9 @@ describe('Library views', () => {
       ).toBeChecked();
       const root = viewRoot(id);
       // The group roots (Columns, Gallery) hand the focus on to their
-      // active listbox inside the named group; grid roots take it themselves.
-      if (VIEW_ROLES[id] === 'group') {
+      // active listbox inside the named group, the treegrid (Details) to
+      // its focused row; grid roots take it themselves.
+      if (VIEW_ROLES[id] !== 'grid') {
         expect(root).toContainElement(document.activeElement as HTMLElement);
       } else {
         expect(document.activeElement).toBe(root);
@@ -573,9 +576,10 @@ describe('Library views', () => {
       within(switcher).getByRole('radio', { name: 'Details' }),
     );
     const details = viewRoot('details');
-    expect(details).toHaveAttribute('aria-activedescendant', `entry-${id}`);
     const row = details.querySelector(`[id="entry-${id}"]`)!;
     expect(row).toHaveAttribute('role', 'row');
+    // The treegrid's rows hold the focus: the selected one is the tab stop.
+    expect(row).toHaveAttribute('tabindex', '0');
     expect(row).toHaveAttribute('aria-selected', 'true');
 
     await userEvent.click(

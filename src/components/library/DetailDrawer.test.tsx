@@ -445,7 +445,12 @@ describe('Detail drawer', () => {
       );
       expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
       expect(useViewStore.getState().prefs.inspector).toBe(false);
-      expect(document.activeElement).toHaveAttribute('role', 'grid');
+      // Details' treegrid hands the focus on to the selected game's row.
+      expect(document.activeElement).toHaveAttribute('role', 'row');
+      expect(document.activeElement).toHaveAttribute(
+        'data-entry-id',
+        String(view.entries[0]!.id),
+      );
     });
 
     it.each(['columns', 'gallery'] as const)(
