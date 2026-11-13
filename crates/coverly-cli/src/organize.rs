@@ -3478,6 +3478,32 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_3ds_region_letter_is_listed_on_its_base_row() {
+        let p = std::path::Path::new;
+        let mut base = test_item(0, "Zelda CTR-P-AXXT.cia");
+        base.system_id = Some("3ds".into());
+        base.folder = Some("3DS".into());
+        base.target = Some(p("3DS").join("Zelda").join("Zelda CTR-P-AXXT.cia"));
+        base.notes = vec![ItemNote::RegionLetterUnknown { letter: 'T' }];
+        let plan = plan_with_items(vec![base]);
+        let table = render_table(
+            &plan,
+            &SystemDb::builtin(),
+            &OrganizeOptions::default(),
+            true,
+        );
+        let line = table
+            .lines()
+            .find(|l| l.contains("Zelda CTR-P-AXXT.cia →"))
+            .unwrap_or_else(|| panic!("{table}"));
+        assert!(
+            line.contains("region letter “T” not identified; no region is added to the name"),
+            "{table}"
+        );
+        assert_eq!(table.matches("region letter").count(), 1, "{table}");
+    }
+
+    #[test]
     fn an_addon_for_the_emulator_data_folder_stays_under_its_base() {
         let p = std::path::Path::new;
         let game = p("3DS").join("Pokemon Y (World)");
