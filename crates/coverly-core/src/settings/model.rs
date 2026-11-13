@@ -56,23 +56,47 @@ macro_rules! choice {
     };
 }
 
-choice!(/// UI language (`auto` follows the system).
-    LanguageChoice { Auto, En, Es });
-choice!(/// UI theme (`system` follows the OS).
-    ThemeChoice { System, Light, Dark });
-choice!(/// Update channel (the updater arrives in M7).
-    UpdateChannel { Stable, Beta });
-choice!(/// What a fill does with existing art (D25: `ask` = the wizard asks).
-    OverwriteSetting { Never, Ask, Backup });
-choice!(/// Output image format (`profile` = what the layout says).
-    OutputFormat { Profile, Png, Jpg });
-choice!(/// Proxy source (D26: `system` reads the standard environment variables).
-    ProxyChoice { System, Env, Manual });
-choice!(/// Organise transfer mode (`auto` = move on the same volume, copy otherwise).
-    OrganizeModeSetting { Auto, Move, Copy });
-choice!(/// Whether Organise may run an external archive tool (unrar, 7-Zip,
+choice!(
+    /// UI language (`auto` follows the system).
+    LanguageChoice { Auto, En, Es }
+);
+choice!(
+    /// UI theme (`system` follows the OS).
+    ThemeChoice {
+        System,
+        Light,
+        Dark
+    }
+);
+choice!(
+    /// Update channel (the updater arrives in M7).
+    UpdateChannel { Stable, Beta }
+);
+choice!(
+    /// What a fill does with existing art (D25: `ask` = the wizard asks).
+    OverwriteSetting { Never, Ask, Backup }
+);
+choice!(
+    /// Output image format (`profile` = what the layout says).
+    OutputFormat { Profile, Png, Jpg }
+);
+choice!(
+    /// Proxy source (D26: `system` reads the standard environment variables).
+    ProxyChoice {
+        System,
+        Env,
+        Manual
+    }
+);
+choice!(
+    /// Organise transfer mode (`auto` = move on the same volume, copy otherwise).
+    OrganizeModeSetting { Auto, Move, Copy }
+);
+choice!(
+    /// Whether Organise may run an external archive tool (unrar, 7-Zip,
     /// bsdtar) found on the system (`auto`) or never (`off`).
-    ExternalTools { Auto, Off });
+    ExternalTools { Auto, Off }
+);
 
 /// App log level.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -419,14 +443,28 @@ impl Default for OrganizeSettings {
     }
 }
 
-choice!(/// A dedupe level (duplicates spec §5): exact copies, the same game in
+choice!(
+    /// A dedupe level (duplicates spec §5): exact copies, the same game in
     /// another format, other versions of a game (acts only with
     /// `one_game_one_rom`, reported otherwise).
-    DedupeLevel { Exact, Format, Version });
-choice!(/// Where extra copies go: the quarantine folder or the OS Trash.
-    DedupeActionSetting { Quarantine, Trash });
-choice!(/// What Organise does with ROMs already in the library (spec §10).
-    OrganizeDedupeMode { SetAside, Report, Off });
+    DedupeLevel {
+        Exact,
+        Format,
+        Version
+    }
+);
+choice!(
+    /// Where extra copies go: the quarantine folder or the OS Trash.
+    DedupeActionSetting { Quarantine, Trash }
+);
+choice!(
+    /// What Organise does with ROMs already in the library (spec §10).
+    OrganizeDedupeMode {
+        SetAside,
+        Report,
+        Off
+    }
+);
 
 /// A keeper rule that can be reordered or turned off (duplicates spec
 /// §6.1). The user's pick (always first) and the tie-breaker (always last)
