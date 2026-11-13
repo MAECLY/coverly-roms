@@ -738,6 +738,8 @@ describe('DetailsView: the treegrid of games and their content (addon views §8.
       .map((h) => h.getAttribute('data-column'));
     expect(heads).toEqual(['name', 'version']);
     expect(tree()).toHaveAttribute('aria-colcount', '2');
+    // The key hint stays the treegrid's description, out of sight.
+    expect(screen.getByText(/^Teclado:/)).toHaveClass('sr-only');
   });
 
   it('says the keys in one line under the table', () => {

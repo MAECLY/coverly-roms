@@ -983,6 +983,9 @@ export function DetailsView({
                     key={col.id}
                     role="gridcell"
                     className={`cell cell--${col.id}`}
+                    title={
+                      col.id === 'name' ? rowName(row, ctx, games) : undefined
+                    }
                   >
                     {contentRowCell(col.id, row, owner, ctx, games)}
                   </div>
@@ -993,7 +996,9 @@ export function DetailsView({
         </div>
       </div>
       {tree && (
-        <p id={hintId} className="tree-hint">
+        // At phone width the table needs the room; the treegrid still
+        // names it as its description.
+        <p id={hintId} className={narrow ? 'sr-only' : 'tree-hint'}>
           {t('content.keysHint')}
         </p>
       )}

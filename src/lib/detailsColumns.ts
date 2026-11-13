@@ -52,8 +52,8 @@ export const COLUMN_DEFS: Readonly<Record<DetailsColumnId, Def>> =
   Object.freeze({
     thumb: def('thumb', 40, 32),
     name: def('name', 200, 120, 'name'),
-    version: def('version', 140, 72, 'version'),
-    content: def('content', 168, 88, 'content'),
+    version: def('version', 176, 72, 'version'),
+    content: def('content', 200, 88, 'content'),
     system: def('system', 160, 96, 'system'),
     folder: def('folder', 160, 80),
     regions: def('regions', 96, 56),
