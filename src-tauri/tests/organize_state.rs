@@ -1572,3 +1572,55 @@ fn switching_game_folders_reuses_the_survey() {
     assert!(second.events().is_empty(), "the survey was reused");
     assert!(!dlc_nested(&flat.plan));
 }
+
+/// Part C D15: a pile's DLC row previews the icon its package carries in
+/// the clear, by plan id and item id (never a path), and nothing is
+/// written; a row that is not an update, DLC or demo has none, an unknown
+/// item is refused.
+#[test]
+fn a_child_row_previews_its_package_icon_by_plan_and_item_id() {
+    use coverly_core::consoles::testing as ct;
+    use coverly_core::organize::GameRole;
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let pile = TempDir::new().unwrap();
+    write_old(
+        pile.path(),
+        "Pokemon Y.cia",
+        &ct::cia(0x0004_0000_0005_5E00, false, false).bytes(),
+    );
+    write_old(
+        pile.path(),
+        "Pokemon Y - Extra Pack.cia",
+        &ct::cia(0x0004_008C_0005_5E00, false, true).bytes(),
+    );
+    let before = tree(pile.path());
+    let req = OrganizeRequest {
+        layout: Some("esde".into()),
+        game_folders: Some(true),
+        ..offline(pile.path())
+    };
+    let view = st
+        .organize_plan(&req, &[], Arc::new(Recorder::default()))
+        .unwrap();
+    let role = |r: GameRole| {
+        view.plan
+            .items
+            .iter()
+            .find(|i| i.game.as_ref().is_some_and(|g| g.role == r))
+            .unwrap_or_else(|| panic!("no {r:?} row in {:#?}", view.plan.items))
+            .id
+    };
+    let stored = st.organize().get(view.plan_id).unwrap();
+    let png = coverly_roms_lib::organize::child_thumb(&stored, role(GameRole::Dlc)).unwrap();
+    assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+    assert!(matches!(
+        coverly_roms_lib::organize::child_thumb(&stored, role(GameRole::Base)),
+        Err(IpcError::ArtMissing(_))
+    ));
+    assert!(matches!(
+        coverly_roms_lib::organize::child_thumb(&stored, 99),
+        Err(IpcError::UnknownEntry(99))
+    ));
+    assert_eq!(tree(pile.path()), before);
+}

@@ -332,6 +332,21 @@ pub struct ChildArtReport {
     pub skipped: Vec<(PathBuf, SkipWhy)>,
 }
 
+/// The icon an update, DLC or demo at `child` carries in the clear, as a
+/// fresh PNG, for a preview (part C D15: Organizar's child rows, read from
+/// the pile's source file). Nothing is written; a key file is refused by
+/// name before anything is opened, and a package without art in the clear
+/// (a Switch NCA) gives `None`.
+pub fn icon_preview(child: &Path) -> Option<Vec<u8>> {
+    let name = child.file_name()?.to_string_lossy();
+    if crate::consoles::is_key_material(&name) {
+        return None;
+    }
+    embedded::child_locators(child)
+        .iter()
+        .find_map(|art| embedded::child_png(child, art).ok())
+}
+
 /// Reads the art each of `children` carries in the clear into its empty
 /// slots, through `writer` (journaled: undoing the job removes the files,
 /// restores the `.art.json` it replaced and drops a `.media/` folder it

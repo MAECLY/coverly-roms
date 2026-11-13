@@ -944,6 +944,22 @@ pub fn organize_cancel(state: State<'_, AppState>, plan_id: u64) -> Result<(), I
     state.organize_cancel(plan_id)
 }
 
+/// The icon a pile's update, DLC or demo carries in the clear, for its
+/// Organizar row (part C D15): raw PNG bytes (an `ArrayBuffer` in JS), by
+/// plan id and item id, never a path; nothing is written.
+#[tauri::command]
+pub async fn organize_child_thumb(
+    app: AppHandle,
+    plan_id: u64,
+    item_id: usize,
+) -> Result<tauri::ipc::Response, IpcError> {
+    blocking(move || {
+        let stored = app.state::<AppState>().organize().get(plan_id)?;
+        crate::organize::child_thumb(&stored, item_id).map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
 /// Saves plan `plan_id` as JSON where the user picks; `None` when cancelled.
 #[tauri::command]
 pub async fn organize_export_plan(

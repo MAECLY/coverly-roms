@@ -9,7 +9,8 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
 use coverly_core::art::children::{
-    art_json_path, child_slot_path, read_art_json, read_child_art, ChildMedia, ChildOrigin, SkipWhy,
+    art_json_path, child_slot_path, icon_preview, read_art_json, read_child_art, ChildMedia,
+    ChildOrigin, SkipWhy,
 };
 use coverly_core::consoles::testing::{
     cia, nsp, png_8x8, ps4_app, put_file, vita_sfo, wiiu_folder,
@@ -395,4 +396,38 @@ fn a_slot_path_too_long_is_skipped() {
     assert!(!opened.contains(&child), "{opened:?}");
     assert!(report.written.is_empty());
     assert_eq!(skipped(&report, &child), [SkipWhy::PathTooLong]);
+}
+
+/// Part C D15: Organizar previews the icon a pile's update or DLC carries
+/// in the clear, from the source file, without writing anything.
+#[test]
+fn an_icon_preview_reads_the_package_and_writes_nothing() {
+    let _g = serial();
+    let lib = lib();
+    let child = at(&lib.root, "Downloads/Pack.cia");
+    cia_dlc(&child);
+    let before = tree(&lib.root);
+    let png = icon_preview(&child).expect("the CIA's meta SMDH icon");
+    assert_eq!(
+        image::guess_format(&png).ok(),
+        Some(image::ImageFormat::Png)
+    );
+    assert_eq!(tree(&lib.root), before);
+    assert!(tree(&lib.data).is_empty());
+}
+
+#[test]
+fn an_icon_preview_of_a_switch_child_or_a_key_is_none() {
+    let _g = serial();
+    let lib = lib();
+    let nsp_path = at(&lib.root, "Downloads/Pack [0100000000011001][v0].nsp");
+    let nsp = nsp(&[("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nca", &[0x55; 64])]);
+    put(&nsp_path, &nsp.bytes());
+    assert_eq!(icon_preview(&nsp_path), None);
+    let tik = at(&lib.root, "Downloads/Pack.tik");
+    put(&tik, &[0xEE; 0x350]);
+    start_open_log();
+    assert_eq!(icon_preview(&tik), None);
+    let opened = take_open_log();
+    assert!(!opened.contains(&tik), "{opened:?}");
 }
