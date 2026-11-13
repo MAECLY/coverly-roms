@@ -349,6 +349,10 @@ pub struct Listing {
     pub files: Vec<ListedFile>,
     /// Records with no file («No encontrados»): never dropped.
     pub missing: Vec<ExtraRecord>,
+    /// Records whose file is still on disk but was not listed (past the
+    /// cap, deeper than [`LIST_DEPTH`], a hidden name): neither shown nor
+    /// «No encontrados», and kept as they are by the next write.
+    pub unreached: Vec<ExtraRecord>,
     /// The walk stopped at [`LIST_CAP`] files.
     pub capped: bool,
     /// What was read (whole, salvaged or partial), the base of the next write.
@@ -378,7 +382,7 @@ pub fn list(extras_dir: &Path) -> Listing {
     };
     let walked = walk(extras_dir);
     let records = base.as_ref().map_or(&[][..], |b| b.files.as_slice());
-    let (mut files, missing) = reconcile(extras_dir, walked.files, records, walked.capped);
+    let (mut files, missing, unreached) = reconcile(extras_dir, walked.files, records);
     let categories = categories(&walked.dirs, &files);
     canonical_categories(&mut files, &categories);
     Listing {
@@ -386,6 +390,7 @@ pub fn list(extras_dir: &Path) -> Listing {
         categories,
         files,
         missing,
+        unreached,
         capped: walked.capped,
         base,
     }
@@ -417,8 +422,11 @@ fn skipped_name(name: &str) -> bool {
     name.starts_with('.') || is_skipped_entry(name, &ScanOptions::default())
 }
 
-/// The index and its malformed-file backups, exactly (D4, D9).
+/// The index and its malformed-file backups (D4, D9), ignoring ASCII case:
+/// on the case-insensitive disks of macOS and Windows `EXTRAS.JSON` is the
+/// index itself, never a file to show, rename or trash.
 fn is_index_name(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
     name == EXTRAS_JSON || (name.starts_with("extras.broken-") && name.ends_with(".json"))
 }
 
@@ -507,14 +515,17 @@ fn nfc_key<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
 /// Matches records to files in the three passes of D4. A pass only
 /// pairs a record and a file that are each other's only candidate, so
 /// identical twins never merge and two records never share one file.
+/// Returns the listed files, the missing records and the unreached ones.
 fn reconcile(
     extras_dir: &Path,
     disk: Vec<OnDisk>,
     records: &[ExtraRecord],
-    capped: bool,
-) -> (Vec<ListedFile>, Vec<ExtraRecord>) {
+) -> (Vec<ListedFile>, Vec<ExtraRecord>, Vec<ExtraRecord>) {
     let mut file_rec: Vec<Option<(usize, Match)>> = vec![None; disk.len()];
     let mut rec_done = vec![false; records.len()];
+    // A second record with a claimed path: never paired by fingerprint or
+    // name, which would hand its tags to an unrelated file.
+    let mut rec_dup = vec![false; records.len()];
 
     // (1) Same path by NFC components.
     let mut by_path: HashMap<String, usize> = HashMap::new();
@@ -531,70 +542,97 @@ fn reconcile(
             if file_rec[i].is_none() {
                 file_rec[i] = Some((r, Match::Path));
                 rec_done[r] = true;
+            } else {
+                rec_dup[r] = true;
             }
         }
     }
 
-    // (2) Same size and mtime; (3) same file name and size.
-    let by_fingerprint =
-        |f: &OnDisk, rec: &ExtraRecord| !f.link && f.size == rec.size && f.mtime_ns == rec.mtime_ns;
-    let by_name = |f: &OnDisk, rec: &ExtraRecord| {
-        let name = f.parts.last().map(|n| n.nfc().collect::<String>());
-        let rec_name = rec
-            .path
-            .rsplit('/')
-            .next()
-            .map(|n| n.nfc().collect::<String>());
-        !f.link && f.size == rec.size && name.is_some() && name == rec_name
-    };
-    for pass in [
-        &by_fingerprint as &dyn Fn(&OnDisk, &ExtraRecord) -> bool,
-        &by_name,
+    // (2) Same size and mtime; (3) same file name (NFC) and size. Links
+    // never match: their size is the link's, not the file's.
+    let file_name = |p: &str| p.nfc().collect::<String>();
+    let fingerprint = |size: u64, mtime: i64, _: &str| (size, mtime, String::new());
+    let name_size = |size: u64, _: i64, name: &str| (size, 0, file_name(name));
+    for key in [
+        &fingerprint as &dyn Fn(u64, i64, &str) -> (u64, i64, String),
+        &name_size,
     ] {
-        let open_recs: Vec<usize> = (0..records.len()).filter(|&r| !rec_done[r]).collect();
-        let open_files: Vec<usize> = (0..disk.len()).filter(|&i| file_rec[i].is_none()).collect();
-        let mut pairs = Vec::new();
-        for &r in &open_recs {
-            let mut cands = open_files.iter().filter(|&&i| pass(&disk[i], &records[r]));
-            let (Some(&i), None) = (cands.next(), cands.next()) else {
-                continue;
-            };
-            let rivals = open_recs
-                .iter()
-                .filter(|&&o| pass(&disk[i], &records[o]))
-                .count();
-            if rivals == 1 {
-                pairs.push((r, i));
+        let mut files_by: HashMap<(u64, i64, String), Vec<usize>> = HashMap::new();
+        for (i, f) in disk.iter().enumerate() {
+            if file_rec[i].is_none() && !f.link {
+                let name = f.parts.last().map_or("", String::as_str);
+                files_by
+                    .entry(key(f.size, f.mtime_ns, name))
+                    .or_default()
+                    .push(i);
             }
         }
-        for (r, i) in pairs {
-            file_rec[i] = Some((r, Match::Moved));
-            rec_done[r] = true;
+        let mut recs_by: HashMap<(u64, i64, String), Vec<usize>> = HashMap::new();
+        for (r, rec) in records.iter().enumerate() {
+            if !rec_done[r] && !rec_dup[r] {
+                let name = rec.path.rsplit('/').next().unwrap_or("");
+                recs_by
+                    .entry(key(rec.size, rec.mtime_ns, name))
+                    .or_default()
+                    .push(r);
+            }
+        }
+        for (k, recs) in recs_by {
+            if let ([r], Some([i])) = (recs.as_slice(), files_by.get(&k).map(Vec::as_slice)) {
+                file_rec[*i] = Some((*r, Match::Moved));
+                rec_done[*r] = true;
+            }
         }
     }
 
+    let listed_keys: std::collections::HashSet<String> = disk
+        .iter()
+        .map(|f| {
+            f.parts
+                .iter()
+                .map(|p| name_key(p))
+                .collect::<Vec<_>>()
+                .join("/")
+        })
+        .collect();
     let files = disk
         .into_iter()
         .zip(file_rec)
         .map(|(f, matched)| listed(f, matched.map(|(r, m)| (&records[r], m))))
         .collect();
-    let missing = records
-        .iter()
-        .zip(rec_done)
-        .filter(|(rec, done)| !done && !(capped && past_the_cap(extras_dir, rec)))
-        .map(|(rec, _)| rec.clone())
-        .collect();
-    (files, missing)
+    let (mut missing, mut unreached) = (Vec::new(), Vec::new());
+    for (rec, _) in records.iter().zip(rec_done).filter(|(_, done)| !done) {
+        if unreached_on_disk(extras_dir, rec, &listed_keys) {
+            unreached.push(rec.clone());
+        } else {
+            missing.push(rec.clone());
+        }
+    }
+    (files, missing, unreached)
 }
 
-/// When the walk stopped early, a record whose path still holds something
-/// was only not reached: it is not «No encontrado».
-fn past_the_cap(extras_dir: &Path, rec: &ExtraRecord) -> bool {
+/// A record whose path still holds a file the walk did not list (past
+/// the cap, too deep, a hidden name) was only not reached: it is not «No
+/// encontrado». On a case-insensitive disk a listed file in another case
+/// is the same file, so that record stays missing and visible.
+fn unreached_on_disk(
+    extras_dir: &Path,
+    rec: &ExtraRecord,
+    listed_keys: &std::collections::HashSet<String>,
+) -> bool {
     rel_components(&rec.path).is_some_and(|parts| {
+        let key = parts
+            .iter()
+            .map(|p| name_key(p))
+            .collect::<Vec<_>>()
+            .join("/");
+        if listed_keys.contains(&key) {
+            return false;
+        }
         let path = parts
             .iter()
             .fold(extras_dir.to_path_buf(), |p, c| p.join(c));
-        std::fs::symlink_metadata(path).is_ok()
+        std::fs::symlink_metadata(path).is_ok_and(|m| !m.is_dir())
     })
 }
 

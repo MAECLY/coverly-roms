@@ -680,6 +680,8 @@ mod listing {
         assert_eq!(l.files.len(), LIST_CAP);
         assert!(l.capped);
         assert!(l.missing.is_empty());
+        assert_eq!(l.unreached.len(), 1);
+        assert_eq!(l.unreached[0].tags, ["x"]);
     }
 
     #[test]
@@ -794,5 +796,88 @@ mod listing {
         let l = list(d.path());
         assert_eq!(l.index, IndexState::Newer { version: 2 });
         assert_eq!(file(&l, "Soundtrack/a.flac").record.tags, ["boss"]);
+    }
+
+    #[test]
+    fn a_record_whose_file_the_walk_does_not_reach_is_not_missing() {
+        let d = tempfile::tempdir().unwrap();
+        put(d.path(), "Artwork/a/b/c/deep.png", b"png", 1);
+        put(d.path(), "Soundtrack/.hidden.flac", b"abcd", 2);
+        index(
+            d.path(),
+            vec![
+                record("Artwork/a/b/c/deep.png", 3, 1, &["deep"]),
+                record("Soundtrack/.hidden.flac", 4, 2, &["hidden"]),
+                record("Manuals/gone.pdf", 9, 3, &["gone"]),
+            ],
+        );
+        let l = list(d.path());
+        assert!(l.files.is_empty());
+        assert_eq!(l.missing.len(), 1);
+        assert_eq!(parts(&l.missing[0].path), parts("Manuals/gone.pdf"));
+        // Neither listed nor missing, but carried for the next write.
+        let mut kept: Vec<_> = l.unreached.iter().map(|r| parts(&r.path)).collect();
+        kept.sort();
+        assert_eq!(
+            kept,
+            [
+                parts("Artwork/a/b/c/deep.png"),
+                parts("Soundtrack/.hidden.flac")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_duplicate_record_never_claims_another_file() {
+        let d = tempfile::tempdir().unwrap();
+        put(d.path(), "Soundtrack/x.flac", b"abcd", 7);
+        put(d.path(), "Soundtrack/y.flac", b"abcd", 7);
+        index(
+            d.path(),
+            vec![
+                record("Soundtrack/x.flac", 4, 7, &["one"]),
+                record("Soundtrack/x.flac", 4, 7, &["two"]),
+            ],
+        );
+        let l = list(d.path());
+        assert_eq!(file(&l, "Soundtrack/x.flac").matched, Match::Path);
+        let y = file(&l, "Soundtrack/y.flac");
+        assert_eq!(y.matched, Match::Found);
+        assert!(y.record.tags.is_empty());
+        // The second record is shown, never silently dropped.
+        assert_eq!(l.missing.len(), 1);
+        assert_eq!(l.missing[0].tags, ["two"]);
+    }
+
+    #[test]
+    fn the_index_in_another_case_is_never_listed() {
+        let d = tempfile::tempdir().unwrap();
+        put(d.path(), "EXTRAS.JSON", b"{}", 1);
+        put(d.path(), "Extras.Broken-20261113-120000.JSON", b"{", 1);
+        put(d.path(), "Soundtrack/a.flac", b"x", 1);
+        let l = list(d.path());
+        assert_eq!(paths(&l), [parts("Soundtrack/a.flac")]);
+    }
+
+    #[test]
+    fn many_records_moved_together_all_match() {
+        let d = tempfile::tempdir().unwrap();
+        let n = 2_000u64;
+        let mut recs = Vec::new();
+        for i in 0..n {
+            let name = format!("{i:05}.flac");
+            // Moved to another category and touched: only name and size match.
+            put(
+                d.path(),
+                &format!("Remixes/{name}"),
+                &vec![b'a'; i as usize],
+                i + 10_000,
+            );
+            recs.push(record(&format!("Soundtrack/{name}"), i, i, &["t"]));
+        }
+        index(d.path(), recs);
+        let l = list(d.path());
+        assert!(l.missing.is_empty());
+        assert!(l.files.iter().all(|f| f.matched == Match::Moved));
     }
 }
