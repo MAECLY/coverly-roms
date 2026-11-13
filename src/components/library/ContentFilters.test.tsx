@@ -122,6 +122,25 @@ describe('ContentFilters (D14)', () => {
     expect(live()).toBe('1 juego con estos filtros.');
   });
 
+  it('turning the last chip off says the filters are gone, not «con estos filtros»', () => {
+    const { setShown } = row({ shown: 9 });
+    const dlc = screen.getByRole('button', { name: /Tiene DLC/ });
+    fireEvent.click(dlc);
+    setShown(3);
+    act(() => vi.advanceTimersByTime(500));
+    expect(live()).toBe('3 juegos con estos filtros.');
+    fireEvent.click(dlc);
+    setShown(9);
+    act(() => vi.advanceTimersByTime(500));
+    expect(live()).toBe('Filtros de contenido quitados: 9 juegos.');
+
+    fireEvent.click(dlc);
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar filtros' }));
+    setShown(1);
+    act(() => vi.advanceTimersByTime(500));
+    expect(live()).toBe('Filtros de contenido quitados: 1 juego.');
+  });
+
   it('a chip at 0 stays enabled', () => {
     row({ counts: { ...COUNTS, missing: 0 } });
     expect(screen.getByRole('button', { name: /Le falta/ })).toBeEnabled();

@@ -1964,7 +1964,9 @@
       "demos": "Demos only",
       "result": "{n} games match these filters.",
       "resultOne": "1 game matches these filters.",
-      "none": "No game matches these filters."
+      "none": "No game matches these filters.",
+      "cleared": "Content filters cleared: {n} games.",
+      "clearedOne": "Content filters cleared: 1 game."
     },
     "summary": {
       "dlc": "+{n} DLC",

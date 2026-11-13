@@ -46,9 +46,6 @@ export function ContentFilters({
   const t = useT();
   const locale = useContext(LocaleContext);
   const n = useMemo(() => new Intl.NumberFormat(locale), [locale]);
-  const content = useFilterStore((s) => s.filters.content);
-  const toggleContent = useFilterStore((s) => s.toggleContent);
-  const clearContent = useFilterStore((s) => s.clearContent);
   const labelId = useId();
   const hintId = useId();
   const groupRef = useRef<HTMLDivElement>(null);
@@ -58,6 +55,15 @@ export function ContentFilters({
   useEffect(() => {
     shownRef.current = shown;
   }, [shown]);
+  const content = useFilterStore((s) => s.filters.content);
+  const toggleContent = useFilterStore((s) => s.toggleContent);
+  const clearContent = useFilterStore((s) => s.clearContent);
+  // With every chip off the result is not «con estos filtros».
+  const anyOn = contentActive(content);
+  const anyOnRef = useRef(anyOn);
+  useEffect(() => {
+    anyOnRef.current = anyOn;
+  }, [anyOn]);
   const [presses, setPresses] = useState(0);
   const [message, setMessage] = useState('');
   // Emptied on each press so a result equal to the last one is said again.
@@ -70,17 +76,20 @@ export function ContentFilters({
     const id = window.setTimeout(() => {
       const left = shownRef.current;
       setMessage(
-        left === 0
-          ? t('content.filters.none')
-          : left === 1
-            ? t('content.filters.resultOne')
-            : t('content.filters.result', { n: n.format(left) }),
+        !anyOnRef.current
+          ? left === 1
+            ? t('content.filters.clearedOne')
+            : t('content.filters.cleared', { n: n.format(left) })
+          : left === 0
+            ? t('content.filters.none')
+            : left === 1
+              ? t('content.filters.resultOne')
+              : t('content.filters.result', { n: n.format(left) }),
       );
     }, ANNOUNCE_MS);
     return () => window.clearTimeout(id);
   }, [presses, t, n]);
 
-  const anyOn = contentActive(content);
   if (!anyOn && CONTENT_KEYS.every((k) => counts[k] === 0)) return null;
 
   const pressed = CONTENT_KEYS.filter((k) => content[k]);
