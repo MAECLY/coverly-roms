@@ -442,6 +442,26 @@ describe('MountsView: art slots of updates and DLC (addon views §8.6)', () => {
     );
   });
 
+  it('a modifier or Tab alone keeps the keyboard on the child row', () => {
+    render(<AddonHarness />);
+    const lantern = lib.entries.find((e) => e.name === 'Lantern Harbor (USA)')!;
+    const dlc = lantern.children!.find((c) => c.role === 'dlc')!;
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    fireEvent.keyDown(grid, { key: 'Home' });
+    while (grid.getAttribute('aria-activedescendant') !== `entry-${lantern.id}`)
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    const onChild = `entry-${lantern.id}-k${dlc.index}`;
+    expect(grid).toHaveAttribute('aria-activedescendant', onChild);
+    for (const key of ['Shift', 'Control', 'Alt', 'Meta', 'Tab', 'Escape'])
+      fireEvent.keyDown(grid, { key });
+    expect(grid).toHaveAttribute('aria-activedescendant', onChild);
+    // A real move still leaves the child rows.
+    fireEvent.keyDown(grid, { key: 'Home' });
+    expect(grid.getAttribute('aria-activedescendant')).not.toContain('-k');
+  });
+
   it('↑ from the next game lands on the last child row of the one above', () => {
     render(<AddonHarness />);
     const games = buildGames(lib.entries, {}).games;

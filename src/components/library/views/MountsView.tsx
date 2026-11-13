@@ -62,6 +62,22 @@ const CHILD_MEDIA: readonly ChildMedia[] = ['icon', 'banner'];
 /** Name + icon + banner. */
 const CHILD_COLS = 1 + CHILD_MEDIA.length;
 
+/** Keys that never move the selection, so the keyboard stays on a child
+ *  row: modifiers pressed on their own, Tab out of the view, Escape,
+ *  Space (preview) and Enter. */
+const KEEPS_SUB: ReadonlySet<string> = new Set([
+  'Shift',
+  'Control',
+  'Alt',
+  'AltGraph',
+  'Meta',
+  'CapsLock',
+  'Tab',
+  'Escape',
+  ' ',
+  'Enter',
+]);
+
 /** A game's row, a header, or one of a game's updates or DLC under it. */
 type MountRow =
   | Row
@@ -404,9 +420,9 @@ export function MountsView({
         return;
       }
     }
-    // Any other move leaves the child rows for a game's own row.
-    if (activeSub !== null && ev.key !== ' ' && ev.key !== 'Enter')
-      setSub(null);
+    // Any other move leaves the child rows for a game's own row; a key
+    // that moves nothing (a modifier, Tab out, Space, Enter) keeps it.
+    if (activeSub !== null && !KEEPS_SUB.has(ev.key)) setSub(null);
     viewKeys(ev);
   }
 
