@@ -1607,6 +1607,136 @@ time {
   font-weight: 600;
 }
 
+.mounts-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.mounts-shell > .mounts {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+/* The view bar of Art slots (addon views §8.6): the content slots toggle
+   and what it shows. */
+.mounts-bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--cr-border);
+  background: var(--cr-surface);
+}
+
+.mounts-bar__hint {
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+/* An update's or DLC's row under its game: indented past the game's cover
+   with an L-shaped hairline back to it; Icon (square) and Banner slots,
+   each with its origin tag under it. */
+.mount-row--child {
+  padding-left: calc(1rem + 2.75rem);
+  border-bottom-color: color-mix(in srgb, var(--cr-border) 50%, transparent);
+}
+
+.mount-row--child::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(1rem + 1.25rem);
+  width: 1px;
+  background: var(--cr-border-strong);
+}
+
+.mount-row--child[data-last='true']::before {
+  bottom: 50%;
+}
+
+.mount-row--child::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: calc(1rem + 1.25rem);
+  width: 1rem;
+  height: 1px;
+  background: var(--cr-border-strong);
+}
+
+.mount-child-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  height: auto;
+}
+
+.mount-child-slot--icon {
+  order: 1;
+}
+
+.mount-child-slot--banner {
+  order: 2;
+}
+
+.mount-child-slot__frame {
+  display: grid;
+  overflow: hidden;
+  height: 56px;
+  border-radius: var(--cr-radius-sm);
+}
+
+.mount-child-slot--icon .mount-child-slot__frame {
+  width: 56px;
+}
+
+.mount-child-slot--banner .mount-child-slot__frame {
+  width: 100px;
+}
+
+.mount-child-slot__img,
+.mount-child-slot__frame .art-thumb,
+.mount-child-slot__frame .art-placeholder {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: cover;
+  border-radius: var(--cr-radius-sm);
+}
+
+.mount-child-slot__frame .art-placeholder {
+  display: grid;
+  place-items: center;
+  font-size: 0.6875rem;
+}
+
+.mount-child-slot__inherit {
+  opacity: 0.45;
+}
+
+.mount-child-slot__tag {
+  min-height: 1rem;
+  color: var(--cr-text-muted);
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  white-space: nowrap;
+}
+
+@media (forced-colors: active) {
+  .mount-row--child::before,
+  .mount-row--child::after {
+    background: CanvasText;
+  }
+}
+
 .gallery__demo-of {
   color: var(--cr-text-secondary);
   font: var(--cr-type-app-base);

@@ -2001,7 +2001,19 @@
     },
     "mounts": {
       "toggle": "Huecos del contenido ({n})",
-      "hint": "Actualizaciones con arte propio y todos los DLC."
+      "hint": "Actualizaciones con arte propio y todos los DLC.",
+      "toggleLabel": "Huecos del contenido",
+      "dlc": "DLC {name}",
+      "icon": "icono {state}",
+      "banner": "banner {state}",
+      "slotLabel": "{slot}: {state}",
+      "from": "de {source}",
+      "tag": {
+        "package": "paquete",
+        "ss": "SS",
+        "sgdb": "SGDB",
+        "user": "tuyo"
+      }
     },
     "slot": {
       "icon": "Icono",

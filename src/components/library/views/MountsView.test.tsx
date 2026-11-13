@@ -5,13 +5,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
+import { MOCK_ADDONS } from '@/ipc/mock/addonViewsFixture';
 import { FIXTURE_NOW, generateLibrary } from '@/ipc/mock/fixture';
 import { createMockBackend } from '@/ipc/mock/mockBackend';
-import { MEDIA, REGIONS, type EntryView, type Media } from '@/ipc/types';
+import {
+  MEDIA,
+  REGIONS,
+  type EntryView,
+  type LibraryView,
+  type Media,
+} from '@/ipc/types';
 import { clearArtCache } from '@/lib/artCache';
+import { buildGames } from '@/lib/games';
 import { groupEntries } from '@/lib/grouping';
 import { titleWithoutRegions } from '@/lib/tileLabel';
-import { DEFAULT_PREFS, type GroupBy } from '@/lib/viewPrefs';
+import {
+  DEFAULT_PREFS,
+  readPrefsFile,
+  sanitisePrefs,
+  type GroupBy,
+} from '@/lib/viewPrefs';
+import { useViewStore } from '@/stores/viewStore';
 import { stubLayout } from '@/test/layout';
 
 import { MountsView, MOUNT_ROW_H } from './MountsView';
@@ -259,5 +273,203 @@ describe('MountsView', () => {
     await user.keyboard('{ArrowDown}{ArrowRight}');
     await user.tab();
     expect(screen.getByRole('button', { name: 'after' })).toHaveFocus();
+  });
+});
+
+describe('MountsView: art slots of updates and DLC (addon views §8.6)', () => {
+  let lib: LibraryView;
+  let restore: () => void;
+  beforeEach(async () => {
+    // Tall enough for every row of the add-ons library to render.
+    restore = stubLayout(1280, 4000);
+    const backend = createMockBackend({ delayMs: 0, now: FIXTURE_NOW });
+    lib = await backend.openLibrary(MOCK_ADDONS);
+    setBackend(backend);
+    let n = 0;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:${++n}`);
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    useViewStore.getState().setPrefs({ childSlots: true });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    restore();
+    clearArtCache();
+    setBackend(null);
+  });
+
+  /** Lantern Harbor's v1.10 carries an icon the user found. */
+  const withUpdateArt = (e: EntryView): EntryView =>
+    e.name === 'Lantern Harbor (USA)'
+      ? {
+          ...e,
+          children: e.children!.map((c) =>
+            c.version === '1.10'
+              ? {
+                  ...c,
+                  art: { icon: true, banner: false, icon_origin: 'user' },
+                }
+              : c,
+          ),
+        }
+      : e;
+
+  function AddonHarness({
+    edit = (e) => e,
+    onOpenChild = () => {},
+  }: {
+    edit?: (e: EntryView) => EntryView;
+    onOpenChild?: (id: number, index: number) => void;
+  }) {
+    const { games, byEntry } = buildGames(lib.entries.map(edit), {});
+    const entries = games.map((g) => g.entry);
+    const prefs = useViewStore((s) => s.prefs);
+    const [selected, setSelected] = useState<number | null>(null);
+    return (
+      <I18nProvider locale="es">
+        <MountsView
+          entries={entries}
+          sections={[]}
+          prefs={{ ...prefs, view: 'mounts', groupBy: 'none' }}
+          onPreview={() => {}}
+          systems={lib.systems}
+          generation={lib.generation}
+          selectedId={selected}
+          onSelect={setSelected}
+          onOpen={setSelected}
+          content={{
+            byEntry,
+            line: true,
+            fresh: new Set(),
+            onOpenChild: (id, index) => {
+              setSelected(id);
+              onOpenChild(id, index);
+            },
+          }}
+        />
+      </I18nProvider>
+    );
+  }
+
+  const childRows = () =>
+    screen
+      .getAllByRole('row')
+      .filter((r) => r.hasAttribute('data-child-index'));
+
+  it('adds a row for each DLC and each update with art of its own', () => {
+    render(<AddonHarness edit={withUpdateArt} />);
+    expect(childRows().map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Actualización v1.10, icono tuyo, banner falta',
+      'DLC Lighthouse Keeper Pack, icono incluido en el paquete, banner falta',
+      'DLC Encore Pack, usa el del juego base',
+      'DLC Night Drive Pack, usa el del juego base',
+      'DLC Synthwave Pack, usa el del juego base',
+      'DLC Reef Pack, usa el del juego base',
+    ]);
+    // v1.05 has no art of its own: no row.
+    expect(screen.queryByText('Actualización v1.05')).toBeNull();
+  });
+
+  it('tags a filled slot with its origin and dashes a missing one «falta»', () => {
+    render(<AddonHarness />);
+    const [dlc] = childRows();
+    const icon = within(dlc!).getByRole('gridcell', {
+      name: 'Icono: incluido en el paquete',
+    });
+    expect(icon).toHaveAttribute('data-slot-state', 'filled');
+    expect(icon).toHaveTextContent('paquete');
+    const banner = within(dlc!).getByRole('gridcell', {
+      name: 'Banner: falta',
+    });
+    expect(banner).toHaveAttribute('data-slot-state', 'missing');
+    expect(banner.querySelector('.art-placeholder')).toHaveTextContent('falta');
+  });
+
+  it('dims the base art of a DLC without art of its own', () => {
+    render(<AddonHarness />);
+    const row = childRows().find((r) =>
+      r.getAttribute('aria-label')!.startsWith('DLC Reef Pack'),
+    )!;
+    const cells = within(row).getAllByRole('gridcell');
+    expect(cells[1]).toHaveAttribute('data-slot-state', 'inherit');
+    expect(cells[1]).toHaveAccessibleName('Icono: usa el del juego base');
+    expect(row).toHaveTextContent('usa el del juego base');
+  });
+
+  it('counts its rows on the toggle, which hides them and is saved', async () => {
+    const user = userEvent.setup();
+    render(<AddonHarness edit={withUpdateArt} />);
+    const toggle = screen.getByRole('button', {
+      name: 'Huecos del contenido (6)',
+    });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(childRows()).toHaveLength(6);
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(childRows()).toHaveLength(0);
+    expect(useViewStore.getState().prefs.childSlots).toBe(false);
+    const saved = readPrefsFile(localStorage);
+    expect(sanitisePrefs(saved.last).childSlots).toBe(false);
+  });
+
+  it('has no toggle in a library without add-ons', () => {
+    render(<Harness entries={big.entries.slice(0, 20)} />);
+    expect(screen.queryByRole('button', { name: /Content slots/ })).toBeNull();
+  });
+
+  it('↓ walks into the child rows and Enter opens the panel at the child', () => {
+    const onOpenChild = vi.fn();
+    render(<AddonHarness onOpenChild={onOpenChild} />);
+    const lantern = lib.entries.find((e) => e.name === 'Lantern Harbor (USA)')!;
+    const dlc = lantern.children!.find((c) => c.role === 'dlc')!;
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    fireEvent.keyDown(grid, { key: 'Home' });
+    while (grid.getAttribute('aria-activedescendant') !== `entry-${lantern.id}`)
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${lantern.id}-k${dlc.index}-c1`,
+    );
+    fireEvent.keyDown(grid, { key: 'Enter' });
+    expect(onOpenChild).toHaveBeenCalledWith(lantern.id, dlc.index);
+    // ↑ goes back to the game's own row, same column.
+    fireEvent.keyDown(grid, { key: 'ArrowUp' });
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${lantern.id}-c1`,
+    );
+  });
+
+  it('↑ from the next game lands on the last child row of the one above', () => {
+    render(<AddonHarness />);
+    const games = buildGames(lib.entries, {}).games;
+    const at = games.findIndex((g) => g.entry.name === 'Lantern Harbor (USA)');
+    const lantern = games[at]!;
+    const next = games[at + 1]!;
+    const dlc = lantern.dlc.at(-1)!;
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    fireEvent.keyDown(grid, { key: 'Home' });
+    while (grid.getAttribute('aria-activedescendant') !== `entry-${next.id}`)
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: 'ArrowUp' });
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${lantern.id}-k${dlc.index}`,
+    );
+  });
+
+  it('clicking a child slot opens the panel at that child', async () => {
+    const user = userEvent.setup();
+    const onOpenChild = vi.fn();
+    render(<AddonHarness onOpenChild={onOpenChild} />);
+    const lantern = lib.entries.find((e) => e.name === 'Lantern Harbor (USA)')!;
+    const dlc = lantern.children!.find((c) => c.role === 'dlc')!;
+    await user.click(
+      within(childRows()[0]!).getByRole('gridcell', { name: 'Banner: falta' }),
+    );
+    expect(onOpenChild).toHaveBeenCalledWith(lantern.id, dlc.index);
   });
 });

@@ -21,13 +21,7 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useElementSize } from '@/hooks/useElementSize';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
-import {
-  MEDIA,
-  type ArtMark,
-  type ChildView,
-  type EntryView,
-  type Media,
-} from '@/ipc/types';
+import { MEDIA, type ArtMark, type EntryView, type Media } from '@/ipc/types';
 import {
   filmCaption,
   speaksContent,
@@ -35,7 +29,12 @@ import {
   summaryText,
 } from '@/lib/addonSummary';
 import { artKey, peekArtUrl } from '@/lib/artCache';
-import { childArtState, ORIGIN_KEY, trayChildren } from '@/lib/childArt';
+import {
+  childArtState,
+  childCaption,
+  ORIGIN_KEY,
+  trayChildren,
+} from '@/lib/childArt';
 import { formatSize } from '@/lib/format';
 import type { Game } from '@/lib/games';
 import { sectionLabel } from '@/lib/grouping';
@@ -145,25 +144,6 @@ function GalleryArt({
 }
 
 /**
- * A child's caption in the tray: «Actualización v1.2», or the DLC's own
- * name without the game's title in front («Isla del faro» for «Lantern
- * Harbor - Isla del faro»); the full name is the button's title.
- */
-function trayName(
-  child: ChildView,
-  game: Game,
-  t: ReturnType<typeof useT>,
-): string {
-  if (child.role === 'update' && child.version !== undefined)
-    return t('content.tray.update', { v: displayVersion(child.version) });
-  const prefix = `${titleWithoutRegions(game.entry.name)} - `;
-  return child.name.length > prefix.length &&
-    child.name.toLowerCase().startsWith(prefix.toLowerCase())
-    ? child.name.slice(prefix.length)
-    : child.name;
-}
-
-/**
  * The tray under the big cover (addon views §8.3): each update with its
  * own art and every DLC, at 48 px with its caption. Each one is a button
  * that opens the panel at that child; its art state is said in words (the
@@ -191,7 +171,7 @@ function GalleryTray({
     <ul aria-label={t('content.tray.label')} className="gallery__tray">
       {children.map((child) => {
         const state = childArtState(child, systemId);
-        const name = trayName(child, game, t);
+        const name = childCaption(child, game, t);
         const stateId = `${baseId}-c${child.index}`;
         const stateText =
           state.kind === 'base'

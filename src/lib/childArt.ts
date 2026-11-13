@@ -4,9 +4,12 @@
  * by the user), the base game's art dimmed when its system cannot carry
  * art in the clear, or the dashed missing slot.
  */
+import type { TFunction } from '@/i18n/useT';
 import type { ChildMedia, ChildOrigin, ChildView } from '@/ipc/types';
 
 import type { Game } from './games';
+import { titleWithoutRegions } from './tileLabel';
+import { displayVersion } from './versions';
 
 export type ChildArtState =
   | { kind: 'own'; slot: ChildMedia; origin?: ChildOrigin }
@@ -47,7 +50,26 @@ export const ORIGIN_KEY: Readonly<Record<ChildOrigin, string>> = {
 };
 
 /**
- * The Galería tray (§8.3): each update with its own art (newest first, as
+ * A child's short caption: «Actualización v1.2», or the DLC's own name
+ * without the game's title in front («Isla del faro» for «Lantern Harbor
+ * - Isla del faro»). Callers keep the full name as its title.
+ */
+export function childCaption(
+  child: ChildView,
+  game: Game,
+  t: TFunction,
+): string {
+  if (child.role === 'update' && child.version !== undefined)
+    return t('content.tray.update', { v: displayVersion(child.version) });
+  const prefix = `${titleWithoutRegions(game.entry.name)} - `;
+  return child.name.length > prefix.length &&
+    child.name.toLowerCase().startsWith(prefix.toLowerCase())
+    ? child.name.slice(prefix.length)
+    : child.name;
+}
+
+/**
+ * The Galería tray (§8.3) and the Huecos de arte child rows (§8.6): each update with its own art (newest first, as
  * Rust sent them), then every DLC.
  */
 export function trayChildren(game: Game): ChildView[] {

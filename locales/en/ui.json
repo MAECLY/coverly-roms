@@ -2001,7 +2001,19 @@
     },
     "mounts": {
       "toggle": "Content slots ({n})",
-      "hint": "Updates with their own art and every DLC."
+      "hint": "Updates with their own art and every DLC.",
+      "toggleLabel": "Content slots",
+      "dlc": "DLC {name}",
+      "icon": "icon {state}",
+      "banner": "banner {state}",
+      "slotLabel": "{slot}: {state}",
+      "from": "from {source}",
+      "tag": {
+        "package": "package",
+        "ss": "SS",
+        "sgdb": "SGDB",
+        "user": "yours"
+      }
     },
     "slot": {
       "icon": "Icon",
