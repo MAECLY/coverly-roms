@@ -43,6 +43,23 @@ function section(
 }
 
 describe('VersionSection (addon views §8.8 2, D5, D6)', () => {
+  it('claims no newest version when Rust could not order the updates', () => {
+    // D5: two updates equal by version_order (or one without a version)
+    // leave `installed` out; the base's own version is not the newest then.
+    const g = gameOf('Lantern Harbor (USA)');
+    const doubt: Game = {
+      ...g,
+      installed: null,
+      entry: { ...g.entry, version: '1.00' },
+    };
+    const sec = section(doubt);
+    expect(sec.querySelector('.panel-ver__big')).toBeNull();
+    expect(within(sec).queryByText(/la más nueva de tu biblioteca/)).toBeNull();
+    expect(within(sec).queryByText('La más nueva')).toBeNull();
+    // The versions are still listed, with the base.
+    expect(within(sec).getByText('Juego base')).toBeInTheDocument();
+  });
+
   it('shows the newest version in the library, then every version newest first', () => {
     const sec = section(gameOf('Lantern Harbor (USA)'));
     expect(sec).toHaveAttribute('id', 'panel-version');

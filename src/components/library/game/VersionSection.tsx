@@ -42,7 +42,12 @@ export function VersionSection({
   const tr = useRichT();
   const locale = useContext(LocaleContext);
   const updates = game.updates;
-  const big = game.installed ?? game.entry.version ?? null;
+  // Rust leaves `installed` out when it cannot order the updates (a tie
+  // by `version_order`, or one without a version): then nothing is «the
+  // newest», not even the base's own version (D5).
+  const big =
+    game.installed ??
+    (updates.length === 0 ? (game.entry.version ?? null) : null);
   const latest = details?.latest;
   const latestKnown = latest !== undefined && details?.latest_installed;
   const latestMissing =
