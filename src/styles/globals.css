@@ -762,6 +762,19 @@ time {
   color: var(--cr-text-secondary);
 }
 
+/* The toggle's pointer target reaches 24px (WCAG 2.5.8) without moving
+   the name. */
+.tree-chevron[data-tree-toggle] {
+  position: relative;
+  cursor: pointer;
+}
+
+.tree-chevron[data-tree-toggle]::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+
 .tree-chevron--open {
   transform: rotate(90deg);
 }

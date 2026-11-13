@@ -434,6 +434,10 @@ export function DetailsView({
     [sections, entries, games, expanded, withHeaders],
   );
   const { rows, gameRow, headerRows } = model;
+  const anyExpandable = useMemo(
+    () => rows.some((r) => r.kind === 'game' && r.expandable),
+    [rows],
+  );
   const rowByKey = useMemo(
     () => new Map(rows.map((r, i) => [r.key, i])),
     [rows],
@@ -762,7 +766,9 @@ export function DetailsView({
   } as CSSProperties;
   const rowClass = cn('entry-row', compact && 'entry-row--compact');
   // Games open on their content: the chevron column and the key hint.
-  const tree = content?.line === true;
+  // The add-on line misses games that hold only mods, cheats, extras or
+  // saves, yet those open too.
+  const tree = content?.line === true || anyExpandable;
   const chevronClass = (open: boolean) =>
     cn(
       'tree-chevron',

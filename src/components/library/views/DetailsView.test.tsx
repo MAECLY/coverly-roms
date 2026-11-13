@@ -499,7 +499,9 @@ describe('DetailsView: the treegrid of games and their content (addon views §8.
     onOpenChild = () => undefined,
     onOpenVersion = () => undefined,
     locale = 'es',
+    line = true,
   }: {
+    line?: boolean;
     initial?: string | null;
     groupBy?: GroupBy;
     sort?: Sort;
@@ -555,7 +557,7 @@ describe('DetailsView: the treegrid of games and their content (addon views §8.
           onPreview={() => undefined}
           content={{
             byEntry,
-            line: true,
+            line,
             fresh: new Set(),
             onOpenChild,
             onOpenVersion,
@@ -740,6 +742,16 @@ describe('DetailsView: the treegrid of games and their content (addon views §8.
     expect(tree()).toHaveAttribute('aria-colcount', '2');
     // The key hint stays the treegrid's description, out of sight.
     expect(screen.getByText(/^Teclado:/)).toHaveClass('sr-only');
+  });
+
+  it('draws the chevron and the key hint for any game that opens', () => {
+    // A library whose games hold only mods, cheats, extras or saves has no
+    // add-on line (covers keep their height), yet its games still open.
+    render(<TreeHarness line={false} />);
+    const row = gameRow('Lantern Harbor (USA)');
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(row.querySelector('[data-tree-toggle]')).not.toBeNull();
+    expect(screen.getByText(/^Teclado:/)).toHaveClass('tree-hint');
   });
 
   it('says the keys in one line under the table', () => {
