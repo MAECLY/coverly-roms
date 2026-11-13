@@ -567,4 +567,19 @@ describe('ShelvesView: DLC behind the box (addon views §8.7)', () => {
     render(<Harness entries={ofSystem(0, 5)} />);
     expect(screen.queryByRole('radiogroup', { name: 'Add-ons' })).toBeNull();
   });
+
+  it('hides the add-ons bar when no game on the shelves has DLC', () => {
+    // Content is on (updates, demos), but every DLC is dropped.
+    const noDlc = (e: EntryView): EntryView =>
+      e.children
+        ? { ...e, children: e.children.filter((c) => c.role !== 'dlc') }
+        : e;
+    render(<AddonHarness edit={noDlc} />);
+    expect(screen.getAllByRole('gridcell').length).toBeGreaterThan(0);
+    expect(
+      screen.queryByRole('radiogroup', { name: 'Complementos' }),
+    ).toBeNull();
+    expect(document.querySelector('.shelf-edge')).toBeNull();
+    expect(screen.queryByText(/complementos?$/i)).toBeNull();
+  });
 });
