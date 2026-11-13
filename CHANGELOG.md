@@ -97,8 +97,7 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   The sidebar's first entry is «Todos los juegos».
 - 3DS region letters follow the verified table: `C` and `U` no longer add
   China or Australia to a name, `R` now adds Russia and `V` and `X` add
-  Europe, and `T`, which no 3DS game uses, is flagged as unknown.
-
+  Europe, and `T` and `U`, which no 3DS game uses, are flagged as unknown.
 - A licence file beside a game (`.rap`, `.rif`, `.tik`, `.edat` and
   similar) may move with it, by a rename on the same drive only, when its
   name matches that one game. It is never opened, read or copied; when it
