@@ -111,7 +111,7 @@ export function ContentFilters({
       >
         <span
           aria-hidden="true"
-          className="grid size-3 place-items-center rounded-[2px] border border-dashed border-cr-slot-missing group-aria-pressed:border-solid group-aria-pressed:border-cr-primary group-aria-pressed:bg-cr-primary"
+          className="grid size-3 shrink-0 place-items-center rounded-[2px] border border-dashed border-cr-slot-missing group-aria-pressed:border-solid group-aria-pressed:border-cr-primary group-aria-pressed:bg-cr-primary"
         >
           <Check
             className="hidden size-2.5 text-cr-primary-fg group-aria-pressed:block"

@@ -151,6 +151,14 @@ describe('ContentFilters (D14)', () => {
     }
   });
 
+  it('a wrapped chip keeps its check box square', () => {
+    row();
+    for (const chip of screen.getAllByRole('button')) {
+      const box = chip.querySelector('span[aria-hidden="true"]');
+      expect(box).toHaveClass('size-3', 'shrink-0');
+    }
+  });
+
   it('a chip at 0 stays enabled', () => {
     row({ counts: { ...COUNTS, missing: 0 } });
     expect(screen.getByRole('button', { name: /Le falta/ })).toBeEnabled();
