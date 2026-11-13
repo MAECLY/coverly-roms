@@ -9,8 +9,8 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
 use coverly_core::art::children::{
-    art_json_path, child_slot_path, icon_preview, read_art_json, read_child_art, ChildMedia,
-    ChildOrigin, SkipWhy,
+    art_json_path, child_slot_path, icon_preview, read_art_json, read_child_art, write_child_slot,
+    ChildMedia, ChildOrigin, SkipWhy,
 };
 use coverly_core::consoles::testing::{
     cia, nsp, png_8x8, ps4_app, put_file, vita_sfo, wiiu_folder,
@@ -430,4 +430,131 @@ fn an_icon_preview_of_a_switch_child_or_a_key_is_none() {
     assert_eq!(icon_preview(&tik), None);
     let opened = take_open_log();
     assert!(!opened.contains(&tik), "{opened:?}");
+}
+
+/// «Buscar arte» (D11): a picked image fills the slot, stamped with the
+/// service it came from, in a job undone like any manual write.
+#[test]
+fn a_picked_image_fills_the_slot_with_its_origin() {
+    let _g = serial();
+    let lib = lib();
+    let child = at(&lib.root, "ROMS/PS4/Game/DLC/Pack.pkg");
+    put(&child, b"synthetic package");
+    let before = tree(&lib.root);
+    let mut writer = Writer::begin(&lib.root, &lib.data).unwrap();
+    start_open_log();
+    let why = write_child_slot(
+        &child,
+        ChildMedia::Icon,
+        &png_8x8(),
+        ChildOrigin::Screenscraper,
+        &mut writer,
+    )
+    .unwrap();
+    // The package itself is never opened for a picked image.
+    assert!(!take_open_log().contains(&child));
+    let job = writer.finish().unwrap();
+    assert_eq!(why, None);
+    let icon = child_slot_path(&child, ChildMedia::Icon).unwrap();
+    assert!(is_png(&icon));
+    let art = read_art_json(&child);
+    assert_eq!(art.icon.map(|s| s.origin), Some(ChildOrigin::Screenscraper));
+    assert_eq!(art.banner, None);
+    undo_job(&lib.data, &job).unwrap();
+    assert_eq!(tree(&lib.root), before);
+}
+
+/// An explicit pick replaces the slot's file only with the usual backup:
+/// undo gives the old icon and origin back byte for byte.
+#[test]
+fn a_picked_image_backs_up_the_slot_it_replaces() {
+    let _g = serial();
+    let lib = lib();
+    let child = at(&lib.root, "ROMS/3DS/Game/DLC/Pack.cia");
+    cia_dlc(&child);
+    let icon = child_slot_path(&child, ChildMedia::Icon).unwrap();
+    put(&icon, b"the package icon");
+    let old_json = br#"{ "icon": { "origin": "package", "at": 3 } }"#;
+    put(&art_json_path(&child), old_json);
+    let mut writer = Writer::begin(&lib.root, &lib.data).unwrap();
+    let why = write_child_slot(
+        &child,
+        ChildMedia::Icon,
+        &png_8x8(),
+        ChildOrigin::Steamgriddb,
+        &mut writer,
+    )
+    .unwrap();
+    let job = writer.finish().unwrap();
+    assert_eq!(why, None);
+    assert!(is_png(&icon));
+    assert_eq!(
+        read_art_json(&child).icon.map(|s| s.origin),
+        Some(ChildOrigin::Steamgriddb)
+    );
+    undo_job(&lib.data, &job).unwrap();
+    assert_eq!(fs::read(&icon).unwrap(), b"the package icon");
+    assert_eq!(fs::read(art_json_path(&child)).unwrap(), old_json);
+}
+
+/// A key or licence file never gets art, picked or not.
+#[test]
+fn a_picked_image_is_never_written_for_a_key_file() {
+    let _g = serial();
+    let lib = lib();
+    let key = at(&lib.root, "ROMS/PS3/Game/DLC/Pack.rap");
+    put(&key, b"not a real licence");
+    let before = tree(&lib.root);
+    let mut writer = Writer::begin(&lib.root, &lib.data).unwrap();
+    let why = write_child_slot(
+        &key,
+        ChildMedia::Icon,
+        &png_8x8(),
+        ChildOrigin::Screenscraper,
+        &mut writer,
+    )
+    .unwrap();
+    writer.discard().unwrap();
+    assert_eq!(why, Some(SkipWhy::KeyMaterial));
+    assert_eq!(tree(&lib.root), before);
+}
+
+/// The panel's write is a job of its own: none is left behind when
+/// nothing was written.
+#[test]
+fn a_picked_image_is_its_own_job_or_none() {
+    use coverly_core::fill::{write_child_image, ManualOptions};
+    let _g = serial();
+    let lib = lib();
+    let child = at(&lib.root, "ROMS/PS4/Game/DLC/Pack.pkg");
+    put(&child, b"synthetic package");
+    let opts = ManualOptions::default();
+    let (job, why) = write_child_image(
+        &lib.root,
+        &child,
+        ChildMedia::Icon,
+        &png_8x8(),
+        ChildOrigin::Steamgriddb,
+        &lib.data,
+        &opts,
+    )
+    .unwrap();
+    assert_eq!(why, None);
+    let job = job.expect("a job");
+    assert!(child_slot_path(&child, ChildMedia::Icon).unwrap().is_file());
+    undo_job(&lib.data, &job).unwrap();
+
+    let key = at(&lib.root, "ROMS/PS4/Game/DLC/Pack.rap");
+    put(&key, b"not a real licence");
+    let (job, why) = write_child_image(
+        &lib.root,
+        &key,
+        ChildMedia::Icon,
+        &png_8x8(),
+        ChildOrigin::Steamgriddb,
+        &lib.data,
+        &opts,
+    )
+    .unwrap();
+    assert_eq!((job, why), (None, Some(SkipWhy::KeyMaterial)));
 }

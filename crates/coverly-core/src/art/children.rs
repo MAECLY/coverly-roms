@@ -478,6 +478,65 @@ fn read_one(
     Ok(None)
 }
 
+/// Writes `png` (an image the user picked for this child, already
+/// re-encoded as PNG) into the `media` slot of `child`, stamped with
+/// `origin` in `<stem>.art.json`, through `writer` (D11: «Buscar arte»
+/// writes only on an explicit pick). An existing slot file, or its
+/// case-insensitive twin, is replaced with the usual backup, so undoing
+/// the job gives it back; the child itself is never opened.
+///
+/// `None` when the slot was written; else why nothing was: a key or
+/// licence file (refused by name), a slot path too long, or a refused or
+/// read-only write. The error is only for a failure that stops the job.
+pub fn write_child_slot(
+    child: &Path,
+    media: ChildMedia,
+    png: &[u8],
+    origin: ChildOrigin,
+    writer: &mut Writer,
+) -> Result<Option<SkipWhy>, WriteError> {
+    let name = child
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    if crate::consoles::is_key_material(&name) {
+        return Ok(Some(SkipWhy::KeyMaterial));
+    }
+    let path = match child_slot_path(child, media) {
+        Ok(path) => path,
+        Err(SlotError::PathTooLong) => return Ok(Some(SkipWhy::PathTooLong)),
+        Err(SlotError::NotAChild) => return Ok(Some(SkipWhy::Refused)),
+    };
+    let json_path = art_json_path(child);
+    for p in [&path, &json_path] {
+        if writer.ensure_within_any(p).is_err() {
+            return Ok(Some(SkipWhy::Refused));
+        }
+    }
+    if let Some(dir) = path.parent() {
+        if let Err(e) = writer.ensure_dir(dir) {
+            return soft(e).map(Some);
+        }
+    }
+    match writer.write(&path, png, OverwritePolicy::Backup) {
+        Ok(WriteOutcome::Created { .. } | WriteOutcome::Replaced { .. }) => {}
+        Ok(WriteOutcome::SkippedExists { .. }) => return Ok(Some(SkipWhy::Exists)),
+        Err(e) => return soft(e).map(Some),
+    }
+    let mut art = read_art_json(child);
+    art.set(
+        media,
+        Some(OriginStamp {
+            origin,
+            at: now_unix(),
+        }),
+    );
+    if let Err(e) = writer.write(&json_path, &art.to_bytes(), OverwritePolicy::Backup) {
+        soft(e)?;
+    }
+    Ok(None)
+}
+
 /// Whether the slot `path` (or a case-insensitive twin of it) already
 /// holds an entry. A missing `.media/` folder means an empty slot.
 fn slot_taken(path: &Path) -> Result<bool, WriteError> {
