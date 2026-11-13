@@ -27,6 +27,9 @@ interface LibraryState {
   view: LibraryView | null;
   /** Search keys indexed by entry id. */
   keys: readonly string[];
+  /** The revision chosen per version group in this library (D7): version
+   * group → `rel_path`; empty while none was chosen. */
+  revisionDefaults: Readonly<Record<string, string>>;
   /** Folder of the open library, as picked. */
   path: string | null;
   progress: ScanProgress | null;
@@ -45,13 +48,19 @@ interface LibraryState {
   fail(e: unknown): void;
   /** New art marks of rewritten entries; another generation is ignored. */
   applyArtUpdates(generation: number, updates: readonly EntryArtUpdate[]): void;
+  /** Makes this revision its game's default (D7); the answer of a library
+   * that is no longer open is dropped. */
+  setDefaultRevision(entryId: number): Promise<void>;
   close(): void;
 }
+
+const NO_DEFAULTS: Readonly<Record<string, string>> = Object.freeze({});
 
 const initial = {
   status: 'idle' as LibraryStatus,
   view: null,
   keys: [],
+  revisionDefaults: NO_DEFAULTS,
   path: null,
   progress: null,
   error: null,
@@ -108,6 +117,7 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
         status: 'ready',
         view,
         keys: buildSearchKeys(view.entries),
+        revisionDefaults: view.revision_defaults ?? NO_DEFAULTS,
         path,
         progress: null,
         openingPath: null,
@@ -149,6 +159,14 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
     });
     dropArtUrls(generation, [...byId.keys()]);
     set({ view: { ...view, entries } });
+  },
+  async setDefaultRevision(entryId) {
+    const view = get().view;
+    if (!view) return;
+    const backend = await getBackend();
+    const choices = await backend.setDefaultRevision(view.generation, entryId);
+    if (get().view?.generation !== view.generation) return;
+    set({ revisionDefaults: choices });
   },
   close() {
     requestSeq += 1;

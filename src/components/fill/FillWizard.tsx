@@ -50,7 +50,9 @@ import {
   shouldAutoRun,
   wizardDefaults,
   type FillScope,
+  scopeIds,
 } from '@/lib/fill';
+import type { Game } from '@/lib/games';
 import { noticesFromTroubles } from '@/lib/integrations';
 import { systemByFolder } from '@/lib/systemLookup';
 import { cn } from '@/lib/utils';
@@ -148,11 +150,14 @@ function Samples({ job }: { job: JobView }) {
 export function FillWizard({
   view,
   visible,
+  games,
   selectedId,
   onClose,
 }: {
   view: LibraryView;
   visible: readonly EntryView[];
+  /** Every entry id → its game: a game fills all its revisions (D4). */
+  games?: ReadonlyMap<number, Game> | undefined;
   selectedId: number | null;
   onClose(): void;
 }) {
@@ -184,11 +189,15 @@ export function FillWizard({
         ? 'overwrite'
         : (restored?.step ?? 'scope'),
   );
+  // Files each scope sends: a game counts each of its revisions (D4).
+  const selectionCount =
+    scopeIds('selection', selectedId, visible, games)?.length ?? 0;
+  const filterCount = scopeIds('filter', null, visible, games)?.length ?? 0;
   const [scope, setScope] = useState<FillScope>(
     restored?.scope ??
       (selectedId !== null
         ? 'selection'
-        : visible.length < view.entries.length
+        : filterCount < view.entries.length
           ? 'filter'
           : 'library'),
   );
@@ -272,8 +281,8 @@ export function FillWizard({
   const regionName = (r: RegionPref) =>
     r === 'rom' ? t('fill.regionRom') : t(`regions.${r}`);
   const counts: Record<FillScope, number> = {
-    selection: selectedId === null ? 0 : 1,
-    filter: visible.length,
+    selection: selectionCount,
+    filter: filterCount,
     library: view.entries.length,
   };
 
@@ -288,6 +297,7 @@ export function FillWizard({
         scope,
         selectedId,
         visible,
+        games,
         media,
         strategy,
         regions,

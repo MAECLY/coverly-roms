@@ -32,6 +32,7 @@ import { UpdateBanner } from '@/components/update/UpdateBanner';
 import { useViewShortcuts } from '@/hooks/useViewShortcuts';
 import { useT } from '@/i18n/useT';
 import type { Media } from '@/ipc/types';
+import { ensureContentColumns } from '@/lib/detailsColumns';
 import { isTyping } from '@/lib/keyboard';
 import { inspectorDocked, type ViewId } from '@/lib/viewPrefs';
 import { useFilterStore } from '@/stores/filterStore';
@@ -45,7 +46,8 @@ import { useViewStore } from '@/stores/viewStore';
 export function LibraryScreen() {
   const t = useT();
   const view = useLibraryStore((s) => s.view);
-  const { visible, sections, facets, now } = useVisibleEntries();
+  const { visible, sections, facets, now, counts, byEntry } =
+    useVisibleEntries();
   const prefs = useViewStore((s) => s.prefs);
   const filtersOpen = useViewStore((s) => s.filtersOpen);
   const drawerOpen = useViewStore((s) => s.drawerOpen);
@@ -87,6 +89,21 @@ export function LibraryScreen() {
   useLayoutEffect(() => {
     if (root !== undefined) loadPrefsFor(root);
   }, [root, loadPrefsFor]);
+
+  // D19 (b): the first library with updates, DLC, revisions or demos adds
+  // Versión and Contenido to the Details columns, once.
+  const hasContent =
+    counts.updates +
+      counts.dlc +
+      counts.moreRevisions +
+      counts.demos +
+      counts.orphans >
+    0;
+  useEffect(() => {
+    if (root === undefined || prefsRoot !== root || !hasContent) return;
+    const next = ensureContentColumns(prefs, hasContent);
+    if (next !== prefs) setPrefs(next);
+  }, [root, prefsRoot, hasContent, prefs, setPrefs]);
 
   // After a view switch (not on first mount, nor on opening a library) the
   // new view takes the focus: its name ("Columns view") is the
@@ -264,11 +281,7 @@ export function LibraryScreen() {
           />
         )}
       </div>
-      <StatusBar
-        visible={visible}
-        total={view.entries.length}
-        scanMs={view.scan_ms}
-      />
+      <StatusBar visible={visible} total={counts.games} scanMs={view.scan_ms} />
       <QuickLook
         entries={visible}
         systems={view.systems}
@@ -285,6 +298,7 @@ export function LibraryScreen() {
         <FillWizard
           view={view}
           visible={visible}
+          games={byEntry}
           selectedId={selectedId}
           onClose={closeOverlay}
         />

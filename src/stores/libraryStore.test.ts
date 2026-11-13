@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setBackend, type Backend } from '@/ipc/backend';
 import { FIXTURE_NOW, generateLibrary } from '@/ipc/mock/fixture';
+import { MOCK_ADDONS } from '@/ipc/mock/addonViewsFixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
 import type { LibraryView, ScanProgress } from '@/ipc/types';
 
@@ -185,5 +186,24 @@ describe('library store', () => {
     useLibraryStore.getState().close();
     expect(useLibraryStore.getState().status).toBe('idle');
     expect(useLibraryStore.getState().view).toBeNull();
+  });
+
+  it('keeps the revision defaults and updates them on a new choice (D7)', async () => {
+    setBackend(
+      createMockBackend({ delayMs: 0, now: FIXTURE_NOW, storage: null }),
+    );
+    await useLibraryStore.getState().open(MOCK_ADDONS);
+    expect(useLibraryStore.getState().revisionDefaults).toEqual({});
+    const view = useLibraryStore.getState().view!;
+    const untagged = view.entries.find((e) => e.name === 'Star Courier (USA)')!;
+    await useLibraryStore.getState().setDefaultRevision(untagged.id);
+    expect(useLibraryStore.getState().revisionDefaults).toEqual({
+      [untagged.version_group!]: untagged.rel_path,
+    });
+    // An answer for a library that was closed meanwhile is dropped.
+    const pending = useLibraryStore.getState().setDefaultRevision(untagged.id);
+    useLibraryStore.getState().close();
+    await pending;
+    expect(useLibraryStore.getState().revisionDefaults).toEqual({});
   });
 });

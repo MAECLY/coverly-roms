@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setBackend } from '@/ipc/backend';
+import { MOCK_ADDONS } from '@/ipc/mock/addonViewsFixture';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
 import type { JobView } from '@/ipc/types';
@@ -98,5 +99,94 @@ describe('useVisibleEntries', () => {
     expect(result.current.sections.map((s) => [s.key, s.count])).toEqual([
       ['art:complete', 240],
     ]);
+  });
+});
+
+describe('useVisibleEntries on games (D1, D4, D13)', () => {
+  beforeEach(async () => {
+    setBackend(
+      createMockBackend({ delayMs: 0, now: FIXTURE_NOW, storage: null }),
+    );
+    resetLibraryStore();
+    await useLibraryStore.getState().open(MOCK_ADDONS);
+  });
+  afterEach(() => {
+    act(() => useViewStore.getState().setPrefs({ groupBy: 'none' }));
+    setBackend(null);
+  });
+
+  const entryNamed = (name: string) =>
+    useLibraryStore.getState().view!.entries.find((e) => e.name === name)!;
+
+  it('shows games: revisions folded, orphans apart, counts', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    const { visible, visibleGames, games, orphans, counts } = result.current;
+    const names = visible.map((e) => e.name);
+    expect(names).toContain('Star Courier (USA) (Rev 1)');
+    expect(names).not.toContain('Star Courier (USA)');
+    expect(names).not.toContain('Tidewalker (v1.3.0)');
+    expect(visibleGames.map((g) => g.id)).toEqual(visible.map((e) => e.id));
+    expect(games).toHaveLength(visible.length);
+    expect(orphans).toHaveLength(2);
+    expect(counts).toMatchObject({ games: 9, demos: 2, orphans: 2 });
+    expect(result.current.shownCounts).toEqual(counts);
+  });
+
+  it('a game matches the search by the name of its DLC', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    act(() => useFilterStore.getState().setQuery('lighthouse keeper'));
+    expect(result.current.visible.map((e) => e.name)).toEqual([
+      'Lantern Harbor (USA)',
+    ]);
+    expect(result.current.shownCounts.games).toBe(1);
+    expect(result.current.shownCounts.updates).toBe(2);
+  });
+
+  it('sorting reorders games, never their updates and DLC', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    const before = result.current.visibleGames.map((g) =>
+      g.children.map((c) => c.index),
+    );
+    act(() => useViewStore.getState().setSort({ key: 'name', dir: 'desc' }));
+    const sorted = result.current.visible.map((e) => e.name);
+    expect(sorted).toEqual(
+      [...sorted].sort((a, b) =>
+        b.localeCompare(a, undefined, { sensitivity: 'base', numeric: true }),
+      ),
+    );
+    const after = result.current.visibleGames.map((g) =>
+      g.children.map((c) => c.index),
+    );
+    expect([...after].sort()).toEqual([...before].sort());
+  });
+
+  it('the orphans scope lists only them and falls back to all', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    act(() => useViewStore.getState().setScope({ kind: 'orphans' }));
+    expect(result.current.visible.map((e) => e.orphan)).toEqual([
+      'update',
+      'dlc',
+    ]);
+    // Organizar placed them: the library comes back without orphans.
+    act(() => {
+      const view = useLibraryStore.getState().view!;
+      useLibraryStore.setState({
+        view: {
+          ...view,
+          entries: view.entries.filter((e) => e.orphan === undefined),
+        },
+      });
+    });
+    expect(useViewStore.getState().scope).toEqual({ kind: 'all' });
+    expect(result.current.visible).toHaveLength(result.current.games.length);
+  });
+
+  it('follows the revision default the user chose', async () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    const untagged = entryNamed('Star Courier (USA)');
+    await act(() => useLibraryStore.getState().setDefaultRevision(untagged.id));
+    const names = result.current.visible.map((e) => e.name);
+    expect(names).toContain('Star Courier (USA)');
+    expect(names).not.toContain('Star Courier (USA) (Rev 1)');
   });
 });
