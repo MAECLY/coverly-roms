@@ -90,6 +90,39 @@ export function hasContent(games: readonly Game[]): boolean {
   );
 }
 
+/**
+ * Whether a tile, box or filmstrip item speaks a full phrase for its game
+ * (its visible add-on text is then hidden from screen readers, which hear
+ * the phrase instead).
+ */
+export function speaksContent(game: Game, isNew: boolean): boolean {
+  return (
+    isNew ||
+    game.missing !== null ||
+    game.children.length > 0 ||
+    game.revisions.length > 1 ||
+    game.isDemo ||
+    game.demos.length > 0
+  );
+}
+
+/**
+ * The Galería filmstrip caption (§8.3), mono and `aria-hidden`: «↑» when
+ * the newest update is missing, then `+3` (DLC), or `2 rev.`, or `demo`.
+ * Empty when the game has none of these.
+ */
+export function filmCaption(game: Game, t: TFunction): string {
+  if (game.orphan !== null) return '';
+  const parts: string[] = [];
+  if (game.missing) parts.push(t('content.film.missing'));
+  if (game.dlc.length > 0)
+    parts.push(t('content.film.dlc', { n: game.dlc.length }));
+  else if (game.revisions.length > 1)
+    parts.push(t('content.summary.rev', { n: game.revisions.length }));
+  else if (game.isDemo) parts.push(t('content.film.demo'));
+  return parts.join(' ');
+}
+
 export interface SpokenOptions {
   /** A child of this game is tagged «Nuevo» (D18). */
   isNew?: boolean;

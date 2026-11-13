@@ -8,6 +8,7 @@ import { useT } from '@/i18n/useT';
 import type { EntryView, Media, SystemView } from '@/ipc/types';
 import {
   fitSummary,
+  speaksContent,
   spokenSummary,
   summaryParts,
   summaryText,
@@ -58,21 +59,6 @@ const CHIP_CHAR_PX = 6.6;
 const CHIP_PAD_PX = 12;
 /** «Nuevo» beside the chip: its padding plus the gap before it. */
 const NEW_TAG_PAD_PX = 14;
-
-/**
- * Whether the tile speaks a full phrase for its game (the visible text is
- * then hidden from screen readers, which hear the phrase instead).
- */
-function speaksContent(game: Game, isNew: boolean): boolean {
-  return (
-    isNew ||
-    game.missing !== null ||
-    game.children.length > 0 ||
-    game.revisions.length > 1 ||
-    game.isDemo ||
-    game.demos.length > 0
-  );
-}
 
 /**
  * The add-on chip: `+1 DLC · v1.10`, or the warning `↑ falta v1.3.0` with

@@ -2012,7 +2012,26 @@
       "user": "yours",
       "base": "game art"
     },
-    "noArt": "no art"
+    "noArt": "no art",
+    "tray": {
+      "label": "Add-on art",
+      "update": "Update {v}",
+      "fromBase": "the base game's",
+      "open": "Open {name} in the panel"
+    },
+    "facts": {
+      "version": "Version",
+      "dlc": "DLC",
+      "demo": "Demo",
+      "fullGame": "Full game",
+      "inLibrary": "In the library",
+      "notInLibrary": "Not in the library"
+    },
+    "film": {
+      "dlc": "+{n}",
+      "missing": "↑",
+      "demo": "demo"
+    }
   },
   "spoken": {
     "head": "{title}, {system}",

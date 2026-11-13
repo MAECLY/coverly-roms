@@ -2012,7 +2012,26 @@
       "user": "tuyo",
       "base": "arte del juego"
     },
-    "noArt": "sin arte"
+    "noArt": "sin arte",
+    "tray": {
+      "label": "Arte del contenido",
+      "update": "Actualización {v}",
+      "fromBase": "del juego base",
+      "open": "Abrir {name} en la ficha"
+    },
+    "facts": {
+      "version": "Versión",
+      "dlc": "DLC",
+      "demo": "Demo",
+      "fullGame": "Juego completo",
+      "inLibrary": "En la biblioteca",
+      "notInLibrary": "No está en la biblioteca"
+    },
+    "film": {
+      "dlc": "+{n}",
+      "missing": "↑",
+      "demo": "demo"
+    }
   },
   "spoken": {
     "head": "{title}, {system}",

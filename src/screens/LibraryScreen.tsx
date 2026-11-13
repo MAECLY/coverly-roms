@@ -214,11 +214,18 @@ export function LibraryScreen() {
     select(id);
     openDrawer('version');
   };
+  // A click on an update or DLC in the Galería tray: the panel, at it (§8.3).
+  const onOpenChild = (id: number, childIndex: number) => {
+    setWorkspaceMedia(null);
+    select(id);
+    openDrawer(`child-${childIndex}`);
+  };
   const viewContent: ViewContent = {
     byEntry,
     line: contentLine,
     fresh,
     onOpenVersion,
+    onOpenChild,
   };
   const list = {
     entries: visible,

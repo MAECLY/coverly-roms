@@ -25,6 +25,9 @@ export interface ViewContent {
   fresh: ReadonlySet<string>;
   /** A click on a game's summary: the panel, at its Versión section. */
   onOpenVersion?(id: number): void;
+  /** A click on one of a game's updates or DLC (the Galería tray): the
+   * panel, at that child. */
+  onOpenChild?(id: number, childIndex: number): void;
 }
 
 /** What every library view takes (spec §B.4). `entries` is already in
