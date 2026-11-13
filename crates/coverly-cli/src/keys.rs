@@ -359,8 +359,11 @@ mod tests {
 
     #[test]
     fn a_store_that_does_not_answer_times_out_as_unavailable() {
+        // The store answers far later than any bound below, so a loaded CI
+        // runner (macOS VMs coalesce timers by tens of milliseconds) cannot
+        // make a timely give-up look like a wait.
         let store = TimedStore::new(
-            Arc::new(Slow(Duration::from_millis(200))),
+            Arc::new(Slow(Duration::from_secs(10))),
             Duration::from_millis(50),
         );
         let started = Instant::now();
@@ -368,7 +371,7 @@ mod tests {
             store.get(CredentialKey::SteamgriddbApiKey),
             Err(CredentialError::Unavailable)
         );
-        assert!(started.elapsed() < Duration::from_millis(150));
+        assert!(started.elapsed() < Duration::from_secs(5));
         assert!(!store.available());
         assert_eq!(
             store.set(CredentialKey::SteamgriddbApiKey, "x"),
