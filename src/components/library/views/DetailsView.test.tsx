@@ -675,7 +675,8 @@ describe('DetailsView: the treegrid of games and their content (addon views §8.
     render(<TreeHarness initial="Tidewalker" />);
     const ghost = document.querySelector<HTMLElement>('[data-row-key^="x:"]')!;
     expect(ghost).toHaveClass('tree-row--ghost');
-    expect(ghost).toHaveTextContent('↑ v1.3.0 falta');
+    // Worded as the game's own cell and the cover chip: «falta v…».
+    expect(ghost).toHaveTextContent('↑ falta v1.3.0');
     expect(ghost).toHaveTextContent('no está en la biblioteca');
     expect(ghost.querySelector('.cell--size')).toBeEmptyDOMElement();
     // The game's own Versión cell says it in words too.

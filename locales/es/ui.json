@@ -1983,7 +1983,7 @@
     },
     "newest": "la más nueva",
     "notInLibrary": "no está en la biblioteca",
-    "ghost": "↑ v{v} falta",
+    "ghost": "↑ falta v{v}",
     "cell": {
       "updates": "{n} act.",
       "updatesOne": "1 act.",
