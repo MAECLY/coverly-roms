@@ -8,3 +8,5 @@ pnpm-lock.yaml
 docs/
 # Byte-exact synthetic catalogue fixtures (escaped bidi/combining characters).
 crates/coverly-core/tests/fixtures/catalog/
+# extras.json exactly as the serializer writes it (byte-for-byte round trip).
+crates/coverly-core/tests/fixtures/extras/

@@ -40,7 +40,10 @@
       "path": "Soundtrack/01 Opening.spc",
       "provenance": "user",
       "size": 66048,
-      "tags": ["tema del jefe final", "versión orquestal"],
+      "tags": [
+        "tema del jefe final",
+        "versión orquestal"
+      ],
       "type": "audio"
     },
     {
