@@ -16,12 +16,15 @@ import {
   generateLibrary,
   HOSTILE_NAMES,
 } from '@/ipc/mock/fixture';
+import { addonViewsLibrary } from '@/ipc/mock/addonViewsFixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
 import { MEDIA, REGIONS, type EntryView, type Media } from '@/ipc/types';
 import { clearArtCache } from '@/lib/artCache';
 import { groupEntries } from '@/lib/grouping';
 import { titleWithoutRegions } from '@/lib/tileLabel';
-import { COVER_SIZES, columnsFor } from '@/lib/coverSizes';
+import { hasContent } from '@/lib/addonSummary';
+import { COVER_SIZES, columnsFor, metrics } from '@/lib/coverSizes';
+import { buildGames } from '@/lib/games';
 import {
   COVER_SIZE_IDS,
   DEFAULT_PREFS,
@@ -33,6 +36,7 @@ import { stubLayout } from '@/test/layout';
 import { CoverGrid } from '../CoverGrid';
 import { CoversView } from './CoversView';
 import { QuickLook } from './QuickLook';
+import type { ViewContent } from './types';
 
 /** The performance budget: tiles mounted at once. */
 const MAX_TILES = 120;
@@ -629,5 +633,97 @@ describe('CoversView sizes and art', () => {
       expect(screen.queryAllByText('No title screen')).toHaveLength(missing);
       expect(screen.queryAllByText('No cover')).toHaveLength(0);
     });
+  });
+});
+
+describe('CoversView with add-on content (addon views §8.2)', () => {
+  const lib = addonViewsLibrary(1, FIXTURE_NOW);
+  const built = buildGames(lib.entries, {});
+  const shown = built.games.map((g) => g.entry);
+  let restore: () => void;
+  beforeEach(() => {
+    restore = stubLayout(1200, 800);
+    setBackend(createMockBackend({ delayMs: 0, now: FIXTURE_NOW }));
+  });
+  afterEach(() => {
+    restore();
+    clearArtCache();
+    setBackend(null);
+  });
+
+  function AddonHarness({
+    content,
+    onOpen = () => undefined,
+  }: {
+    content?: ViewContent;
+    onOpen?: (id: number) => void;
+  }) {
+    return (
+      <I18nProvider locale="es">
+        <CoversView
+          entries={shown}
+          sections={[]}
+          prefs={{ ...DEFAULT_PREFS, coverSize: 'l' }}
+          onPreview={() => undefined}
+          systems={lib.systems}
+          generation={1}
+          selectedId={null}
+          onSelect={() => undefined}
+          onOpen={onOpen}
+          content={content}
+        />
+      </I18nProvider>
+    );
+  }
+
+  const content = (over: Partial<ViewContent> = {}): ViewContent => ({
+    byEntry: built.byEntry,
+    line: hasContent(built.games),
+    fresh: new Set(),
+    ...over,
+  });
+
+  it('adds the summary line to every row when the library has content', () => {
+    const { container } = render(<AddonHarness content={content()} />);
+    const m = metrics('l', true);
+    const tile = container.querySelector<HTMLElement>('.cover-tile')!;
+    expect(tile.style.height).toBe(`${m.tileH}px`);
+    const row = container.querySelector<HTMLElement>('.cover-row')!;
+    expect(row.style.height).toBe(`${m.tileH + 12}px`);
+    expect(container.querySelectorAll('.addon-chip').length).toBeGreaterThan(0);
+  });
+
+  it("keeps today's heights without content", () => {
+    const { container } = render(<AddonHarness />);
+    const tile = container.querySelector<HTMLElement>('.cover-tile')!;
+    expect(tile.style.height).toBe(`${COVER_SIZES.l.tileH}px`);
+    expect(container.querySelector('.addon-chip')).toBeNull();
+  });
+
+  it('opens the panel at Versión from the chip, and plainly from the tile', async () => {
+    const onOpen = vi.fn();
+    const onOpenVersion = vi.fn();
+    const { container } = render(
+      <AddonHarness content={content({ onOpenVersion })} onOpen={onOpen} />,
+    );
+    const tw = built.games.find((g) => g.entry.name.startsWith('Tidewalker'))!;
+    const cell = container.querySelector<HTMLElement>(`#entry-${tw.id}`)!;
+    await userEvent.click(cell.querySelector('.addon-chip')!);
+    expect(onOpenVersion).toHaveBeenCalledWith(tw.id);
+    expect(onOpen).not.toHaveBeenCalled();
+    await userEvent.click(cell.querySelector('.cover-tile__name')!);
+    expect(onOpen).toHaveBeenCalledWith(tw.id);
+  });
+
+  it('tags a game whose child is new', () => {
+    const neon = built.games.find((g) => g.entry.name.startsWith('Neon'))!;
+    const { container } = render(
+      <AddonHarness
+        content={content({ fresh: new Set([neon.children[0]!.rel_path]) })}
+      />,
+    );
+    const cell = container.querySelector(`#entry-${neon.id}`)!;
+    expect(within(cell as HTMLElement).getByText('Nuevo')).toBeTruthy();
+    expect(container.querySelectorAll('.addon-new')).toHaveLength(1);
   });
 });

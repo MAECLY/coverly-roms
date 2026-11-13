@@ -4,7 +4,13 @@ import { translate } from '@/i18n/core';
 import type { TFunction } from '@/i18n/useT';
 import { addonViewsLibrary } from '@/ipc/mock/addonViewsFixture';
 
-import { spokenSummary, summaryParts } from './addonSummary';
+import {
+  fitSummary,
+  hasContent,
+  spokenSummary,
+  summaryParts,
+  summaryText,
+} from './addonSummary';
 import { buildGames, type Game } from './games';
 
 const tEs: TFunction = (k, v) => translate('es', k, v);
@@ -104,5 +110,54 @@ describe('spokenSummary', () => {
     const one = spokenSummary(lantern, 'PS4', tEs);
     expect(spokenSummary(lantern, 'PS4', tEs)).toBe(one);
     expect(spokenSummary(lantern, 'PS4', tEn)).not.toBe(one);
+  });
+});
+
+describe('summaryText and fitSummary (§8.2)', () => {
+  const all = [
+    { kind: 'dlc', n: 3 },
+    { kind: 'rev', n: 2 },
+    { kind: 'missing', v: '1.3.0' },
+  ] as const;
+
+  it('writes each part with the approved copy', () => {
+    expect(all.map((p) => summaryText(p, tEs))).toEqual([
+      '+3 DLC',
+      '2 rev.',
+      '↑ falta v1.3.0',
+    ]);
+    expect(summaryText({ kind: 'version', v: '1.05' }, tEs)).toBe('v1.05');
+    expect(summaryText({ kind: 'missing', v: '1.3.0' }, tEn)).toBe(
+      '↑ v1.3.0 missing',
+    );
+  });
+
+  it('keeps every part when they fit', () => {
+    expect(fitSummary(all, tEs, 40)).toEqual(all);
+  });
+
+  it('drops +N DLC first, then N rev., never the warning', () => {
+    // «2 rev. · ↑ falta v1.3.0» is 23 characters.
+    expect(fitSummary(all, tEs, 23)).toEqual([all[1], all[2]]);
+    expect(fitSummary(all, tEs, 22)).toEqual([all[2]]);
+    expect(fitSummary(all, tEs, 3)).toEqual([all[2]]);
+  });
+
+  it('never drops the installed version either', () => {
+    const v = [
+      { kind: 'dlc', n: 1 } as const,
+      { kind: 'version', v: '1.10' } as const,
+    ];
+    expect(fitSummary(v, tEs, 4)).toEqual([v[1]]);
+  });
+});
+
+describe('hasContent', () => {
+  it('is true when any game has add-ons, revisions or is a demo', () => {
+    expect(hasContent(games)).toBe(true);
+    expect(hasContent([pebble])).toBe(false);
+    expect(hasContent([star])).toBe(true);
+    expect(hasContent([lanternDemo])).toBe(true);
+    expect(hasContent([])).toBe(false);
   });
 });

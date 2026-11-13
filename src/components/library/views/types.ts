@@ -1,4 +1,5 @@
 import type { EntryView, Media, SystemView } from '@/ipc/types';
+import type { Game } from '@/lib/games';
 import type { Section } from '@/lib/grouping';
 import type { ViewPrefs } from '@/lib/viewPrefs';
 
@@ -13,6 +14,19 @@ export interface EntryListProps {
   onOpen(id: number): void;
 }
 
+/** A library's games, for the views that show their add-ons (part C). */
+export interface ViewContent {
+  /** Every revision's entry id → its game. */
+  byEntry: ReadonlyMap<number, Game>;
+  /** Any game of the library has add-on content: the tiles' summary line
+   * (a library flag, so row heights never change with a filter). */
+  line: boolean;
+  /** Children's `rel_path`s tagged «Nuevo» (D18). */
+  fresh: ReadonlySet<string>;
+  /** A click on a game's summary: the panel, at its Versión section. */
+  onOpenVersion?(id: number): void;
+}
+
 /** What every library view takes (spec §B.4). `entries` is already in
  *  grouped order and `sections` are index ranges into it. */
 export interface ViewProps extends EntryListProps {
@@ -22,6 +36,8 @@ export interface ViewProps extends EntryListProps {
   onPreview(id: number): void;
   /** Mounts: Enter on a slot. */
   onOpenArt?(id: number, media: Media): void;
+  /** The games behind `entries`; absent, the view shows entries only. */
+  content?: ViewContent | undefined;
 }
 
 /** The entry id of the item an event happened in, if any. */

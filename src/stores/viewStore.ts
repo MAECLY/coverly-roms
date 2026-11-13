@@ -30,6 +30,9 @@ function layoutOf(view: ViewId): Layout {
   return view === 'covers' ? 'grid' : 'list';
 }
 
+/** A section of the game panel a view can open it at (addon views §8.2). */
+export type PanelSection = 'version';
+
 interface ViewState {
   scope: Scope;
   prefs: ViewPrefs;
@@ -39,6 +42,11 @@ interface ViewState {
   layout: Layout;
   sort: Sort;
   drawerOpen: boolean;
+  /**
+   * The panel section to scroll to and focus once the panel shows it
+   * (`[data-panel-section]`); the panel clears it when done.
+   */
+  panelSection: PanelSection | null;
   filtersOpen: boolean;
   overlay: Overlay;
   setScope(scope: Scope): void;
@@ -52,8 +60,10 @@ interface ViewState {
   setSort(sort: Sort): void;
   /** Same key flips the direction; another key sorts ascending. */
   toggleSort(key: SortKey): void;
-  openDrawer(): void;
+  /** Opens the panel, at `section` when given. */
+  openDrawer(section?: PanelSection): void;
   closeDrawer(): void;
+  clearPanelSection(): void;
   toggleFilters(): void;
   setOverlay(overlay: Overlay): void;
   closeOverlay(): void;
@@ -75,6 +85,7 @@ export const useViewStore = create<ViewState>()((set, get) => {
     layout: layoutOf(file.last.view),
     sort: DEFAULT_SORT,
     drawerOpen: false,
+    panelSection: null,
     filtersOpen: false,
     overlay: 'none',
     setScope: (scope) => set({ scope }),
@@ -103,8 +114,10 @@ export const useViewStore = create<ViewState>()((set, get) => {
             ? { key, dir: s.sort.dir === 'asc' ? 'desc' : 'asc' }
             : { key, dir: 'asc' },
       })),
-    openDrawer: () => set({ drawerOpen: true }),
-    closeDrawer: () => set({ drawerOpen: false }),
+    openDrawer: (section) =>
+      set({ drawerOpen: true, panelSection: section ?? null }),
+    closeDrawer: () => set({ drawerOpen: false, panelSection: null }),
+    clearPanelSection: () => set({ panelSection: null }),
     toggleFilters: () => set((s) => ({ filtersOpen: !s.filtersOpen })),
     setOverlay: (overlay) => set({ overlay }),
     closeOverlay: () => set({ overlay: 'none' }),
@@ -113,6 +126,7 @@ export const useViewStore = create<ViewState>()((set, get) => {
         scope: { kind: 'all' },
         sort: DEFAULT_SORT,
         drawerOpen: false,
+        panelSection: null,
         filtersOpen: false,
         overlay: 'none',
       }),

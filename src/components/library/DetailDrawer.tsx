@@ -1,5 +1,5 @@
 import { FolderOpen, X } from 'lucide-react';
-import { useContext, useState } from 'react';
+import { useContext, useRef, useState } from 'react';
 
 import { SystemLabel } from '@/components/system/SystemLabel';
 import { Alert } from '@/components/ui/alert';
@@ -20,6 +20,7 @@ import {
 
 import { ArtWorkspace } from './ArtWorkspace';
 import { Tip } from './Tip';
+import { usePanelSection } from './usePanelSection';
 
 function IdentityBlock({
   state,
@@ -133,6 +134,8 @@ export function DetailDrawer({
   const identify = useIdentityStore((s) => s.identify);
   const [revealError, setRevealError] = useState<BackendError | null>(null);
   const system = view.systems[entry.system];
+  const asideRef = useRef<HTMLElement>(null);
+  usePanelSection(asideRef);
 
   async function reveal() {
     setRevealError(null);
@@ -146,6 +149,7 @@ export function DetailDrawer({
 
   return (
     <aside
+      ref={asideRef}
       className="drawer"
       aria-labelledby="drawer-title"
       data-docked={docked ? 'true' : undefined}

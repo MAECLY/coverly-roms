@@ -36,6 +36,56 @@ export function summaryParts(game: Game): SummaryPart[] {
   return parts;
 }
 
+/** One visible part in the approved copy: `+3 DLC`, `2 rev.`, `v1.05`,
+ * `↑ falta v1.3.0`. */
+export function summaryText(part: SummaryPart, t: TFunction): string {
+  switch (part.kind) {
+    case 'dlc':
+      return t('content.summary.dlc', { n: part.n });
+    case 'rev':
+      return t('content.summary.rev', { n: part.n });
+    case 'version':
+      return displayVersion(part.v);
+    case 'missing':
+      return t('content.summary.missing', { v: part.v.replace(/^[vV]/, '') });
+  }
+}
+
+/** The ` · ` between two parts, in characters. */
+const SEPARATOR_CHARS = 3;
+
+/**
+ * The parts that fit in `maxChars` monospaced characters: `+N DLC` goes
+ * first, then `N rev.`; the version, and above all the warning, always
+ * stay (§8.2). The whole state is in the tile's title and spoken phrase.
+ */
+export function fitSummary(
+  parts: readonly SummaryPart[],
+  t: TFunction,
+  maxChars: number,
+): SummaryPart[] {
+  const kept = [...parts];
+  const width = () =>
+    kept.reduce((w, p) => w + summaryText(p, t).length, 0) +
+    SEPARATOR_CHARS * Math.max(0, kept.length - 1);
+  for (const drop of ['dlc', 'rev'] as const) {
+    if (width() <= maxChars) break;
+    const i = kept.findIndex((p) => p.kind === drop);
+    if (i >= 0) kept.splice(i, 1);
+  }
+  return kept;
+}
+
+/**
+ * Whether any game shows add-on content (updates, DLC, more revisions, or
+ * is a demo): the library flag that gives cover tiles their summary line.
+ */
+export function hasContent(games: readonly Game[]): boolean {
+  return games.some(
+    (g) => g.children.length > 0 || g.revisions.length > 1 || g.isDemo,
+  );
+}
+
 export interface SpokenOptions {
   /** A child of this game is tagged «Nuevo» (D18). */
   isNew?: boolean;

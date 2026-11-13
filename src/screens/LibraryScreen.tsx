@@ -1,6 +1,7 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -26,7 +27,7 @@ import { GalleryView } from '@/components/library/views/GalleryView';
 import { MountsView } from '@/components/library/views/MountsView';
 import { QuickLook } from '@/components/library/views/QuickLook';
 import { ShelvesView } from '@/components/library/views/ShelvesView';
-import type { ViewProps } from '@/components/library/views/types';
+import type { ViewContent, ViewProps } from '@/components/library/views/types';
 import { ReportsPanel } from '@/components/reports/ReportsPanel';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -34,8 +35,10 @@ import { UpdateBanner } from '@/components/update/UpdateBanner';
 import { useViewShortcuts } from '@/hooks/useViewShortcuts';
 import { useT } from '@/i18n/useT';
 import type { Media } from '@/ipc/types';
+import { hasContent as gamesHaveContent } from '@/lib/addonSummary';
 import { ensureContentColumns } from '@/lib/detailsColumns';
 import { isTyping } from '@/lib/keyboard';
+import { newChildren } from '@/lib/seen';
 import { inspectorDocked, type ViewId } from '@/lib/viewPrefs';
 import { useFilterStore } from '@/stores/filterStore';
 import { useJobStore } from '@/stores/jobStore';
@@ -84,6 +87,14 @@ export function LibraryScreen() {
   // Art slots: the slot the art workspace opens on (Enter on a slot).
   const [workspaceMedia, setWorkspaceMedia] = useState<Media | null>(null);
   const root = view?.root;
+  // «Nuevo» (D18): read against this viewer's seen set once per open; the
+  // set's baseline is kept for the session, so this is idempotent.
+  const fresh = useMemo<ReadonlySet<string>>(
+    () => (root === undefined ? new Set() : newChildren(root, games)),
+    [root, games],
+  );
+  // A library flag, from every game: filters never change row heights.
+  const contentLine = useMemo(() => gamesHaveContent(games), [games]);
   const loadPrefsFor = useViewStore((s) => s.loadFor);
   const setPrefs = useViewStore((s) => s.setPrefs);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -197,6 +208,18 @@ export function LibraryScreen() {
     select(id);
     openDrawer();
   };
+  // A click on a cover's add-on summary: the panel, at Versión (§8.2).
+  const onOpenVersion = (id: number) => {
+    setWorkspaceMedia(null);
+    select(id);
+    openDrawer('version');
+  };
+  const viewContent: ViewContent = {
+    byEntry,
+    line: contentLine,
+    fresh,
+    onOpenVersion,
+  };
   const list = {
     entries: visible,
     systems: view.systems,
@@ -254,6 +277,7 @@ export function LibraryScreen() {
         prefs,
         onPreview: setPreviewId,
         onOpenArt,
+        content: viewContent,
       },
       { sort, onSort: toggleSort, setPrefs },
     );

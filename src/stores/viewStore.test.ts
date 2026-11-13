@@ -89,6 +89,20 @@ describe('viewStore prefs', () => {
     expect(store.getState().prefs).toBe(before);
   });
 
+  it('opens the panel at a section once, for the add-on summary (§8.2)', () => {
+    store.getState().openDrawer('version');
+    expect(store.getState().drawerOpen).toBe(true);
+    expect(store.getState().panelSection).toBe('version');
+    store.getState().clearPanelSection();
+    expect(store.getState().panelSection).toBeNull();
+    store.getState().openDrawer('version');
+    store.getState().openDrawer();
+    expect(store.getState().panelSection).toBeNull();
+    store.getState().openDrawer('version');
+    store.getState().closeDrawer();
+    expect(store.getState().panelSection).toBeNull();
+  });
+
   it('reset() keeps prefs and root', () => {
     store.getState().loadFor('/a');
     store.getState().setView('gallery');
