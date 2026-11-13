@@ -224,6 +224,13 @@ impl Settings {
             .map(String::as_str)
     }
 
+    /// Every choice of the library at `root` (version group → `rel_path`),
+    /// if any. Membership is not checked (see [`Self::revision_default`]).
+    pub fn revision_defaults_of(&self, root: &Path) -> Option<&BTreeMap<String, String>> {
+        let key = self.revision_root_key(root)?;
+        self.library.revision_defaults.get(key)
+    }
+
     /// Chooses `rel_path` for `group` in the library at `root`, stored
     /// `/`-separated, then keeps the map within [`MAX_REVISION_ROOTS`]
     /// (never dropping `root` itself). An empty group or path is ignored.

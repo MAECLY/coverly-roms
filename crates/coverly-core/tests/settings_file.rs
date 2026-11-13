@@ -1710,6 +1710,14 @@ fn set_and_read_by_root() {
         Some("SFC/Star Courier.sfc")
     );
     assert_eq!(s.revision_default(a, "sfc:other"), None);
+    // The whole map of one library, for the library view.
+    let of_a = s.revision_defaults_of(Path::new("/Volumes/SD/")).unwrap();
+    assert_eq!(of_a.len(), 1);
+    assert_eq!(
+        of_a.get("sfc:star courier").map(String::as_str),
+        Some("SFC/Star Courier (Rev 1).sfc")
+    );
+    assert!(s.revision_defaults_of(Path::new("/elsewhere")).is_none());
     assert_eq!(
         s.revision_default(Path::new("/elsewhere"), "sfc:star courier"),
         None
