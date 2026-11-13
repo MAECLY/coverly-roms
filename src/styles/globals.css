@@ -1696,7 +1696,7 @@ time {
 
 /* Phone widths: the 280px facts pane would push the page sideways, so it
    goes under the filmstrip at the full width and the stage keeps the rest. */
-@media (max-width: 40rem) {
+@media (max-width: 599px) {
   .gallery,
   .gallery--content {
     grid-template-columns: minmax(0, 1fr);
