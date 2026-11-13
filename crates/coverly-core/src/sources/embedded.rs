@@ -372,7 +372,8 @@ fn read_range(path: &Path, offset: u64, len: u64) -> Result<Vec<u8>, ()> {
 }
 
 /// The whole file `rel` inside the folder game `dir`: a plain relative
-/// path, a regular file (never a link), local, at most `MAX_ART_BYTES`.
+/// path, a regular file (never a link) reached through real folders
+/// (never a linked one), local, at most `MAX_ART_BYTES`.
 fn read_inside(dir: &Path, rel: &Path) -> Result<Vec<u8>, ()> {
     read_inside_capped(dir, rel, MAX_ART_BYTES)
 }
@@ -381,6 +382,19 @@ fn read_inside(dir: &Path, rel: &Path) -> Result<Vec<u8>, ()> {
 fn read_inside_capped(dir: &Path, rel: &Path, cap: u64) -> Result<Vec<u8>, ()> {
     if rel.as_os_str().is_empty() || !rel.components().all(|c| matches!(c, Component::Normal(_))) {
         return Err(());
+    }
+    // Every folder on the way is a real one: a linked `meta/` or
+    // `sce_sys/` would read a file from outside the game.
+    let mut walked = dir.to_path_buf();
+    let mut parts = rel.components().peekable();
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            break;
+        }
+        walked.push(part);
+        if !fs::symlink_metadata(&walked).is_ok_and(|m| m.file_type().is_dir()) {
+            return Err(());
+        }
     }
     let path = dir.join(rel);
     let meta = fs::symlink_metadata(&path).map_err(drop)?;
@@ -426,4 +440,34 @@ fn decode_within(
     let mut reader = ::image::ImageReader::with_format(Cursor::new(bytes), format);
     reader.limits(limits);
     reader.decode().map_err(drop)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An art file is read only when every folder on the way to it is a
+    /// real folder inside the game: a symlinked `meta/` or `sce_sys/`
+    /// pointing outside the library is never followed, not just a
+    /// symlinked file.
+    #[cfg(unix)]
+    #[test]
+    fn read_inside_never_follows_a_linked_folder() {
+        let outside = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(outside.path().join("meta")).unwrap();
+        fs::write(outside.path().join("meta").join("bootTvTex.tga"), b"tga").unwrap();
+        let game = tempfile::TempDir::new().unwrap();
+        let rel: PathBuf = ["meta", "bootTvTex.tga"].iter().collect();
+        std::os::unix::fs::symlink(outside.path().join("meta"), game.path().join("meta")).unwrap();
+        assert_eq!(read_inside_capped(game.path(), &rel, 1024), Err(()));
+
+        // The same file in a real folder is read.
+        fs::remove_file(game.path().join("meta")).unwrap();
+        fs::create_dir_all(game.path().join("meta")).unwrap();
+        fs::write(game.path().join(&rel), b"tga").unwrap();
+        assert_eq!(
+            read_inside_capped(game.path(), &rel, 1024),
+            Ok(b"tga".to_vec())
+        );
+    }
 }

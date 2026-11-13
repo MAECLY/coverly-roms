@@ -1375,6 +1375,35 @@ fn stem(name: &str) -> &str {
     }
 }
 
+/// A companion's planned target `to`, renamed after its item when the item
+/// landed under another name (`planned` → `actual`, file names): a name
+/// starting with the item's planned stem takes the actual one. A child's
+/// art slots of a folder item are named after the whole folder name (part
+/// C D10 d), so they follow the whole name, not a stem cut at a dot.
+fn companion_target(
+    to: &Path,
+    kind: ItemKind,
+    child_art: bool,
+    planned: &str,
+    actual: &str,
+) -> PathBuf {
+    let (from, into) = if child_art && kind == ItemKind::Folder {
+        (planned, actual)
+    } else {
+        (stem(planned), stem(actual))
+    };
+    if from != into {
+        if let Some(rest) = to
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_prefix(from))
+        {
+            return to.with_file_name(format!("{into}{rest}"));
+        }
+    }
+    to.to_path_buf()
+}
+
 fn split(path: &Path) -> Option<(&Path, &str)> {
     Some((path.parent()?, path.file_name()?.to_str()?))
 }
@@ -2114,19 +2143,14 @@ impl<'a> Run<'a> {
             .and_then(|t| t.file_name())
             .and_then(|n| n.to_str())
             .unwrap_or("");
-        let (planned_stem, actual_stem) = (stem(planned).to_string(), stem(actual).to_string());
         let target_of = |companion: &Companion| {
-            let to = root.join(&companion.target);
-            if planned_stem != actual_stem {
-                if let Some(rest) = to
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .and_then(|n| n.strip_prefix(planned_stem.as_str()))
-                {
-                    return to.with_file_name(format!("{actual_stem}{rest}"));
-                }
-            }
-            to
+            companion_target(
+                &root.join(&companion.target),
+                item.kind,
+                companion.child_art,
+                planned,
+                actual,
+            )
         };
         // A child's art (part C D10 d) follows whole or not at all: one
         // slot name taken since the plan keeps every one of them, and its
@@ -2807,6 +2831,54 @@ mod tests {
         assert_eq!(numbered("README", 3), "README (3)");
         assert_eq!(stem("Game (2).cue"), "Game (2)");
         assert_eq!(stem(".hidden"), ".hidden");
+    }
+
+    /// Part C D10 d: a folder child's slots are named after its whole
+    /// folder name, so a folder renamed at apply (`v1.3.0` → `v1.3.0 (2)`)
+    /// takes its art to the whole new name, never to the slot of the
+    /// folder it collided with.
+    #[test]
+    fn a_renamed_folder_child_takes_its_art_to_its_whole_new_name() {
+        let media = Path::new("Game").join("Updates").join(".media");
+        let icon = media.join("Tidewalker v1.3.0-icon.png");
+        assert_eq!(
+            companion_target(
+                &icon,
+                ItemKind::Folder,
+                true,
+                "Tidewalker v1.3.0",
+                "Tidewalker v1.3.0 (2)"
+            ),
+            media.join("Tidewalker v1.3.0 (2)-icon.png")
+        );
+        // A file child and other companions keep the stem rule.
+        let file_icon = media.join("Pack v1.0-icon.png");
+        assert_eq!(
+            companion_target(
+                &file_icon,
+                ItemKind::File,
+                true,
+                "Pack v1.0.cia",
+                "Pack v1.0 (2).cia"
+            ),
+            media.join("Pack v1.0 (2)-icon.png")
+        );
+        let sav = Path::new("GB").join("Tetris.sav");
+        assert_eq!(
+            companion_target(&sav, ItemKind::File, false, "Tetris.gb", "Tetris (2).gb"),
+            Path::new("GB").join("Tetris (2).sav")
+        );
+        // Unchanged names leave the target alone.
+        assert_eq!(
+            companion_target(
+                &icon,
+                ItemKind::Folder,
+                true,
+                "Tidewalker v1.3.0",
+                "Tidewalker v1.3.0"
+            ),
+            icon
+        );
     }
 
     #[test]

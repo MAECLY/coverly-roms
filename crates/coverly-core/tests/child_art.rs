@@ -558,3 +558,28 @@ fn a_picked_image_is_its_own_job_or_none() {
     .unwrap();
     assert_eq!((job, why), (None, Some(SkipWhy::KeyMaterial)));
 }
+
+/// A folder child whose `meta/` is a symlink to a folder outside the
+/// library: neither its icon nor its banner is read through the link, so
+/// no image from outside the library lands in its slots.
+#[cfg(unix)]
+#[test]
+fn art_is_never_read_through_a_linked_folder_inside_a_child() {
+    let _g = serial();
+    let lib = lib();
+    let elsewhere = TempDir::new().unwrap();
+    let real = elsewhere.path().join("app");
+    wiiu_folder(&real, "0005000E10101D00", "WUP-P-ARKE", "Test Game");
+    put_file(&real, "meta/iconTex.tga", &tga(128, 128));
+    put_file(&real, "meta/bootTvTex.tga", &tga(1280, 720));
+    let child = at(&lib.root, "ROMS/WIIU/Game/Updates/Game (v32)");
+    wiiu_folder(&child, "0005000E10101D00", "WUP-P-ARKE", "Test Game");
+    fs::remove_dir_all(child.join("meta")).unwrap();
+    std::os::unix::fs::symlink(real.join("meta"), child.join("meta")).unwrap();
+    let (report, _) = run(&lib, &[&child]);
+    assert!(report.written.is_empty(), "{report:?}");
+    for media in ChildMedia::ALL {
+        assert!(!child_slot_path(&child, media).unwrap().exists());
+    }
+    assert_eq!(icon_preview(&child), None);
+}
