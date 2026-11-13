@@ -506,7 +506,7 @@
     "systems": "Sistemas",
     "date": "Fecha",
     "all": "Todo",
-    "allRoms": "Todas las ROMs"
+    "allGames": "Todos los juegos"
   },
   "date": {
     "week": "Esta semana",
@@ -986,9 +986,21 @@
     "united-kingdom": "Reino Unido"
   },
   "status": {
-    "shown": "{shown} de {total} ROMs",
     "missingCover": "{n} sin portada",
-    "scan": "Escaneado en {ms} ms"
+    "scan": "Escaneado en {ms} ms",
+    "games": "{n} juegos",
+    "gamesOne": "1 juego",
+    "gamesOf": "{shown} de {total} juegos",
+    "demos": "{n} de ellos demos",
+    "demosOne": "1 de ellos demo",
+    "inside": "dentro de ellos: {list} (no cuentan como juegos)",
+    "updates": "{n} actualizaciones",
+    "updatesOne": "1 actualización",
+    "dlc": "{n} DLC",
+    "revisions": "{n} revisiones más",
+    "revisionsOne": "1 revisión más",
+    "orphans": "{n} complementos sin juego base",
+    "orphansOne": "1 complemento sin juego base"
   },
   "drawer": {
     "close": "Cerrar detalles",
@@ -2016,5 +2028,13 @@
     "revisionUsed": "se usa {rev}",
     "hasDemo": "tiene demo",
     "newContent": "contenido nuevo desde el último escaneo"
+  },
+  "orphans": {
+    "title": "Complementos sin juego base",
+    "noGame": "Su juego no está en la biblioteca.",
+    "ofGame": "Es de «{name}»; está fuera de su carpeta.",
+    "showGame": "Ver el juego",
+    "kind": "Tipo",
+    "game": "Juego"
   }
 }

@@ -506,7 +506,7 @@
     "systems": "Systems",
     "date": "Date",
     "all": "All",
-    "allRoms": "All ROMs"
+    "allGames": "All games"
   },
   "date": {
     "week": "This week",
@@ -986,9 +986,21 @@
     "united-kingdom": "United Kingdom"
   },
   "status": {
-    "shown": "{shown} of {total} ROMs",
     "missingCover": "{n} without cover",
-    "scan": "Scanned in {ms} ms"
+    "scan": "Scanned in {ms} ms",
+    "games": "{n} games",
+    "gamesOne": "1 game",
+    "gamesOf": "{shown} of {total} games",
+    "demos": "{n} of them demos",
+    "demosOne": "1 of them a demo",
+    "inside": "inside them: {list} (not counted as games)",
+    "updates": "{n} updates",
+    "updatesOne": "1 update",
+    "dlc": "{n} DLC",
+    "revisions": "{n} more revisions",
+    "revisionsOne": "1 more revision",
+    "orphans": "{n} add-ons without their game",
+    "orphansOne": "1 add-on without its game"
   },
   "drawer": {
     "close": "Close details",
@@ -2016,5 +2028,13 @@
     "revisionUsed": "using {rev}",
     "hasDemo": "has a demo",
     "newContent": "new content since the last scan"
+  },
+  "orphans": {
+    "title": "Add-ons without their game",
+    "noGame": "Its game is not in the library.",
+    "ofGame": "It belongs to “{name}”; it is outside its folder.",
+    "showGame": "Show the game",
+    "kind": "Kind",
+    "game": "Game"
   }
 }

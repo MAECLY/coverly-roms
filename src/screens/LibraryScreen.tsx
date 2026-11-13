@@ -11,6 +11,7 @@ import { JobsPanel } from '@/components/fill/JobsPanel';
 import { ReviewQueue } from '@/components/fill/ReviewQueue';
 import { DetailDrawer } from '@/components/library/DetailDrawer';
 import { FilterPanel } from '@/components/library/FilterPanel';
+import { OrphansList } from '@/components/library/OrphansList';
 import { Sidebar } from '@/components/library/Sidebar';
 import { StatusBar } from '@/components/library/StatusBar';
 import { Toolbar } from '@/components/library/Toolbar';
@@ -46,8 +47,21 @@ import { useViewStore } from '@/stores/viewStore';
 export function LibraryScreen() {
   const t = useT();
   const view = useLibraryStore((s) => s.view);
-  const { visible, sections, facets, now, counts, byEntry } =
-    useVisibleEntries();
+  const {
+    visible,
+    visibleGames,
+    sections,
+    facets,
+    now,
+    games,
+    orphans,
+    counts,
+    shownCounts,
+    byEntry,
+  } = useVisibleEntries();
+  const scope = useViewStore((s) => s.scope);
+  // «Complementos sin juego base» is a list, whatever the view mode (D13).
+  const orphansOpen = scope.kind === 'orphans' && orphans.length > 0;
   const prefs = useViewStore((s) => s.prefs);
   const filtersOpen = useViewStore((s) => s.filtersOpen);
   const drawerOpen = useViewStore((s) => s.drawerOpen);
@@ -221,6 +235,14 @@ export function LibraryScreen() {
         }
       />
     );
+  } else if (orphansOpen) {
+    content = (
+      <OrphansList
+        orphans={visibleGames}
+        systems={view.systems}
+        byEntry={byEntry}
+      />
+    );
   } else {
     content = renderView(
       prefs.view,
@@ -255,7 +277,13 @@ export function LibraryScreen() {
         }
       />
       <div className="library-body">
-        <Sidebar key={view.generation} view={view} now={now} />
+        <Sidebar
+          key={view.generation}
+          view={view}
+          games={games}
+          orphans={orphans.length}
+          now={now}
+        />
         <main className="library-main">
           <UpdateBanner />
           {filtersOpen && <FilterPanel view={view} facets={facets} />}
@@ -281,7 +309,13 @@ export function LibraryScreen() {
           />
         )}
       </div>
-      <StatusBar visible={visible} total={counts.games} scanMs={view.scan_ms} />
+      <StatusBar
+        total={counts}
+        shown={orphansOpen ? counts : shownCounts}
+        filtered={!orphansOpen && visibleGames.length !== counts.games}
+        games={orphansOpen ? games : visibleGames}
+        scanMs={view.scan_ms}
+      />
       <QuickLook
         entries={visible}
         systems={view.systems}

@@ -16,6 +16,7 @@ import { useT } from '@/i18n/useT';
 import { cn } from '@/lib/utils';
 import type { LibraryView } from '@/ipc/types';
 import { buildFolderTree, type FolderNode } from '@/lib/folderTree';
+import type { Game } from '@/lib/games';
 import {
   DATE_BUCKETS,
   dateBucket,
@@ -55,11 +56,24 @@ function initialExpanded(root: FolderNode): Set<string> {
 }
 
 /**
- * Library navigation. Every count is an unfiltered library total (how many
- * ROMs live in that folder, system or date bucket); the search and filters
- * only change the status bar and the filter panel facets.
+ * Library navigation. Every count is an unfiltered library total of games
+ * (addon views D4: a game is 1, its revisions, updates and DLC are not
+ * counted, add-ons without their game have their own entry); the search
+ * and filters only change the status bar and the filter panel facets.
  */
-export function Sidebar({ view, now }: { view: LibraryView; now: number }) {
+export function Sidebar({
+  view,
+  games,
+  orphans,
+  now,
+}: {
+  view: LibraryView;
+  /** Every game of the library that is not an orphan add-on. */
+  games: readonly Game[];
+  /** How many add-ons have no game in their folder (D13). */
+  orphans: number;
+  now: number;
+}) {
   const t = useT();
   const locale = useContext(LocaleContext);
   const n = useMemo(() => new Intl.NumberFormat(locale), [locale]);
@@ -67,16 +81,18 @@ export function Sidebar({ view, now }: { view: LibraryView; now: number }) {
   const setScope = useViewStore((s) => s.setScope);
   const setSort = useViewStore((s) => s.setSort);
   const [tab, setTab] = useState<Tab>(() => tabOf(scope));
-  const tree = useMemo(() => buildFolderTree(view.entries), [view.entries]);
+  // Each game by its representative (default) file.
+  const entries = useMemo(() => games.map((g) => g.entry), [games]);
+  const tree = useMemo(() => buildFolderTree(entries), [entries]);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() =>
-    initialExpanded(buildFolderTree(view.entries)),
+    initialExpanded(buildFolderTree(entries)),
   );
   const systemTotals = useMemo(() => {
     const counts = new Map<number, number>();
-    for (const e of view.entries)
+    for (const e of entries)
       counts.set(e.system, (counts.get(e.system) ?? 0) + 1);
     return counts;
-  }, [view.entries]);
+  }, [entries]);
   const buckets = useMemo(() => {
     const counts: Record<DateBucket, number> = {
       week: 0,
@@ -84,9 +100,9 @@ export function Sidebar({ view, now }: { view: LibraryView; now: number }) {
       year: 0,
       older: 0,
     };
-    for (const e of view.entries) counts[dateBucket(e.mtime, now)] += 1;
+    for (const e of entries) counts[dateBucket(e.mtime, now)] += 1;
     return counts;
-  }, [view.entries, now]);
+  }, [entries, now]);
 
   function choose(target: Scope) {
     setScope(target);
@@ -191,16 +207,12 @@ export function Sidebar({ view, now }: { view: LibraryView; now: number }) {
       case 'all':
         return (
           <li>
-            {scopeButton(
-              { kind: 'all' },
-              t('views.allRoms'),
-              view.entries.length,
-            )}
+            {scopeButton({ kind: 'all' }, t('views.allGames'), games.length)}
           </li>
         );
       case 'systems':
         return view.systems
-          .filter((s) => s.roms > 0)
+          .filter((s) => (systemTotals.get(s.index) ?? 0) > 0)
           .map((s) => (
             <li key={s.index}>
               {scopeButton(
@@ -259,6 +271,15 @@ export function Sidebar({ view, now }: { view: LibraryView; now: number }) {
           </TabsContent>
         ))}
       </Tabs>
+      {orphans > 0 && (
+        // Under the views, whatever tab is open (D13): updates and DLC
+        // whose game is not in their folder. Gone with the last of them.
+        <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] border-t border-cr-border p-1">
+          <li>
+            {scopeButton({ kind: 'orphans' }, t('orphans.title'), orphans)}
+          </li>
+        </ul>
+      )}
     </nav>
   );
 }
