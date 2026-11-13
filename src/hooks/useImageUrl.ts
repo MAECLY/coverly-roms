@@ -13,12 +13,20 @@ export type ImageSource =
       entryId: number;
       media: Media;
       candidate: number;
+    }
+  | {
+      kind: 'child-search';
+      generation: number;
+      entryId: number;
+      childIndex: number;
+      candidate: number;
     };
 
 export function sourceKey(s: ImageSource): string {
-  return s.kind === 'job'
-    ? `job:${s.job}:${s.index}:${s.candidate}`
-    : `${s.kind}:${s.generation}:${s.entryId}:${s.media}:${s.candidate}`;
+  if (s.kind === 'job') return `job:${s.job}:${s.index}:${s.candidate}`;
+  if (s.kind === 'child-search')
+    return `child-search:${s.generation}:${s.entryId}:${s.childIndex}:${s.candidate}`;
+  return `${s.kind}:${s.generation}:${s.entryId}:${s.media}:${s.candidate}`;
 }
 
 /** A blob URL of the candidate image (revoked when it changes or unmounts). */
@@ -41,19 +49,26 @@ export function useImageUrl(source: ImageSource): {
         const img =
           source.kind === 'job'
             ? await b.candidateArt(source.job, source.index, source.candidate)
-            : source.kind === 'entry'
-              ? await b.entryCandidateArt(
+            : source.kind === 'child-search'
+              ? await b.childSearchArt(
                   source.generation,
                   source.entryId,
-                  source.media,
+                  source.childIndex,
                   source.candidate,
                 )
-              : await b.entrySearchArt(
-                  source.generation,
-                  source.entryId,
-                  source.media,
-                  source.candidate,
-                );
+              : source.kind === 'entry'
+                ? await b.entryCandidateArt(
+                    source.generation,
+                    source.entryId,
+                    source.media,
+                    source.candidate,
+                  )
+                : await b.entrySearchArt(
+                    source.generation,
+                    source.entryId,
+                    source.media,
+                    source.candidate,
+                  );
         url = URL.createObjectURL(new Blob([img.bytes], { type: img.mime }));
         if (alive) setState({ key, url, failed: false });
         else URL.revokeObjectURL(url);

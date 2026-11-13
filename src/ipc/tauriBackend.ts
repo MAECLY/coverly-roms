@@ -18,6 +18,7 @@ import type {
   ArtImage,
   CandidateView,
   ChildArtReadView,
+  ChildView,
   CatalogStatus,
   CredentialStatus,
   DedupeJobView,
@@ -133,6 +134,28 @@ export function createTauriBackend(): Backend {
       }),
     readChildArt: (generation, entryId) =>
       call<ChildArtReadView>('read_child_art', { generation, entryId }),
+    searchChildArt: (generation, entryId, childIndex, query) =>
+      call<CandidateView[]>('search_child_art', {
+        generation,
+        entryId,
+        childIndex,
+        query,
+      }),
+    childSearchArt: (generation, entryId, childIndex, candidate) =>
+      image('child_search_art', {
+        generation,
+        entryId,
+        childIndex,
+        candidate,
+      }),
+    setChildArtFromSearch: (generation, entryId, childIndex, slot, candidate) =>
+      call<ChildView[]>('set_child_art_from_search', {
+        generation,
+        entryId,
+        childIndex,
+        slot,
+        candidate,
+      }),
     readChildArtBytes: (generation, entryId, childIndex, slot) =>
       image('read_child_art_bytes', {
         generation,

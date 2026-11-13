@@ -5,6 +5,7 @@
 import type { Backend } from '../backend';
 import { BackendError } from '../errors';
 import type {
+  CandidateView,
   ChildMedia,
   ChildView,
   EmulatorId,
@@ -750,6 +751,13 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     }
   };
   let childArtJobs = 0;
+  /** The last «Buscar arte» of a child (one search at a time, as Rust). */
+  let childSearch: {
+    gen: number;
+    id: number;
+    childIndex: number;
+    candidates: CandidateView[];
+  } | null = null;
 
   const entryOf = (gen: number, id: number): EntryView => {
     if (!current) throw new BackendError('no-library');
@@ -1000,6 +1008,88 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
         skipped,
         children,
       };
+    },
+    // «Buscar arte» on a child: a ScreenScraper and a SteamGridDB result
+    // per title; the pick writes the icon with its service as origin.
+    async searchChildArt(gen, id, childIndex, query) {
+      const e = entryOf(gen, id);
+      if (!e.children?.some((c) => c.index === childIndex)) {
+        throw new BackendError('unknown-child', String(childIndex));
+      }
+      const q = query.trim();
+      if (!q || [...q].length > 120 || /\p{Cc}/u.test(q)) {
+        throw new BackendError(
+          'bad-request',
+          'type a title of 1 to 120 characters',
+        );
+      }
+      const candidates: CandidateView[] = (
+        [
+          ['screenscraper', 'title-exact', 95],
+          ['steamgriddb', 'fuzzy', 82],
+        ] as const
+      ).map(([source, kind, score], index) => ({
+        index,
+        source,
+        name: q,
+        regions: [],
+        kind,
+        score,
+        confidence: score / 100,
+        votes: null,
+        origin: null,
+        reason: null,
+      }));
+      childSearch = { gen, id, childIndex, candidates };
+      return candidates.map((c) => ({ ...c }));
+    },
+    async childSearchArt(gen, id, childIndex, candidate) {
+      const e = entryOf(gen, id);
+      const s = childSearch;
+      const c =
+        s && s.gen === gen && s.id === id && s.childIndex === childIndex
+          ? s.candidates[candidate]
+          : undefined;
+      const child = e.children?.find((x) => x.index === childIndex);
+      if (!c || !child) throw new BackendError('bad-request', 'search first');
+      return {
+        bytes: new TextEncoder().encode(
+          mockChildArtSvg(
+            e,
+            { ...child, index: child.index + candidate + 3 },
+            'icon',
+          ),
+        ),
+        mime: 'image/svg+xml',
+      };
+    },
+    async setChildArtFromSearch(gen, id, childIndex, slot, candidate) {
+      const e = entryOf(gen, id);
+      if (!e.children?.some((c) => c.index === childIndex)) {
+        throw new BackendError('unknown-child', String(childIndex));
+      }
+      const s = childSearch;
+      const c =
+        s && s.gen === gen && s.id === id && s.childIndex === childIndex
+          ? s.candidates[candidate]
+          : undefined;
+      if (!c) throw new BackendError('bad-request', 'search first');
+      const origin = c.source as 'screenscraper' | 'steamgriddb';
+      const children = (e.children ?? []).map((x): ChildView =>
+        x.index === childIndex
+          ? {
+              ...x,
+              art: { ...x.art, [slot]: true, [`${slot}_origin`]: origin },
+            }
+          : x,
+      );
+      current = {
+        ...current!,
+        entries: current!.entries.map((x) =>
+          x.id === id ? { ...x, children } : x,
+        ),
+      };
+      return children;
     },
     async readChildArtBytes(gen, id, childIndex, slot) {
       const e = entryOf(gen, id);

@@ -834,6 +834,63 @@ pub async fn set_entry_art_from_search(
     .await
 }
 
+/// «Buscar arte» on an update or DLC: a title search (ScreenScraper and
+/// SteamGridDB results only); nothing is written.
+#[tauri::command]
+pub async fn search_child_art(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    child_index: u32,
+    query: String,
+) -> Result<Vec<CandidateView>, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .search_child_art(generation, entry_id, child_index, &query)
+    })
+    .await
+}
+
+/// A child search result as it would be written (raw PNG bytes).
+#[tauri::command]
+pub async fn child_search_art(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    child_index: u32,
+    candidate: u32,
+) -> Result<tauri::ipc::Response, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .child_search_art(generation, entry_id, child_index, candidate)
+            .map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
+/// «Buscar arte» on an update or DLC: writes a found candidate into the
+/// child's slot (by index, never a path) and answers the game's children.
+#[tauri::command]
+pub async fn set_child_art_from_search(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    child_index: u32,
+    slot: coverly_core::art::children::ChildMedia,
+    candidate: u32,
+) -> Result<Vec<crate::library::view::ChildView>, IpcError> {
+    blocking(move || {
+        app.state::<AppState>().set_child_art_from_search(
+            generation,
+            entry_id,
+            child_index,
+            slot,
+            candidate,
+        )
+    })
+    .await
+}
+
 /// "Forget manual match".
 #[tauri::command]
 pub async fn clear_identity_override(

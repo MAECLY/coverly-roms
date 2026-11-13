@@ -8,6 +8,7 @@ import type {
   CandidateView,
   ChildArtReadView,
   ChildMedia,
+  ChildView,
   CatalogStatus,
   CreditLink,
   CredentialKey,
@@ -97,6 +98,31 @@ export interface Backend {
   /** «Leer el arte incluido»: the art the game's updates and DLC carry in
    * the clear, into their empty slots (an undoable job, D11 b). */
   readChildArt(generation: number, entryId: number): Promise<ChildArtReadView>;
+  /** «Buscar arte» on an update or DLC: a title search for child
+   * `childIndex` (ScreenScraper and SteamGridDB results only). Nothing is
+   * written. */
+  searchChildArt(
+    generation: number,
+    entryId: number,
+    childIndex: number,
+    query: string,
+  ): Promise<CandidateView[]>;
+  /** A child search result, as it would be written. */
+  childSearchArt(
+    generation: number,
+    entryId: number,
+    childIndex: number,
+    candidate: number,
+  ): Promise<ArtImage>;
+  /** Writes result `candidate` of the child's last search into its
+   * `slot`, on an explicit pick only. Answers the game's children again. */
+  setChildArtFromSearch(
+    generation: number,
+    entryId: number,
+    childIndex: number,
+    slot: ChildMedia,
+    candidate: number,
+  ): Promise<ChildView[]>;
   /** One art slot of an update or DLC, by index (never a path). */
   readChildArtBytes(
     generation: number,

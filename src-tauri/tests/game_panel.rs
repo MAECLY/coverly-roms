@@ -314,3 +314,58 @@ fn read_child_art_on_a_read_only_library_is_write_denied() {
     assert!(matches!(out, Err(IpcError::WriteDenied(_))), "{out:?}");
     assert!(!dlc_dir.join(".media").exists());
 }
+
+/// «Buscar arte» on a child writes only an explicit pick of the entry's
+/// last cover search: an unknown child, or no search yet, writes nothing.
+#[test]
+fn child_art_from_search_needs_a_known_child_and_a_search() {
+    use coverly_core::art::children::ChildMedia;
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let lib = TempDir::new().unwrap();
+    game_with_children(lib.path());
+    let view = open(&st, lib.path());
+    let id = id_of(&view, "Lantern Harbor (USA)");
+    assert_eq!(
+        st.set_child_art_from_search(view.generation, id, 9, ChildMedia::Icon, 0)
+            .unwrap_err(),
+        IpcError::UnknownChild(9)
+    );
+    assert!(matches!(
+        st.set_child_art_from_search(view.generation, id, 0, ChildMedia::Icon, 0),
+        Err(IpcError::BadRequest(_))
+    ));
+    assert_eq!(
+        st.search_child_art(view.generation, id, 9, "pack")
+            .unwrap_err(),
+        IpcError::UnknownChild(9)
+    );
+    // A search lists only what a child slot can record; picking past
+    // its end writes nothing.
+    let found = st.search_child_art(view.generation, id, 0, "pack").unwrap();
+    assert!(found
+        .iter()
+        .all(|c| c.source == "screenscraper" || c.source == "steamgriddb"));
+    let past = u32::try_from(found.len()).unwrap();
+    assert!(matches!(
+        st.set_child_art_from_search(view.generation, id, 0, ChildMedia::Icon, past),
+        Err(IpcError::BadRequest(_))
+    ));
+    // The child's search is not the game's: a cover pick asks for its own.
+    assert!(matches!(
+        st.set_entry_art_from_search(view.generation, id, coverly_core::profiles::Media::Cover, 0),
+        Err(IpcError::BadRequest(_))
+    ));
+    assert_eq!(
+        st.set_child_art_from_search(view.generation, 99, 0, ChildMedia::Icon, 0)
+            .unwrap_err(),
+        IpcError::UnknownEntry(99)
+    );
+    let dlc = lib
+        .path()
+        .join("ROMS")
+        .join("3DS")
+        .join("Lantern Harbor (USA)")
+        .join("DLC");
+    assert!(!dlc.join(".media").exists());
+}

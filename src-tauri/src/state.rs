@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use coverly_core::art::children::SkipWhy;
+use coverly_core::art::children::{ChildMedia, ChildOrigin, SkipWhy};
 use coverly_core::art::{resolve_art, target_path};
 use coverly_core::audit::{build_report, write_csv};
 use coverly_core::cache::{Cache, CACHE_FILE};
@@ -21,7 +21,9 @@ use coverly_core::credentials::{
     store_secret, CredentialKey, CredentialStatus, CredentialStore, MemoryStore, Presence,
     SourceKeys,
 };
-use coverly_core::fill::{read_children_art, remove_art, write_local_image, FillSettings, RomRef};
+use coverly_core::fill::{
+    read_children_art, remove_art, write_child_image, write_local_image, FillSettings, RomRef,
+};
 use coverly_core::gather::Scope;
 use coverly_core::identify::dat::DatStore;
 use coverly_core::identify::overrides::{
@@ -169,6 +171,11 @@ struct EntrySearch {
     generation: u64,
     id: u32,
     media: Media,
+    /// The update or DLC searched for («Buscar arte», D11); `None` for the
+    /// entry's own art. One search at a time: a child's search makes a
+    /// pick from the entry's earlier search fail («search first») rather
+    /// than write the wrong image, and the other way round.
+    child: Option<u32>,
     candidates: Vec<Candidate>,
 }
 
@@ -1408,9 +1415,84 @@ impl AppState {
             generation,
             id,
             media,
+            child: None,
             candidates: found,
         });
         Ok(views)
+    }
+
+    /// «Buscar arte» on update or DLC `child_index` of entry `id` (D11):
+    /// a title search (refused like the drawer's: empty, over-long or
+    /// control characters) keeping only ScreenScraper and SteamGridDB
+    /// results, the origins a child slot records. Nothing is written.
+    pub fn search_child_art(
+        &self,
+        generation: u64,
+        id: u32,
+        child_index: u32,
+        query: &str,
+    ) -> Result<Vec<CandidateView>, IpcError> {
+        let session = self.known_entry(generation, id)?;
+        let entry = &session.entries[id as usize];
+        if entry.rom.children.get(child_index as usize).is_none() {
+            return Err(IpcError::UnknownChild(child_index));
+        }
+        let cfg = self.fill_config();
+        let db = SystemDb::builtin();
+        let system = db.get(&entry.system_id).ok_or(IpcError::UnknownEntry(id))?;
+        let settings = cfg.settings.fill_settings();
+        let found: Vec<Candidate> = with_env(&cfg, |env| {
+            Ok(env.search_title(system, Media::Cover, query, &settings)?)
+        })?
+        .into_iter()
+        .filter(|c| child_origin(&c.source).is_some())
+        .collect();
+        let views = found
+            .iter()
+            .enumerate()
+            .map(|(i, c)| candidate_view(i, c, None))
+            .collect();
+        *lock(&self.searches) = Some(EntrySearch {
+            generation,
+            id,
+            media: Media::Cover,
+            child: Some(child_index),
+            candidates: found,
+        });
+        Ok(views)
+    }
+
+    /// Candidate `candidate` of the last search for child `child_index`.
+    fn searched_child(
+        &self,
+        generation: u64,
+        id: u32,
+        child_index: u32,
+        candidate: u32,
+    ) -> Result<Candidate, IpcError> {
+        match lock(&self.searches).as_ref() {
+            Some(s) if s.generation == generation && s.id == id && s.child == Some(child_index) => {
+                s.candidates
+                    .get(candidate as usize)
+                    .cloned()
+                    .ok_or_else(|| IpcError::BadRequest(format!("no candidate {candidate}")))
+            }
+            _ => Err(IpcError::BadRequest("search first".into())),
+        }
+    }
+
+    /// Found candidate `candidate` for a child, as it would be written
+    /// (a PNG for its slot).
+    pub fn child_search_art(
+        &self,
+        generation: u64,
+        id: u32,
+        child_index: u32,
+        candidate: u32,
+    ) -> Result<Vec<u8>, IpcError> {
+        self.session(generation)?;
+        let c = self.searched_child(generation, id, child_index, candidate)?;
+        with_env(&self.fill_config(), |env| Ok(env.child_candidate_png(&c)?))
     }
 
     fn searched(
@@ -1421,11 +1503,17 @@ impl AppState {
         candidate: u32,
     ) -> Result<Candidate, IpcError> {
         match lock(&self.searches).as_ref() {
-            Some(s) if s.generation == generation && s.id == id && s.media == media => s
-                .candidates
-                .get(candidate as usize)
-                .cloned()
-                .ok_or_else(|| IpcError::BadRequest(format!("no candidate {candidate}"))),
+            Some(s)
+                if s.generation == generation
+                    && s.id == id
+                    && s.media == media
+                    && s.child.is_none() =>
+            {
+                s.candidates
+                    .get(candidate as usize)
+                    .cloned()
+                    .ok_or_else(|| IpcError::BadRequest(format!("no candidate {candidate}")))
+            }
             _ => Err(IpcError::BadRequest("search first".into())),
         }
     }
@@ -1490,6 +1578,57 @@ impl AppState {
         self.refresh_entries(generation, &[id], &SystemDb::builtin())
     }
 
+    /// «Buscar arte» on an update or DLC (part C D11): writes candidate
+    /// `candidate` of that child's last search ([`Self::search_child_art`])
+    /// into its `slot`, stamped with the service it came from. Only an
+    /// explicit pick writes; only ScreenScraper and SteamGridDB results
+    /// are taken (the origins a child slot records). The child is resolved
+    /// from the session, never from a path the webview sends, and must lie
+    /// inside the library. Answers the game's children with their new art
+    /// marks.
+    pub fn set_child_art_from_search(
+        &self,
+        generation: u64,
+        id: u32,
+        child_index: u32,
+        slot: ChildMedia,
+        candidate: u32,
+    ) -> Result<Vec<crate::library::view::ChildView>, IpcError> {
+        let (_writing, session, cfg) = self.writable_entry(generation, id)?;
+        let child = session.entries[id as usize]
+            .rom
+            .children
+            .get(child_index as usize)
+            .ok_or(IpcError::UnknownChild(child_index))?;
+        let c = self.searched_child(generation, id, child_index, candidate)?;
+        let origin = child_origin(&c.source).ok_or_else(|| {
+            IpcError::BadRequest(format!("{} art is not kept for add-ons", c.source))
+        })?;
+        inside_root(&session, &child.path)?;
+        let png = with_env(&cfg, |env| Ok(env.child_candidate_png(&c)?))?;
+        let root = absolute_root(&session)?;
+        let (_job, why) = write_child_image(
+            &root,
+            &child.path,
+            slot,
+            &png,
+            origin,
+            &cfg.data_dir,
+            &cfg.settings.manual_options(),
+        )?;
+        let shown = || child.path.display().to_string();
+        match why {
+            None => {}
+            Some(SkipWhy::ReadOnly) => return Err(IpcError::WriteDenied(shown())),
+            Some(SkipWhy::PathTooLong) => return Err(IpcError::NameInvalid(shown())),
+            Some(SkipWhy::Refused) => return Err(IpcError::OutsideLibrary(shown())),
+            Some(why) => {
+                return Err(IpcError::BadRequest(format!("{why:?}: {}", shown())));
+            }
+        }
+        crate::library::entry_children(&session, id)
+    }
+
     /// "Forget manual match": entry `id` is identified as before again.
     pub fn clear_identity_override(&self, generation: u64, id: u32) -> Result<(), IpcError> {
         let session = self.known_entry(generation, id)?;
@@ -1499,6 +1638,16 @@ impl AppState {
         )
         .map(|_| ())
         .map_err(|e| IpcError::Io(e.to_string()))
+    }
+}
+
+/// The origin a child art slot records for a search result from
+/// `source`; `None` for a source a child slot does not record.
+pub(crate) fn child_origin(source: &str) -> Option<ChildOrigin> {
+    match source {
+        "screenscraper" => Some(ChildOrigin::Screenscraper),
+        "steamgriddb" => Some(ChildOrigin::Steamgriddb),
+        _ => None,
     }
 }
 
@@ -2399,6 +2548,18 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A child slot records only the services a pick can come from (D11).
+    #[test]
+    fn child_art_origin_is_screenscraper_or_steamgriddb() {
+        assert_eq!(
+            child_origin("screenscraper"),
+            Some(ChildOrigin::Screenscraper)
+        );
+        assert_eq!(child_origin("steamgriddb"), Some(ChildOrigin::Steamgriddb));
+        assert_eq!(child_origin("libretro"), None);
+        assert_eq!(child_origin("embedded"), None);
+    }
 
     /// Mods spec D16, Q2: the webview picks an emulator per system but can
     /// never name a folder for Coverly to write into; an `emulator_data`

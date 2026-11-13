@@ -75,6 +75,9 @@ describe('Tauri backend', () => {
       if (cmd === 'game_details') return { request: 4, children: [] };
       if (cmd === 'read_child_art')
         return { written: 0, skipped: [], children: [] };
+      if (cmd === 'set_child_art_from_search') return [];
+      if (cmd === 'search_child_art') return [];
+      if (cmd === 'child_search_art') return PNG.buffer;
       return { 'snes:star courier': 'ROMS/SFC/Star Courier (Rev 1).sfc' };
     });
     const b = createTauriBackend();
@@ -85,6 +88,9 @@ describe('Tauri backend', () => {
     await b.readChildArt(3, 9);
     const icon = await b.readChildArtBytes(3, 9, 2, 'icon');
     expect(icon.mime).toBe('image/png');
+    expect(await b.searchChildArt(3, 9, 2, 'pack')).toEqual([]);
+    expect((await b.childSearchArt(3, 9, 2, 1)).mime).toBe('image/png');
+    expect(await b.setChildArtFromSearch(3, 9, 2, 'icon', 1)).toEqual([]);
     expect(calls).toEqual([
       ['game_details', { generation: 3, entryId: 9, request: 4 }],
       ['set_default_revision', { generation: 3, entryId: 9 }],
@@ -92,6 +98,24 @@ describe('Tauri backend', () => {
       [
         'read_child_art_bytes',
         { generation: 3, entryId: 9, childIndex: 2, slot: 'icon' },
+      ],
+      [
+        'search_child_art',
+        { generation: 3, entryId: 9, childIndex: 2, query: 'pack' },
+      ],
+      [
+        'child_search_art',
+        { generation: 3, entryId: 9, childIndex: 2, candidate: 1 },
+      ],
+      [
+        'set_child_art_from_search',
+        {
+          generation: 3,
+          entryId: 9,
+          childIndex: 2,
+          slot: 'icon',
+          candidate: 1,
+        },
       ],
     ]);
   });
