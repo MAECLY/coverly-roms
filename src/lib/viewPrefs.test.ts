@@ -46,6 +46,32 @@ describe('view prefs', () => {
       ],
       density: 'comfortable',
       inspector: false,
+      shelfAddons: 'behind',
+      childSlots: true,
+      contentColumns: false,
+    });
+  });
+
+  it('gives the add-on prefs their defaults (D19 a)', () => {
+    const clean = sanitisePrefs({});
+    expect(clean.shelfAddons).toBe('behind');
+    expect(clean.childSlots).toBe(true);
+    expect(clean.contentColumns).toBe(false);
+    // A value from a newer build, or a broken one, falls back.
+    expect(sanitisePrefs({ shelfAddons: 'floating' }).shelfAddons).toBe(
+      'behind',
+    );
+    expect(sanitisePrefs({ childSlots: 'yes' }).childSlots).toBe(true);
+    expect(sanitisePrefs({ contentColumns: 1 }).contentColumns).toBe(false);
+    const kept = sanitisePrefs({
+      shelfAddons: 'beside',
+      childSlots: false,
+      contentColumns: true,
+    });
+    expect(kept).toMatchObject({
+      shelfAddons: 'beside',
+      childSlots: false,
+      contentColumns: true,
     });
   });
 

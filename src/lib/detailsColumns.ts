@@ -13,6 +13,7 @@ import {
   type Density,
   type DetailsColumn,
   type DetailsColumnId,
+  type ViewPrefs,
 } from './viewPrefs';
 
 export interface ColumnDef<Ctx = unknown> {
@@ -48,6 +49,8 @@ export const COLUMN_DEFS: Readonly<Record<DetailsColumnId, Def>> =
   Object.freeze({
     thumb: def('thumb', 40, 32),
     name: def('name', 200, 120, 'name'),
+    version: def('version', 140, 72),
+    content: def('content', 168, 88),
     system: def('system', 160, 96, 'system'),
     folder: def('folder', 160, 80),
     regions: def('regions', 96, 56),
@@ -92,6 +95,34 @@ export function toggleColumn(
     if (catalogueIndex(c.id) < at) insert = i + 1;
   });
   return [...cols.slice(0, insert), { id }, ...cols.slice(insert)];
+}
+
+/**
+ * D19 (b): the first time a library with updates, DLC, revisions or demos
+ * opens, Versión and Contenido join the saved columns right after the
+ * name (or at the end when another column already holds that place), and
+ * `contentColumns` records it so they are never added again. Prefs that
+ * need nothing come back as the same object.
+ */
+export function ensureContentColumns(
+  prefs: ViewPrefs,
+  hasContent: boolean,
+): ViewPrefs {
+  if (!hasContent || prefs.contentColumns) return prefs;
+  const shown = new Set(prefs.columns.map((c) => c.id));
+  const add: DetailsColumn[] = (['version', 'content'] as const)
+    .filter((id) => !shown.has(id))
+    .map((id) => ({ id }));
+  const at = prefs.columns.findIndex((c) => c.id === 'name');
+  const columns =
+    at < 0 || shown.has('version') || shown.has('content')
+      ? [...prefs.columns, ...add]
+      : [
+          ...prefs.columns.slice(0, at + 1),
+          ...add,
+          ...prefs.columns.slice(at + 1),
+        ];
+  return { ...prefs, columns, contentColumns: true };
 }
 
 /** Moves `id` one place left (-1) or right (1); stays put at the ends. */

@@ -36,6 +36,7 @@ import { nextIndex } from '@/lib/keyboardNav';
 import { buildRowModel, coveringSections } from '@/lib/rowModel';
 import type { Sort, SortKey } from '@/lib/sort';
 import { REGION_CODE } from '@/lib/tileLabel';
+import { displayVersion } from '@/lib/versions';
 import { cn } from '@/lib/utils';
 import type {
   DetailsColumn,
@@ -89,6 +90,25 @@ const CELLS: Readonly<
     />
   ),
   name: (e) => e.name,
+  // The plain facts until the treegrid writes the full cells (§8.4): the
+  // installed version (Rust, D5), else the base's own, else the revision.
+  version: (e) => {
+    const v = e.installed ?? e.version;
+    if (v !== undefined) return displayVersion(v);
+    return e.revision ?? '—';
+  },
+  content: (e, ctx) => {
+    const children = e.children ?? [];
+    const updates = children.filter((c) => c.role === 'update').length;
+    const dlc = children.length - updates;
+    const n = new Intl.NumberFormat(ctx.locale);
+    const parts: string[] = [];
+    if (updates === 1) parts.push(ctx.t('content.cell.updatesOne'));
+    else if (updates > 1)
+      parts.push(ctx.t('content.cell.updates', { n: n.format(updates) }));
+    if (dlc > 0) parts.push(`${n.format(dlc)} DLC`);
+    return parts.length > 0 ? parts.join(', ') : '—';
+  },
   system: (e, ctx) => {
     const system = ctx.systems[e.system];
     return (

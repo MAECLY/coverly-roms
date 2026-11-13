@@ -910,6 +910,8 @@
     "column": {
       "thumb": "Miniatura",
       "name": "Nombre",
+      "version": "Versión",
+      "content": "Contenido",
       "system": "Sistema",
       "folder": "Carpeta",
       "regions": "Regiones",

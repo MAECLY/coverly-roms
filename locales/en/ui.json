@@ -910,6 +910,8 @@
     "column": {
       "thumb": "Thumbnail",
       "name": "Name",
+      "version": "Version",
+      "content": "Content",
       "system": "System",
       "folder": "Folder",
       "regions": "Regions",

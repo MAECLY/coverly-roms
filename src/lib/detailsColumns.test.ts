@@ -5,6 +5,7 @@ import {
   FIT_MAX,
   FIT_MIN,
   ROW_HEIGHT,
+  ensureContentColumns,
   fitWidth,
   gridMinWidth,
   gridTemplate,
@@ -13,6 +14,7 @@ import {
   toggleColumn,
 } from './detailsColumns';
 import {
+  sanitisePrefs,
   DEFAULT_PREFS,
   DETAILS_COLUMN_IDS,
   type DetailsColumn,
@@ -36,6 +38,39 @@ describe('detailsColumns', () => {
     }
     expect(COLUMN_DEFS.mtime.sortKey).toBe('mtime');
     expect(COLUMN_DEFS.folder.sortKey).toBeUndefined();
+  });
+
+  it('adds Versión and Contenido after the name once (D19 b)', () => {
+    const saved = sanitisePrefs({
+      columns: [{ id: 'name', width: 300 }, { id: 'size' }],
+    });
+    // A library without updates, DLC, revisions or demos: untouched.
+    expect(ensureContentColumns(saved, false)).toBe(saved);
+    const once = ensureContentColumns(saved, true);
+    expect(once.columns).toEqual([
+      { id: 'name', width: 300 },
+      { id: 'version' },
+      { id: 'content' },
+      { id: 'size' },
+    ]);
+    expect(once.contentColumns).toBe(true);
+    expect(ensureContentColumns(once, true)).toBe(once);
+    // The user removes Versión: it stays removed.
+    const removed = { ...once, columns: toggleColumn(once.columns, 'version') };
+    expect(ids(ensureContentColumns(removed, true).columns)).toEqual([
+      'name',
+      'content',
+      'size',
+    ]);
+    // A column the user already shows is not added twice.
+    const has = sanitisePrefs({
+      columns: [{ id: 'content' }, { id: 'name' }],
+    });
+    expect(ids(ensureContentColumns(has, true).columns)).toEqual([
+      'content',
+      'name',
+      'version',
+    ]);
   });
 
   it('hides and shows a column in catalogue order', () => {

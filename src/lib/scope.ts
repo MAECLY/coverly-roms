@@ -8,9 +8,13 @@ export const DATE_BUCKETS: readonly DateBucket[] = [
   'older',
 ];
 
-/** What the sidebar shows: one folder subtree, one system, one date bucket, or all. */
+/**
+ * What the sidebar shows: one folder subtree, one system, one date bucket,
+ * the add-ons without their game (addon views D13), or all.
+ */
 export type Scope =
   | { kind: 'all' }
+  | { kind: 'orphans' }
   | { kind: 'system'; system: number }
   | { kind: 'folder'; path: string }
   | { kind: 'date'; bucket: DateBucket };
@@ -29,6 +33,8 @@ export function inScope(e: EntryView, scope: Scope, now: number): boolean {
   switch (scope.kind) {
     case 'all':
       return true;
+    case 'orphans':
+      return e.orphan !== undefined;
     case 'system':
       return e.system === scope.system;
     case 'folder':
@@ -40,6 +46,17 @@ export function inScope(e: EntryView, scope: Scope, now: number): boolean {
     case 'date':
       return dateBucket(e.mtime, now) === scope.bucket;
   }
+}
+
+const ALL: Scope = Object.freeze({ kind: 'all' });
+
+/**
+ * The scope actually shown: «Complementos sin juego base» falls back to
+ * all once the library has no orphan left (D13); every other scope is
+ * kept as it is.
+ */
+export function resolveScope(scope: Scope, orphans: number): Scope {
+  return scope.kind === 'orphans' && orphans === 0 ? ALL : scope;
 }
 
 export function sameScope(a: Scope, b: Scope): boolean {

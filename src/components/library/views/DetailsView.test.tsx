@@ -238,7 +238,7 @@ describe('DetailsView', () => {
     fireEvent.contextMenu(screen.getByRole('columnheader', { name: 'Size' }));
     const menu = await screen.findByRole('menu');
     const items = within(menu).getAllByRole('menuitemcheckbox');
-    expect(items).toHaveLength(11);
+    expect(items).toHaveLength(13);
     expect(
       within(menu).getByRole('menuitemcheckbox', { name: 'Name' }),
     ).toHaveAttribute('aria-disabled', 'true');
@@ -282,7 +282,7 @@ describe('DetailsView', () => {
     name.focus();
     fireEvent.keyDown(name, { key: 'F10', shiftKey: true });
     const menu = await screen.findByRole('menu');
-    expect(within(menu).getAllByRole('menuitemcheckbox')).toHaveLength(11);
+    expect(within(menu).getAllByRole('menuitemcheckbox')).toHaveLength(13);
   });
 
   it('opens the menu with the context-menu key', async () => {

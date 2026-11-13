@@ -37,6 +37,7 @@ function tabOf(scope: Scope): Tab {
     case 'date':
       return 'date';
     case 'all':
+    case 'orphans':
       return 'all';
   }
 }
