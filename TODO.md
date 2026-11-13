@@ -343,9 +343,9 @@ Muchas actualizaciones, DLC y demos traen su propia portada o arte, distinto del
 - **Frontends:** al organizar para un dispositivo, solo se copia el arte que su frontend sabe mostrar (la mayoría solo muestra el del juego base); el resto queda en la biblioteca.
 - **Interfaz:** en la ficha del juego, cada actualización y DLC con su miniatura; la demo con su propia portada y un enlace al juego completo.
 
-- [ ] Leer el arte incluido en actualizaciones, DLC y demos (sin claves, solo lo que va en claro) y buscar el que falte en las fuentes existentes.
-- [ ] Slots de arte por archivo hijo (actualización, DLC) además del del juego, con el origen anotado.
-- [ ] Mostrarlo en la ficha y en Organizar, y copiarlo al dispositivo solo cuando su frontend lo use.
+- [x] Leer el arte incluido en actualizaciones, DLC y demos (sin claves, solo lo que va en claro) y buscar el que falte en las fuentes existentes. Parte C (PR #47): se lee solo en claro; el arte de DLC por red queda a mano, desde la ficha (decisión por defecto Q3).
+- [x] Slots de arte por archivo hijo (actualización, DLC) además del del juego, con el origen anotado.
+- [ ] Mostrarlo en la ficha y en Organizar, y copiarlo al dispositivo solo cuando su frontend lo use. Hecho en la parte C (PR #47) en la ficha y en Organizar, con `Profile.child_art` (apagado por defecto); falta copiarlo al dispositivo con la sincronización del bloque 4.
 
 ### Cómo se ve en las seis vistas (diseño aprobado, 2026-11-09)
 
@@ -404,8 +404,8 @@ Hecha el 2026-11-01 (4 investigadores y un verificador crítico por grupo, que a
 - [x] Traductores por emulador (shadPS4, RPCS3, Azahar, Cemu, Vita3K, Switch, ES-DE) usados por Organizar con perfil y por la sincronización del bloque 4. Hecho en la parte B (PR #46): módulo puro `coverly_core::translate`, usado por Organizar; el bloque 4 lo reutilizará.
 - [x] Extender la detección a todos los sistemas con actualizaciones o DLC (Tandas 1–3 y PSP, Wii/WiiWare…).
 - [x] Revisiones retro agrupadas como versiones de un juego en la biblioteca y en duplicados.
-- [ ] Interfaz: el juego con sus actualizaciones y DLC plegados debajo, versión instalada y la más nueva disponible. Hecho a medias en la parte A (PR #45): Organizar pliega actualizaciones y DLC bajo su juego con la versión; falta la ficha y «la más nueva disponible» (parte C, diseño aprobado arriba).
-- [ ] Región de 3DS por el código de producto (Miguel, 2026-11-09: «entre más info y más precisa, mejor»). La última letra del código (`CTR-P-AXXE`, `KTR-…`) da la región y, cuando existe, el país: `E` EE. UU., `P` Europa, `J` Japón, `K` Corea, `C` China, `T` Taiwán, `A` todas las regiones, y las de un solo país (`S` España, `D` Alemania, `F` Francia, `I` Italia, `H` Países Bajos, `R` Rusia, `U` Australia, `V`/`X`/`Y`/`Z` variantes europeas). Usarla para poner la región en el nombre y en la ficha, con el país cuando la letra lo indique, solo si el nombre no la trae ya; la tabla, verificada contra fuentes (GameTDB, 3dbrew) antes de implementarla, y la letra desconocida se marca en vez de adivinarse.
+- [x] Interfaz: el juego con sus actualizaciones y DLC plegados debajo, versión instalada y la más nueva disponible. Hecho a medias en la parte A (PR #45): Organizar pliega actualizaciones y DLC bajo su juego con la versión; la ficha, las seis vistas y la comparación dentro de la biblioteca llegaron en la parte C (PR #47); «la más nueva publicada» usará la lista offline de 3.1.
+- [x] Región de 3DS por el código de producto (Miguel, 2026-11-09: «entre más info y más precisa, mejor»). La última letra del código (`CTR-P-AXXE`, `KTR-…`) da la región y, cuando existe, el país: `E` EE. UU., `P` Europa, `J` Japón, `K` Corea, `C` China, `T` Taiwán, `A` todas las regiones, y las de un solo país (`S` España, `D` Alemania, `F` Francia, `I` Italia, `H` Países Bajos, `R` Rusia, `U` Australia, `V`/`X`/`Y`/`Z` variantes europeas). Usarla para poner la región en el nombre y en la ficha, con el país cuando la letra lo indique, solo si el nombre no la trae ya; la tabla, verificada contra fuentes (GameTDB, 3dbrew) antes de implementarla, y la letra desconocida se marca en vez de adivinarse.
 
 ## 2.2. Arcade de PC: Taito Type X y Cave
 
