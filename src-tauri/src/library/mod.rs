@@ -621,6 +621,52 @@ mod tests {
         );
     }
 
+    /// D5/D6 together: a game in doubt (an own update whose name carries
+    /// no version, or a tie) claims no installed version and never calls a
+    /// linked orphan newer; a game with no version at all does.
+    #[test]
+    fn a_game_in_doubt_never_calls_an_orphan_newer() {
+        let r = root();
+        let linked_orphan = |r: &Path| {
+            let mut orphan = rom(r, "Tidewalker (v1.3.0)", &["Loose", "Updates"]);
+            orphan.role = Some(ChildRole::Update);
+            orphan.orphan_of = Some(0);
+            orphan
+        };
+
+        let mut unversioned = rom(&r, "Tidewalker", &["Tidewalker"]);
+        unversioned.children = vec![child(
+            &unversioned,
+            "Updates",
+            "Tidewalker (Update)",
+            ChildRole::Update,
+        )];
+        let content = game_contents(&r, SYSTEM, &[&unversioned, &linked_orphan(&r)], 0);
+        assert_eq!(content[0].installed, None);
+        assert_eq!(content[0].newer_elsewhere, None);
+
+        let mut tie = rom(&r, "Tidewalker", &["Tidewalker"]);
+        tie.children = vec![
+            child(&tie, "Updates", "Tidewalker (v1.05)", ChildRole::Update),
+            child(&tie, "Updates", "Tidewalker (v1.5)", ChildRole::Update),
+        ];
+        let content = game_contents(&r, SYSTEM, &[&tie, &linked_orphan(&r)], 0);
+        assert_eq!(content[0].installed, None);
+        assert_eq!(content[0].newer_elsewhere, None);
+
+        // No version anywhere in the library: the orphan is the newest.
+        let bare = rom(&r, "Tidewalker", &["Tidewalker"]);
+        let content = game_contents(&r, SYSTEM, &[&bare, &linked_orphan(&r)], 0);
+        assert_eq!(content[0].installed, None);
+        assert_eq!(
+            content[0].newer_elsewhere,
+            Some(NewerView {
+                entry: 1,
+                version: "1.3.0".into()
+            })
+        );
+    }
+
     #[test]
     fn a_demo_names_its_full_game_and_revisions_share_a_group() {
         let r = root();
