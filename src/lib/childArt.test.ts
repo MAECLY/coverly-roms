@@ -4,7 +4,12 @@ import { addonViewsLibrary } from '@/ipc/mock/addonViewsFixture';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import type { ChildView } from '@/ipc/types';
 
-import { childArtKey, childArtState, trayChildren } from './childArt';
+import {
+  childArtKey,
+  childArtState,
+  childQuery,
+  trayChildren,
+} from './childArt';
 import { buildGames } from './games';
 
 const child = (art: ChildView['art']): ChildView => ({
@@ -62,5 +67,17 @@ describe('trayChildren', () => {
 
   it('keys a slot by generation, entry, child and slot', () => {
     expect(childArtKey(3, 7, 2, 'icon')).toBe('child:3:7:2:icon');
+  });
+});
+
+describe('childQuery («Buscar arte», D11)', () => {
+  it('is the game and the child, without tags or a repeated title', () => {
+    expect(childQuery('Kite Days', 'Kite Days (v1.1.0)')).toBe('Kite Days');
+    expect(childQuery('Tidewalker (USA)', 'Reef Pack [DLC]')).toBe(
+      'Tidewalker Reef Pack',
+    );
+    expect(childQuery('Neon Rhythm', 'Neon Rhythm - Night Drive Pack')).toBe(
+      'Neon Rhythm - Night Drive Pack',
+    );
   });
 });

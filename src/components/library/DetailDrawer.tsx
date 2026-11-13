@@ -28,6 +28,9 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { useViewStore } from '@/stores/viewStore';
 
 import { ArtWorkspace } from './ArtWorkspace';
+import { DemoSection } from './game/DemoSection';
+import { DlcSection } from './game/DlcSection';
+import { FixedFoldersSection } from './game/FixedFoldersSection';
 import { RegionLine } from './game/RegionLine';
 import { RevisionsSection } from './game/RevisionsSection';
 import { hasVersionFacts } from './game/versionFacts';
@@ -167,6 +170,7 @@ export function DetailDrawer({
   game,
   docked = false,
   workspaceMedia = null,
+  fresh,
   onClose,
 }: {
   view: LibraryView;
@@ -177,6 +181,8 @@ export function DetailDrawer({
   docked?: boolean;
   /** Open the art workspace on this slot (Art slots view). */
   workspaceMedia?: Media | null;
+  /** Children tagged «Nuevo» (D18), by `rel_path`. */
+  fresh?: ReadonlySet<string> | undefined;
   onClose(): void;
 }) {
   const t = useT();
@@ -191,6 +197,12 @@ export function DetailDrawer({
   usePanelSection(asideRef);
   const details = useGameDetails(view.generation, entry.id);
   const setDefaultRevision = useLibraryStore((s) => s.setDefaultRevision);
+  const applyChildren = useLibraryStore((s) => s.applyChildren);
+
+  /** A demo or its full game: the panel follows the selection. */
+  function selectEntry(id: number) {
+    useSelectionStore.getState().select(id);
+  }
 
   /** «Ver dónde está»: the orphan update, in «Complementos sin juego base». */
   function showElsewhere(id: number) {
@@ -264,6 +276,27 @@ export function DetailDrawer({
       {game && game.revisions.length > 1 && (
         <RevisionsSection game={game} onUse={setDefaultRevision} />
       )}
+      {game && game.dlc.length > 0 && (
+        <DlcSection
+          generation={view.generation}
+          game={game}
+          systemId={system?.system_id}
+          fresh={fresh}
+          onChildren={(children) =>
+            applyChildren(view.generation, game.entry.id, children)
+          }
+        />
+      )}
+      {game && (
+        <DemoSection
+          generation={view.generation}
+          game={game}
+          entries={view.entries}
+          systemId={system?.system_id}
+          onSelect={selectEntry}
+        />
+      )}
+      <FixedFoldersSection entry={game?.entry ?? entry} />
       <ArtWorkspace
         key={`${view.generation}:${entry.id}:${workspaceMedia ?? ''}`}
         view={view}

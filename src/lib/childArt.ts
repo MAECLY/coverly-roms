@@ -88,3 +88,29 @@ export function childArtKey(
 ): string {
   return `child:${generation}:${entryId}:${index}:${slot}`;
 }
+
+/** `<game> <child name>`: the query «Buscar arte» starts from (D11). */
+export function childQuery(gameTitle: string, childName: string): string {
+  const strip = (s: string) =>
+    s.replace(/\s*[([][^)\]]*[)\]]/g, '').trim() || s;
+  const game = strip(gameTitle);
+  const child = strip(childName);
+  // «Lantern Harbor - Lighthouse Keeper Pack» already names its game.
+  return child.toLowerCase().startsWith(game.toLowerCase())
+    ? child
+    : `${game} ${child}`;
+}
+
+/**
+ * Whether «Leer el arte incluido» has anything to try (D11 b): a child of
+ * the game without art of its own whose system can carry it in the clear
+ * (a Switch child shows the base game's art instead, never read).
+ */
+export function canReadChildArt(
+  game: Game,
+  systemId: string | null | undefined,
+): boolean {
+  return game.children.some(
+    (c) => childArtState(c, systemId).kind === 'missing',
+  );
+}

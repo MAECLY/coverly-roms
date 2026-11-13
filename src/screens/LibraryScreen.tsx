@@ -339,6 +339,7 @@ export function LibraryScreen() {
             game={byEntry.get(selected.id)}
             docked={docked}
             workspaceMedia={workspaceMedia}
+            fresh={fresh}
             onClose={() => {
               // Docked, the close button undocks the pane. Either way the
               // button that held the focus is gone: the view takes it back.

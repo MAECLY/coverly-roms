@@ -2477,12 +2477,216 @@ time {
   line-height: 1.4;
 }
 
+/* DLC rows: art, name with its file and origin, the row's action. */
+.panel-child {
+  border-radius: var(--cr-radius-md);
+}
+
+.panel-row--child {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.625rem;
+}
+
+.panel-row__origin {
+  display: flex;
+  align-items: center;
+  color: var(--cr-text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+.panel-row__origin--warn {
+  color: var(--cr-warning);
+  font-weight: 600;
+}
+
+.panel-actions {
+  margin-top: 0.5rem;
+}
+
+/* «Buscar arte» for one DLC: the drawer's search, under its row. */
+.panel-search {
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.5rem 0.625rem 0.625rem;
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface-sunken);
+}
+
+.panel-search__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.375rem;
+}
+
+.panel-search__title {
+  overflow: hidden;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-search__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.panel-search__pick {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.375rem;
+  text-align: left;
+}
+
+.panel-search__pic .art-thumb {
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.panel-search__name {
+  overflow: hidden;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A demo and its full game: a card button with the other one's cover. */
+.panel-card {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.375rem;
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  text-align: left;
+}
+
+.panel-card:hover {
+  background: var(--cr-hover);
+}
+
+.panel-card:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-ring);
+  outline-offset: 2px;
+}
+
+.panel-card__art {
+  flex: none;
+  width: 2.5rem;
+}
+
+.panel-card__text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.panel-card__title {
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-card__sub {
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+}
+
+.panel-text {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+/* The full game's cover in place of a demo's missing one: display only. */
+.panel-borrowed {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+}
+
+.panel-borrowed > .art-thumb,
+.panel-borrowed__art {
+  width: 4rem;
+  opacity: 0.45;
+}
+
+/* Mods, trucos, extras y partidas: read-only counts, collapsed. */
+.panel-folders__summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.panel-folders__summary .panel-sec__h {
+  display: inline;
+}
+
+.panel-folders__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.375rem;
+  margin: 0.5rem 0 0;
+}
+
+.panel-folders__cell {
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface-sunken);
+}
+
+.panel-folders__cell dt {
+  color: var(--cr-text-secondary);
+  font-size: 0.6875rem;
+}
+
+.panel-folders__cell dd {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.panel-folders__cell[data-empty] dd {
+  color: var(--cr-text-secondary);
+}
+
+.panel-folders__path {
+  overflow: hidden;
+  margin: 0.375rem 0 0;
+  color: var(--cr-text-secondary);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (forced-colors: active) {
   .panel-callout {
     border: 1px solid CanvasText;
   }
 
   .panel-row--missing {
+    border-color: CanvasText;
+  }
+
+  .panel-row__origin--warn {
+    color: CanvasText;
+  }
+
+  .panel-card,
+  .panel-search {
     border-color: CanvasText;
   }
 }

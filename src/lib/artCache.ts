@@ -122,3 +122,18 @@ export function dropArtUrls(generation: number, ids: readonly number[]): void {
     }
   }
 }
+
+/** Forgets (and revokes) the art of the updates and DLC of entry `id`:
+ * their slots were rewritten (child keys from `childArtKey`). */
+export function dropChildArtUrls(generation: number, id: number): void {
+  const prefix = `child:${generation}:${id}:`;
+  for (const key of [...urls.keys()]) {
+    if (!key.startsWith(prefix)) continue;
+    URL.revokeObjectURL(urls.get(key)!);
+    urls.delete(key);
+  }
+  for (const key of [...inflight.keys()])
+    if (key.startsWith(prefix)) inflight.delete(key);
+  for (const key of [...missing])
+    if (key.startsWith(prefix)) missing.delete(key);
+}
