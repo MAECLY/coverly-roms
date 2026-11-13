@@ -469,4 +469,35 @@ describe('GalleryView: add-on tray, facts and captions (addon views §8.3)', () 
     );
     expect(option('Pebble League')).toHaveAccessibleName('Pebble League');
   });
+
+  it('asks for the tray art only once the selection settles', async () => {
+    const backend = createMockBackend({ delayMs: 0, now: FIXTURE_NOW });
+    await backend.openLibrary(MOCK_ADDONS);
+    const readChild = vi.fn<Backend['readChildArtBytes']>(
+      backend.readChildArtBytes,
+    );
+    setBackend({ ...backend, readChildArtBytes: readChild });
+    const entries = gamesOf().games.map((g) => g.entry);
+    const at = entries.findIndex((e) => e.name === 'Lantern Harbor (USA)');
+    expect(at + 1).toBeLessThan(entries.length);
+    vi.useFakeTimers();
+    try {
+      render(<AddonHarness initial={entries[at + 1]!.name} />);
+      const listbox = screen.getByRole('listbox');
+      act(() => listbox.focus());
+      // Passing over Lantern Harbor, whose DLC has art in its package.
+      fireEvent.keyDown(listbox, { key: 'ArrowLeft' });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30);
+      });
+      expect(within(tray()).getAllByRole('button')).toHaveLength(1);
+      expect(readChild).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(GALLERY_SETTLE_MS + 10);
+      });
+      expect(readChild).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

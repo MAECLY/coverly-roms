@@ -19,6 +19,7 @@ export function ChildThumb({
   child,
   systemId,
   size = 48,
+  load = true,
   className,
 }: {
   generation: number;
@@ -27,6 +28,8 @@ export function ChildThumb({
   child: ChildView;
   systemId: string | null | undefined;
   size?: 48 | 24 | undefined;
+  /** False holds back reading its own art (a selection still moving). */
+  load?: boolean | undefined;
   className?: string | undefined;
 }) {
   const t = useT();
@@ -36,7 +39,7 @@ export function ChildThumb({
     entry.id,
     child.index,
     state.kind === 'own' ? state.slot : 'icon',
-    state.kind === 'own',
+    state.kind === 'own' && load,
   );
   return (
     <span

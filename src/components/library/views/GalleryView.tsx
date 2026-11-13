@@ -173,11 +173,14 @@ function GalleryTray({
   game,
   generation,
   systemId,
+  load,
   onOpenChild,
 }: {
   game: Game;
   generation: number;
   systemId: string | null | undefined;
+  /** Whether the selection has settled: only then is the art read. */
+  load: boolean;
   onOpenChild(childIndex: number): void;
 }) {
   const t = useT();
@@ -213,6 +216,7 @@ function GalleryTray({
                 entry={game.entry}
                 child={child}
                 systemId={systemId}
+                load={load}
               />
               <span className="gallery__tray-name">{name}</span>
               {stateText !== null && (
@@ -295,8 +299,8 @@ function ContentFacts({ game }: { game: Game }) {
 /**
  * Gallery (⌘4): one game's art large, with its facts beside it, above a
  * filmstrip of the whole list. ←/→ move along the strip (↑/↓ do nothing);
- * the art tabs, the strip and the facts are reached with Tab in that order,
- * so the view never traps the keyboard. The large image is asked for only
+ * the art tabs, the add-on tray, the strip and the facts are reached with
+ * Tab in that order, so the view never traps the keyboard. The large image is asked for only
  * once the selection has stayed still for 120 ms, so fast arrowing never
  * queues up images.
  */
@@ -478,6 +482,7 @@ export function GalleryView({
             game={game}
             generation={generation}
             systemId={system?.system_id}
+            load={settled}
             onOpenChild={onOpenChild}
           />
         )}
