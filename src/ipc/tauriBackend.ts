@@ -17,6 +17,8 @@ import { sniffImageMime } from './sniff';
 import type {
   ArtImage,
   CandidateView,
+  ChildArtReadView,
+  ChildView,
   CatalogStatus,
   CredentialStatus,
   DedupeJobView,
@@ -25,6 +27,7 @@ import type {
   EntriesUpdated,
   EntryArtUpdate,
   FolderProbe,
+  GameDetailsView,
   IdentityView,
   IntegrationTestResult,
   IntegrationView,
@@ -122,6 +125,44 @@ export function createTauriBackend(): Backend {
       call<IdentityView>('identify_entry', { generation, entryId }),
     revealEntry: (generation, entryId) =>
       call<void>('reveal_entry', { generation, entryId }),
+    gameDetails: (generation, entryId, request) =>
+      call<GameDetailsView>('game_details', { generation, entryId, request }),
+    setDefaultRevision: (generation, entryId) =>
+      call<Record<string, string>>('set_default_revision', {
+        generation,
+        entryId,
+      }),
+    readChildArt: (generation, entryId) =>
+      call<ChildArtReadView>('read_child_art', { generation, entryId }),
+    searchChildArt: (generation, entryId, childIndex, query) =>
+      call<CandidateView[]>('search_child_art', {
+        generation,
+        entryId,
+        childIndex,
+        query,
+      }),
+    childSearchArt: (generation, entryId, childIndex, candidate) =>
+      image('child_search_art', {
+        generation,
+        entryId,
+        childIndex,
+        candidate,
+      }),
+    setChildArtFromSearch: (generation, entryId, childIndex, slot, candidate) =>
+      call<ChildView[]>('set_child_art_from_search', {
+        generation,
+        entryId,
+        childIndex,
+        slot,
+        candidate,
+      }),
+    readChildArtBytes: (generation, entryId, childIndex, slot) =>
+      image('read_child_art_bytes', {
+        generation,
+        entryId,
+        childIndex,
+        slot,
+      }),
     async pickFolder() {
       const picked = await open({ directory: true, multiple: false });
       return typeof picked === 'string' ? picked : null;
@@ -211,6 +252,8 @@ export function createTauriBackend(): Backend {
       ),
     organizeExportPlan: (planId) =>
       call<string | null>('organize_export_plan', { planId }),
+    organizeChildThumb: (planId, itemId) =>
+      image('organize_child_thumb', { planId, itemId }),
     onOrganizeProgress: (cb) =>
       listen<OrganizeProgressEvent>(ORGANIZE_PROGRESS_EVENT, (e) =>
         cb(e.payload),

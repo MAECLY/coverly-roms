@@ -22,8 +22,9 @@ use coverly_roms_lib::jobs::view::{
 use coverly_roms_lib::library::identify::IdentityView;
 use coverly_roms_lib::library::refresh::EntryArtUpdate;
 use coverly_roms_lib::library::view::{
-    ArtMark, ArtMarks, EntryView, LibrarySettingsView, LibraryView, ProfileView, RecentView,
-    ScanProgressEvent, SystemView, WarningView,
+    ArtMark, ArtMarks, ChildView, DemoView, EntryView, FolderCountsView, GameContent,
+    LibrarySettingsView, LibraryView, NewerView, ProfileView, RecentView, ScanProgressEvent,
+    SystemView, WarningView,
 };
 use coverly_roms_lib::sources::SourceInfoView;
 use coverly_roms_lib::update::{
@@ -99,6 +100,7 @@ fn rust_serialises_the_shared_sample() {
                 screenshot: ArtMark::Unsupported,
                 title: ArtMark::Unsupported,
             },
+            content: GameContent::default(),
         }],
         warnings: vec![WarningView {
             path: "/Volumes/SD/ROMS/BAD".into(),
@@ -106,6 +108,11 @@ fn rust_serialises_the_shared_sample() {
         }],
         scan_ms: 42,
         loose_files: 3,
+        revision_defaults: [(
+            "snes:star courier (usa)".to_string(),
+            "ROMS/SFC/Star Courier (USA) (Rev 1).sfc".to_string(),
+        )]
+        .into(),
     };
     let actual = json!({
         "library_view": view,
@@ -248,6 +255,15 @@ fn rust_reads_the_shared_requests() {
                 index: 2,
                 decision: Decision::Skip
             },
+        ]
+    );
+    let slots: Vec<coverly_core::art::children::ChildMedia> =
+        serde_json::from_value(req["child_media"].clone()).unwrap();
+    assert_eq!(
+        slots,
+        [
+            coverly_core::art::children::ChildMedia::Icon,
+            coverly_core::art::children::ChildMedia::Banner
         ]
     );
     let filters: Vec<ItemFilter> = serde_json::from_value(req["item_filters"].clone()).unwrap();
@@ -1171,6 +1187,7 @@ fn organise_set_aside_views_match_the_shared_sample() {
             source: "Tetris (1).sav".into(),
             target: "_Duplicados/Tetris (1).sav".into(),
             licence: false,
+            child_art: false,
         }],
         catalogue_name: Some("Tetris (World) (Rev 1)".into()),
         transfer: Transfer::AsIs,
@@ -1457,8 +1474,8 @@ fn adjustment_values_match_the_shared_sample() {
     use coverly_core::consoles::{IdSource, PartKind, TitleIdRef, TitleKind, TitleSource};
     use coverly_core::identify::evidence::{Evidence, IdLevel};
     use coverly_core::organize::{
-        Choice, Decision, ItemKind, ItemNote, LeftReason, OrganizeAction, OrganizeItem, Playlist,
-        SourceFp, Transfer,
+        Choice, Companion, Decision, ItemKind, ItemNote, LeftReason, OrganizeAction, OrganizeItem,
+        Playlist, SourceFp, Transfer,
     };
 
     // A cartridge the optional catalogue named through its NCA ids (D6, D7).
@@ -1523,6 +1540,16 @@ fn adjustment_values_match_the_shared_sample() {
             ItemNote::ArchiveCaseCollision,
             ItemNote::DiscSet,
         ],
+        // A 3DS product code's unknown region letter (part C §5, P-1).
+        "region_letter_note": ItemNote::RegionLetterUnknown { letter: 'T' },
+        // A child's own art that stays, and one that follows (part C D10 d).
+        "child_art_note": ItemNote::ChildArtStays { count: 2 },
+        "child_art_companion": Companion {
+            source: "Pokemon Y/DLC/.media/Pack-icon.png".into(),
+            target: "3DS/Pokemon Y/DLC/.media/Pokemon Y - Pack-icon.png".into(),
+            licence: false,
+            child_art: true,
+        },
         "adjustments_playlist": Playlist {
             path: "ROMS/Saturn/Grandia (Japan).m3u".into(),
             discs: vec![
@@ -1617,6 +1644,7 @@ fn game_folder_values_match_the_shared_sample() {
             source: "pky-update.tik".into(),
             target: "3DS/Pokemon Y/Updates/Pokemon Y (v1.5).tik".into(),
             licence: true,
+            child_art: false,
         }],
         catalogue_name: None,
         transfer: Transfer::AsIs,
@@ -2243,6 +2271,236 @@ fn integration_views_match_the_shared_sample() {
             Notice { integration: "screenscraper".into(), problem: Problem::Quota },
             Notice { integration: "switch-catalog".into(), problem: Problem::Off },
         ],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+/// Addon views D2: a game with every content field, an orphan linked to
+/// it, a demo of it and a folder game that is its own game folder; the plain retro entry of `library_view` keeps its
+/// shape (no content field at all).
+#[test]
+fn game_content_entries_match_the_shared_sample() {
+    use coverly_core::art::children::{ChildArtMarks, ChildOrigin};
+    use coverly_core::game_folder::ChildRole;
+
+    let entry = |id: u32, rel: &str, name: &str, content: GameContent| EntryView {
+        id,
+        system: 1,
+        rel_path: rel.into(),
+        dir: rel.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap(),
+        name: name.into(),
+        ext: "nsp".into(),
+        size: 2_000_000,
+        mtime: 1_700_000_000,
+        regions: vec![],
+        art: ArtMarks {
+            cover: ArtMark::Present,
+            screenshot: ArtMark::Unsupported,
+            title: ArtMark::Unsupported,
+        },
+        content,
+    };
+    let game = entry(
+        10,
+        "switch/Tidewalker/Tidewalker (Rev 1) (v1.0.0).nsp",
+        "Tidewalker (Rev 1) (v1.0.0)",
+        GameContent {
+            children: vec![
+                ChildView {
+                    index: 1,
+                    rel_path: "switch/Tidewalker/Updates/Tidewalker (v1.0.2).nsp".into(),
+                    name: "Tidewalker (v1.0.2)".into(),
+                    role: ChildRole::Update,
+                    version: Some("1.0.2".into()),
+                    size: 300_000,
+                    mtime: 1_700_000_100,
+                    art: ChildArtMarks {
+                        icon: true,
+                        banner: false,
+                        icon_origin: Some(ChildOrigin::Package),
+                        banner_origin: None,
+                    },
+                },
+                ChildView {
+                    index: 0,
+                    rel_path: "switch/Tidewalker/DLC/Tidewalker - Reef Pack.nsp".into(),
+                    name: "Tidewalker - Reef Pack".into(),
+                    role: ChildRole::Dlc,
+                    version: None,
+                    size: 50_000,
+                    mtime: 1_700_000_200,
+                    art: ChildArtMarks::default(),
+                },
+            ],
+            version_group: Some("switch:tidewalker".into()),
+            revision: Some("Rev 1".into()),
+            version: Some("1.0.0".into()),
+            installed: Some("1.0.2".into()),
+            newer_elsewhere: Some(NewerView {
+                entry: 11,
+                version: "1.3.0".into(),
+            }),
+            addons: Some(FolderCountsView {
+                mods: 1,
+                cheats: 2,
+                extras: 3,
+                saves: 0,
+                capped: true,
+            }),
+            ..GameContent::default()
+        },
+    );
+    let orphan = entry(
+        11,
+        "switch/Tidewalker (Update)/Updates/Tidewalker (v1.3.0).nsp",
+        "Tidewalker (v1.3.0)",
+        GameContent {
+            orphan: Some(ChildRole::Update),
+            orphan_of: Some(10),
+            version: Some("1.3.0".into()),
+            ..GameContent::default()
+        },
+    );
+    let demo = entry(
+        12,
+        "switch/Tidewalker (Demo).nsp",
+        "Tidewalker (Demo)",
+        GameContent {
+            demo: Some(DemoView {
+                of: Some(10),
+                of_name: Some("Tidewalker (Rev 1) (v1.0.0)".into()),
+            }),
+            ..GameContent::default()
+        },
+    );
+    // A folder game that is its own game folder (Columns keeps it in place).
+    let folder = entry(
+        13,
+        "switch/Coral Drift",
+        "Coral Drift",
+        GameContent {
+            addons: Some(FolderCountsView {
+                mods: 0,
+                cheats: 1,
+                extras: 0,
+                saves: 0,
+                capped: false,
+            }),
+            folder_root: true,
+            ..GameContent::default()
+        },
+    );
+    let actual = json!({ "game_content_entries": [game, orphan, demo, folder] });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+/// Part C D3, D11 b: the game panel's lazy facts (every field) and what
+/// «Leer el arte incluido» answers.
+#[test]
+fn game_panel_answers_match_the_shared_sample() {
+    use coverly_core::art::children::{ChildArtMarks, SkipWhy};
+    use coverly_core::catalog::latest::{LatestKnown, LatestSource};
+    use coverly_core::consoles::ctr_region::Certainty;
+    use coverly_core::consoles::TitleKind;
+    use coverly_core::game_folder::ChildRole;
+    use coverly_roms_lib::library::details::{ChildDetailView, GameDetailsView, RegionVerdictView};
+    use coverly_roms_lib::library::view::{ChildArtReadView, ChildSkipView};
+
+    let details = GameDetailsView {
+        request: 4,
+        title_id: Some("0004000000055E00".into()),
+        product_code: Some("CTR-P-AXXT".into()),
+        region: Some(RegionVerdictView {
+            letter: "S".into(),
+            code: "CTR-P-AXXS".into(),
+            region: Some(Region::Europe),
+            country: Some(Region::Spain),
+            certainty: Certainty::Certain,
+        }),
+        latest: Some(LatestKnown {
+            version: "1.3.0".into(),
+            source: LatestSource::TitleDb,
+        }),
+        latest_installed: Some(false),
+        children: vec![
+            ChildDetailView {
+                index: 0,
+                title_id: Some("0004000E00055E00".into()),
+                kind: Some(TitleKind::Update),
+            },
+            ChildDetailView {
+                index: 1,
+                title_id: None,
+                kind: None,
+            },
+        ],
+    };
+    let bare = GameDetailsView {
+        request: 5,
+        ..GameDetailsView::default()
+    };
+    let read = ChildArtReadView {
+        job: Some("20261113-120000-ab12".into()),
+        written: 1,
+        skipped: vec![ChildSkipView {
+            index: 1,
+            why: SkipWhy::NoArtInClear,
+        }],
+        children: vec![ChildView {
+            index: 0,
+            rel_path: "ROMS/3DS/Lantern Harbor/DLC/Lantern Harbor - Pack.cia".into(),
+            name: "Lantern Harbor - Pack".into(),
+            role: ChildRole::Dlc,
+            version: None,
+            size: 64,
+            mtime: 1_700_000_000,
+            art: ChildArtMarks {
+                icon: true,
+                banner: false,
+                icon_origin: Some(coverly_core::art::children::ChildOrigin::Package),
+                banner_origin: None,
+            },
+        }],
+    };
+    let nothing = ChildArtReadView {
+        job: None,
+        written: 0,
+        skipped: vec![],
+        children: vec![],
+    };
+    let actual = json!({
+        "game_details": details,
+        "game_details_bare": bare,
+        "child_art_read": read,
+        "child_art_read_nothing": nothing,
+        "child_skip_reasons": [
+            SkipWhy::KeyMaterial,
+            SkipWhy::NoArtInClear,
+            SkipWhy::Exists,
+            SkipWhy::PathTooLong,
+            SkipWhy::ReadOnly,
+            SkipWhy::Refused,
+        ],
+        "region_certainties": [Certainty::Certain, Certainty::Likely, Certainty::Unknown],
+        "unknown_child": IpcError::UnknownChild(3),
     });
     let expected: Value =
         serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();

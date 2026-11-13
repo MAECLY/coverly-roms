@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -47,6 +48,19 @@ async function openLibrary(path: string = SMALL, locale: 'en' | 'es' = 'en') {
   return useLibraryStore.getState().view!;
 }
 
+/** The status bar's game count (numbers sit in their own mono spans). */
+function games(shown: number, locale: 'en' | 'es' = 'en', total = 240): string {
+  if (locale === 'es')
+    return shown === total ? `${total} juegos` : `${shown} de ${total} juegos`;
+  return shown === total ? `${total} games` : `${shown} of ${total} games`;
+}
+
+async function expectCounts(text: string) {
+  await waitFor(() =>
+    expect(screen.getByTestId('status-counts').textContent).toBe(text),
+  );
+}
+
 describe('Library screen', () => {
   let restore: () => void;
   beforeEach(() => {
@@ -63,7 +77,7 @@ describe('Library screen', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: 'Small library' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('240 of 240 ROMs')).toBeInTheDocument();
+    await expectCounts(games(240));
     const missing = view.entries.filter(
       (e) => e.art.cover === 'missing',
     ).length;
@@ -79,9 +93,7 @@ describe('Library screen', () => {
     await userEvent.click(within(nav).getByRole('tab', { name: 'Systems' }));
     const gba = view.systems.find((s) => s.folder === 'GBA')!;
     await userEvent.click(within(nav).getByText(gba.name));
-    expect(
-      await screen.findByText(`${gba.roms} of 240 ROMs`),
-    ).toBeInTheDocument();
+    await expectCounts(games(gba.roms));
   });
 
   it('browses a folder from the Folders view', async () => {
@@ -92,7 +104,7 @@ describe('Library screen', () => {
     const inSfc = view.entries.filter((e) =>
       e.dir.startsWith('ROMS/SFC'),
     ).length;
-    expect(await screen.findByText(`${inSfc} of 240 ROMs`)).toBeInTheDocument();
+    await expectCounts(games(inSfc));
   });
 
   it('groups by date in the Date view', async () => {
@@ -104,7 +116,7 @@ describe('Library screen', () => {
     const older = view.entries.filter(
       (e) => dateBucket(e.mtime, now) === 'older',
     ).length;
-    expect(await screen.findByText(`${older} of 240 ROMs`)).toBeInTheDocument();
+    await expectCounts(games(older));
   });
 
   it('searches accent- and case-insensitively', async () => {
@@ -113,7 +125,7 @@ describe('Library screen', () => {
       screen.getByRole('searchbox', { name: 'Search by name' }),
       'POKEMON edicion oro',
     );
-    expect(await screen.findByText('1 of 240 ROMs')).toBeInTheDocument();
+    await expectCounts(games(1));
   });
 
   it('combines filters and reflects them in counts', async () => {
@@ -136,16 +148,14 @@ describe('Library screen', () => {
         systems: [snes],
       },
     ).length;
-    expect(
-      await screen.findByText(`${expected} of 240 ROMs`),
-    ).toBeInTheDocument();
+    await expectCounts(games(expected));
     expect(
       screen.getByRole('button', { name: 'Filters (2)' }),
     ).toBeInTheDocument();
     await userEvent.click(
       within(panel).getByRole('button', { name: 'Clear filters' }),
     );
-    expect(await screen.findByText('240 of 240 ROMs')).toBeInTheDocument();
+    await expectCounts(games(240));
   });
 
   it('moves focus to the new view, named after it, only after a switch', async () => {
@@ -155,9 +165,11 @@ describe('Library screen', () => {
     await userEvent.click(
       within(layout).getByRole('radio', { name: 'Details' }),
     );
-    expect(document.activeElement).toBe(
-      screen.getByRole('grid', { name: 'Details view' }),
-    );
+    // The treegrid hands the focus on to its focused row (roving tabIndex).
+    expect(
+      screen.getByRole('treegrid', { name: 'Details view' }),
+    ).toContainElement(document.activeElement as HTMLElement);
+    expect(document.activeElement).toHaveAttribute('role', 'row');
     fireEvent.keyDown(document.activeElement!, { key: '4', ctrlKey: true });
     const gallery = await screen.findByRole('group', { name: 'Gallery view' });
     expect(gallery).toContainElement(document.activeElement as HTMLElement);
@@ -177,7 +189,7 @@ describe('Library screen', () => {
     await openLibrary();
     expect(useViewStore.getState().root).toBe(SMALL);
     expect(
-      screen.getByRole('grid', { name: 'Details view' }),
+      screen.getByRole('treegrid', { name: 'Details view' }),
     ).toBeInTheDocument();
     expect(screen.queryByRole('grid', { name: 'Covers view' })).toBeNull();
     // Opening a library is not a switch: the focus is left where it was.
@@ -250,9 +262,7 @@ describe('Library screen', () => {
       useLibraryStore.getState().keys,
       { ...EMPTY_FILTERS, sizeMin: Math.round(1.05 * 1024 * 1024) },
     ).length;
-    expect(
-      await screen.findByText(`${expected} of 240 ROMs`),
-    ).toBeInTheDocument();
+    await expectCounts(games(expected));
     await userEvent.click(
       within(panel).getByRole('button', { name: 'Clear filters' }),
     );
@@ -345,7 +355,7 @@ describe('Library screen', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Clear filters' }),
     );
-    expect(await screen.findByText('240 of 240 ROMs')).toBeInTheDocument();
+    await expectCounts(games(240));
   });
 
   it('empty_library_explains_itself', async () => {
@@ -357,7 +367,7 @@ describe('Library screen', () => {
 
   it('speaks Spanish', async () => {
     await openLibrary(SMALL, 'es');
-    expect(screen.getByText('240 de 240 ROMs')).toBeInTheDocument();
+    await expectCounts(games(240, 'es'));
     expect(screen.getByRole('tab', { name: 'Sistemas' })).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Rellenar arte que falta' }),
@@ -409,9 +419,9 @@ const VIEW_NAMES: Record<ViewId, string> = {
   shelves: 'Shelves',
 };
 /** The role of each view's root (spec §B.8). */
-const VIEW_ROLES: Record<ViewId, 'grid' | 'group'> = {
+const VIEW_ROLES: Record<ViewId, 'grid' | 'treegrid' | 'group'> = {
   covers: 'grid',
-  details: 'grid',
+  details: 'treegrid',
   columns: 'group',
   gallery: 'group',
   mounts: 'grid',
@@ -484,8 +494,9 @@ describe('Library views', () => {
       ).toBeChecked();
       const root = viewRoot(id);
       // The group roots (Columns, Gallery) hand the focus on to their
-      // active listbox inside the named group; grid roots take it themselves.
-      if (VIEW_ROLES[id] === 'group') {
+      // active listbox inside the named group, the treegrid (Details) to
+      // its focused row; grid roots take it themselves.
+      if (VIEW_ROLES[id] !== 'grid') {
         expect(root).toContainElement(document.activeElement as HTMLElement);
       } else {
         expect(document.activeElement).toBe(root);
@@ -565,9 +576,10 @@ describe('Library views', () => {
       within(switcher).getByRole('radio', { name: 'Details' }),
     );
     const details = viewRoot('details');
-    expect(details).toHaveAttribute('aria-activedescendant', `entry-${id}`);
     const row = details.querySelector(`[id="entry-${id}"]`)!;
     expect(row).toHaveAttribute('role', 'row');
+    // The treegrid's rows hold the focus: the selected one is the tab stop.
+    expect(row).toHaveAttribute('tabindex', '0');
     expect(row).toHaveAttribute('aria-selected', 'true');
 
     await userEvent.click(

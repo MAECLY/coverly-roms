@@ -56,6 +56,8 @@ export const DENSITY_IDS: readonly Density[] = ['comfortable', 'compact'];
 export type DetailsColumnId =
   | 'thumb'
   | 'name'
+  | 'version'
+  | 'content'
   | 'system'
   | 'folder'
   | 'regions'
@@ -68,6 +70,8 @@ export type DetailsColumnId =
 export const DETAILS_COLUMN_IDS: readonly DetailsColumnId[] = [
   'thumb',
   'name',
+  'version',
+  'content',
   'system',
   'folder',
   'regions',
@@ -78,6 +82,10 @@ export const DETAILS_COLUMN_IDS: readonly DetailsColumnId[] = [
   'title',
   'screenshot',
 ];
+
+/** Estantes: where a game's DLC edges sit (addon views §8.7). */
+export type ShelfAddons = 'behind' | 'beside';
+export const SHELF_ADDONS_IDS: readonly ShelfAddons[] = ['behind', 'beside'];
 
 export interface DetailsColumn {
   id: DetailsColumnId;
@@ -99,6 +107,13 @@ export interface ViewPrefs {
   density: Density;
   /** Docked inspector (not in Columns or Gallery). */
   inspector: boolean;
+  /** Estantes: DLC edges behind the box, or beside it (D19 a). */
+  shelfAddons: ShelfAddons;
+  /** Huecos de arte: rows for the art of updates and DLC (D19 a). */
+  childSlots: boolean;
+  /** Versión and Contenido were added to `columns` once (D19 b); never
+   * again, so a user who removes them keeps them removed. */
+  contentColumns: boolean;
 }
 
 const DEFAULT_COLUMNS: readonly DetailsColumnId[] = [
@@ -119,6 +134,9 @@ export const DEFAULT_PREFS: ViewPrefs = Object.freeze({
   columns: Object.freeze(DEFAULT_COLUMNS.map((id) => Object.freeze({ id }))),
   density: 'comfortable',
   inspector: false,
+  shelfAddons: 'behind',
+  childSlots: true,
+  contentColumns: false,
 }) as ViewPrefs;
 
 export const PREFS_KEY = 'coverly.views.v1';
@@ -189,6 +207,19 @@ export function sanitisePrefs(raw: unknown): ViewPrefs {
     density: pick(DENSITY_IDS, r.density, DEFAULT_PREFS.density),
     inspector:
       typeof r.inspector === 'boolean' ? r.inspector : DEFAULT_PREFS.inspector,
+    shelfAddons: pick(
+      SHELF_ADDONS_IDS,
+      r.shelfAddons,
+      DEFAULT_PREFS.shelfAddons,
+    ),
+    childSlots:
+      typeof r.childSlots === 'boolean'
+        ? r.childSlots
+        : DEFAULT_PREFS.childSlots,
+    contentColumns:
+      typeof r.contentColumns === 'boolean'
+        ? r.contentColumns
+        : DEFAULT_PREFS.contentColumns,
   };
 }
 

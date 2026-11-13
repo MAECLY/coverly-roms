@@ -117,6 +117,11 @@ pub struct ProfileFile {
     /// before it load with none; older builds ignore the key.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub emulators: BTreeMap<String, String>,
+    /// The frontend shows the art of updates and DLC (part C D16).
+    /// Written only when on, so older builds read the file unchanged;
+    /// files from before it load with `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub child_art: bool,
 }
 
 fn is_default_layout(l: &DiscLayout) -> bool {
@@ -195,6 +200,7 @@ impl ProfileFile {
                 .iter()
                 .map(|(system, e)| (system.clone(), e.id().to_string()))
                 .collect(),
+            child_art: p.child_art,
         }
     }
 
@@ -262,6 +268,7 @@ impl ProfileFile {
                         .then(|| (system.clone(), e))
                 })
                 .collect(),
+            child_art: self.child_art,
         }
     }
 

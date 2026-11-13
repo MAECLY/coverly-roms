@@ -597,6 +597,53 @@ impl FillEnv<'_> {
         }
         Ok(img)
     }
+
+    /// Found candidate `c` re-encoded for a child's art slot (D11, «Buscar
+    /// arte» on an update or DLC): a PNG within [`CHILD_ART_MAX`] square,
+    /// aspect kept. Child slots are always PNG, whatever the layout.
+    pub fn child_candidate_png(&self, c: &Candidate) -> Result<Vec<u8>, ArtError> {
+        let spec = OutputSpec {
+            format: crate::profiles::ImageFormat::Png,
+            max_size: Some((CHILD_ART_MAX, CHILD_ART_MAX)),
+            fit: Fit::Contain,
+            jpeg_quality: 90,
+        };
+        let all = self.sources(false, INDEX_TTL_SECS);
+        let src = all
+            .by_id(&c.source)
+            .ok_or_else(|| ArtError::UnknownSource(c.source.clone()))?;
+        let store = ArtStore::new(self.cache_dir, self.cache);
+        let (bytes, cached) = match store.get(&c.url) {
+            Some(bytes) => (bytes, true),
+            None => (src.fetch(c)?, false),
+        };
+        let img = process_image(&bytes, &spec, &ImageLimits::default())?;
+        if !cached {
+            let _ = store.put(&c.url, &bytes);
+        }
+        Ok(img.bytes)
+    }
+}
+
+/// The largest side of a child art image picked from a search, in pixels.
+pub const CHILD_ART_MAX: u32 = 512;
+
+/// Writes `png` (picked by the user for one update or DLC) into its
+/// `media` slot with `origin`, in a job of its own, the slot's old file
+/// backed up (D11, «Buscar arte»). The job id is `None` when nothing was
+/// written; the skip reason says why.
+pub fn write_child_image(
+    root: &Path,
+    child: &Path,
+    media: crate::art::children::ChildMedia,
+    png: &[u8],
+    origin: crate::art::children::ChildOrigin,
+    data_dir: &Path,
+    opts: &ManualOptions,
+) -> Result<(Option<String>, Option<crate::art::children::SkipWhy>), WriteError> {
+    let mut writer = Writer::begin(root, data_dir)?;
+    let outcome = crate::art::children::write_child_slot(child, media, png, origin, &mut writer);
+    settle(close(writer, data_dir, opts), outcome)
 }
 
 /// Writes `bytes` (a local image the user picked: untrusted) as the
@@ -657,6 +704,21 @@ pub fn remove_art(
     ensure_within(root, target)?;
     let mut writer = Writer::begin(root, data_dir)?;
     let outcome = writer.remove(target);
+    settle(close(writer, data_dir, opts), outcome)
+}
+
+/// Reads the art `children` carry in the clear into their empty slots in a
+/// job of its own (part C D11 b, the panel's «Leer el arte incluido»):
+/// journaled and undone like any manual write. The job id is `None` when
+/// nothing was written (the job is dropped, as in [`remove_art`]).
+pub fn read_children_art(
+    root: &Path,
+    children: &[&Path],
+    data_dir: &Path,
+    opts: &ManualOptions,
+) -> Result<(Option<String>, crate::art::children::ChildArtReport), WriteError> {
+    let mut writer = Writer::begin(root, data_dir)?;
+    let outcome = crate::art::children::read_child_art(children, &mut writer);
     settle(close(writer, data_dir, opts), outcome)
 }
 

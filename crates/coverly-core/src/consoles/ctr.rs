@@ -25,7 +25,8 @@
 use std::io::Read;
 
 use super::{
-    kind_3ds, ArtFormat, ArtLocator, Budgeted, ConsoleId, IdSource, TitleKind, MAX_DECODED,
+    kind_3ds, ArtFormat, ArtLocator, Budgeted, Certainty, ConsoleId, IdSource, RegionLetterFlag,
+    TitleKind, MAX_DECODED,
 };
 use crate::identify::sniff::{ReadAt, SliceAt};
 
@@ -175,16 +176,27 @@ fn exefs_icon(b: &mut Budgeted, at: u64, h: &[u8]) -> Option<u64> {
     (size >= SMDH_LEN as u64 && fits(b, icon, SMDH_LEN as u64)).then_some(icon)
 }
 
-/// The region of a base title from its product code; never a child's
-/// own product code (game folders spec D10, medium confidence).
+/// The region of a base title or a demo from its product code, by the
+/// verified table ([`super::ctr_region`], part C §5): only a `Certain`
+/// letter gives a region (its country when it names one), a letter the
+/// table does not know is flagged and gives none. A child's own product
+/// code never gives either (game folders spec D10).
 fn base_region(id: &mut ConsoleId) {
-    id.region = match id.kind {
-        TitleKind::Base => id
-            .serial
-            .as_deref()
-            .and_then(super::region_from_product_code),
-        _ => None,
+    id.region = None;
+    id.region_letter = None;
+    if !matches!(id.kind, TitleKind::Base | TitleKind::Demo) {
+        return;
+    }
+    let Some(verdict) = id.serial.as_deref().and_then(super::ctr_region::ctr_region) else {
+        return;
     };
+    id.region = verdict.for_name();
+    if verdict.certainty == Certainty::Unknown {
+        id.region_letter = Some(RegionLetterFlag {
+            letter: verdict.letter,
+            code: verdict.code,
+        });
+    }
 }
 
 /// NCSD: partition 0's NCCH, else a magic-only verdict.
@@ -720,6 +732,46 @@ mod tests {
         src.put(0, &h).put(0x20, &[0xAB; 0x100]);
         let id = run(&mut src, "zcci").unwrap();
         assert_eq!((id.confidence, id.detail.as_str()), (0.90, "Z3DS header"));
+    }
+
+    #[test]
+    fn bases_and_demos_take_the_verified_region_letter() {
+        use crate::consoles::RegionLetterFlag;
+        use crate::identify::names::Region;
+        let base = 0x0004_0000_0005_5D00;
+        let id = run(&mut t::ncsd("CTR-P-AXXS", base, true), "3ds").unwrap();
+        assert_eq!((id.region, id.region_letter), (Some(Region::Spain), None));
+        // Likely letters stay out of names.
+        let id = run(&mut t::ncsd("CTR-P-AXXZ", base, true), "3ds").unwrap();
+        assert_eq!((id.region, id.region_letter), (None, None));
+        // A letter not attested for 3DS is flagged, never guessed.
+        let id = run(&mut t::ncsd("CTR-P-AXXT", base, true), "3ds").unwrap();
+        assert_eq!(id.region, None);
+        assert_eq!(
+            id.region_letter,
+            Some(RegionLetterFlag {
+                letter: 'T',
+                code: "CTR-P-AXXT".into()
+            })
+        );
+        // A demo is a game of its own: it takes its letter too.
+        let demo = 0x0004_0002_0005_5D00;
+        let id = run(&mut t::ncsd("CTR-T-AXXP", demo, true), "3ds").unwrap();
+        assert_eq!(id.kind, TitleKind::Demo);
+        assert_eq!((id.region, id.region_letter), (Some(Region::Europe), None));
+        let id = run(
+            &mut t::cia_with_code(demo, "CTR-T-AXXP", false, false),
+            "cia",
+        )
+        .unwrap();
+        assert_eq!((id.region, id.region_letter), (Some(Region::Europe), None));
+        // A child's own product code never gives a region nor a flag.
+        let update = 0x0004_000E_0005_5D00;
+        for code in ["CTR-P-AXXS", "CTR-P-AXXT"] {
+            let id = run(&mut t::cia_with_code(update, code, false, false), "cia").unwrap();
+            assert_eq!(id.kind, TitleKind::Update);
+            assert_eq!((id.region, id.region_letter), (None, None), "{code}");
+        }
     }
 
     #[test]

@@ -53,6 +53,8 @@ const SORT_LABEL: Record<SortKey, string> = {
   system: 'columns.system',
   size: 'columns.size',
   mtime: 'columns.modified',
+  version: 'layouts.column.version',
+  content: 'layouts.column.content',
 };
 const ART_CHOICES: readonly { media: Media; key: string }[] = [
   { media: 'cover', key: 'layouts.artCover' },
@@ -276,7 +278,10 @@ export function ViewOptions() {
                   setSort({ key: e.target.value as SortKey, dir: sort.dir })
                 }
               >
-                {SORT_KEYS.map((k) => (
+                {(SORT_KEYS.includes(sort.key)
+                  ? SORT_KEYS
+                  : [...SORT_KEYS, sort.key]
+                ).map((k) => (
                   <option key={k} value={k}>
                     {t(SORT_LABEL[k])}
                   </option>

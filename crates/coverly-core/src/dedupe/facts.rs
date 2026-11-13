@@ -130,9 +130,9 @@ mod tests {
 
     #[test]
     fn unknown_region_word_is_other() {
-        let f = tag_facts(Some("Tetris (Russia)"), "x");
+        let f = tag_facts(Some("Tetris (Poland)"), "x");
         assert!(f.regions.is_empty());
-        assert_eq!(f.other, vec!["Russia"]);
+        assert_eq!(f.other, vec!["Poland"]);
     }
 
     #[test]
@@ -178,8 +178,8 @@ mod tests {
         // "Tetris (1).gb" is a browser or file manager copy, not a tag; a
         // "1" chip would also read as the row's number (spec D12).
         assert_eq!(tag_facts(None, "Tetris (1)"), MemberFacts::default());
-        let f = tag_facts(None, "Tetris (Russia) (2)");
-        assert_eq!(f.other, vec!["Russia".to_string()]);
+        let f = tag_facts(None, "Tetris (Poland) (2)");
+        assert_eq!(f.other, vec!["Poland".to_string()]);
         assert_eq!(f.tags_from, Some(TagSource::FileName));
     }
 

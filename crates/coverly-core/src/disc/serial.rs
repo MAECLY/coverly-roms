@@ -53,8 +53,10 @@ pub fn normalise_serial(raw: &str) -> Option<String> {
 ///   `nds`: the DSi game code (`KJUJ`).
 /// - `wiiu`: the 4-character code, also out of `WUP-P-ARPE`, or the
 ///   6-character code with the maker (`ARPE01`); GameTDB keys on both.
-/// - `3ds`: `CTR-` or `KTR-` (New 3DS), a `P`/`N`/`M`/`U` letter, four
-///   characters (No-Intro's form).
+/// - `3ds`: `CTR-` or `KTR-` (New 3DS), a category letter, four
+///   characters (No-Intro's form). Categories per 3dbrew «Serials»
+///   (https://www.3dbrew.org/wiki/Serials): `P` cartridge, `B` cartridge
+///   demo, `N` digital-only, `M` DLC, `T` eShop demo, `U` patch.
 /// - `ps3`, `psvita`: four letters and five digits, `BLUS30443` →
 ///   `BLUS-30443` (the PlayStation rule of [`normalise_serial`]).
 /// - `xbox`: `EA-013`; `xbox360`: the 8-hex title id, upper-case.
@@ -90,7 +92,7 @@ pub fn normalise_console_serial(system: &str, raw: &str) -> Option<String> {
             let b = s.as_bytes();
             s.len() == 10
                 && (s.starts_with("CTR-") || s.starts_with("KTR-"))
-                && matches!(b[4], b'P' | b'N' | b'M' | b'U')
+                && matches!(b[4], b'P' | b'B' | b'N' | b'M' | b'T' | b'U')
                 && b[5] == b'-'
                 && alnum(&s[6..], 4)
         }
@@ -198,6 +200,9 @@ mod tests {
         assert_eq!(n("nds", "KJUJ01"), None);
         assert_eq!(n("3ds", "CTR-X-AMKP"), None);
         assert_eq!(n("3ds", "KTR-N-AAAA").as_deref(), Some("KTR-N-AAAA"));
+        // Demo categories (3dbrew «Serials»): eShop `T`, cartridge `B`.
+        assert_eq!(n("3ds", "CTR-T-AXXP").as_deref(), Some("CTR-T-AXXP"));
+        assert_eq!(n("3ds", "CTR-B-AXXE").as_deref(), Some("CTR-B-AXXE"));
         assert_eq!(n("wiiu", "WUP-Q-ARPE"), None);
         assert_eq!(n("wiiu", "arpe").as_deref(), Some("ARPE"));
         assert_eq!(n("wiiu", "ATWE01").as_deref(), Some("ATWE01"));

@@ -1,22 +1,30 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
+import { addonViewsLibrary } from '@/ipc/mock/addonViewsFixture';
 import { FIXTURE_NOW, generateLibrary } from '@/ipc/mock/fixture';
 import { createMockBackend } from '@/ipc/mock/mockBackend';
-import { MEDIA, REGIONS } from '@/ipc/types';
+import { MEDIA, REGIONS, type EntryView } from '@/ipc/types';
+import { buildGames } from '@/lib/games';
 import { groupEntries } from '@/lib/grouping';
-import { DEFAULT_SORT, type SortKey } from '@/lib/sort';
+import { DEFAULT_SORT, sortEntries, type Sort, type SortKey } from '@/lib/sort';
 import { titleWithoutRegions } from '@/lib/tileLabel';
 import { DEFAULT_PREFS, type GroupBy, type ViewPrefs } from '@/lib/viewPrefs';
+import { useViewStore } from '@/stores/viewStore';
 import { stubLayout } from '@/test/layout';
 
 import { EntryTable, ROW_H } from '../EntryTable';
 
 const MAX_ROWS = 60;
+
+/** The id of the row that holds the treegrid's roving tab stop. */
+function activeId(grid: HTMLElement): string | null {
+  return grid.querySelector('[role="row"][tabindex="0"]')?.id ?? null;
+}
 const big = generateLibrary({
   seed: 12,
   count: 12_000,
@@ -122,13 +130,10 @@ describe('DetailsView', () => {
 
   it('moves the selection with the arrow keys', () => {
     render(<Harness onSort={() => undefined} />);
-    const grid = screen.getByRole('grid');
+    const grid = screen.getByRole('treegrid');
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
-    expect(grid).toHaveAttribute(
-      'aria-activedescendant',
-      `entry-${big.entries[1]!.id}`,
-    );
+    expect(activeId(grid)).toBe(`entry-${big.entries[1]!.id}`);
   });
 
   it('scrolls the keyboard selection fully below the sticky header', () => {
@@ -144,7 +149,7 @@ describe('DetailsView', () => {
     });
     try {
       render(<Harness onSort={() => undefined} />);
-      const grid = screen.getByRole('grid');
+      const grid = screen.getByRole('treegrid');
       const presses = 40;
       for (let i = 0; i < presses; i += 1)
         fireEvent.keyDown(grid, { key: 'ArrowDown' });
@@ -172,14 +177,11 @@ describe('DetailsView', () => {
     const onSort = vi.fn();
     const onOpen = vi.fn();
     render(<Harness onSort={onSort} onOpen={onOpen} />);
-    const grid = screen.getByRole('grid');
+    const grid = screen.getByRole('treegrid');
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     const name = screen.getByRole('button', { name: 'Name' });
     fireEvent.keyDown(name, { key: 'ArrowDown' });
-    expect(grid).toHaveAttribute(
-      'aria-activedescendant',
-      `entry-${big.entries[0]!.id}`,
-    );
+    expect(activeId(grid)).toBe(`entry-${big.entries[0]!.id}`);
     const enter = fireEvent.keyDown(name, { key: 'Enter' });
     expect(enter).toBe(true);
     fireEvent.click(name);
@@ -201,10 +203,10 @@ describe('DetailsView', () => {
 
   it('keeps the active row rendered', () => {
     render(<Harness onSort={() => undefined} />);
-    const grid = screen.getByRole('grid');
+    const grid = screen.getByRole('treegrid');
     grid.focus();
     for (let i = 0; i < 4; i++) fireEvent.keyDown(grid, { key: 'ArrowDown' });
-    const active = grid.getAttribute('aria-activedescendant')!;
+    const active = activeId(grid)!;
     expect(active).toBe(`entry-${big.entries[3]!.id}`);
     Object.defineProperty(grid, 'scrollTop', {
       configurable: true,
@@ -218,7 +220,7 @@ describe('DetailsView', () => {
   it('jumps to a typed name and previews it with Space', () => {
     const onPreview = vi.fn();
     render(<Harness onSort={() => undefined} onPreview={onPreview} />);
-    const grid = screen.getByRole('grid');
+    const grid = screen.getByRole('treegrid');
     const title = (i: number) =>
       titleWithoutRegions(big.entries[i]!.name).toLowerCase();
     const prefix = title(300).slice(0, 2);
@@ -226,7 +228,7 @@ describe('DetailsView', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
     for (const ch of prefix) fireEvent.keyDown(grid, { key: ch });
     const id = big.entries[want]!.id;
-    expect(grid).toHaveAttribute('aria-activedescendant', `entry-${id}`);
+    expect(activeId(grid)).toBe(`entry-${id}`);
     // Space after the type-ahead pause previews instead of extending the name.
     now.mockReturnValue(2_000);
     expect(fireEvent.keyDown(grid, { key: ' ' })).toBe(false);
@@ -238,7 +240,7 @@ describe('DetailsView', () => {
     fireEvent.contextMenu(screen.getByRole('columnheader', { name: 'Size' }));
     const menu = await screen.findByRole('menu');
     const items = within(menu).getAllByRole('menuitemcheckbox');
-    expect(items).toHaveLength(11);
+    expect(items).toHaveLength(13);
     expect(
       within(menu).getByRole('menuitemcheckbox', { name: 'Name' }),
     ).toHaveAttribute('aria-disabled', 'true');
@@ -282,7 +284,7 @@ describe('DetailsView', () => {
     name.focus();
     fireEvent.keyDown(name, { key: 'F10', shiftKey: true });
     const menu = await screen.findByRole('menu');
-    expect(within(menu).getAllByRole('menuitemcheckbox')).toHaveLength(11);
+    expect(within(menu).getAllByRole('menuitemcheckbox')).toHaveLength(13);
   });
 
   it('opens the menu with the context-menu key', async () => {
@@ -342,7 +344,7 @@ describe('DetailsView', () => {
         initial={{ columns: [{ id: 'name' }, { id: 'size', width: 150 }] }}
       />,
     );
-    const grid = screen.getByRole('grid');
+    const grid = screen.getByRole('treegrid');
     expect(grid.style.getPropertyValue('--details-cols')).toBe(
       'minmax(200px,1fr) 150px',
     );
@@ -450,7 +452,7 @@ describe('DetailsView', () => {
     );
     expect(headers[0]).toHaveAccessibleName(/, [\d,]+ games$/);
     expect(headers[0]!.querySelector('[data-system-icon]')).not.toBeNull();
-    const grid = screen.getByRole('grid');
+    const grid = screen.getByRole('treegrid');
     expect(Number(grid.getAttribute('aria-rowcount'))).toBeGreaterThan(
       big.entries.length + 1,
     );
@@ -459,14 +461,316 @@ describe('DetailsView', () => {
 
   it('keeps the active row rendered when grouped', () => {
     render(<Harness onSort={() => undefined} groupBy="system" />);
-    const grid = screen.getByRole('grid');
+    const grid = screen.getByRole('treegrid');
     for (let i = 0; i < 3; i++) fireEvent.keyDown(grid, { key: 'ArrowDown' });
-    const active = grid.getAttribute('aria-activedescendant')!;
+    const active = activeId(grid)!;
     Object.defineProperty(grid, 'scrollTop', {
       configurable: true,
       value: 300_000,
     });
     fireEvent.scroll(grid);
     expect(document.getElementById(active)).not.toBeNull();
+  });
+});
+
+describe('DetailsView: the treegrid of games and their content (addon views §8.4)', () => {
+  const lib = addonViewsLibrary(1, FIXTURE_NOW);
+  let restore: () => void;
+  beforeEach(() => {
+    restore = stubLayout(1280, 800);
+    setBackend(createMockBackend({ delayMs: 0, now: FIXTURE_NOW }));
+    act(() => useViewStore.setState({ expanded: null }));
+  });
+  afterEach(() => {
+    restore();
+    setBackend(null);
+    vi.unstubAllGlobals();
+    act(() => useViewStore.setState({ expanded: null }));
+  });
+
+  const named = (name: string, list: readonly EntryView[]) =>
+    list.find((e) => e.name === name)!;
+
+  function TreeHarness({
+    initial = null,
+    groupBy = 'none',
+    sort = DEFAULT_SORT,
+    onOpen = () => undefined,
+    onOpenChild = () => undefined,
+    onOpenVersion = () => undefined,
+    locale = 'es',
+    line = true,
+  }: {
+    line?: boolean;
+    initial?: string | null;
+    groupBy?: GroupBy;
+    sort?: Sort;
+    onOpen?: (id: number) => void;
+    onOpenChild?: (id: number, index: number) => void;
+    onOpenVersion?: (id: number) => void;
+    locale?: 'es' | 'en';
+  }) {
+    const [{ games, byEntry }] = useState(() => buildGames(lib.entries, {}));
+    const names = lib.systems.map((s) => s.name);
+    const [{ ordered, sections }] = useState(() =>
+      groupEntries(
+        sortEntries(
+          games.map((g) => g.entry),
+          sort,
+          names,
+        ),
+        groupBy,
+        { systems: lib.systems, regionOrder: REGIONS, artMedia: MEDIA },
+      ),
+    );
+    const [selected, setSelected] = useState<number | null>(
+      initial === null ? null : named(initial, lib.entries).id,
+    );
+    return (
+      <I18nProvider locale={locale}>
+        <EntryTable
+          entries={ordered}
+          sections={sections}
+          prefs={{
+            ...DEFAULT_PREFS,
+            view: 'details',
+            groupBy,
+            columns: [
+              { id: 'name' },
+              { id: 'version' },
+              { id: 'content' },
+              { id: 'system' },
+              { id: 'size' },
+            ],
+          }}
+          setPrefs={() => undefined}
+          systems={lib.systems}
+          generation={1}
+          selectedId={selected}
+          onSelect={setSelected}
+          onOpen={(id) => {
+            setSelected(id);
+            onOpen(id);
+          }}
+          sort={sort}
+          onSort={() => undefined}
+          onPreview={() => undefined}
+          content={{
+            byEntry,
+            line,
+            fresh: new Set(),
+            onOpenChild,
+            onOpenVersion,
+          }}
+        />
+      </I18nProvider>
+    );
+  }
+
+  const tree = () => screen.getByRole('treegrid', { name: /Detalles|Details/ });
+  const gameRow = (name: string) =>
+    document.getElementById(`entry-${named(name, lib.entries).id}`)!;
+  const focused = () => document.activeElement as HTMLElement;
+
+  it('opens the selected game the first time and marks every level', () => {
+    render(<TreeHarness initial="Lantern Harbor (USA)" groupBy="system" />);
+    const row = gameRow('Lantern Harbor (USA)');
+    expect(row).toHaveAttribute('aria-expanded', 'true');
+    expect(row).toHaveAttribute('aria-level', '2');
+    expect(row).toHaveAttribute('aria-selected', 'true');
+    expect(row).toHaveAttribute('tabindex', '0');
+    const section = screen
+      .getAllByRole('rowheader')[0]!
+      .closest('[role="row"]')!;
+    expect(section).toHaveAttribute('aria-level', '1');
+    expect(section).not.toHaveAttribute('aria-expanded');
+    const kids = [
+      ...document.querySelectorAll<HTMLElement>('[data-row-key^="c:"]'),
+    ];
+    expect(kids).toHaveLength(3);
+    for (const [i, kid] of kids.entries()) {
+      expect(kid).toHaveAttribute('aria-level', '3');
+      expect(kid).toHaveAttribute('aria-setsize', '5');
+      expect(kid).toHaveAttribute('aria-posinset', String(i + 1));
+      expect(kid).not.toHaveAttribute('aria-expanded');
+      // Content rows never count, never take part in bulk actions.
+      expect(kid).not.toHaveAttribute('aria-selected');
+      expect(kid).not.toHaveAttribute('data-entry-id');
+    }
+    // A game with nothing in it is no parent.
+    expect(gameRow('Pebble League')).not.toHaveAttribute('aria-expanded');
+  });
+
+  it('a Contenido cell that can be cut short carries its whole text', () => {
+    render(<TreeHarness initial="Lantern Harbor (USA)" />);
+    const cell = (row: Element) =>
+      row.querySelector<HTMLElement>('.cell--content')!;
+    const game = cell(gameRow('Lantern Harbor (USA)'));
+    expect(game).toHaveAttribute('title', game.textContent!);
+    const folder = cell(document.querySelector('[data-row-key^="f:"]')!);
+    expect(folder.textContent).not.toBe('');
+    expect(folder).toHaveAttribute('title', folder.textContent!);
+    // «—» needs no tooltip.
+    expect(cell(gameRow('Pebble League'))).not.toHaveAttribute('title');
+  });
+
+  it('counts the header and every flattened row in aria-rowcount', () => {
+    render(<TreeHarness initial="Lantern Harbor (USA)" />);
+    const games = lib.entries.filter(
+      (e) => e.orphan === undefined && e.name !== 'Star Courier (USA)',
+    ).length;
+    // The header, the games and Lantern Harbor's five content rows.
+    expect(tree()).toHaveAttribute('aria-rowcount', String(1 + games + 5));
+  });
+
+  it('answers the APG treegrid keys', async () => {
+    const user = userEvent.setup();
+    render(<TreeHarness initial="Tidewalker" />);
+    act(() => useViewStore.setState({ expanded: new Set() }));
+    const tw = gameRow('Tidewalker');
+    act(() => tw.focus());
+    expect(tw).toHaveAttribute('aria-expanded', 'false');
+    await user.keyboard('{ArrowRight}');
+    expect(tw).toHaveAttribute('aria-expanded', 'true');
+    expect(focused()).toBe(tw);
+    await user.keyboard('{ArrowRight}');
+    expect(focused().dataset.rowKey).toMatch(/^x:/);
+    await user.keyboard('{ArrowDown}');
+    expect(focused()).toHaveTextContent('Tidewalker (v1.0.2)');
+    await user.keyboard('{ArrowLeft}');
+    expect(focused()).toBe(tw);
+    await user.keyboard('{ArrowLeft}');
+    expect(tw).toHaveAttribute('aria-expanded', 'false');
+    expect(focused()).toBe(tw);
+    await user.keyboard('{Home}');
+    expect(focused()).toHaveAttribute('aria-posinset', '1');
+    await user.keyboard('{End}');
+    const all = tree().querySelectorAll('[role="row"][aria-level]');
+    expect(focused()).toBe(all[all.length - 1]);
+    await user.keyboard('{ArrowUp}');
+    expect(focused()).toBe(all[all.length - 2]);
+  });
+
+  it('opens the panel at a child with Enter, and at Versión from the ghost', async () => {
+    const user = userEvent.setup();
+    const onOpenChild = vi.fn();
+    const onOpenVersion = vi.fn();
+    render(
+      <TreeHarness
+        initial="Tidewalker"
+        onOpenChild={onOpenChild}
+        onOpenVersion={onOpenVersion}
+      />,
+    );
+    const tw = named('Tidewalker', lib.entries);
+    act(() => gameRow('Tidewalker').focus());
+    await user.keyboard('{ArrowDown}{Enter}');
+    expect(onOpenVersion).toHaveBeenCalledWith(tw.id);
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+    const dlc = tw.children!.find((c) => c.role === 'dlc')!;
+    expect(onOpenChild).toHaveBeenCalledWith(tw.id, dlc.index);
+  });
+
+  it('draws the missing newest update as a ghost row', () => {
+    render(<TreeHarness initial="Tidewalker" />);
+    const ghost = document.querySelector<HTMLElement>('[data-row-key^="x:"]')!;
+    expect(ghost).toHaveClass('tree-row--ghost');
+    // Worded as the game's own cell and the cover chip: «falta v…».
+    expect(ghost).toHaveTextContent('↑ falta v1.3.0');
+    expect(ghost).toHaveTextContent('no está en la biblioteca');
+    expect(ghost.querySelector('.cell--size')).toBeEmptyDOMElement();
+    // The game's own Versión cell says it in words too.
+    expect(
+      gameRow('Tidewalker').querySelector('.cell--version'),
+    ).toHaveTextContent('v1.0.2 ↑ falta v1.3.0');
+    expect(
+      gameRow('Lantern Harbor (USA)').querySelector('.cell--content'),
+    ).toHaveTextContent('2 act., 1 DLC, demo aparte');
+  });
+
+  it('keeps children under their game, newest first, when games sort', () => {
+    render(
+      <TreeHarness
+        initial="Lantern Harbor (USA)"
+        sort={{ key: 'name', dir: 'desc' }}
+      />,
+    );
+    const rows = [
+      ...tree().querySelectorAll<HTMLElement>('[role="row"][data-row-key]'),
+    ];
+    const at = rows.indexOf(gameRow('Lantern Harbor (USA)'));
+    expect(rows[at + 1]).toHaveTextContent('Lantern Harbor (v1.10)');
+    expect(rows[at + 1]).toHaveTextContent('la más nueva');
+    expect(rows[at + 2]).toHaveTextContent('Lantern Harbor (v1.05)');
+    // Games themselves follow the sort.
+    const names = rows
+      .filter((r) => r.hasAttribute('data-entry-id'))
+      .map((r) => r.querySelector('.cell--name')!.textContent);
+    expect(names).toEqual([...names].sort().reverse());
+  });
+
+  it('animates the chevron only without reduced motion', () => {
+    const { unmount } = render(<TreeHarness initial="Lantern Harbor (USA)" />);
+    const chevron = () =>
+      gameRow('Lantern Harbor (USA)').querySelector('[data-tree-toggle]')!;
+    expect(chevron()).toHaveClass(
+      'tree-chevron--animated',
+      'tree-chevron--open',
+    );
+    unmount();
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('prefers-reduced-motion'),
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    }));
+    render(<TreeHarness initial="Lantern Harbor (USA)" />);
+    expect(chevron()).not.toHaveClass('tree-chevron--animated');
+    expect(chevron()).toHaveClass('tree-chevron--open');
+  });
+
+  it('opens and closes a game from its chevron', async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    render(<TreeHarness onOpen={onOpen} />);
+    const toggle = gameRow('Neon Rhythm').querySelector('[data-tree-toggle]')!;
+    await user.click(toggle);
+    expect(gameRow('Neon Rhythm')).toHaveAttribute('aria-expanded', 'true');
+    expect(onOpen).not.toHaveBeenCalled();
+    await user.click(toggle);
+    expect(gameRow('Neon Rhythm')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('hides Sistema, Contenido and Tamaño at phone width', () => {
+    restore();
+    restore = stubLayout(390, 800);
+    render(<TreeHarness />);
+    const heads = screen
+      .getAllByRole('columnheader')
+      .map((h) => h.getAttribute('data-column'));
+    expect(heads).toEqual(['name', 'version']);
+    expect(tree()).toHaveAttribute('aria-colcount', '2');
+    // The key hint stays the treegrid's description, out of sight.
+    expect(screen.getByText(/^Teclado:/)).toHaveClass('sr-only');
+  });
+
+  it('draws the chevron and the key hint for any game that opens', () => {
+    // A library whose games hold only mods, cheats, extras or saves has no
+    // add-on line (covers keep their height), yet its games still open.
+    render(<TreeHarness line={false} />);
+    const row = gameRow('Lantern Harbor (USA)');
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(row.querySelector('[data-tree-toggle]')).not.toBeNull();
+    expect(screen.getByText(/^Teclado:/)).toHaveClass('tree-hint');
+  });
+
+  it('says the keys in one line under the table', () => {
+    render(<TreeHarness />);
+    const hint = screen.getByText(/^Teclado: ↑ ↓ mueven entre filas/);
+    expect(tree()).toHaveAttribute('aria-describedby', hint.id);
   });
 });

@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type ReactNode,
   type WheelEvent,
 } from 'react';
 
@@ -21,13 +22,29 @@ import { useElementSize } from '@/hooks/useElementSize';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { MEDIA, type ArtMark, type EntryView, type Media } from '@/ipc/types';
+import {
+  filmCaption,
+  speaksContent,
+  spokenSummary,
+  summaryText,
+} from '@/lib/addonSummary';
 import { artKey, peekArtUrl } from '@/lib/artCache';
+import {
+  childArtState,
+  childCaption,
+  ORIGIN_KEY,
+  trayChildren,
+} from '@/lib/childArt';
 import { formatSize } from '@/lib/format';
+import type { Game } from '@/lib/games';
 import { sectionLabel } from '@/lib/grouping';
+import { titleWithoutRegions } from '@/lib/tileLabel';
 import { cn } from '@/lib/utils';
+import { displayVersion } from '@/lib/versions';
 import { useViewStore } from '@/stores/viewStore';
 
 import { ArtThumb } from '../ArtThumb';
+import { ChildThumb } from '../game/ChildThumb';
 import { entryIdOf, type ViewProps } from './types';
 import { useViewKeys } from './useViewKeys';
 
@@ -127,10 +144,143 @@ function GalleryArt({
 }
 
 /**
+ * The tray under the big cover (addon views §8.3): each update with its
+ * own art and every DLC, at 48 px with its caption. Each one is a button
+ * that opens the panel at that child; its art state is said in words (the
+ * button's description), never by the picture alone.
+ */
+function GalleryTray({
+  game,
+  generation,
+  systemId,
+  load,
+  onOpenChild,
+}: {
+  game: Game;
+  generation: number;
+  systemId: string | null | undefined;
+  /** Whether the selection has settled: only then is the art read. */
+  load: boolean;
+  onOpenChild(childIndex: number): void;
+}) {
+  const t = useT();
+  const baseId = useId();
+  const children = trayChildren(game);
+  if (children.length === 0) return null;
+  return (
+    <ul aria-label={t('content.tray.label')} className="gallery__tray">
+      {children.map((child) => {
+        const state = childArtState(child, systemId);
+        const name = childCaption(child, game, t);
+        const stateId = `${baseId}-c${child.index}`;
+        const stateText =
+          state.kind === 'base'
+            ? t('content.tray.fromBase')
+            : state.kind === 'missing'
+              ? t('content.noArt')
+              : state.origin !== undefined
+                ? t(`content.origin.${ORIGIN_KEY[state.origin]}`)
+                : null;
+        return (
+          <li key={child.index} className="gallery__tray-item">
+            <button
+              type="button"
+              className="gallery__tray-button"
+              aria-label={t('content.tray.open', { name })}
+              aria-describedby={stateText === null ? undefined : stateId}
+              title={child.name}
+              onClick={() => onOpenChild(child.index)}
+            >
+              <ChildThumb
+                generation={generation}
+                entry={game.entry}
+                child={child}
+                systemId={systemId}
+                load={load}
+              />
+              <span className="gallery__tray-name">{name}</span>
+              {stateText !== null && (
+                <span
+                  id={stateId}
+                  className={
+                    state.kind === 'base' ? 'gallery__tray-state' : 'sr-only'
+                  }
+                >
+                  {stateText}
+                </span>
+              )}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Versión, DLC and Demo for the facts pane (addon views §8.3). */
+function ContentFacts({ game }: { game: Game }) {
+  const t = useT();
+  const locale = useContext(LocaleContext);
+  const rows: { term: string; value: ReactNode; mono?: boolean }[] = [];
+  if (!game.isDemo && (game.installed !== null || game.missing)) {
+    rows.push({
+      term: t('content.facts.version'),
+      mono: true,
+      value: (
+        <>
+          {game.installed !== null && displayVersion(game.installed)}
+          {game.missing && (
+            <>
+              {game.installed !== null && ' '}
+              <span className="gallery__warning">
+                {summaryText({ kind: 'missing', v: game.missing.version }, t)}
+              </span>
+            </>
+          )}
+        </>
+      ),
+    });
+  }
+  if (game.dlc.length > 0)
+    rows.push({
+      term: t('content.facts.dlc'),
+      mono: true,
+      value: new Intl.NumberFormat(locale).format(game.dlc.length),
+    });
+  if (game.isDemo)
+    rows.push({
+      term: t('content.facts.fullGame'),
+      value: t(
+        game.demoOf !== null
+          ? 'content.facts.inLibrary'
+          : 'content.facts.notInLibrary',
+      ),
+    });
+  else if (game.demos.length > 0)
+    rows.push({
+      term: t('content.facts.demo'),
+      value: t('content.facts.inLibrary'),
+    });
+  if (rows.length === 0) return null;
+  return (
+    <dl className="gallery__content">
+      {rows.map((r) => (
+        <div key={r.term} className="gallery__content-row">
+          <dt>{r.term}</dt>
+          <dd className={r.mono ? 'gallery__content-mono' : undefined}>
+            {r.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
  * Gallery (⌘4): one game's art large, with its facts beside it, above a
  * filmstrip of the whole list. ←/→ move along the strip (↑/↓ do nothing);
- * the art tabs, the strip and the facts are reached with Tab in that order,
- * so the view never traps the keyboard. The large image is asked for only
+ * the art tabs, the add-on tray, the strip and the facts are reached with
+ * Tab in that order, so the view never traps the keyboard. The large image is asked for only
  * once the selection has stayed still for 120 ms, so fast arrowing never
  * queues up images.
  */
@@ -144,6 +294,7 @@ export function GalleryView({
   onSelect,
   onOpen,
   onPreview,
+  content,
 }: ViewProps) {
   const t = useT();
   const locale = useContext(LocaleContext);
@@ -247,6 +398,17 @@ export function GalleryView({
 
   const shown = selectedIndex >= 0 ? entries[selectedIndex] : undefined;
   const system = shown ? systems[shown.system] : undefined;
+  const game = shown ? content?.byEntry.get(shown.id) : undefined;
+  const fresh = content?.fresh;
+  const isFresh = (g: Game) =>
+    fresh !== undefined &&
+    fresh.size > 0 &&
+    g.children.some((c) => fresh.has(c.rel_path));
+  const onOpenChild = (childIndex: number) => {
+    if (!game) return;
+    if (content?.onOpenChild) content.onOpenChild(game.id, childIndex);
+    else onOpen(game.id);
+  };
   const facts = shown
     ? [
         ...(shown.regions.length > 0
@@ -263,7 +425,7 @@ export function GalleryView({
       aria-label={t('layouts.announce', { view: t('layouts.gallery') })}
       data-view-root=""
       tabIndex={-1}
-      className="gallery"
+      className={cn('gallery', content?.line && 'gallery--content')}
       onFocus={(ev) => {
         if (ev.target === ev.currentTarget) stripRef.current?.focus();
       }}
@@ -295,6 +457,15 @@ export function GalleryView({
             <p className="gallery__empty">{t('layouts.previewEmpty')}</p>
           )}
         </TabsContent>
+        {game && (
+          <GalleryTray
+            game={game}
+            generation={generation}
+            systemId={system?.system_id}
+            load={settled}
+            onOpenChild={onOpenChild}
+          />
+        )}
       </Tabs>
 
       <div
@@ -326,6 +497,20 @@ export function GalleryView({
             const groupName = section ? sectionLabel(section, t) : undefined;
             const descId = `${baseId}-g${sectionIndex}`;
             const selected = entry.id === selectedId;
+            const cellGame = content?.byEntry.get(entry.id);
+            const isNew = cellGame ? isFresh(cellGame) : false;
+            // Whatever the caption shows is also said, on the option (§8.9).
+            const label =
+              cellGame && speaksContent(cellGame, isNew)
+                ? spokenSummary(
+                    cellGame,
+                    systems[entry.system]?.name ?? '',
+                    t,
+                    undefined,
+                    { isNew, locale },
+                  )
+                : entry.name;
+            const caption = cellGame ? filmCaption(cellGame, t) : '';
             return (
               <div
                 key={item.key}
@@ -355,7 +540,7 @@ export function GalleryView({
                   aria-selected={selected}
                   aria-setsize={entries.length}
                   aria-posinset={item.index + 1}
-                  aria-label={entry.name}
+                  aria-label={label}
                   aria-describedby={section ? descId : undefined}
                   data-entry-id={entry.id}
                   className="gallery__thumb"
@@ -368,6 +553,18 @@ export function GalleryView({
                     placeholder=""
                   />
                 </div>
+                {content?.line && (
+                  // Always there, empty or not, so every thumb sits level.
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      'gallery__caption',
+                      cellGame?.missing && 'gallery__caption--warning',
+                    )}
+                  >
+                    {caption}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -378,6 +575,13 @@ export function GalleryView({
         {shown ? (
           <>
             <h3 className="gallery__title">{shown.name}</h3>
+            {game?.isDemo && game.entry.demo?.of_name !== undefined && (
+              <p className="gallery__demo-of">
+                {t('content.demoOf', {
+                  name: titleWithoutRegions(game.entry.demo.of_name),
+                })}
+              </p>
+            )}
             <SystemLabel
               systemId={system?.system_id ?? null}
               name={system?.name ?? ''}
@@ -390,6 +594,7 @@ export function GalleryView({
                 </span>
               ))}
             </p>
+            {game && <ContentFacts game={game} />}
             <ul className="gallery__slots">
               {MEDIA.map((m) => {
                 const mark = shown.art[m];

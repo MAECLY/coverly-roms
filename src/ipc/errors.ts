@@ -12,6 +12,7 @@ export const ERROR_CODES = [
   'stale-library',
   'superseded',
   'unknown-entry',
+  'unknown-child',
   'art-missing',
   'outside-library',
   'art-too-large',

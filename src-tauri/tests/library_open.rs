@@ -209,3 +209,113 @@ fn a_sorted_library_has_no_loose_roms() {
     let (_, view) = open(tree.path(), None).unwrap();
     assert_eq!(view.loose_files, 0);
 }
+
+/// Addon views D2, D5, D7: a game folder's updates and DLC travel with the
+/// game entry, newest first, with the installed version decided in Rust;
+/// a lone retro ROM keeps its old shape; the revision chosen for this
+/// library comes back with the view.
+#[test]
+fn a_game_folder_sends_its_content_with_the_library() {
+    use coverly_core::consoles::testing as ct;
+    use coverly_core::dedupe::testing::pin_mtime;
+    use coverly_core::game_folder::ChildRole;
+    use coverly_core::settings::Settings;
+
+    let lib = TempDir::new().unwrap();
+    let put = |rel: &str, bytes: &[u8]| {
+        let p = rel
+            .split('/')
+            .fold(lib.path().to_path_buf(), |p, c| p.join(c));
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, bytes).unwrap();
+        pin_mtime(&p, 1);
+    };
+    let g = "ROMS/3DS/Pokemon Y (World)";
+    let cia = |id: u64| ct::cia(id, true, false).head_bytes();
+    put(
+        &format!("{g}/Pokemon Y (World).cia"),
+        &cia(0x0004_0000_0005_5E00),
+    );
+    put(
+        &format!("{g}/Updates/Pokemon Y (World) (v1.2).cia"),
+        &cia(0x0004_000E_0005_5E00),
+    );
+    put(
+        &format!("{g}/Updates/Pokemon Y (World) (v1.10).cia"),
+        &cia(0x0004_000E_0005_5E00),
+    );
+    put(
+        &format!("{g}/DLC/Pokemon Y (World) - Pack.cia"),
+        &cia(0x0004_008C_0005_5E00),
+    );
+    put(&format!("{g}/Mods/patch.bin"), &[1u8; 8]);
+    put("ROMS/3DS/Zelda (USA).cia", &[5u8; 64]);
+
+    let mut settings = Settings::default();
+    settings.set_revision_default(lib.path(), "3ds:zelda (usa)", "ROMS/3DS/Zelda (USA).cia");
+    let (_, view) = open_session(
+        &OpenRequest {
+            path: lib.path(),
+            profile_id: Some("coverly-library"),
+            scan: &ScanOptions::default(),
+            generation: 1,
+            custom: &[],
+            default_profile: None,
+            settings: Some(&settings),
+        },
+        &SystemDb::builtin(),
+        &mut |_| {},
+    )
+    .unwrap();
+
+    let pokemon = view
+        .entries
+        .iter()
+        .find(|e| e.name == "Pokemon Y (World)")
+        .unwrap();
+    let children: Vec<(&str, ChildRole, Option<&str>)> = pokemon
+        .content
+        .children
+        .iter()
+        .map(|c| (c.name.as_str(), c.role, c.version.as_deref()))
+        .collect();
+    assert_eq!(
+        children,
+        [
+            ("Pokemon Y (World) (v1.10)", ChildRole::Update, Some("1.10")),
+            ("Pokemon Y (World) (v1.2)", ChildRole::Update, Some("1.2")),
+            ("Pokemon Y (World) - Pack", ChildRole::Dlc, None),
+        ]
+    );
+    assert_eq!(pokemon.content.installed.as_deref(), Some("1.10"));
+    assert_eq!(pokemon.content.addons.map(|a| a.mods), Some(1));
+    let wire = serde_json::to_value(pokemon).unwrap();
+    assert_eq!(
+        wire["children"][0]["rel_path"],
+        json!(format!("{g}/Updates/Pokemon Y (World) (v1.10).cia"))
+    );
+
+    let zelda = view
+        .entries
+        .iter()
+        .find(|e| e.name == "Zelda (USA)")
+        .unwrap();
+    let wire = serde_json::to_value(zelda).unwrap();
+    let mut keys: Vec<&str> = wire
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        ["art", "dir", "ext", "id", "mtime", "name", "regions", "rel_path", "size", "system"]
+    );
+    assert_eq!(
+        view.revision_defaults
+            .get("3ds:zelda (usa)")
+            .map(String::as_str),
+        Some("ROMS/3DS/Zelda (USA).cia")
+    );
+}

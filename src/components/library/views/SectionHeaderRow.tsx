@@ -26,6 +26,8 @@ export interface SectionHeaderRowProps {
   sticky?: boolean;
   /** Drawn at the trailing end of the rule (Shelves' "See all"). */
   children?: ReactNode;
+  /** Its place in a treegrid (Details, addon views §8.4): level 1. */
+  tree?: { setsize: number; posinset: number } | undefined;
 }
 
 /** The shelf rule (brand §2): a group label with its count, on a 1px line
@@ -38,6 +40,7 @@ export function SectionHeaderRow({
   style,
   sticky = false,
   children,
+  tree,
 }: SectionHeaderRowProps): JSX.Element {
   const t = useT();
   const locale = useContext(LocaleContext);
@@ -52,6 +55,9 @@ export function SectionHeaderRow({
     <div
       role="row"
       aria-rowindex={rowIndex + 1}
+      aria-level={tree ? 1 : undefined}
+      aria-setsize={tree?.setsize}
+      aria-posinset={tree?.posinset}
       className={cn('section-row', sticky && 'section-row--sticky')}
       style={style}
     >

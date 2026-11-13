@@ -14,6 +14,11 @@
 //! [`MAX_ALLOC`] bytes) and always answered as a freshly encoded PNG,
 //! which the fill pipeline then re-encodes for the profile: raw embedded
 //! bytes never reach a card. Only `Media::Cover`, no key, no network.
+//!
+//! The same readers fill the art slots of a game's updates, DLC and demos
+//! (part C D11, `art::children::read_child_art`): [`child_locators`] and
+//! [`child_png`] for the icon, [`child_banner_locators`] and
+//! [`child_banner_png`] for the plaintext banner of a folder child.
 
 use std::fs::{self, File};
 use std::io::{Cursor, Read};
@@ -171,49 +176,149 @@ fn stamp(path: &Path) -> Option<String> {
 /// any other file through the budgeted header readers. A cloud
 /// placeholder is never read.
 fn locators(path: &Path) -> Vec<ArtLocator> {
-    let Ok(meta) = fs::metadata(path) else {
-        return Vec::new();
-    };
-    if meta.is_dir() {
+    if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
         return dir_art(path);
     }
+    console_of(path, false).map(|id| id.art).unwrap_or_default()
+}
+
+/// What the console readers say about the game, update, DLC or demo at
+/// `path` (part C D3): a folder through the folder probes, a VPK or a
+/// `.zip` through its zip listing (a Vita package delivered as a zip), any
+/// other file through the budgeted header readers. Only clear headers are
+/// read: a key, ticket or licence file ([`consoles::is_key_material`]) is
+/// never opened, nor is a cloud placeholder; nothing is decrypted.
+pub fn console_on_disk(path: &Path) -> Option<consoles::ConsoleId> {
+    let name = path.file_name()?.to_string_lossy();
+    if consoles::is_key_material(&name) {
+        return None;
+    }
+    if fs::metadata(path).ok()?.is_dir() {
+        return dir_console(path);
+    }
+    console_of(path, true)
+}
+
+/// The console verdict of the file at `path`; a `.zip` is read like a VPK
+/// when `zip_as_vpk`.
+fn console_of(path: &Path, zip_as_vpk: bool) -> Option<consoles::ConsoleId> {
+    let meta = fs::metadata(path).ok()?;
     if !meta.is_file() || OsMetaProbe.cloud_only(path, &meta) {
-        return Vec::new();
+        return None;
     }
     let ext = crate::scan::classify::extension(path);
-    if ext == "vpk" {
+    if ext == "vpk" || (zip_as_vpk && ext == "zip") {
         let limits = crate::archive::Limits::default();
-        return crate::organize::inspect::vpk_console(path, &limits)
-            .map(|id| id.art)
-            .unwrap_or_default();
+        return crate::organize::inspect::vpk_console(path, &limits);
     }
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let Ok(file) = consoles::open_rom(path) else {
-        return Vec::new();
-    };
+    let file = consoles::open_rom(path).ok()?;
     let mut at = FileAt(file);
     let mut src = Budgeted::new(&mut at, meta.len());
     consoles::identify(&mut src, &ext, &name)
-        .map(|id| id.art)
-        .unwrap_or_default()
+}
+
+/// The console verdict of a folder game (the walk's own probes, spec D12).
+fn dir_console(dir: &Path) -> Option<consoles::ConsoleId> {
+    let listed = list_dir(dir)?;
+    if listed.len() > MAX_ROOT_NAMES {
+        return None;
+    }
+    let names: Vec<String> = listed.into_iter().map(|(n, _, _)| n).collect();
+    match consoles::identify_dir_on_disk(dir, &names) {
+        Ok(Some(found)) => Some(found.id),
+        _ => None,
+    }
 }
 
 /// The icon locators of a folder game (the walk's own probes, spec D12).
 fn dir_art(dir: &Path) -> Vec<ArtLocator> {
-    let Some(listed) = list_dir(dir) else {
+    dir_console(dir).map(|id| id.art).unwrap_or_default()
+}
+
+/// Most bytes read for one banner of a folder child (part C D11): a PS4
+/// `sce_sys/pic1.png` (1920×1080) or a Wii U `meta/bootTvTex.tga`
+/// (1280×720, uncompressed) is larger than an icon.
+pub const MAX_BANNER_BYTES: u64 = 8 << 20;
+/// Largest banner side decoded, in pixels.
+pub const MAX_BANNER_SIDE: u32 = 2048;
+/// Most bytes the decoder may allocate for one banner.
+pub const MAX_BANNER_ALLOC: u64 = 32 << 20;
+
+/// The plaintext banner files of a folder child, relative to it (part C
+/// D11): PS3 `PIC1.PNG`, PS Vita/PS4/PS5 `sce_sys/pic1.png`, Wii U
+/// `meta/bootTvTex.tga`.
+const BANNER_FILES: [(&[&str], ArtFormat); 3] = [
+    (&["PIC1.PNG"], ArtFormat::Png),
+    (&["sce_sys", "pic1.png"], ArtFormat::Png),
+    (&["meta", "bootTvTex.tga"], ArtFormat::Tga),
+];
+
+/// The icon locators of a game's update, DLC or demo at `path` (part C
+/// D11): the same readers as a top-level game, plus a `.zip` child read
+/// like a VPK (a Vita package delivered as a zip). The caller has already
+/// refused key material by name; nothing here decrypts anything.
+pub(crate) fn child_locators(path: &Path) -> Vec<ArtLocator> {
+    if crate::scan::classify::extension(path) == "zip" && path.is_file() {
+        return console_of(path, true).map(|id| id.art).unwrap_or_default();
+    }
+    locators(path)
+}
+
+/// The banner locators of a folder child that a folder probe recognises
+/// as a console title: the [`BANNER_FILES`] present in it as regular
+/// files. A file child has none (its banners, if any, are encrypted or
+/// not in a fixed plaintext place).
+pub(crate) fn child_banner_locators(path: &Path) -> Vec<ArtLocator> {
+    if !fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()) || dir_art(path).is_empty() {
         return Vec::new();
+    }
+    BANNER_FILES
+        .iter()
+        .map(|(parts, format)| ArtLocator::File {
+            rel: parts.iter().collect(),
+            format: *format,
+        })
+        .filter(|art| match art {
+            ArtLocator::File { rel, .. } => {
+                fs::symlink_metadata(path.join(rel)).is_ok_and(|m| m.is_file())
+            }
+            _ => false,
+        })
+        .collect()
+}
+
+/// The icon at `art` inside the child at `path` as a freshly encoded PNG,
+/// under the icon limits ([`MAX_ART_BYTES`], [`MAX_SIDE`], [`MAX_ALLOC`]).
+pub(crate) fn child_png(path: &Path, art: &ArtLocator) -> Result<Vec<u8>, ()> {
+    encode_png(&load(path, art)?)
+}
+
+/// The banner at `art` (a [`child_banner_locators`] locator) inside the
+/// folder child at `path`, read and decoded under the banner limits and
+/// scaled down to at most [`MAX_SIDE`] px a side, as a fresh PNG.
+pub(crate) fn child_banner_png(path: &Path, art: &ArtLocator) -> Result<Vec<u8>, ()> {
+    let ArtLocator::File { rel, format } = art else {
+        return Err(());
     };
-    if listed.len() > MAX_ROOT_NAMES {
-        return Vec::new();
-    }
-    let names: Vec<String> = listed.into_iter().map(|(n, _, _)| n).collect();
-    match consoles::identify_dir_on_disk(dir, &names) {
-        Ok(Some(found)) => found.id.art,
-        _ => Vec::new(),
-    }
+    let bytes = read_inside_capped(path, rel, MAX_BANNER_BYTES)?;
+    let img = decode_within(&bytes, *format, MAX_BANNER_SIDE, MAX_BANNER_ALLOC)?;
+    let img = if img.width() > MAX_SIDE || img.height() > MAX_SIDE {
+        img.resize(MAX_SIDE, MAX_SIDE, ::image::imageops::FilterType::Triangle)
+    } else {
+        img
+    };
+    encode_png(&img)
+}
+
+fn encode_png(img: &::image::DynamicImage) -> Result<Vec<u8>, ()> {
+    let mut out = Cursor::new(Vec::new());
+    img.write_to(&mut out, ::image::ImageFormat::Png)
+        .map_err(drop)?;
+    Ok(out.into_inner())
 }
 
 /// A short, fixed description of where the icon is, for the candidate.
@@ -267,22 +372,39 @@ fn read_range(path: &Path, offset: u64, len: u64) -> Result<Vec<u8>, ()> {
 }
 
 /// The whole file `rel` inside the folder game `dir`: a plain relative
-/// path, a regular file (never a link), local, at most `MAX_ART_BYTES`.
+/// path, a regular file (never a link) reached through real folders
+/// (never a linked one), local, at most `MAX_ART_BYTES`.
 fn read_inside(dir: &Path, rel: &Path) -> Result<Vec<u8>, ()> {
+    read_inside_capped(dir, rel, MAX_ART_BYTES)
+}
+
+/// [`read_inside`] with at most `cap` bytes.
+fn read_inside_capped(dir: &Path, rel: &Path, cap: u64) -> Result<Vec<u8>, ()> {
     if rel.as_os_str().is_empty() || !rel.components().all(|c| matches!(c, Component::Normal(_))) {
         return Err(());
     }
+    // Every folder on the way is a real one: a linked `meta/` or
+    // `sce_sys/` would read a file from outside the game.
+    let mut walked = dir.to_path_buf();
+    let mut parts = rel.components().peekable();
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            break;
+        }
+        walked.push(part);
+        if !fs::symlink_metadata(&walked).is_ok_and(|m| m.file_type().is_dir()) {
+            return Err(());
+        }
+    }
     let path = dir.join(rel);
     let meta = fs::symlink_metadata(&path).map_err(drop)?;
-    if !meta.is_file() || meta.len() > MAX_ART_BYTES || OsMetaProbe.cloud_only(&path, &meta) {
+    if !meta.is_file() || meta.len() > cap || OsMetaProbe.cloud_only(&path, &meta) {
         return Err(());
     }
     let file: File = consoles::open_rom(&path).map_err(drop)?;
     let mut bytes = Vec::new();
-    file.take(MAX_ART_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(drop)?;
-    if bytes.len() as u64 > MAX_ART_BYTES {
+    file.take(cap + 1).read_to_end(&mut bytes).map_err(drop)?;
+    if bytes.len() as u64 > cap {
         return Err(());
     }
     Ok(bytes)
@@ -291,6 +413,16 @@ fn read_inside(dir: &Path, rel: &Path) -> Result<Vec<u8>, ()> {
 /// Decodes an icon: SMDH through the 3DS tile decoder (always 48×48),
 /// PNG, TGA and JPEG through `image` under [`MAX_SIDE`] and [`MAX_ALLOC`].
 fn decode(bytes: &[u8], format: ArtFormat) -> Result<::image::DynamicImage, ()> {
+    decode_within(bytes, format, MAX_SIDE, MAX_ALLOC)
+}
+
+/// [`decode`] under `max_side` px a side and `max_alloc` bytes.
+fn decode_within(
+    bytes: &[u8],
+    format: ArtFormat,
+    max_side: u32,
+    max_alloc: u64,
+) -> Result<::image::DynamicImage, ()> {
     let format = match format {
         ArtFormat::Smdh => {
             return consoles::ctr::smdh_icon_png(bytes)
@@ -302,10 +434,40 @@ fn decode(bytes: &[u8], format: ArtFormat) -> Result<::image::DynamicImage, ()> 
         ArtFormat::Jpeg => ::image::ImageFormat::Jpeg,
     };
     let mut limits = ::image::Limits::default();
-    limits.max_image_width = Some(MAX_SIDE);
-    limits.max_image_height = Some(MAX_SIDE);
-    limits.max_alloc = Some(MAX_ALLOC);
+    limits.max_image_width = Some(max_side);
+    limits.max_image_height = Some(max_side);
+    limits.max_alloc = Some(max_alloc);
     let mut reader = ::image::ImageReader::with_format(Cursor::new(bytes), format);
     reader.limits(limits);
     reader.decode().map_err(drop)
+}
+
+// Symlinks need unix; Windows has no test here (and no unused import).
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// An art file is read only when every folder on the way to it is a
+    /// real folder inside the game: a symlinked `meta/` or `sce_sys/`
+    /// pointing outside the library is never followed, not just a
+    /// symlinked file.
+    #[test]
+    fn read_inside_never_follows_a_linked_folder() {
+        let outside = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(outside.path().join("meta")).unwrap();
+        fs::write(outside.path().join("meta").join("bootTvTex.tga"), b"tga").unwrap();
+        let game = tempfile::TempDir::new().unwrap();
+        let rel: PathBuf = ["meta", "bootTvTex.tga"].iter().collect();
+        std::os::unix::fs::symlink(outside.path().join("meta"), game.path().join("meta")).unwrap();
+        assert_eq!(read_inside_capped(game.path(), &rel, 1024), Err(()));
+
+        // The same file in a real folder is read.
+        fs::remove_file(game.path().join("meta")).unwrap();
+        fs::create_dir_all(game.path().join("meta")).unwrap();
+        fs::write(game.path().join(&rel), b"tga").unwrap();
+        assert_eq!(
+            read_inside_capped(game.path(), &rel, 1024),
+            Ok(b"tga".to_vec())
+        );
+    }
 }

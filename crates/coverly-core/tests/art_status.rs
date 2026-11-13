@@ -428,3 +428,91 @@ fn art_named_after_a_disc_of_a_multi_file_game_is_not_an_orphan() {
     assert_eq!(state(ps, "FF7", Media::Cover), &ArtState::Missing);
     assert_eq!(orphan_names(ps), ["Other.png"]);
 }
+
+/// Part C D10 (b): child art slots for updates and DLC.
+mod child_slots {
+    use std::fs;
+    use std::path::Path;
+
+    use coverly_core::consoles::testing as ct;
+    use coverly_core::dedupe::testing::pin_mtime;
+    use coverly_core::game_folder::ChildRole;
+    use coverly_core::profiles::Media;
+
+    use super::{orphan_names, resolve, system};
+
+    const BASE: u64 = 0x0004_0000_0005_5E00;
+    const DLC: u64 = 0x0004_008C_0005_5E00;
+
+    fn put(root: &Path, rel: &str, bytes: &[u8]) {
+        let p = rel.split('/').fold(root.to_path_buf(), |p, c| p.join(c));
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, bytes).unwrap();
+        pin_mtime(&p, 1);
+    }
+
+    /// `Game/DLC/.media/` with both slots and the origin file of `Pack`,
+    /// plus an image named after nothing.
+    fn child_art(root: &Path, game: &str) {
+        let media = format!("ROMS/3DS/{game}/DLC/.media");
+        put(root, &format!("{media}/Pack-icon.png"), b"png");
+        put(root, &format!("{media}/Pack-banner.png"), b"png");
+        put(
+            root,
+            &format!("{media}/Pack.art.json"),
+            br#"{"icon":{"origin":"package","at":1}}"#,
+        );
+        put(root, &format!("{media}/Stray-icon.png"), b"png");
+    }
+
+    #[test]
+    fn a_childs_slots_are_never_orphan_images() {
+        let lib = tempfile::TempDir::new().unwrap();
+        let root = lib.path();
+        let g = "Game";
+        put(
+            root,
+            &format!("ROMS/3DS/{g}/{g}.cia"),
+            &ct::cia(BASE, true, false).head_bytes(),
+        );
+        put(
+            root,
+            &format!("ROMS/3DS/{g}/DLC/Pack.cia"),
+            &ct::cia(DLC, true, false).head_bytes(),
+        );
+        child_art(root, g);
+        let art = resolve(root, "coverly-library", &Media::ALL);
+        let ds = system(&art, "3DS");
+        assert_eq!(ds.roms.len(), 1, "{:?}", ds.roms);
+        assert_eq!(ds.roms[0].rom.children.len(), 1);
+        assert!(
+            ds.orphans.iter().all(|p| !p.ends_with("Pack-icon.png")
+                && !p.ends_with("Pack-banner.png")
+                && !p.ends_with("Pack.art.json")),
+            "{:?}",
+            ds.orphans
+        );
+    }
+
+    #[test]
+    fn an_orphan_entrys_slots_are_claimed_and_art_json_is_not_an_image() {
+        let lib = tempfile::TempDir::new().unwrap();
+        let root = lib.path();
+        let g = "Game";
+        // No base at the game folder's root: `Pack.cia` is an orphan
+        // top-level entry whose art folder is `Game/DLC/.media/`.
+        put(
+            root,
+            &format!("ROMS/3DS/{g}/DLC/Pack.cia"),
+            &ct::cia(DLC, true, false).head_bytes(),
+        );
+        child_art(root, g);
+        let art = resolve(root, "coverly-library", &Media::ALL);
+        let ds = system(&art, "3DS");
+        assert_eq!(ds.roms.len(), 1, "{:?}", ds.roms);
+        assert_eq!(ds.roms[0].rom.role, Some(ChildRole::Dlc));
+        // Only the image named after nothing is an orphan; the origin
+        // file is not an image at all.
+        assert_eq!(orphan_names(ds), ["Stray-icon.png"]);
+    }
+}

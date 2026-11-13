@@ -37,6 +37,7 @@ export type Region =
   | 'italy'
   | 'korea'
   | 'netherlands'
+  | 'russia'
   | 'spain'
   | 'sweden'
   | 'taiwan'
@@ -58,11 +59,107 @@ export const REGIONS: readonly Region[] = [
   'italy',
   'korea',
   'netherlands',
+  'russia',
   'spain',
   'sweden',
   'taiwan',
   'united-kingdom',
 ];
+
+/** Where a child's art came from (`.art.json` beside its slots). */
+export type ChildOrigin = 'package' | 'screenscraper' | 'steamgriddb' | 'user';
+
+/** Which art slots of an update or DLC have a file, with each present
+ * slot's origin. */
+export interface ChildArtMarks {
+  icon: boolean;
+  banner: boolean;
+  icon_origin?: ChildOrigin;
+  banner_origin?: ChildOrigin;
+}
+
+/** An update or DLC inside a game's folder (addon views D2). Addressed by
+ * the entry id and `index`; `rel_path` is for display only. */
+export interface ChildView {
+  index: number;
+  rel_path: string;
+  name: string;
+  role: 'update' | 'dlc';
+  /** The version its name carries. */
+  version?: string;
+  size: number;
+  mtime: number;
+  art: ChildArtMarks;
+}
+
+/** An art slot of an update or DLC (Rust `ChildMedia`). */
+export type ChildMedia = 'icon' | 'banner';
+
+/** How sure the verified 3DS letter table is (Rust `Certainty`). */
+export type RegionCertainty = 'certain' | 'likely' | 'unknown';
+
+/** The 3DS region verdict of a product code (part C §5). */
+export interface RegionVerdictView {
+  /** The last letter of the game code (`E`, `P`, `T`…). */
+  letter: string;
+  /** The product code as read, upper-cased. */
+  code: string;
+  region?: Region;
+  country?: Region;
+  certainty: RegionCertainty;
+}
+
+/** Which offline title list knew the newest version (Rust `LatestSource`). */
+export type LatestSource = 'title-db' | 'game-tdb';
+
+/** The newest version an offline title list knows (D6); never invented. */
+export interface LatestView {
+  version: string;
+  source: LatestSource;
+}
+
+/** What the headers say about one update or DLC (`ChildView.index`). */
+export interface ChildDetailView {
+  index: number;
+  title_id?: string;
+  /** Never `unknown`: left out instead. */
+  kind?: TitleKind;
+}
+
+/** The game panel's lazy facts (D3): offline, read when it opens. */
+export interface GameDetailsView {
+  /** The request id sent, echoed: drop an answer that is not the latest. */
+  request: number;
+  title_id?: string;
+  product_code?: string;
+  /** 3DS only. */
+  region?: RegionVerdictView;
+  /** Only when a title list answered. */
+  latest?: LatestView;
+  /** With `latest`: whether the library holds that version (Rust
+   * `version_order`); left out when nothing can be claimed. */
+  latest_installed?: boolean;
+  children: ChildDetailView[];
+}
+
+/** Why «Leer el arte incluido» wrote nothing for a child (Rust `SkipWhy`). */
+export type ChildSkipWhy =
+  | 'key-material'
+  | 'no-art-in-clear'
+  | 'exists'
+  | 'path-too-long'
+  | 'read-only'
+  | 'refused';
+
+/** What `read_child_art` did (D11 b). */
+export interface ChildArtReadView {
+  /** The job to undo; absent when nothing was written. */
+  job?: string;
+  written: number;
+  skipped: { index: number; why: ChildSkipWhy }[];
+  /** The game's children again, with their new art marks. */
+  children: ChildView[];
+}
 
 export interface EntryView {
   id: number;
@@ -75,6 +172,39 @@ export interface EntryView {
   mtime: number;
   regions: Region[];
   art: ArtMarks;
+  // Game content (addon views D2): every field is left out when empty, so
+  // a plain retro entry has none of them. Rust decides every ordering.
+  /** Updates and DLC in the game's folder, newest version first (Rust
+   * `version_order`), then by name. */
+  children?: ChildView[];
+  /** An update or DLC with no base at its folder's root. */
+  orphan?: 'update' | 'dlc';
+  /** The entry id of the game an orphan belongs to (by title key). */
+  orphan_of?: number;
+  /** Shared by the revisions of one retro game (only when there are two
+   * or more). */
+  version_group?: string;
+  /** The revision as written (`Rev 1`). */
+  revision?: string;
+  /** Set on a demo, with its full game when the library has it. */
+  demo?: { of?: number; of_name?: string };
+  /** The entry's own version, only when its name carries one. */
+  version?: string;
+  /** The newest version in the library for this game (D5, Rust). */
+  installed?: string;
+  /** A linked orphan update newer than `installed` (D6, in-library). */
+  newer_elsewhere?: { entry: number; version: string };
+  /** File counts of the game folder's Mods/Cheats/Extras/Saves (D9). */
+  addons?: {
+    mods: number;
+    cheats: number;
+    extras: number;
+    saves: number;
+    capped?: true;
+  };
+  /** A folder game whose own folder holds its Updates/, DLC/ or fixed
+   * folders: the entry is its game folder already (Rust `folder_root`). */
+  folder_root?: true;
 }
 
 export interface SystemView {
@@ -114,6 +244,9 @@ export interface LibraryView {
   /** ROM-like files directly in the root or the ROMs folder, outside any
    * system folder (what "Organise loose files" sorts). */
   loose_files: number;
+  /** The revision chosen per version group in this library (D7): version
+   * group → `rel_path`. Left out when none was chosen. */
+  revision_defaults?: Record<string, string>;
 }
 
 export interface ScanProgress {
@@ -451,6 +584,9 @@ export interface Settings {
     include_hidden: boolean;
     follow_symlinks: boolean;
     recent: RecentEntry[];
+    /** Library root → version group → chosen `rel_path` (addon views D7).
+     *  Absent while empty; set only through `set_default_revision`. */
+    revision_defaults?: Record<string, Record<string, string>>;
   };
   art: {
     media: Media[];
@@ -753,6 +889,9 @@ export interface ProfileFile {
    * → emulator id, `ps4 → shadps4` on ES-DE; mods spec D16); absent =
    * none. */
   emulators?: Record<string, EmulatorId>;
+  /** The frontend shows the art of updates and DLC (part C D16); absent =
+   * off, so Organizar never copies child art to it. */
+  child_art?: boolean;
 }
 
 /** `profiles::DiscLayout`. */
@@ -1238,7 +1377,12 @@ export type ItemNote =
   /** The patch expects the ROM with or without its header. */
   | { kind: 'header-mismatch'; needs: HeaderFit }
   /** The emulator (product name) has to be pointed at `folder`. */
-  | { kind: 'point-emulator-here'; emulator: string; folder: string };
+  | { kind: 'point-emulator-here'; emulator: string; folder: string }
+  /** A 3DS product code's region letter the verified table does not know. */
+  | { kind: 'region-letter-unknown'; letter: string }
+  /** `count` art files of this update or DLC stay at its source: the
+   * layout shows no child art, or a name is taken or too long there. */
+  | { kind: 'child-art-stays'; count: number };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =
@@ -1269,6 +1413,9 @@ export interface Companion {
   /** A licence recognised by its name only (never opened); Rust leaves
    * it out when false. */
   licence?: boolean;
+  /** An art slot or origin file of an update or DLC that follows it;
+   * Rust leaves it out when false. */
+  child_art?: boolean;
 }
 
 /** Size and mtime of a source when planned (apply re-validates them). */

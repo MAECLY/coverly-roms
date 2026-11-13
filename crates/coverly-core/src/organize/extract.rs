@@ -987,18 +987,14 @@ fn check_components(root: &Path, dir: &Path) -> Result<(), ExtractError> {
 /// A directory that is not a symlink, a junction or another reparse point.
 fn is_real_dir(meta: &fs::Metadata) -> bool {
     let ft = meta.file_type();
-    if ft.is_symlink() || !ft.is_dir() {
-        return false;
-    }
+    let plain_dir = !ft.is_symlink() && ft.is_dir();
     #[cfg(windows)]
-    {
+    let plain_dir = plain_dir && {
         use std::os::windows::fs::MetadataExt;
         const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return false;
-        }
-    }
-    true
+        meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0
+    };
+    plain_dir
 }
 
 /// The reader still lists every plan entry as a file of the same name and

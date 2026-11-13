@@ -5,6 +5,9 @@
 import type { Backend } from '../backend';
 import { BackendError } from '../errors';
 import type {
+  CandidateView,
+  ChildMedia,
+  ChildView,
   EmulatorId,
   EntryView,
   FoundTool,
@@ -14,6 +17,14 @@ import type {
   RecentLibrary,
   ScanProgress,
 } from '../types';
+import {
+  addonDetails,
+  addonViewsHuge,
+  addonViewsLibrary,
+  MOCK_ADDONS,
+  MOCK_ADDONS_HUGE,
+  MOCK_REVISIONS_KEY,
+} from './addonViewsFixture';
 import { FIXTURE_SYSTEMS, generateLibrary } from './fixture';
 import { createMockDedupe, type MockDedupeScenario } from './mockDedupe';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
@@ -45,6 +56,11 @@ export { escapeXml } from './svg';
 export { readMockExtract } from './mockOrganize';
 export type { MockExport } from './mockJobs';
 export type { MockDedupeScenario } from './mockDedupe';
+export {
+  MOCK_ADDONS,
+  MOCK_ADDONS_HUGE,
+  MOCK_REVISIONS_KEY,
+} from './addonViewsFixture';
 export {
   MOCK_DOWNLOADS,
   MOCK_MIXED,
@@ -132,6 +148,25 @@ export function mockArtSvg(e: EntryView, media: Media): string {
     `<rect width="100%" height="100%" fill="hsl(${hue} 55% 42%)"/>` +
     `<text x="50%" y="50%" fill="#fff" font-family="system-ui" font-size="16" text-anchor="middle">${label}</text>` +
     `<text x="50%" y="${h - 16}" fill="#fff" opacity=".7" font-family="system-ui" font-size="12" text-anchor="middle">${media}</text>` +
+    `</svg>`
+  );
+}
+
+/** A child's icon (square) or banner (wide) read from its package. */
+export function mockChildArtSvg(
+  e: EntryView,
+  child: ChildView,
+  slot: ChildMedia,
+): string {
+  const hue = (e.id * 47 + child.index * 71) % 360;
+  const [w, h] = slot === 'icon' ? [256, 256] : [320, 120];
+  const label = escapeXml(
+    child.name.length > 32 ? `${child.name.slice(0, 31)}…` : child.name,
+  );
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
+    `<rect width="100%" height="100%" fill="hsl(${hue} 45% 38%)"/>` +
+    `<text x="50%" y="50%" fill="#fff" font-family="system-ui" font-size="13" text-anchor="middle">${label}</text>` +
     `</svg>`
   );
 }
@@ -579,8 +614,9 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const revealed: number[] = [];
   let generation = 0;
   let current: LibraryView | null = null;
+  const storage = opts.storage === undefined ? defaultStorage() : opts.storage;
   const settings = createMockSettings({
-    storage: opts.storage === undefined ? defaultStorage() : opts.storage,
+    storage,
     builtins: [...MOCK_BUILTIN_PROFILES],
     ...(opts.externalTools ? { externalTools: opts.externalTools } : {}),
     catalogMs: delayMs > 0 ? 2000 : 0,
@@ -686,6 +722,43 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     },
   ];
 
+  /** Revision defaults chosen per library root (part C D7), kept in
+   * `MOCK_REVISIONS_KEY` so a choice survives a reload, as Rust keeps them
+   * in the settings. */
+  const loadRevisionChoices = (): Map<string, Record<string, string>> => {
+    try {
+      const raw = storage?.getItem(MOCK_REVISIONS_KEY);
+      const parsed: unknown = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return new Map(
+          Object.entries(parsed as Record<string, Record<string, string>>),
+        );
+      }
+    } catch {
+      /* unreadable or blocked storage: memory only */
+    }
+    return new Map();
+  };
+  const revisionChoices = loadRevisionChoices();
+  const saveRevisionChoices = () => {
+    try {
+      storage?.setItem(
+        MOCK_REVISIONS_KEY,
+        JSON.stringify(Object.fromEntries(revisionChoices)),
+      );
+    } catch {
+      /* memory only */
+    }
+  };
+  let childArtJobs = 0;
+  /** The last «Buscar arte» of a child (one search at a time, as Rust). */
+  let childSearch: {
+    gen: number;
+    id: number;
+    childIndex: number;
+    candidates: CandidateView[];
+  } | null = null;
+
   const entryOf = (gen: number, id: number): EntryView => {
     if (!current) throw new BackendError('no-library');
     if (current.generation !== gen) throw new BackendError('stale-library');
@@ -740,7 +813,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       emit({ done: 0, total: 0, folder: '', roms: 0 });
       const lib = MOCK_LIBRARIES.find((l) => l.path === path);
       // A pile organised by the mock opens with its layout; a loose one is `no-profile`.
-      const view = lib
+      const scanned = lib
         ? generateLibrary({
             seed: lib.seed,
             count: lib.count,
@@ -748,8 +821,18 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
             generation: gen,
             now,
           })
-        : organize.library(path, gen);
-      if (!view) throw new BackendError('not-found', path);
+        : path === MOCK_ADDONS
+          ? addonViewsLibrary(gen, now)
+          : path === MOCK_ADDONS_HUGE
+            ? addonViewsHuge(gen, now)
+            : organize.library(path, gen);
+      if (!scanned) throw new BackendError('not-found', path);
+      // Like Rust: the revision defaults saved for this root.
+      const chosen = revisionChoices.get(scanned.root);
+      const view: LibraryView =
+        chosen && Object.keys(chosen).length > 0
+          ? { ...scanned, revision_defaults: { ...chosen } }
+          : scanned;
       let roms = 0;
       for (const [i, s] of view.systems.entries()) {
         await sleep(delayMs);
@@ -849,6 +932,174 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     async revealEntry(gen, id) {
       entryOf(gen, id);
       revealed.push(id);
+    },
+    // Part C: the panel's commands, with Rust's checks and shapes; the
+    // add-ons mock library (`?mockPick=addons`) gives them header facts.
+    async gameDetails(gen, id, request) {
+      const e = entryOf(gen, id);
+      await sleep(delayMs);
+      return addonDetails(e, request);
+    },
+    async setDefaultRevision(gen, id) {
+      const e = entryOf(gen, id);
+      const group = e.version_group;
+      const members = group
+        ? current!.entries.filter((x) => x.version_group === group).length
+        : 0;
+      if (!group || members < 2) {
+        throw new BackendError(
+          'bad-request',
+          `entry ${id} is not one of several revisions`,
+        );
+      }
+      // Kept per library root, as Rust keys the settings; the view sent
+      // with the library is left as it was. Like Rust, this library's
+      // choices whose group no longer has several members, or whose path
+      // is no longer one of them, are pruned.
+      const root = current!.root;
+      const live = ([g, rel]: [string, string]) => {
+        const members = current!.entries.filter(
+          (x) => !x.orphan && x.version_group === g,
+        );
+        return members.length > 1 && members.some((x) => x.rel_path === rel);
+      };
+      const choices = Object.fromEntries(
+        Object.entries({
+          ...current!.revision_defaults,
+          ...revisionChoices.get(root),
+          [group]: e.rel_path,
+        }).filter(live),
+      );
+      revisionChoices.set(root, choices);
+      saveRevisionChoices();
+      return { ...choices };
+    },
+    // «Leer el arte incluido»: an empty icon slot gets the package's icon;
+    // a taken one is «exists»; Switch packages are encrypted, so nothing.
+    async readChildArt(gen, id) {
+      const e = entryOf(gen, id);
+      const system = current!.systems[e.system]?.system_id;
+      const skipped: { index: number; why: 'exists' | 'no-art-in-clear' }[] =
+        [];
+      let written = 0;
+      const children = (e.children ?? []).map((c): ChildView => {
+        if (system === 'switch') {
+          skipped.push({ index: c.index, why: 'no-art-in-clear' });
+          return c;
+        }
+        if (c.art.icon) {
+          skipped.push({ index: c.index, why: 'exists' });
+          return c;
+        }
+        written += 1;
+        return { ...c, art: { ...c.art, icon: true, icon_origin: 'package' } };
+      });
+      if (written === 0) return { written, skipped, children };
+      childArtJobs += 1;
+      current = {
+        ...current!,
+        entries: current!.entries.map((x) =>
+          x.id === id ? { ...x, children } : x,
+        ),
+      };
+      return {
+        job: `mock-child-art-${childArtJobs}`,
+        written,
+        skipped,
+        children,
+      };
+    },
+    // «Buscar arte» on a child: a ScreenScraper and a SteamGridDB result
+    // per title; the pick writes the icon with its service as origin.
+    async searchChildArt(gen, id, childIndex, query) {
+      const e = entryOf(gen, id);
+      if (!e.children?.some((c) => c.index === childIndex)) {
+        throw new BackendError('unknown-child', String(childIndex));
+      }
+      const q = query.trim();
+      if (!q || [...q].length > 120 || /\p{Cc}/u.test(q)) {
+        throw new BackendError(
+          'bad-request',
+          'type a title of 1 to 120 characters',
+        );
+      }
+      const candidates: CandidateView[] = (
+        [
+          ['screenscraper', 'title-exact', 95],
+          ['steamgriddb', 'fuzzy', 82],
+        ] as const
+      ).map(([source, kind, score], index) => ({
+        index,
+        source,
+        name: q,
+        regions: [],
+        kind,
+        score,
+        confidence: score / 100,
+        votes: null,
+        origin: null,
+        reason: null,
+      }));
+      childSearch = { gen, id, childIndex, candidates };
+      return candidates.map((c) => ({ ...c }));
+    },
+    async childSearchArt(gen, id, childIndex, candidate) {
+      const e = entryOf(gen, id);
+      const s = childSearch;
+      const c =
+        s && s.gen === gen && s.id === id && s.childIndex === childIndex
+          ? s.candidates[candidate]
+          : undefined;
+      const child = e.children?.find((x) => x.index === childIndex);
+      if (!c || !child) throw new BackendError('bad-request', 'search first');
+      return {
+        bytes: new TextEncoder().encode(
+          mockChildArtSvg(
+            e,
+            { ...child, index: child.index + candidate + 3 },
+            'icon',
+          ),
+        ),
+        mime: 'image/svg+xml',
+      };
+    },
+    async setChildArtFromSearch(gen, id, childIndex, slot, candidate) {
+      const e = entryOf(gen, id);
+      if (!e.children?.some((c) => c.index === childIndex)) {
+        throw new BackendError('unknown-child', String(childIndex));
+      }
+      const s = childSearch;
+      const c =
+        s && s.gen === gen && s.id === id && s.childIndex === childIndex
+          ? s.candidates[candidate]
+          : undefined;
+      if (!c) throw new BackendError('bad-request', 'search first');
+      const origin = c.source as 'screenscraper' | 'steamgriddb';
+      const children = (e.children ?? []).map((x): ChildView =>
+        x.index === childIndex
+          ? {
+              ...x,
+              art: { ...x.art, [slot]: true, [`${slot}_origin`]: origin },
+            }
+          : x,
+      );
+      current = {
+        ...current!,
+        entries: current!.entries.map((x) =>
+          x.id === id ? { ...x, children } : x,
+        ),
+      };
+      return children;
+    },
+    async readChildArtBytes(gen, id, childIndex, slot) {
+      const e = entryOf(gen, id);
+      const child = e.children?.find((c) => c.index === childIndex);
+      if (!child) throw new BackendError('unknown-child', String(childIndex));
+      if (!child.art[slot]) throw new BackendError('art-missing', slot);
+      return {
+        bytes: new TextEncoder().encode(mockChildArtSvg(e, child, slot)),
+        mime: 'image/svg+xml',
+      };
     },
     pickFolder: () =>
       Promise.resolve(opts.folder ?? readMockPick() ?? MOCK_LIBRARIES[0].path),

@@ -307,7 +307,8 @@ time {
 .review-current .art-placeholder,
 .quick-look__art .art-placeholder,
 .cell--thumb .art-placeholder,
-.mount-slot .art-placeholder {
+.mount-slot .art-placeholder,
+.child-thumb .child-thumb__slot--missing {
   --slot-w: var(--cr-border-width-slot);
   --slot-solid: linear-gradient(var(--cr-slot-missing), var(--cr-slot-missing));
   --slot-dash-x: repeating-linear-gradient(
@@ -467,6 +468,133 @@ time {
   line-height: 1rem;
 }
 
+/* Add-on summary (addon views §8.2): one 18px line under the info line,
+   under the art and never over it. A neutral mono chip («+3 DLC · v1.05»);
+   a missing newest update turns the version into «↑ falta v1.3.0» in the
+   warning tone — arrow, word and colour, never one alone. */
+.cover-tile__content {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 1.125rem;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.addon-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  max-width: 100%;
+  height: 1.125rem;
+  padding: 0 0.375rem;
+  overflow: hidden;
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--cr-border);
+  color: var(--cr-text-secondary);
+  font: 400 11px/14px var(--cr-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.addon-chip:hover {
+  color: var(--cr-text);
+  box-shadow: inset 0 0 0 1px var(--cr-border-strong);
+}
+
+.addon-chip__group {
+  display: inline-flex;
+  align-items: center;
+}
+
+.addon-chip__sep {
+  padding: 0 0.25rem;
+}
+
+.addon-chip--warning {
+  background: var(--cr-warning-bg);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--cr-warning) 45%, transparent);
+}
+
+.addon-chip--warning .addon-chip__sep {
+  color: var(--cr-warning);
+}
+
+.addon-chip__part--warning {
+  color: var(--cr-warning);
+  font-weight: 600;
+}
+
+.cover-tile__demo {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+  text-overflow: ellipsis;
+}
+
+/* «Nuevo» (D18): the one Manila mark, content found since the last open. */
+.addon-new {
+  flex: none;
+  padding: 0 0.3125rem;
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-manila);
+  color: var(--cr-manila-fg);
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 0.875rem;
+}
+
+/* XS and S: no info line, so an 8px dot in the art's top-right corner
+   (top-left is the system badge, bottom-right the art marks); a 10px «↑»
+   when the newest update is missing — a shape change, not only colour. */
+.cover-tile__dot {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.375rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--cr-radius-full);
+  background: var(--cr-text-secondary);
+  box-shadow: 0 0 0 2px var(--cr-surface);
+}
+
+.cover-tile__dot--warning {
+  display: grid;
+  place-items: center;
+  width: 0.875rem;
+  height: 0.875rem;
+  background: var(--cr-surface);
+  box-shadow: 0 0 0 1px var(--cr-warning);
+  color: var(--cr-warning);
+  font: 700 10px/1 var(--cr-font-mono);
+}
+
+@media (forced-colors: active) {
+  .addon-chip {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+
+  .addon-new {
+    border: 1px solid CanvasText;
+  }
+
+  .cover-tile__dot {
+    background: CanvasText;
+    box-shadow: 0 0 0 2px Canvas;
+  }
+
+  .cover-tile__dot--warning {
+    background: Canvas;
+    border: 1px solid CanvasText;
+    color: CanvasText;
+  }
+}
+
 .entry-row {
   position: absolute;
   top: 0;
@@ -576,6 +704,156 @@ time {
   bottom: 0;
   width: 2px;
   background: var(--cr-primary);
+}
+
+/* Details as a treegrid (addon views §8.4): the table and, under it, the
+   one-line key hint. */
+.details-tree {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.details-tree > .entry-table {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+.tree-hint {
+  flex: none;
+  margin: 0;
+  padding: 0.375rem 0.75rem;
+  border-top: 1px solid var(--cr-border);
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+/* Rows hold the focus themselves (roving tabIndex). */
+.tree-row {
+  outline: none;
+}
+
+.tree-row:focus-visible {
+  box-shadow: inset 0 0 0 var(--cr-border-width-focus) var(--cr-accent);
+}
+
+.tree-name {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.tree-name__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-chevron {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+  color: var(--cr-text-secondary);
+}
+
+/* The toggle's pointer target reaches 24px (WCAG 2.5.8) without moving
+   the name. */
+.tree-chevron[data-tree-toggle] {
+  position: relative;
+  cursor: pointer;
+}
+
+.tree-chevron[data-tree-toggle]::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+
+.tree-chevron--open {
+  transform: rotate(90deg);
+}
+
+/* The one motion here (D17); the tokens zero it under reduced motion and
+   the view leaves this class off. Expanding never animates height. */
+.tree-chevron--animated {
+  transition: transform var(--cr-duration-fast) var(--cr-ease-standard);
+}
+
+/* Content rows: 24px in, with a hairline guide back to the game. */
+.tree-row--child {
+  background: var(--cr-surface-sunken);
+}
+
+.tree-row--child .cell--name {
+  position: relative;
+  padding-left: calc(0.5rem + 24px);
+}
+
+.tree-row--child .cell--name::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(0.5rem + 7px);
+  width: var(--cr-border-width-hairline);
+  background: var(--cr-border);
+}
+
+.tree-kind {
+  flex: none;
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+}
+
+.tree-kind::after {
+  content: '';
+  padding-right: 0.25rem;
+}
+
+.cell--version:not(.cell--head),
+.cell--content:not(.cell--head) {
+  font-family: var(--cr-font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tree-note {
+  color: var(--cr-text-secondary);
+  font-family: var(--cr-font-body);
+}
+
+/* Arrow, word and colour together, never colour alone (WCAG 1.4.1). */
+.tree-warning {
+  color: var(--cr-warning);
+  font-weight: 600;
+}
+
+/* A newer update that is not in the game's folder: a ghost row. */
+.tree-row--ghost {
+  border-top: var(--cr-border-width-slot) dashed var(--cr-border-strong);
+  background: transparent;
+  color: var(--cr-text-secondary);
+}
+
+@media (forced-colors: active) {
+  .tree-row--ghost {
+    border-top-color: CanvasText;
+  }
+
+  .tree-row:focus-visible {
+    outline: var(--cr-border-width-focus) solid Highlight;
+    outline-offset: -2px;
+  }
+
+  .tree-warning {
+    color: CanvasText;
+  }
 }
 
 /* Thumb column: a 24px cover (20px compact), loaded lazily. */
@@ -992,6 +1270,180 @@ time {
   font-size: 1.25rem;
 }
 
+/* Estantes with add-ons (addon views §8.7): the view bar holds the
+   «Complementos» choice; the shelves fill what is left. */
+.shelves-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.shelves-shell > .shelves {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+.shelves-bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  min-width: 0;
+  padding: 0.5rem 1rem;
+  /* A narrow window scrolls the choice rather than clipping it. */
+  overflow-x: auto;
+  border-bottom: 1px solid var(--cr-border);
+  background: var(--cr-surface);
+}
+
+.shelves-bar__label {
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-label);
+}
+
+/* One box per game: its DLC stand behind it as edges (up to three, each
+   9px further right and 7px further up when fanned, 3px closer at rest),
+   in the room the cover gives up so the tile keeps its size. Hover and
+   selection fan them out (D17); the token override zeroes the motion
+   under reduced motion, and the view drops the fan class as well. */
+.cover-tile__art--stack {
+  padding: var(--stack-y) var(--stack-x) 0 0;
+}
+
+.cover-tile__art--beside {
+  display: flex;
+  align-items: flex-start;
+}
+
+.shelf-case {
+  position: relative;
+  z-index: 1;
+  flex: none;
+}
+
+.shelf-stack {
+  position: absolute;
+  z-index: 0;
+  top: var(--stack-y);
+  right: var(--stack-x);
+  bottom: 0;
+  left: 0;
+}
+
+.shelf-edge {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--cr-radius-md);
+  box-shadow: 0 0 0 1px var(--cr-border-strong);
+  transform: translate(
+    calc(var(--i) * (9px - 3px)),
+    calc(var(--i) * (-7px + 2px))
+  );
+}
+
+.shelf-edge--1 {
+  z-index: 3;
+  background: var(--cr-surface-raised);
+}
+
+.shelf-edge--2 {
+  z-index: 2;
+  background: var(--cr-surface);
+}
+
+.shelf-edge--3 {
+  z-index: 1;
+  background: var(--cr-surface-sunken);
+}
+
+.shelf-stack--fan .shelf-edge {
+  transition: transform var(--cr-duration-fast) var(--cr-ease-standard);
+}
+
+.cover-tile:hover .shelf-stack--fan .shelf-edge,
+.cover-tile[aria-selected='true'] .shelf-stack--fan .shelf-edge {
+  transform: translate(calc(var(--i) * 9px), calc(var(--i) * -7px));
+}
+
+/* «+n» on the last edge, in the corner the edges leave free of the cover. */
+.shelf-edge__more {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  padding: 0 0.25rem;
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  box-shadow: 0 0 0 1px var(--cr-border);
+  color: var(--cr-text-secondary);
+  font: 400 10px/14px var(--cr-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* «Al lado»: the DLC's own icons in a column after a hairline. */
+.shelf-beside {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-left: 0.375rem;
+  padding-left: 0.375rem;
+  border-left: 1px solid var(--cr-border-strong);
+}
+
+.shelf-beside__more {
+  display: grid;
+  place-items: center;
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--cr-border);
+  color: var(--cr-text-secondary);
+  font: 400 10px/1 var(--cr-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.shelf-beside__more--24 {
+  width: 24px;
+  height: 24px;
+}
+
+.shelf-beside__more--48 {
+  width: 48px;
+  height: 48px;
+  font-size: 11px;
+}
+
+/* «Con 3 complementos» under the box (the summary line). */
+.shelf-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+  text-overflow: ellipsis;
+}
+
+@media (forced-colors: active) {
+  .shelf-edge {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    box-shadow: none;
+  }
+
+  .shelf-edge__more,
+  .shelf-beside__more {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+
+  .shelf-beside {
+    border-left-color: CanvasText;
+  }
+}
+
 /* Gallery (spec §B.4.4): one game's art large on a sunken mat, its facts in
    a 280px pane beside it, and an 88px filmstrip of 64px thumbnails below.
    Group boundaries are a shelf rule stood on end: a hairline with the 3px
@@ -1088,9 +1540,34 @@ time {
   position: absolute;
   top: 0;
   left: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
   height: 100%;
+}
+
+/* A library with add-ons: a taller strip for the mono caption under each
+   thumb («+3», «↑», «2 rev.», «demo»), with room for the selection spine
+   between them. */
+.gallery--content {
+  grid-template-rows: minmax(0, 1fr) 104px;
+}
+
+.gallery__caption {
+  height: 0.75rem;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--cr-text-secondary);
+  font: 400 10px/12px var(--cr-font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.gallery__caption--warning {
+  color: var(--cr-warning);
+  font-weight: 600;
 }
 
 .gallery__thumb {
@@ -1215,6 +1692,309 @@ time {
 .gallery__empty {
   color: var(--cr-text-secondary);
   font: var(--cr-type-app-base);
+}
+
+/* Phone widths: the 280px facts pane would push the page sideways, so it
+   goes under the filmstrip at the full width and the stage keeps the rest. */
+@media (max-width: 599px) {
+  .gallery,
+  .gallery--content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(16rem, 1fr) 88px auto;
+    overflow-y: auto;
+  }
+
+  .gallery--content {
+    grid-template-rows: minmax(16rem, 1fr) 104px auto;
+  }
+
+  .gallery__meta {
+    grid-column: 1;
+    grid-row: 3;
+    overflow-y: visible;
+    border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+    border-left: 0;
+  }
+}
+
+/* The add-on tray (addon views §8.3): under the big cover, each update
+   with its own art and every DLC at 48px, captioned. Each is a button that
+   opens the panel at that child. */
+.gallery__tray {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  max-height: 40%;
+  margin: 0;
+  padding: 0 1rem 1rem;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.gallery__tray-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  width: 5rem;
+  padding: 0.375rem 0.25rem;
+  border-radius: var(--cr-radius-md);
+  color: var(--cr-text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+}
+
+.gallery__tray-button:hover {
+  background: color-mix(in srgb, var(--cr-text) 6%, transparent);
+  color: var(--cr-text);
+}
+
+.gallery__tray-name {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  unicode-bidi: plaintext;
+}
+
+.gallery__tray-state {
+  font-size: 0.625rem;
+}
+
+/* Versión, DLC and Demo under the file facts: terms and values in two
+   columns, versions and counts in mono. */
+.gallery__content {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  font: var(--cr-type-app-base);
+}
+
+/* Subgrid, as the slot list: each term and value stay one group. */
+.gallery__content-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.gallery__content dt {
+  color: var(--cr-text-secondary);
+}
+
+.gallery__content dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.gallery__content-mono {
+  font-family: var(--cr-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.gallery__warning {
+  color: var(--cr-warning);
+  font-weight: 600;
+}
+
+.mounts-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.mounts-shell > .mounts {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+/* The view bar of Art slots (addon views §8.6): the content slots toggle
+   and what it shows. */
+.mounts-bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--cr-border);
+  background: var(--cr-surface);
+}
+
+/* A narrow content column (phone widths) wraps the toggle's words rather
+   than pushing the page sideways. */
+.mounts-bar > button {
+  max-width: 100%;
+  height: auto;
+  min-height: 2rem;
+  white-space: normal;
+}
+
+.mounts-bar__hint {
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+/* An update's or DLC's row under its game: indented past the game's cover
+   with an L-shaped hairline back to it; Icon (square) and Banner slots,
+   each with its origin tag under it. */
+.mount-row--child {
+  padding-left: calc(1rem + 2.75rem);
+  border-bottom-color: color-mix(in srgb, var(--cr-border) 50%, transparent);
+}
+
+.mount-row--child::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(1rem + 1.25rem);
+  width: 1px;
+  background: var(--cr-border-strong);
+}
+
+.mount-row--child[data-last='true']::before {
+  bottom: 50%;
+}
+
+.mount-row--child::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: calc(1rem + 1.25rem);
+  width: 1rem;
+  height: 1px;
+  background: var(--cr-border-strong);
+}
+
+.mount-child-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  height: auto;
+}
+
+.mount-child-slot--icon {
+  order: 1;
+}
+
+.mount-child-slot--banner {
+  order: 2;
+}
+
+.mount-child-slot__frame {
+  display: grid;
+  overflow: hidden;
+  height: 56px;
+  border-radius: var(--cr-radius-sm);
+}
+
+.mount-child-slot--icon .mount-child-slot__frame {
+  width: 56px;
+}
+
+.mount-child-slot--banner .mount-child-slot__frame {
+  width: 100px;
+}
+
+.mount-child-slot__img,
+.mount-child-slot__frame .art-thumb,
+.mount-child-slot__frame .art-placeholder {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: cover;
+  border-radius: var(--cr-radius-sm);
+}
+
+.mount-child-slot__frame .art-placeholder {
+  display: grid;
+  place-items: center;
+  font-size: 0.6875rem;
+}
+
+.mount-child-slot__inherit {
+  opacity: 0.45;
+}
+
+.mount-child-slot__tag {
+  min-height: 1rem;
+  color: var(--cr-text-muted);
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  white-space: nowrap;
+}
+
+@media (forced-colors: active) {
+  .mount-row--child::before,
+  .mount-row--child::after {
+    background: CanvasText;
+  }
+}
+
+.gallery__demo-of {
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-base);
+}
+
+/* An update's or DLC's art: its own icon, the base game's dimmed, or the
+   dashed missing slot (addon views §8.3). */
+.child-thumb {
+  display: inline-grid;
+  flex: none;
+  overflow: hidden;
+  border-radius: var(--cr-radius-sm);
+}
+
+.child-thumb--48 {
+  width: 48px;
+  height: 48px;
+}
+
+.child-thumb--24 {
+  width: 24px;
+  height: 24px;
+}
+
+.child-thumb__img,
+.child-thumb .art-thumb,
+.child-thumb__slot {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: cover;
+}
+
+.child-thumb__slot {
+  padding: 0;
+  font-size: 0.625rem;
+  line-height: 1.1;
+}
+
+.child-thumb__inherit {
+  opacity: 0.45;
+}
+
+@media (forced-colors: active) {
+  .gallery__caption--warning,
+  .gallery__warning {
+    color: CanvasText;
+  }
+
+  .child-thumb {
+    outline: 1px solid CanvasText;
+  }
 }
 
 /* The only motion here: each new large image fades in over 120 ms. */
@@ -1418,11 +2198,25 @@ time {
 
 .status-bar {
   display: flex;
-  gap: 1.5rem;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1.5rem;
   padding: 0.375rem 1rem;
   border-top: 1px solid var(--cr-border);
   background: var(--cr-surface);
   font-size: 0.8125rem;
+}
+
+/* «9 juegos · dentro de ellos: …» and the add-ons without their game
+   (addon views D4) wrap as phrases, never mid-number. */
+.status-bar__counts {
+  min-width: 0;
+}
+
+.status-bar__orphans {
+  /* The link reads as part of the line, at the line's size. */
+  height: auto;
+  font-size: inherit;
 }
 
 .drawer {
@@ -1553,6 +2347,380 @@ time {
 .drawer-facts--compact {
   gap: 0.125rem 0.625rem;
   font-size: 0.8125rem;
+}
+
+/* Game panel (addon views §8.8): the head's region line and title id, then
+   Versión and Revisiones above the art. Warnings pair «↑» and a word with
+   the semantic warning colours; nothing is told by colour alone. */
+.panel-head {
+  margin-top: 0.25rem;
+  color: var(--cr-text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.panel-head p {
+  margin: 0;
+}
+
+.panel-head__unknown {
+  color: var(--cr-warning);
+}
+
+.panel-head__tid {
+  font-size: 0.75rem;
+}
+
+.panel-sec {
+  margin-top: 1rem;
+}
+
+.panel-sec__h {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  font-family: var(--cr-font-display);
+  font-size: 0.8125rem;
+  font-stretch: 87.5%;
+  font-weight: 700;
+}
+
+.panel-sec__h small {
+  font: var(--cr-type-app-caption);
+  color: var(--cr-text-secondary);
+}
+
+.panel-ver {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.75rem;
+  margin: 0;
+}
+
+.panel-ver__big {
+  font-family: var(--cr-font-display);
+  font-size: 1.5rem;
+  font-stretch: 87.5%;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.panel-ver__lbl {
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+}
+
+.panel-callout {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.625rem 0 0;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-warning-bg);
+  color: var(--cr-text);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.panel-callout__mark {
+  color: var(--cr-warning);
+  font-weight: 700;
+}
+
+.panel-callout--ok {
+  background: var(--cr-success-bg);
+}
+
+.panel-callout--ok .panel-callout__mark {
+  color: var(--cr-success);
+}
+
+.panel-callout__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.375rem;
+}
+
+.panel-list {
+  margin: 0.625rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.panel-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3125rem 0.375rem;
+  border-radius: var(--cr-radius-md);
+}
+
+.panel-row:hover {
+  background: var(--cr-hover);
+}
+
+.panel-row__main {
+  min-width: 0;
+}
+
+.panel-row__v {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.panel-row__f {
+  display: block;
+  overflow: hidden;
+  color: var(--cr-text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-row__size {
+  color: var(--cr-text-secondary);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+/* A version the title list knows and the library lacks: a ghost row. */
+.panel-row--missing {
+  border: 1px dashed color-mix(in srgb, var(--cr-warning) 55%, transparent);
+}
+
+.panel-row--missing .panel-row__v {
+  color: var(--cr-text-secondary);
+  font-weight: 400;
+}
+
+.panel-note {
+  margin: 0.5rem 0 0;
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+/* DLC rows: art, name with its file and origin, the row's action. */
+.panel-child {
+  border-radius: var(--cr-radius-md);
+}
+
+.panel-row--child {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.625rem;
+}
+
+.panel-row__origin {
+  display: flex;
+  align-items: center;
+  color: var(--cr-text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+.panel-row__origin--warn {
+  color: var(--cr-warning);
+  font-weight: 600;
+}
+
+.panel-actions {
+  margin-top: 0.5rem;
+}
+
+/* «Buscar arte» for one DLC: the drawer's search, under its row. */
+.panel-search {
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.5rem 0.625rem 0.625rem;
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface-sunken);
+}
+
+.panel-search__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.375rem;
+}
+
+.panel-search__title {
+  overflow: hidden;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-search__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.panel-search__pick {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.375rem;
+  text-align: left;
+}
+
+.panel-search__pic .art-thumb {
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.panel-search__name {
+  overflow: hidden;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A demo and its full game: a card button with the other one's cover. */
+.panel-card {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.375rem;
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  text-align: left;
+}
+
+.panel-card:hover {
+  background: var(--cr-hover);
+}
+
+.panel-card:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-ring);
+  outline-offset: 2px;
+}
+
+.panel-card__art {
+  flex: none;
+  width: 2.5rem;
+}
+
+.panel-card__text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.panel-card__title {
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-card__sub {
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+}
+
+.panel-text {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+/* The full game's cover in place of a demo's missing one: display only. */
+.panel-borrowed {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+}
+
+.panel-borrowed > .art-thumb,
+.panel-borrowed__art {
+  width: 4rem;
+  opacity: 0.45;
+}
+
+/* Mods, trucos, extras y partidas: read-only counts, collapsed. */
+.panel-folders__summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.panel-folders__summary .panel-sec__h {
+  display: inline;
+}
+
+.panel-folders__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.375rem;
+  margin: 0.5rem 0 0;
+}
+
+.panel-folders__cell {
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface-sunken);
+}
+
+.panel-folders__cell dt {
+  color: var(--cr-text-secondary);
+  font-size: 0.6875rem;
+}
+
+.panel-folders__cell dd {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.panel-folders__cell[data-empty] dd {
+  color: var(--cr-text-secondary);
+}
+
+.panel-folders__path {
+  overflow: hidden;
+  margin: 0.375rem 0 0;
+  color: var(--cr-text-secondary);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (forced-colors: active) {
+  .panel-callout {
+    border: 1px solid CanvasText;
+  }
+
+  .panel-row--missing {
+    border-color: CanvasText;
+  }
+
+  .panel-row__origin--warn {
+    color: CanvasText;
+  }
+
+  .panel-card,
+  .panel-search {
+    border-color: CanvasText;
+  }
 }
 
 /* Art workspace: the three slots are tabs; the active one opens into the
@@ -2520,4 +3688,138 @@ time {
   right: -1px;
   bottom: -1px;
   clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
+/* «Complementos sin juego base» (addon views D13): a Details-style list
+   in every view mode while that scope is open. */
+.orphans-list {
+  height: 100%;
+  overflow: auto;
+  padding: 1rem;
+  container-type: inline-size;
+}
+
+.orphans-list__title {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.orphans-list__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.orphans-list__table th,
+.orphans-list__table td {
+  padding: 0.375rem 0.75rem 0.375rem 0;
+  border-bottom: 1px solid var(--cr-border);
+  text-align: left;
+  vertical-align: baseline;
+}
+
+.orphans-list__table thead th {
+  color: var(--cr-text-secondary);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.orphans-list__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.orphans-list__system {
+  display: block;
+  color: var(--cr-text-secondary);
+  font-weight: 400;
+}
+
+.orphans-list__folder {
+  overflow-wrap: anywhere;
+}
+
+.orphans-list__owner {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.5rem;
+}
+
+.orphans-list__owner > button {
+  height: auto;
+  font-size: inherit;
+}
+
+/* Narrow panes: each add-on is a card of lines instead of five columns
+   (no horizontal scroll at 390 px). The header row stays for screen
+   readers only. */
+@container (max-width: 36rem) {
+  .orphans-list__table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .orphans-list__table tr {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--cr-border);
+  }
+
+  .orphans-list__table th,
+  .orphans-list__table td {
+    padding: 0.125rem 0;
+    border-bottom: 0;
+  }
+
+  .orphans-list__table th[scope='row'],
+  .orphans-list__table td:nth-child(4),
+  .orphans-list__table td:nth-child(5) {
+    flex-basis: 100%;
+  }
+
+  .orphans-list__table th[scope='row'] {
+    order: -1;
+  }
+}
+
+/* Columns: a game opened into its typed groups (addon views §8.5). The
+   row suffix (`+1 DLC`, `↑ falta v1.3.0`) is mono and never colour only;
+   the fixed folders sit after a hairline; a child's art is shown at a
+   preview size. */
+.miller__suffix {
+  flex: none;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+  font-family: var(--cr-font-mono);
+}
+
+.miller__suffix--warning,
+.miller__warning {
+  color: var(--cr-warning);
+  font-weight: 600;
+}
+
+.miller__row--separated {
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.child-thumb.miller__child-art {
+  align-self: center;
+  width: 160px;
+  height: 160px;
+}
+
+@media (forced-colors: active) {
+  .miller__suffix--warning,
+  .miller__warning {
+    color: CanvasText;
+  }
 }

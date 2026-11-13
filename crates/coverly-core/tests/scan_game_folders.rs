@@ -12,7 +12,9 @@ use coverly_core::consoles::testing as ct;
 use coverly_core::dedupe::testing::pin_mtime;
 use coverly_core::game_folder::ChildRole;
 use coverly_core::profiles::{builtin_profiles, Profile};
-use coverly_core::scan::{scan_library, LibraryScan, RomEntry, ScanOptions, SystemScan};
+use coverly_core::scan::{
+    scan_library, FixedFolderCounts, LibraryScan, RomEntry, ScanOptions, SystemScan,
+};
 use coverly_core::systems::SystemDb;
 use tempfile::TempDir;
 
@@ -383,4 +385,168 @@ fn demos_betas_and_protos_are_not_revisions_of_the_game() {
         proto,
         group("Sonic the Hedgehog (USA, Europe) (Proto) (Rev 1).md")
     );
+}
+
+/// Part C D9: a game folder's `Mods/`, `Cheats/`, `Extras/` and `Saves/`
+/// are counted from metadata only (regular files, depth ≤ 4, junk and
+/// AppleDouble twins left out); nothing in them is opened.
+#[test]
+fn fixed_folder_counts_are_metadata_only() {
+    let lib = TempDir::new().unwrap();
+    let g = "ROMS/3DS/Lantern Harbor (Europe)";
+    put(
+        lib.path(),
+        &format!("{g}/Lantern Harbor (Europe).cia"),
+        &ct::cia(BASE, true, false).head_bytes(),
+    );
+    let counted = [
+        put(lib.path(), &format!("{g}/Mods/a.bps"), &[1u8; 8]),
+        put(lib.path(), &format!("{g}/Mods/pack/x.png"), &[1u8; 8]),
+        put(lib.path(), &format!("{g}/Cheats/c.cht"), &[2u8; 8]),
+        put(lib.path(), &format!("{g}/Extras/Manuals/m.pdf"), &[3u8; 8]),
+        put(lib.path(), &format!("{g}/Saves/s.sav"), &[4u8; 8]),
+    ];
+    for junk in ["._a.bps", ".DS_Store", "Thumbs.db", "desktop.ini"] {
+        put(lib.path(), &format!("{g}/Mods/{junk}"), &[0u8; 8]);
+    }
+    coverly_core::consoles::start_open_log();
+    let s = scan(lib.path(), "coverly-library");
+    let opened = coverly_core::consoles::take_open_log();
+    let ds = system(&s, "3DS");
+    assert_eq!(names(&ds.roms), ["Lantern Harbor (Europe).cia"]);
+    assert_eq!(
+        ds.roms[0].fixed_counts,
+        Some(FixedFolderCounts {
+            mods: 2,
+            cheats: 1,
+            extras: 1,
+            saves: 1,
+            capped: false,
+        })
+    );
+    for path in &counted {
+        assert!(!opened.contains(path), "{path:?} was opened: {opened:?}");
+    }
+}
+
+/// Part C D10 (a): an art folder under `DLC/` is never walked for
+/// children, even when hidden entries are scanned.
+#[test]
+fn a_media_dir_under_dlc_is_not_a_child_even_with_hidden_on() {
+    let lib = TempDir::new().unwrap();
+    let g = "ROMS/3DS/Pokemon Y (World)";
+    put(
+        lib.path(),
+        &format!("{g}/Pokemon Y (World).cia"),
+        &ct::cia(BASE, true, false).head_bytes(),
+    );
+    put(
+        lib.path(),
+        &format!("{g}/DLC/Pack.cia"),
+        &ct::cia(DLC, true, false).head_bytes(),
+    );
+    put(lib.path(), &format!("{g}/DLC/.media/x-icon.png"), &[9u8; 8]);
+    put(
+        lib.path(),
+        &format!("{g}/DLC/.media/Stray.cia"),
+        &ct::cia(DLC, true, false).head_bytes(),
+    );
+    let opts = ScanOptions {
+        include_hidden: true,
+        ..ScanOptions::default()
+    };
+    let s = scan_library(
+        lib.path(),
+        &profile("coverly-library"),
+        &SystemDb::builtin(),
+        &opts,
+    );
+    let ds = system(&s, "3DS");
+    assert_eq!(names(&ds.roms), ["Pokemon Y (World).cia"], "{:?}", ds.roms);
+    assert_eq!(
+        child_names(&ds.roms[0]),
+        [("Pack.cia".to_string(), ChildRole::Dlc)]
+    );
+}
+
+/// Part C D9: only a base at a game folder's root carries counts; a loose
+/// ROM, a ROM in a plain folder and an orphan carry none.
+#[test]
+fn fixed_counts_only_on_a_game_folder_base() {
+    let lib = TempDir::new().unwrap();
+    pokemon_library(lib.path());
+    put(
+        lib.path(),
+        "ROMS/3DS/Plain/Tidewalker (USA).cia",
+        &[6u8; 64],
+    );
+    put(
+        lib.path(),
+        "ROMS/3DS/Loose Pile/Updates/Neon Rhythm (v1.2).cia",
+        &ct::cia(UPDATE, true, false).head_bytes(),
+    );
+    let s = scan(lib.path(), "coverly-library");
+    let ds = system(&s, "3DS");
+    let by_name = |n: &str| {
+        ds.roms
+            .iter()
+            .find(|r| r.path.file_name().is_some_and(|f| f == n))
+            .unwrap_or_else(|| panic!("no `{n}` in {:?}", names(&ds.roms)))
+    };
+    assert_eq!(by_name("Zelda (USA).cia").fixed_counts, None);
+    assert_eq!(by_name("Tidewalker (USA).cia").fixed_counts, None);
+    let orphan = by_name("Neon Rhythm (v1.2).cia");
+    assert_eq!(orphan.role, Some(ChildRole::Update));
+    assert_eq!(orphan.fixed_counts, None);
+    assert_eq!(
+        by_name("Pokemon Y (World).cia").fixed_counts,
+        Some(FixedFolderCounts {
+            mods: 1,
+            cheats: 1,
+            extras: 1,
+            saves: 1,
+            capped: false,
+        })
+    );
+}
+
+/// Part C D6, D8: a demo links to its full game and an orphan update to
+/// the game its folder names, by index into the same system's entries;
+/// a game of the same name in another system is never a target.
+#[test]
+fn demos_and_orphans_link_to_their_game_in_the_same_system() {
+    let lib = TempDir::new().unwrap();
+    let root = lib.path();
+    let base = ct::cia(BASE, true, false).head_bytes();
+    put(root, "ROMS/3DS/Tidewalker (USA).cia", &base);
+    put(root, "ROMS/3DS/Tidewalker (USA) (Demo).cia", &base);
+    put(
+        root,
+        "ROMS/3DS/Downloads/Tidewalker/Updates/Tidewalker (v1.3).cia",
+        &ct::cia(UPDATE, true, false).head_bytes(),
+    );
+    put(root, "ROMS/GB/Lantern Harbor (Europe).gb", &[1u8; 64]);
+    put(root, "ROMS/3DS/Lantern Harbor (Europe) (Demo).cia", &base);
+    let s = scan(root, "coverly-library");
+    let ds = system(&s, "3DS");
+    let index = |n: &str| {
+        ds.roms
+            .iter()
+            .position(|r| r.path.file_name().is_some_and(|f| f == n))
+            .unwrap_or_else(|| panic!("no `{n}` in {:?}", names(&ds.roms)))
+    };
+    let game = index("Tidewalker (USA).cia");
+    let demo = &ds.roms[index("Tidewalker (USA) (Demo).cia")];
+    assert!(demo.is_demo);
+    assert_eq!(demo.demo_of, Some(game));
+    let orphan = &ds.roms[index("Tidewalker (v1.3).cia")];
+    assert_eq!(orphan.role, Some(ChildRole::Update));
+    assert_eq!(orphan.orphan_of, Some(game));
+    assert!(!orphan.is_demo);
+    let lone = &ds.roms[index("Lantern Harbor (Europe) (Demo).cia")];
+    assert!(lone.is_demo);
+    assert_eq!(lone.demo_of, None, "never linked across systems");
+    let full = &ds.roms[game];
+    assert!(!full.is_demo);
+    assert_eq!((full.demo_of, full.orphan_of), (None, None));
 }

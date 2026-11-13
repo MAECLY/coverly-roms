@@ -11,11 +11,15 @@ import {
 
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
+import { addonViewsLibrary } from '@/ipc/mock/addonViewsFixture';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend } from '@/ipc/mock/mockBackend';
 import type { ArtImage, EntryView, SystemView } from '@/ipc/types';
 import { clearArtCache } from '@/lib/artCache';
+import { metrics as coverMetrics } from '@/lib/coverSizes';
+import { buildGames, type Game } from '@/lib/games';
 import { DEFAULT_SETTINGS } from '@/lib/settingsRules';
+import type { CoverSize } from '@/lib/viewPrefs';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 import { CoverTile } from './CoverTile';
@@ -125,5 +129,172 @@ describe('CoverTile: Switch catalogue icon (adjustments D8)', () => {
     tile(entry('Zelda [01007EF00011E000][v0].nsp'));
     await waitFor(() => expect(catalogIcon).toHaveBeenCalled());
     expect(screen.getByText('Sin portada')).toBeTruthy();
+  });
+});
+
+describe('CoverTile: add-on summary under the cover (addon views §8.2)', () => {
+  const lib = addonViewsLibrary(1, FIXTURE_NOW);
+  const { games } = buildGames(lib.entries, {});
+  const named = (prefix: string): Game => {
+    const g = games.find((x) => x.entry.name.startsWith(prefix));
+    if (!g) throw new Error(prefix);
+    return g;
+  };
+
+  beforeEach(() => {
+    setBackend(createMockBackend({ delayMs: 0, now: FIXTURE_NOW }));
+  });
+  afterEach(() => {
+    setBackend(null);
+    clearArtCache();
+  });
+
+  function gameTile(
+    game: Game,
+    size: CoverSize = 'l',
+    opts: { isNew?: boolean } = {},
+  ) {
+    return render(
+      <I18nProvider locale="es">
+        <CoverTile
+          entry={game.entry}
+          system={lib.systems[game.entry.system]}
+          generation={1}
+          art="cover"
+          size={size}
+          selected={false}
+          game={game}
+          contentLine
+          isNew={opts.isNew}
+        />
+      </I18nProvider>,
+    );
+  }
+
+  const parts = (c: HTMLElement) =>
+    [...c.querySelectorAll('.addon-chip__part')].map((p) => p.textContent);
+
+  it('writes «+1 DLC · v1.10» under the art, never inside it', () => {
+    const { container } = gameTile(named('Lantern Harbor (USA)'));
+    const chip = container.querySelector('.addon-chip')!;
+    expect(chip).not.toBeNull();
+    expect(parts(container)).toEqual(['+1 DLC', 'v1.10']);
+    expect(container.querySelector('.cover-tile__art .addon-chip')).toBeNull();
+    expect(chip.closest('.cover-tile__content')).not.toBeNull();
+    expect(chip.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('warns «↑ falta v1.3.0» with the word, the arrow and the warning tone', () => {
+    const { container } = gameTile(named('Tidewalker'));
+    expect(parts(container)).toEqual(['+1 DLC', '↑ falta v1.3.0']);
+    const warn = container.querySelector('.addon-chip__part--warning')!;
+    expect(warn.textContent).toBe('↑ falta v1.3.0');
+    expect(container.querySelector('.addon-chip--warning')).not.toBeNull();
+  });
+
+  it('drops +N DLC first on a narrow tile, never the warning', () => {
+    const { container } = gameTile(named('Tidewalker'), 'm');
+    expect(parts(container)).toEqual(['↑ falta v1.3.0']);
+  });
+
+  it('shows a dot at XS with the whole state for screen readers', () => {
+    const { container } = gameTile(named('Lantern Harbor (USA)'), 'xs');
+    expect(container.querySelector('.addon-chip')).toBeNull();
+    const dot = container.querySelector('.cover-tile__art .cover-tile__dot')!;
+    expect(dot.getAttribute('aria-hidden')).toBe('true');
+    expect(dot.textContent).toBe('');
+    const sr = container.querySelector('.sr-only')!;
+    expect(sr.textContent).toMatch(
+      /^Lantern Harbor \(USA\), Sony PlayStation 4\. 1 DLC/,
+    );
+  });
+
+  it('turns the dot into an arrow when the newest update is missing', () => {
+    const { container } = gameTile(named('Tidewalker'), 's');
+    const dot = container.querySelector('.cover-tile__dot')!;
+    expect(dot.classList.contains('cover-tile__dot--warning')).toBe(true);
+    expect(dot.textContent).toBe('↑');
+  });
+
+  it('says «Demo de Lantern Harbor» on a demo, with no chip', () => {
+    const { container } = gameTile(named('Lantern Harbor (Demo)'));
+    expect(container.querySelector('.addon-chip')).toBeNull();
+    expect(container.querySelector('.cover-tile__content')!.textContent).toBe(
+      'Demo de Lantern Harbor',
+    );
+  });
+
+  it('tags new content «Nuevo» on the same line', () => {
+    const { container } = gameTile(named('Neon Rhythm'), 'l', { isNew: true });
+    const tag = container.querySelector('.cover-tile__content .addon-new');
+    expect(tag?.textContent).toBe('Nuevo');
+    expect(container.querySelector('.sr-only')!.textContent).toContain(
+      'contenido nuevo desde el último escaneo',
+    );
+  });
+
+  it('keeps the visible name in the cell and adds no tab stop or aria-label', () => {
+    const tw = named('Tidewalker');
+    const { container } = gameTile(tw);
+    const cell = screen.getByRole('gridcell');
+    expect(cell.getAttribute('aria-label')).toBeNull();
+    expect(container.querySelector('[tabindex]')).toBeNull();
+    const phrase =
+      'Tidewalker, Nintendo Switch. 1 DLC, 1 actualización, la más nueva v1.0.2, falta la última actualización, v1.3.0';
+    expect(cell.getAttribute('title')).toBe(phrase);
+    expect(container.querySelector('.sr-only')!.textContent).toBe(phrase);
+    expect(cell.textContent).toContain('Tidewalker');
+  });
+
+  it('speaks the warning of a game whose only content is the missing update', () => {
+    const bare: Game = {
+      ...named('Pebble League'),
+      missing: { entry: 99, version: '1.3.0' },
+    };
+    for (const size of ['l', 'xs'] as const) {
+      const { container, unmount } = gameTile(bare, size);
+      const phrase =
+        'Pebble League, Nintendo Switch. falta la última actualización, v1.3.0';
+      expect(container.querySelector('.sr-only')!.textContent).toBe(phrase);
+      expect(screen.getByRole('gridcell').getAttribute('title')).toBe(phrase);
+      unmount();
+    }
+  });
+
+  it('says the version a game without updates shows in its chip', () => {
+    const versioned: Game = { ...named('Pebble League'), installed: '1.0' };
+    const { container } = gameTile(versioned);
+    expect(parts(container)).toEqual(['v1.0']);
+    expect(container.querySelector('.sr-only')!.textContent).toBe(
+      'Pebble League, Nintendo Switch. v1.0',
+    );
+  });
+
+  it('keeps the row height when a tile has no game in a library with content', () => {
+    render(
+      <I18nProvider locale="es">
+        <CoverTile
+          entry={named('Pebble League').entry}
+          system={SWITCH}
+          generation={1}
+          art="cover"
+          size="m"
+          selected={false}
+          contentLine
+        />
+      </I18nProvider>,
+    );
+    expect(screen.getByRole('gridcell').style.height).toBe(
+      `${coverMetrics('m', true).tileH}px`,
+    );
+  });
+
+  it('keeps a plain game as it is today', () => {
+    const { container } = gameTile(named('Pebble League'));
+    expect(container.querySelector('.addon-chip')).toBeNull();
+    expect(container.querySelector('.cover-tile__dot')).toBeNull();
+    expect(screen.getByRole('gridcell').getAttribute('title')).toBe(
+      named('Pebble League').entry.name,
+    );
   });
 });

@@ -234,6 +234,11 @@ pub struct Profile {
     /// translator in the conservative scope. Empty for the library
     /// profile, which is the master layout.
     pub emulators: BTreeMap<String, EmulatorId>,
+    /// The frontend shows the art of a game's updates and DLC (part C
+    /// D16). Off on every built-in: no device frontend shows child art
+    /// today, so Organizar never copies child art slots to such a layout.
+    /// Saved files write it only when on, so their shape is unchanged.
+    pub child_art: bool,
 }
 
 impl Profile {

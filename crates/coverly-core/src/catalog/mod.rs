@@ -25,6 +25,7 @@
 //! `art/eshop-icons` folder beside the database.
 
 pub mod icons;
+pub mod latest;
 mod ncas;
 mod nlib;
 mod store;

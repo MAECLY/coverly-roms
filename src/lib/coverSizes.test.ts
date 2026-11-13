@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { COVER_SIZES, columnsFor, stepSize } from './coverSizes';
+import {
+  CONTENT_LINE_H,
+  COVER_SIZES,
+  columnsFor,
+  metrics,
+  stepSize,
+} from './coverSizes';
 import { COVER_SIZE_IDS } from './viewPrefs';
 
 describe('COVER_SIZES', () => {
@@ -61,5 +67,34 @@ describe('columnsFor', () => {
 
   it('takes a custom gap', () => {
     expect(columnsFor(1200, 'm', 0)).toBe(7);
+  });
+});
+
+describe('metrics with add-on content (addon views §8.2)', () => {
+  it("keeps today's tiles when the library has no content", () => {
+    for (const s of COVER_SIZE_IDS) {
+      expect(metrics(s, false)).toEqual(COVER_SIZES[s]);
+      expect(metrics(s)).toEqual(COVER_SIZES[s]);
+    }
+    expect(metrics('m', false).tileH).toBe(296);
+  });
+
+  it('adds one 18px summary line at M, L and XL only', () => {
+    expect(CONTENT_LINE_H).toBe(18);
+    for (const s of ['m', 'l', 'xl'] as const) {
+      const m = metrics(s, true);
+      expect(m.tileH).toBe(COVER_SIZES[s].tileH + 18);
+      expect(m.content).toBe('line');
+      expect(m.artH).toBe(COVER_SIZES[s].artH);
+    }
+  });
+
+  it('marks XS and S with a dot in the art, at the same height', () => {
+    for (const s of ['xs', 's'] as const) {
+      const m = metrics(s, true);
+      expect(m.tileH).toBe(COVER_SIZES[s].tileH);
+      expect(m.content).toBe('dot');
+    }
+    expect(COVER_SIZES.m.content).toBe('none');
   });
 });

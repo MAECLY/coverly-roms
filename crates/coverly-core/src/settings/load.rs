@@ -202,7 +202,10 @@ fn reset_path(s: &mut Settings, dotted: &str) {
 /// not a JSON object.
 /// Map settings serde leaves out while empty (`group`, `field`), so an
 /// older build reads the file unchanged (game folders spec D1).
-const SKIPPED_WHEN_EMPTY: [(&str, &str); 1] = [("organize", "game_folders")];
+const SKIPPED_WHEN_EMPTY: [(&str, &str); 2] = [
+    ("organize", "game_folders"),
+    ("library", "revision_defaults"),
+];
 
 fn parse_tolerant(text: &str, known: &[String], renames: &[ProfileRename]) -> Option<Parsed> {
     let Ok(Value::Object(user)) = serde_json::from_str::<Value>(text) else {
@@ -396,6 +399,26 @@ fn keep_good_entries(group: &str, field: &str, value: &Value) -> (Value, bool) {
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
             let dropped = good.len() != map.len();
+            (Value::Object(good), dropped)
+        }
+        ("library", "revision_defaults", Value::Object(roots)) => {
+            // Root → group → rel path: a root that is not a map goes, and
+            // inside one, a choice that is not a non-empty string.
+            let mut dropped = false;
+            let mut good = serde_json::Map::new();
+            for (root, groups) in roots {
+                let Value::Object(groups) = groups else {
+                    dropped = true;
+                    continue;
+                };
+                let kept: serde_json::Map<String, Value> = groups
+                    .iter()
+                    .filter(|(_, rel)| rel.as_str().is_some_and(|r| !r.trim().is_empty()))
+                    .map(|(g, rel)| (g.clone(), rel.clone()))
+                    .collect();
+                dropped |= kept.len() != groups.len();
+                good.insert(root.clone(), Value::Object(kept));
+            }
             (Value::Object(good), dropped)
         }
         _ => (value.clone(), false),

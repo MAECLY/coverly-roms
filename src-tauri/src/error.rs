@@ -26,6 +26,9 @@ pub enum IpcError {
     Superseded,
     #[error("unknown entry {0}")]
     UnknownEntry(u32),
+    /// The game has no update or DLC at this index (part C D2).
+    #[error("unknown child {0}")]
+    UnknownChild(u32),
     #[error("no {0} image for this entry")]
     ArtMissing(String),
     #[error("art outside the library: {0}")]
@@ -212,6 +215,10 @@ mod tests {
         assert_eq!(
             serde_json::to_value(IpcError::from(C::Failed("denied".into()))).unwrap(),
             serde_json::json!({ "code": "keychain-failed", "detail": "denied" })
+        );
+        assert_eq!(
+            serde_json::to_value(IpcError::UnknownChild(3)).unwrap(),
+            serde_json::json!({ "code": "unknown-child", "detail": 3 })
         );
         let json = serde_json::to_value(IpcError::JobRunning).unwrap();
         assert_eq!(json, serde_json::json!({ "code": "job-running" }));

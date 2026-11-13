@@ -9,6 +9,8 @@ import type {
   StrategyKind,
 } from '@/ipc/types';
 
+import type { Game } from './games';
+
 /** What the wizard fills: the selected ROM, the visible ones, or all. */
 export type FillScope = 'selection' | 'filter' | 'library';
 
@@ -21,17 +23,33 @@ export const DEFAULT_REGION_ORDER: readonly RegionPref[] = [
   'japan',
 ];
 
-/** Entry ids of a scope; `null` = the whole library. */
+/** The ids of a shown entry: every revision of its game, default first. */
+function idsOf(id: number, games?: ReadonlyMap<number, Game>): number[] {
+  const game = games?.get(id);
+  return game ? game.revisions.map((r) => r.id) : [id];
+}
+
+/**
+ * Entry ids of a scope; `null` = the whole library. With the games of the
+ * views (`byEntry` of `buildGames`), a game sends its representative id
+ * plus its other revisions' ids, as each revision is a file a frontend
+ * lists and was filled before folding (addon views D4, §14 Q7). Updates
+ * and DLC are never entries, so no fill reaches them.
+ */
 export function scopeIds(
   scope: FillScope,
   selectedId: number | null,
   visible: readonly EntryView[],
+  games?: ReadonlyMap<number, Game>,
 ): number[] | null {
   switch (scope) {
     case 'selection':
-      return selectedId === null ? [] : [selectedId];
-    case 'filter':
-      return visible.map((e) => e.id);
+      return selectedId === null ? [] : idsOf(selectedId, games);
+    case 'filter': {
+      const ids = new Set<number>();
+      for (const e of visible) for (const id of idsOf(e.id, games)) ids.add(id);
+      return [...ids];
+    }
     case 'library':
       return null;
   }
@@ -53,6 +71,8 @@ export interface FillChoices {
   scope: FillScope;
   selectedId: number | null;
   visible: readonly EntryView[];
+  /** Every entry id → its game (`buildGames().byEntry`). */
+  games?: ReadonlyMap<number, Game> | undefined;
   media: readonly Media[];
   strategy: StrategyKind;
   regions: readonly RegionPref[];
@@ -61,7 +81,7 @@ export interface FillChoices {
 
 export function buildFillRequest(o: FillChoices): FillRequest {
   return {
-    entry_ids: scopeIds(o.scope, o.selectedId, o.visible),
+    entry_ids: scopeIds(o.scope, o.selectedId, o.visible, o.games),
     media: [...o.media],
     strategy: o.strategy,
     regions: [...o.regions],

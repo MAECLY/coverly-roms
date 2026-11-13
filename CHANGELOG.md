@@ -60,9 +60,44 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   `--emulator-data EMULATOR=DIR` names the emulator's own folder, where its
   mods, cheats and patches go; without it they stay where they are and the
   plan says where they belong.
+- Updates, DLC, demos and revisions are shown inside their game in all six
+  views: a summary such as «+3 DLC · v1.05» under each cover (a dot with
+  the same text for screen readers at the smallest sizes), a tray of DLC
+  art under the big cover in Gallery, a tree in Details with «Versión» and
+  «Contenido» columns that opens with the arrow keys, typed groups (base,
+  Updates, DLC, Revisions, Demo) in Columns, a row for each update and DLC
+  with its own art in Art slots, and DLC edges behind the game's box in
+  Shelves, with an «Al lado» option. When the newest update is missing it
+  says so in text, not only by colour.
+- Game panel: the version installed against the newest one the library
+  holds, the DLC with their art, the related demo, the revisions (for retro
+  games the highest Rev is the default; you can choose another and it is
+  kept) and how many mods, cheats, extras and saves the game's folders hold.
+- Content filters: «Tiene actualizaciones», «Le falta la última
+  actualización», «Tiene DLC» and «Solo demos», and a «Complementos sin
+  juego base» list with the updates and DLC whose game is not in the
+  library, each with a way to see the game it belongs to when there is one.
+- The art an update, DLC or demo carries in the clear (3DS CIA icons, Vita,
+  PS4 and PS5 icons, Wii U icons and TV banners, PS3 and Xbox 360 icons) is
+  read into an art slot of its own beside that file, with its origin, and
+  shown in the game panel and in Organise; Organise keeps it with its file.
+  Key, ticket and licence files are never opened, an art file already there
+  is kept, and the read can be undone.
+- 3DS region and country by product code (`CTR-P-AXXE`, `KTR-…`), from a
+  table checked against 3dbrew and GameTDB: the region, or the country when
+  the letter names one, is added to the name only when the name has no
+  region yet. A letter the table does not know is flagged in the plan and
+  in `coverly organize`, and nothing is guessed.
 
 ### Changed
 
+- The status bar and the sidebar count games: a game counts once, its
+  updates, DLC and revisions never count («dentro de ellos: N
+  actualizaciones y M DLC (no cuentan como juegos)»), and demos do count.
+  The sidebar's first entry is «Todos los juegos».
+- 3DS region letters follow the verified table: `C` and `U` no longer add
+  China or Australia to a name, `R` now adds Russia and `V` and `X` add
+  Europe, and `T` and `U`, which no 3DS game uses, are flagged as unknown.
 - A licence file beside a game (`.rap`, `.rif`, `.tik`, `.edat` and
   similar) may move with it, by a rename on the same drive only, when its
   name matches that one game. It is never opened, read or copied; when it

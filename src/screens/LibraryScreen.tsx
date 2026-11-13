@@ -1,6 +1,7 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -9,8 +10,10 @@ import {
 import { FillWizard } from '@/components/fill/FillWizard';
 import { JobsPanel } from '@/components/fill/JobsPanel';
 import { ReviewQueue } from '@/components/fill/ReviewQueue';
+import { ContentFilters } from '@/components/library/ContentFilters';
 import { DetailDrawer } from '@/components/library/DetailDrawer';
 import { FilterPanel } from '@/components/library/FilterPanel';
+import { OrphansList } from '@/components/library/OrphansList';
 import { Sidebar } from '@/components/library/Sidebar';
 import { StatusBar } from '@/components/library/StatusBar';
 import { Toolbar } from '@/components/library/Toolbar';
@@ -24,7 +27,7 @@ import { GalleryView } from '@/components/library/views/GalleryView';
 import { MountsView } from '@/components/library/views/MountsView';
 import { QuickLook } from '@/components/library/views/QuickLook';
 import { ShelvesView } from '@/components/library/views/ShelvesView';
-import type { ViewProps } from '@/components/library/views/types';
+import type { ViewContent, ViewProps } from '@/components/library/views/types';
 import { ReportsPanel } from '@/components/reports/ReportsPanel';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -32,7 +35,10 @@ import { UpdateBanner } from '@/components/update/UpdateBanner';
 import { useViewShortcuts } from '@/hooks/useViewShortcuts';
 import { useT } from '@/i18n/useT';
 import type { Media } from '@/ipc/types';
+import { hasContent as gamesHaveContent } from '@/lib/addonSummary';
+import { ensureContentColumns } from '@/lib/detailsColumns';
 import { isTyping } from '@/lib/keyboard';
+import { newChildren } from '@/lib/seen';
 import { inspectorDocked, type ViewId } from '@/lib/viewPrefs';
 import { useFilterStore } from '@/stores/filterStore';
 import { useJobStore } from '@/stores/jobStore';
@@ -45,7 +51,22 @@ import { useViewStore } from '@/stores/viewStore';
 export function LibraryScreen() {
   const t = useT();
   const view = useLibraryStore((s) => s.view);
-  const { visible, sections, facets, now } = useVisibleEntries();
+  const {
+    visible,
+    visibleGames,
+    sections,
+    facets,
+    contentCounts,
+    now,
+    games,
+    orphans,
+    counts,
+    shownCounts,
+    byEntry,
+  } = useVisibleEntries();
+  const scope = useViewStore((s) => s.scope);
+  // «Complementos sin juego base» is a list, whatever the view mode (D13).
+  const orphansOpen = scope.kind === 'orphans' && orphans.length > 0;
   const prefs = useViewStore((s) => s.prefs);
   const filtersOpen = useViewStore((s) => s.filtersOpen);
   const drawerOpen = useViewStore((s) => s.drawerOpen);
@@ -66,6 +87,14 @@ export function LibraryScreen() {
   // Art slots: the slot the art workspace opens on (Enter on a slot).
   const [workspaceMedia, setWorkspaceMedia] = useState<Media | null>(null);
   const root = view?.root;
+  // «Nuevo» (D18): read against this viewer's seen set once per open; the
+  // set's baseline is kept for the session, so this is idempotent.
+  const fresh = useMemo<ReadonlySet<string>>(
+    () => (root === undefined ? new Set() : newChildren(root, games)),
+    [root, games],
+  );
+  // A library flag, from every game: filters never change row heights.
+  const contentLine = useMemo(() => gamesHaveContent(games), [games]);
   const loadPrefsFor = useViewStore((s) => s.loadFor);
   const setPrefs = useViewStore((s) => s.setPrefs);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -87,6 +116,21 @@ export function LibraryScreen() {
   useLayoutEffect(() => {
     if (root !== undefined) loadPrefsFor(root);
   }, [root, loadPrefsFor]);
+
+  // D19 (b): the first library with updates, DLC, revisions or demos adds
+  // Versión and Contenido to the Details columns, once.
+  const hasContent =
+    counts.updates +
+      counts.dlc +
+      counts.moreRevisions +
+      counts.demos +
+      counts.orphans >
+    0;
+  useEffect(() => {
+    if (root === undefined || prefsRoot !== root || !hasContent) return;
+    const next = ensureContentColumns(prefs, hasContent);
+    if (next !== prefs) setPrefs(next);
+  }, [root, prefsRoot, hasContent, prefs, setPrefs]);
 
   // After a view switch (not on first mount, nor on opening a library) the
   // new view takes the focus: its name ("Columns view") is the
@@ -164,6 +208,25 @@ export function LibraryScreen() {
     select(id);
     openDrawer();
   };
+  // A click on a cover's add-on summary: the panel, at Versión (§8.2).
+  const onOpenVersion = (id: number) => {
+    setWorkspaceMedia(null);
+    select(id);
+    openDrawer('version');
+  };
+  // A click on an update or DLC in the Galería tray: the panel, at it (§8.3).
+  const onOpenChild = (id: number, childIndex: number) => {
+    setWorkspaceMedia(null);
+    select(id);
+    openDrawer(`child-${childIndex}`);
+  };
+  const viewContent: ViewContent = {
+    byEntry,
+    line: contentLine,
+    fresh,
+    onOpenVersion,
+    onOpenChild,
+  };
   const list = {
     entries: visible,
     systems: view.systems,
@@ -204,6 +267,14 @@ export function LibraryScreen() {
         }
       />
     );
+  } else if (orphansOpen) {
+    content = (
+      <OrphansList
+        orphans={visibleGames}
+        systems={view.systems}
+        byEntry={byEntry}
+      />
+    );
   } else {
     content = renderView(
       prefs.view,
@@ -213,6 +284,7 @@ export function LibraryScreen() {
         prefs,
         onPreview: setPreviewId,
         onOpenArt,
+        content: viewContent,
       },
       { sort, onSort: toggleSort, setPrefs },
     );
@@ -238,9 +310,23 @@ export function LibraryScreen() {
         }
       />
       <div className="library-body">
-        <Sidebar key={view.generation} view={view} now={now} />
+        <Sidebar
+          key={view.generation}
+          view={view}
+          games={games}
+          orphans={orphans.length}
+          now={now}
+        />
         <main className="library-main">
           <UpdateBanner />
+          {/* «Mostrar juegos que» above the views (D14, Q5); the orphans
+              list is add-ons, not games, so it has no chips. */}
+          {!orphansOpen && (
+            <ContentFilters
+              counts={contentCounts}
+              shown={visibleGames.length}
+            />
+          )}
           {filtersOpen && <FilterPanel view={view} facets={facets} />}
           <div ref={contentRef} className="library-content">
             {content}
@@ -250,8 +336,10 @@ export function LibraryScreen() {
           <DetailDrawer
             view={view}
             entry={selected}
+            game={byEntry.get(selected.id)}
             docked={docked}
             workspaceMedia={workspaceMedia}
+            fresh={fresh}
             onClose={() => {
               // Docked, the close button undocks the pane. Either way the
               // button that held the focus is gone: the view takes it back.
@@ -265,8 +353,10 @@ export function LibraryScreen() {
         )}
       </div>
       <StatusBar
-        visible={visible}
-        total={view.entries.length}
+        total={counts}
+        shown={orphansOpen ? counts : shownCounts}
+        filtered={!orphansOpen && visibleGames.length !== counts.games}
+        games={orphansOpen ? games : visibleGames}
         scanMs={view.scan_ms}
       />
       <QuickLook
@@ -285,6 +375,7 @@ export function LibraryScreen() {
         <FillWizard
           view={view}
           visible={visible}
+          games={byEntry}
           selectedId={selectedId}
           onClose={closeOverlay}
         />

@@ -17,6 +17,13 @@ import {
   type PickReason,
   type SourceInfo,
   type CandidateView,
+  type ChildArtReadView,
+  type ChildDetailView,
+  type ChildMedia,
+  type ChildSkipWhy,
+  type GameDetailsView,
+  type RegionCertainty,
+  type RegionVerdictView,
   type DedupeJobView,
   type DedupeOutcomeView,
   type DedupePlanView,
@@ -40,6 +47,7 @@ import {
   type DiscId,
   type ExtractEntry,
   type FoundTool,
+  type Companion,
   type ItemNote,
   type FixedFolder,
   type GameRole,
@@ -65,6 +73,9 @@ import {
   type Transfer,
   type EntriesUpdated,
   type EntryView,
+  type ChildView,
+  type ChildArtMarks,
+  type ChildOrigin,
   type FillRequest,
   type IdentityView,
   type ItemErrorKind,
@@ -130,6 +141,7 @@ const VIEW_KEYS = [
   'warnings',
   'scan_ms',
   'loose_files',
+  'revision_defaults',
 ] as const;
 const ENTRY_KEYS = [
   'id',
@@ -142,6 +154,71 @@ const ENTRY_KEYS = [
   'mtime',
   'regions',
   'art',
+] as const;
+/** Addon views D2: optional, left out by Rust when empty. */
+const ENTRY_CONTENT_KEYS = [
+  'children',
+  'orphan',
+  'orphan_of',
+  'version_group',
+  'revision',
+  'demo',
+  'version',
+  'installed',
+  'newer_elsewhere',
+  'addons',
+  'folder_root',
+] as const;
+const ENTRY_ALL_KEYS = [...ENTRY_KEYS, ...ENTRY_CONTENT_KEYS] as const;
+const CHILD_KEYS = [
+  'index',
+  'rel_path',
+  'name',
+  'role',
+  'version',
+  'size',
+  'mtime',
+  'art',
+] as const;
+const GAME_DETAILS_KEYS = [
+  'request',
+  'title_id',
+  'product_code',
+  'region',
+  'latest',
+  'latest_installed',
+  'children',
+] as const;
+const REGION_VERDICT_KEYS = [
+  'letter',
+  'code',
+  'region',
+  'country',
+  'certainty',
+] as const;
+const CHILD_DETAIL_KEYS = ['index', 'title_id', 'kind'] as const;
+const CHILD_ART_READ_KEYS = ['job', 'written', 'skipped', 'children'] as const;
+/** Every `SkipWhy` and `Certainty`, in Rust's order. */
+const CHILD_SKIP_WHYS = [
+  'key-material',
+  'no-art-in-clear',
+  'exists',
+  'path-too-long',
+  'read-only',
+  'refused',
+] as const;
+const REGION_CERTAINTIES = ['certain', 'likely', 'unknown'] as const;
+const _allChildSkipWhys: AllMembers<ChildSkipWhy, typeof CHILD_SKIP_WHYS> =
+  CHILD_SKIP_WHYS;
+const _allRegionCertainties: AllMembers<
+  RegionCertainty,
+  typeof REGION_CERTAINTIES
+> = REGION_CERTAINTIES;
+const CHILD_ART_KEYS = [
+  'icon',
+  'banner',
+  'icon_origin',
+  'banner_origin',
 ] as const;
 const SYSTEM_KEYS = [
   'index',
@@ -521,10 +598,55 @@ const checks: [string, readonly string[], object][] = [
     VIEW_KEYS satisfies AllKeys<LibraryView, typeof VIEW_KEYS>,
     sample.library_view,
   ],
+  ['EntryView', ENTRY_KEYS, sample.library_view.entries[0]!],
   [
-    'EntryView',
-    ENTRY_KEYS satisfies AllKeys<EntryView, typeof ENTRY_KEYS>,
-    sample.library_view.entries[0]!,
+    'EntryView with game content',
+    ENTRY_ALL_KEYS satisfies AllKeys<EntryView, typeof ENTRY_ALL_KEYS>,
+    Object.assign({}, ...sample.game_content_entries) as object,
+  ],
+  [
+    'ChildView',
+    CHILD_KEYS satisfies AllKeys<ChildView, typeof CHILD_KEYS>,
+    sample.game_content_entries[0]!.children![0]!,
+  ],
+  [
+    'ChildArtMarks',
+    CHILD_ART_KEYS satisfies AllKeys<ChildArtMarks, typeof CHILD_ART_KEYS>,
+    Object.assign({}, sample.game_content_entries[0]!.children![0]!.art, {
+      banner_origin: 'user',
+    }) as object,
+  ],
+  [
+    'GameDetailsView',
+    GAME_DETAILS_KEYS satisfies AllKeys<
+      GameDetailsView,
+      typeof GAME_DETAILS_KEYS
+    >,
+    sample.game_details,
+  ],
+  [
+    'RegionVerdictView',
+    REGION_VERDICT_KEYS satisfies AllKeys<
+      RegionVerdictView,
+      typeof REGION_VERDICT_KEYS
+    >,
+    sample.game_details.region,
+  ],
+  [
+    'ChildDetailView',
+    CHILD_DETAIL_KEYS satisfies AllKeys<
+      ChildDetailView,
+      typeof CHILD_DETAIL_KEYS
+    >,
+    sample.game_details.children[0]!,
+  ],
+  [
+    'ChildArtReadView',
+    CHILD_ART_READ_KEYS satisfies AllKeys<
+      ChildArtReadView,
+      typeof CHILD_ART_READ_KEYS
+    >,
+    sample.child_art_read,
   ],
   [
     'SystemView',
@@ -862,6 +984,74 @@ const checks: [string, readonly string[], object][] = [
 describe('wire contract', () => {
   it.each(checks)('%s keys match the Rust sample', (_name, keys, value) => {
     expect(Object.keys(value).sort()).toEqual([...keys].sort());
+  });
+
+  it('the game panel answers use the Rust spellings (part C D3, D11)', () => {
+    const details = sample.game_details as GameDetailsView;
+    expect(details.region).toEqual({
+      letter: 'S',
+      code: 'CTR-P-AXXS',
+      region: 'europe',
+      country: 'spain',
+      certainty: 'certain',
+    });
+    expect(details.latest).toEqual({ version: '1.3.0', source: 'title-db' });
+    expect(details.children[1]).toEqual({ index: 1 });
+    // Optional fields are left out, never null.
+    expect(sample.game_details_bare).toEqual({ request: 5, children: [] });
+    expect(Object.keys(sample.child_art_read_nothing).sort()).toEqual([
+      'children',
+      'skipped',
+      'written',
+    ]);
+    const read = sample.child_art_read as ChildArtReadView;
+    expect(read.skipped).toEqual([{ index: 1, why: 'no-art-in-clear' }]);
+    expect(sample.child_skip_reasons).toEqual([...CHILD_SKIP_WHYS]);
+    expect(sample.region_certainties).toEqual([...REGION_CERTAINTIES]);
+    expect(toBackendError(sample.unknown_child).code).toBe('unknown-child');
+    const slots = requests.child_media as ChildMedia[];
+    expect(slots).toEqual(['icon', 'banner'] satisfies ChildMedia[]);
+  });
+
+  it('game content uses the Rust spellings and ids (addon views D2)', () => {
+    const [game, orphan, demo] = sample.game_content_entries as EntryView[];
+    expect(game!.children!.map((c) => [c.index, c.role, c.version])).toEqual([
+      [1, 'update', '1.0.2'],
+      [0, 'dlc', undefined],
+    ]);
+    expect(game!.children![0]!.art).toEqual({
+      icon: true,
+      banner: false,
+      icon_origin: 'package',
+    });
+    expect(game!.addons).toEqual({
+      mods: 1,
+      cheats: 2,
+      extras: 3,
+      saves: 0,
+      capped: true,
+    });
+    expect(game!.newer_elsewhere).toEqual({
+      entry: orphan!.id,
+      version: '1.3.0',
+    });
+    expect(orphan!.orphan).toBe('update');
+    expect(orphan!.orphan_of).toBe(game!.id);
+    expect(demo!.demo).toEqual({ of: game!.id, of_name: game!.name });
+    const origins: ChildOrigin[] = [
+      'package',
+      'screenscraper',
+      'steamgriddb',
+      'user',
+    ];
+    expect(origins).toHaveLength(4);
+    // A plain retro entry carries none of the content fields.
+    const plain = sample.library_view.entries[0]!;
+    for (const key of ENTRY_CONTENT_KEYS) expect(plain).not.toHaveProperty(key);
+    // Round trip: the wire value reads back unchanged.
+    expect(JSON.parse(JSON.stringify(game))).toEqual(
+      sample.game_content_entries[0],
+    );
   });
 
   it('art marks and media use the Rust spellings', () => {
@@ -1552,6 +1742,18 @@ describe('adjustments contract', () => {
     expect(sample.adjustments_part_kinds).toEqual(PART_KINDS);
     expect(sample.adjustments_title_kinds).toEqual(TITLE_KINDS);
     expect(sample.adjustments_title_sources).toEqual(TITLE_SOURCES);
+    // A 3DS product code's unknown region letter (part C §5, P-1).
+    const regionNote: ItemNote = { kind: 'region-letter-unknown', letter: 'T' };
+    expect(sample.region_letter_note).toEqual(regionNote);
+    // A child's own art that stays, and one that follows (part C D10 d).
+    const childArtNote: ItemNote = { kind: 'child-art-stays', count: 2 };
+    expect(sample.child_art_note).toEqual(childArtNote);
+    const childArt: Companion = {
+      source: 'Pokemon Y/DLC/.media/Pack-icon.png',
+      target: '3DS/Pokemon Y/DLC/.media/Pokemon Y - Pack-icon.png',
+      child_art: true,
+    };
+    expect(sample.child_art_companion).toEqual(childArt);
     // A cartridge the catalogue named: its title id from the NCA ids and
     // where its name came from (adjustments_values_match_the_shared_sample).
     const cart = sample.adjustments_catalogue_item as OrganizeItem;
@@ -1779,6 +1981,8 @@ void _allHeaderFits;
 void _allEmulatorIds;
 void _allNotSupportedWhys;
 void _allUnlinkedWhys;
+void _allChildSkipWhys;
+void _allRegionCertainties;
 
 /** Every `IdSource`, in Rust's declaration order. */
 const ID_SOURCES = [

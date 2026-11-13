@@ -4,7 +4,12 @@ import { useCallback, useMemo, type MouseEvent } from 'react';
 import { useActiveRange, stickyHeaderAt } from '@/hooks/useActiveRange';
 import { useElementSize } from '@/hooks/useElementSize';
 import { useT } from '@/i18n/useT';
-import { COVER_GAP, COVER_SIZES, columnsFor } from '@/lib/coverSizes';
+import {
+  COVER_GAP,
+  columnsFor,
+  metrics as coverMetrics,
+} from '@/lib/coverSizes';
+import { hasFreshChild } from '@/lib/games';
 import { nextIndex } from '@/lib/keyboardNav';
 import { buildRowModel, coveringSections, moveVertical } from '@/lib/rowModel';
 
@@ -13,7 +18,7 @@ import { SECTION_ROW_H, SectionHeaderRow } from './SectionHeaderRow';
 import { entryIdOf, type ViewProps } from './types';
 import { useViewKeys } from './useViewKeys';
 
-// Tile metrics per size stop are in `COVER_SIZES` (src/lib/coverSizes.ts).
+// Tile metrics per size stop are in `metrics()` (src/lib/coverSizes.ts).
 const GAP = COVER_GAP;
 
 const VERTICAL: Readonly<Record<string, 1 | -1>> = {
@@ -34,11 +39,13 @@ export function CoversView({
   onSelect,
   onOpen,
   onPreview,
+  content,
 }: ViewProps) {
   const t = useT();
   const [ref, size, element] = useElementSize<HTMLDivElement>();
   const stop = prefs.coverSize;
-  const metrics = COVER_SIZES[stop];
+  const contentLine = content?.line === true;
+  const metrics = coverMetrics(stop, contentLine);
   const rowH = metrics.tileH + GAP;
   const columns = columnsFor(size.width, stop);
   const pageRows = Math.max(1, Math.floor(size.height / rowH));
@@ -75,9 +82,9 @@ export function CoversView({
       if (!row) return i;
       return row.kind === 'header'
         ? `h:${row.section.key}`
-        : `r:${stop}:${row.sectionIndex}:${row.start}`;
+        : `r:${stop}:${contentLine ? 'c' : ''}:${row.sectionIndex}:${row.start}`;
     },
-    [rows, stop],
+    [rows, stop, contentLine],
   );
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual is not memoisable by the React Compiler
   const virtualizer = useVirtualizer({
@@ -117,7 +124,14 @@ export function CoversView({
 
   function onClick(ev: MouseEvent<HTMLDivElement>) {
     const id = entryIdOf(ev.target);
-    if (id !== null) onOpen(id);
+    if (id === null) return;
+    // The add-on summary opens the panel at its Versión section (§8.2).
+    const onVersion = content?.onOpenVersion;
+    const summary =
+      ev.target instanceof Element &&
+      ev.target.closest('[data-open-version]') !== null;
+    if (summary && onVersion) onVersion(id);
+    else onOpen(id);
   }
 
   return (
@@ -175,17 +189,25 @@ export function CoversView({
                 paddingLeft: GAP,
               }}
             >
-              {entries.slice(row.start, row.end).map((entry) => (
-                <CoverTile
-                  key={entry.id}
-                  entry={entry}
-                  system={systems[entry.system]}
-                  generation={generation}
-                  art={prefs.art}
-                  size={stop}
-                  selected={entry.id === selectedId}
-                />
-              ))}
+              {entries.slice(row.start, row.end).map((entry) => {
+                const game = content?.byEntry.get(entry.id);
+                return (
+                  <CoverTile
+                    key={entry.id}
+                    entry={entry}
+                    system={systems[entry.system]}
+                    generation={generation}
+                    art={prefs.art}
+                    size={stop}
+                    selected={entry.id === selectedId}
+                    game={game}
+                    contentLine={contentLine}
+                    isNew={
+                      game !== undefined && hasFreshChild(game, content?.fresh)
+                    }
+                  />
+                );
+              })}
             </div>
           );
         })}

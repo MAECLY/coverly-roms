@@ -1,11 +1,22 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SystemGroups } from '@/components/organize/SystemGroups';
 import { I18nProvider } from '@/i18n/I18nProvider';
+import { setBackend } from '@/ipc/backend';
+import { BackendError } from '@/ipc/errors';
+import { createMockBackend } from '@/ipc/mock/mockBackend';
 import { groupBySystem } from '@/lib/organize';
 import type {
+  ArtImage,
   EmulatorChoice,
   OrganizeItem,
   SystemInfo,
@@ -1185,5 +1196,241 @@ describe('SystemGroups: the emulator of a system', () => {
     expect(
       screen.getByRole('button', { name: 'Ver cómo queda para shadPS4' }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('SystemGroups: child thumbnails (addon views D15)', () => {
+  /** A stand-in for the browser's observer: rows are «in view» when the
+   * test says so. */
+  class FakeObserver {
+    static all: FakeObserver[] = [];
+    readonly targets = new Set<Element>();
+    constructor(private readonly cb: IntersectionObserverCallback) {
+      FakeObserver.all.push(this);
+    }
+    observe(el: Element) {
+      this.targets.add(el);
+    }
+    unobserve(el: Element) {
+      this.targets.delete(el);
+    }
+    disconnect() {
+      this.targets.clear();
+    }
+    takeRecords() {
+      return [];
+    }
+    static showAll() {
+      act(() => {
+        for (const o of FakeObserver.all) {
+          const entries = [...o.targets].map(
+            (target) =>
+              ({ target, isIntersecting: true }) as IntersectionObserverEntry,
+          );
+          if (entries.length > 0)
+            o.cb(entries, o as unknown as IntersectionObserver);
+        }
+      });
+    }
+  }
+
+  /** Backend reads held open until the test settles them. */
+  function held() {
+    const pending: {
+      itemId: number;
+      resolve(img: ArtImage): void;
+      reject(e: unknown): void;
+    }[] = [];
+    const calls: number[] = [];
+    const organizeChildThumb = vi.fn(
+      (_plan: number, itemId: number) =>
+        new Promise<ArtImage>((resolve, reject) => {
+          calls.push(itemId);
+          pending.push({ itemId, resolve, reject });
+        }),
+    );
+    setBackend({ ...createMockBackend({ delayMs: 0 }), organizeChildThumb });
+    return { pending, calls, organizeChildThumb };
+  }
+
+  const PNG: ArtImage = {
+    bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    mime: 'image/png',
+  };
+
+  const dlcRows = (n: number) => [
+    autoItem(0, 'Rock Band 4 (USA).pkg', 'ps4', 'ROMS/PS4', {
+      game: { role: 'base', folder: 'ROMS/PS4/Rock Band 4 (USA)' },
+    }),
+    ...Array.from({ length: n }, (_, i) =>
+      autoItem(i + 1, `Rock Band 4 - Song ${i + 1}.pkg`, 'ps4', 'ROMS/PS4', {
+        game: { role: 'dlc', of: 0 },
+      }),
+    ),
+  ];
+
+  const renderThumbs = (items: OrganizeItem[], planId: number | null = 7) =>
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf(items))}
+          layoutName="ES-DE"
+          systemName={(id) => id}
+          planId={planId}
+        />
+      </I18nProvider>,
+    );
+
+  beforeEach(() => {
+    FakeObserver.all = [];
+    vi.stubGlobal('IntersectionObserver', FakeObserver);
+    let n = 0;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:${++n}`);
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    setBackend(null);
+  });
+
+  it('reads a child row’s icon once it is in view, by plan and item id', async () => {
+    const { pending, organizeChildThumb } = held();
+    const { container } = renderThumbs(dlcRows(1));
+    // Nothing is read before the row is in view.
+    await act(async () => {});
+    expect(organizeChildThumb).not.toHaveBeenCalled();
+    FakeObserver.showAll();
+    await waitFor(() => expect(pending).toHaveLength(1));
+    expect(organizeChildThumb).toHaveBeenCalledWith(7, 1);
+    await act(async () => pending[0]!.resolve(PNG));
+    const img = await waitFor(() => {
+      const el = container.querySelector('img');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(img).toHaveAttribute('src', 'blob:1');
+    expect(img.closest('.child-thumb')).toHaveAttribute('aria-hidden', 'true');
+    // In view again: no second read.
+    FakeObserver.showAll();
+    await act(async () => {});
+    expect(organizeChildThumb).toHaveBeenCalledTimes(1);
+  });
+
+  it('never has more than 4 reads in flight', async () => {
+    const { pending, calls } = held();
+    renderThumbs(dlcRows(10));
+    FakeObserver.showAll();
+    await waitFor(() => expect(pending).toHaveLength(4));
+    let most = 0;
+    while (calls.length < 10 || pending.length > 0) {
+      most = Math.max(most, pending.length);
+      const next = pending.shift();
+      if (!next) {
+        await act(async () => {});
+        continue;
+      }
+      await act(async () => next.resolve(PNG));
+    }
+    expect(most).toBe(4);
+    expect([...calls].sort((a, b) => a - b)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    ]);
+  });
+
+  it('closing the plan stops the reads still waiting', async () => {
+    const { pending, calls } = held();
+    const view = renderThumbs(dlcRows(10));
+    FakeObserver.showAll();
+    await waitFor(() => expect(pending).toHaveLength(4));
+    view.unmount();
+    for (const p of pending.splice(0)) await act(async () => p.resolve(PNG));
+    await act(async () => {});
+    expect(calls).toHaveLength(4);
+    // An answer that came after closing makes no image URL.
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('a child with no art in the clear shows no image and no placeholder', async () => {
+    const { pending } = held();
+    const { container } = renderThumbs(dlcRows(1));
+    FakeObserver.showAll();
+    await waitFor(() => expect(pending).toHaveLength(1));
+    await act(async () =>
+      pending[0]!.reject(new BackendError('art-missing', 'icon')),
+    );
+    await act(async () => {});
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelector('.child-thumb')).toBeNull();
+    expect(container.querySelector('.art-placeholder')).toBeNull();
+  });
+
+  const ui = (items: OrganizeItem[], planId: number | null) => (
+    <I18nProvider locale="es">
+      <SystemGroups
+        groups={groupBySystem(planOf(items))}
+        layoutName="ES-DE"
+        systemName={(id) => id}
+        planId={planId}
+      />
+    </I18nProvider>
+  );
+
+  it('a plan that closes while the list stays drops its waiting reads and icons', async () => {
+    const { pending, calls } = held();
+    const items = dlcRows(10);
+    const view = render(ui(items, 7));
+    FakeObserver.showAll();
+    await waitFor(() => expect(pending).toHaveLength(4));
+    await act(async () => pending.shift()!.resolve(PNG));
+    await waitFor(() =>
+      expect(view.container.querySelector('img')).not.toBeNull(),
+    );
+    view.rerender(ui(items, null));
+    for (const p of pending.splice(0)) await act(async () => p.resolve(PNG));
+    await act(async () => {});
+    // Only the first four ever started; the six waiting never did.
+    expect(calls).toHaveLength(5);
+    expect(view.container.querySelector('img')).toBeNull();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:1');
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it('a new plan reads its own icons and never shows the old ones', async () => {
+    const { pending, organizeChildThumb } = held();
+    const items = dlcRows(1);
+    const view = render(ui(items, 7));
+    FakeObserver.showAll();
+    await waitFor(() => expect(pending).toHaveLength(1));
+    await act(async () => pending.shift()!.resolve(PNG));
+    await waitFor(() =>
+      expect(view.container.querySelector('img')).toHaveAttribute(
+        'src',
+        'blob:1',
+      ),
+    );
+    view.rerender(ui(items, 8));
+    expect(view.container.querySelector('img')).toBeNull();
+    await waitFor(() => expect(pending).toHaveLength(1));
+    expect(organizeChildThumb).toHaveBeenLastCalledWith(8, 1);
+    await act(async () => pending.shift()!.resolve(PNG));
+    await waitFor(() =>
+      expect(view.container.querySelector('img')).toHaveAttribute(
+        'src',
+        'blob:2',
+      ),
+    );
+  });
+
+  it('a base or a plain ROM reads nothing', async () => {
+    const { organizeChildThumb } = held();
+    renderThumbs([
+      ...dlcRows(0),
+      autoItem(5, 'Tetris (USA).gba', 'gba', 'ROMS/GBA'),
+    ]);
+    FakeObserver.showAll();
+    await act(async () => {});
+    expect(organizeChildThumb).not.toHaveBeenCalled();
   });
 });

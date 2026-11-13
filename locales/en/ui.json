@@ -433,6 +433,7 @@
     "stale-library": "The library was reopened. Try again.",
     "superseded": "Another library was opened meanwhile.",
     "unknown-entry": "This ROM is no longer in the library.",
+    "unknown-child": "This update or DLC is no longer in the library.",
     "art-missing": "There is no image for this ROM.",
     "outside-library": "This file is outside the library and was not opened.",
     "art-too-large": "This image is too large to show.",
@@ -505,7 +506,7 @@
     "systems": "Systems",
     "date": "Date",
     "all": "All",
-    "allRoms": "All ROMs"
+    "allGames": "All games"
   },
   "date": {
     "week": "This week",
@@ -909,6 +910,8 @@
     "column": {
       "thumb": "Thumbnail",
       "name": "Name",
+      "version": "Version",
+      "content": "Content",
       "system": "System",
       "folder": "Folder",
       "regions": "Regions",
@@ -931,7 +934,9 @@
       "systems": "Systems",
       "folders": "Folders",
       "games": "Games",
-      "preview": "Preview"
+      "preview": "Preview",
+      "content": "Content",
+      "files": "Files"
     },
     "folderRoot": "(root)",
     "previewEmpty": "Choose a game to see its art and file.",
@@ -976,15 +981,28 @@
     "italy": "Italy",
     "korea": "Korea",
     "netherlands": "Netherlands",
+    "russia": "Russia",
     "spain": "Spain",
     "sweden": "Sweden",
     "taiwan": "Taiwan",
     "united-kingdom": "United Kingdom"
   },
   "status": {
-    "shown": "{shown} of {total} ROMs",
     "missingCover": "{n} without cover",
-    "scan": "Scanned in {ms} ms"
+    "scan": "Scanned in {ms} ms",
+    "games": "{n} games",
+    "gamesOne": "1 game",
+    "gamesOf": "{shown} of {total} games",
+    "demos": "{n} of them demos",
+    "demosOne": "1 of them a demo",
+    "inside": "inside them: {list} (not counted as games)",
+    "updates": "{n} updates",
+    "updatesOne": "1 update",
+    "dlc": "{n} DLC",
+    "revisions": "{n} more revisions",
+    "revisionsOne": "1 more revision",
+    "orphans": "{n} add-ons without their game",
+    "orphansOne": "1 add-on without its game"
   },
   "drawer": {
     "close": "Close details",
@@ -1320,7 +1338,10 @@
       "modOf": "Mod for {title}",
       "patchOf": "Patch for {title}",
       "cheatOf": "Cheats for {title}",
-      "pointEmulatorHere": "Point {emulator} at this folder: {folder}"
+      "pointEmulatorHere": "Point {emulator} at this folder: {folder}",
+      "regionLetterUnknown": "Region letter “{letter}” not identified; no region is added to the name.",
+      "childArtStays": "Its {count} own art files stay where they are; they are not copied here.",
+      "childArtStaysOne": "Its own art file stays where it is; it is not copied here."
     },
     "pause": {
       "diskFull": "Disk full: {needed} more needed; the half-extracted game was undone"
@@ -1932,5 +1953,213 @@
         "use": "A bridge between each service's IDs"
       }
     }
+  },
+  "content": {
+    "filters": {
+      "label": "Show games that",
+      "updates": "Have updates",
+      "missing": "Are missing the latest update",
+      "missingHint": "Compares only within your library until a title list is available.",
+      "dlc": "Have DLC",
+      "demos": "Demos only",
+      "result": "{n} games match these filters.",
+      "resultOne": "1 game matches these filters.",
+      "none": "No game matches these filters.",
+      "cleared": "Content filters cleared: {n} games.",
+      "clearedOne": "Content filters cleared: 1 game."
+    },
+    "summary": {
+      "dlc": "+{n} DLC",
+      "rev": "{n} rev.",
+      "missing": "↑ v{v} missing"
+    },
+    "new": "New",
+    "kind": {
+      "update": "Update",
+      "dlc": "DLC",
+      "revision": "Revision",
+      "demo": "Demo",
+      "folder": "Folder"
+    },
+    "newest": "the newest",
+    "notInLibrary": "not in the library",
+    "ghost": "↑ v{v} missing",
+    "cell": {
+      "updates": "{n} upd.",
+      "updatesOne": "1 upd.",
+      "demoApart": "separate demo",
+      "revisions": "{n} revisions",
+      "count": "{label}: {n}"
+    },
+    "demoOf": "Demo of {name}",
+    "folderSummary": "Mods, cheats, extras and saves",
+    "keysHint": "Keyboard: ↑ ↓ move between rows, → expands, ← collapses or goes up to the game, Enter opens the panel. Content rows do not count in the total and are left out of bulk actions.",
+    "shelves": {
+      "label": "Add-ons",
+      "behind": "Behind the box",
+      "beside": "Beside it",
+      "with": "With {n} add-ons",
+      "withOne": "With 1 add-on"
+    },
+    "mounts": {
+      "toggle": "Content slots ({n})",
+      "hint": "Updates with their own art and every DLC.",
+      "toggleLabel": "Content slots",
+      "dlc": "DLC {name}",
+      "icon": "icon {state}",
+      "banner": "banner {state}",
+      "slotLabel": "{slot}: {state}",
+      "from": "from {source}",
+      "tag": {
+        "package": "package",
+        "ss": "SS",
+        "sgdb": "SGDB",
+        "user": "yours"
+      }
+    },
+    "slot": {
+      "icon": "Icon",
+      "banner": "Banner",
+      "missing": "missing",
+      "inherits": "uses the base game's"
+    },
+    "origin": {
+      "package": "in the package",
+      "ss": "ScreenScraper",
+      "sgdb": "SteamGridDB",
+      "user": "yours",
+      "base": "game art"
+    },
+    "noArt": "no art",
+    "tray": {
+      "label": "Add-on art",
+      "update": "Update {v}",
+      "fromBase": "the base game's",
+      "open": "Open {name} in the panel"
+    },
+    "facts": {
+      "version": "Version",
+      "dlc": "DLC",
+      "demo": "Demo",
+      "fullGame": "Full game",
+      "inLibrary": "In the library",
+      "notInLibrary": "Not in the library"
+    },
+    "film": {
+      "dlc": "+{n}",
+      "missing": "↑",
+      "demo": "demo"
+    },
+    "columns": {
+      "group": {
+        "base": "Base game",
+        "updates": "Updates",
+        "dlc": "DLC",
+        "revisions": "Revisions",
+        "demo": "Demo",
+        "cheats": "Cheats",
+        "mods": "Mods",
+        "extras": "Extras",
+        "saves": "Saves"
+      },
+      "file": "File",
+      "art": "Art",
+      "artOwn": "Own, {origin}",
+      "artOwnBare": "Own",
+      "artBase": "From the base game",
+      "artNone": "No art",
+      "default": "default",
+      "demoLink": "Go to the demo, {name}"
+    }
+  },
+  "spoken": {
+    "head": "{title}, {system}",
+    "full": "{head}. {parts}",
+    "demoOf": "demo of {name}",
+    "demoAlone": "demo; the full game is not in the library",
+    "dlc": "{n} DLC",
+    "addons": "with {n} add-ons",
+    "addonsOne": "with 1 add-on",
+    "updates": "{n} updates",
+    "updatesOne": "1 update",
+    "newest": "the newest {v}",
+    "missing": "missing the latest update, {v}",
+    "revisions": "{n} revisions",
+    "revisionUsed": "using {rev}",
+    "hasDemo": "has a demo",
+    "newContent": "new content since the last scan"
+  },
+  "orphans": {
+    "title": "Add-ons without their game",
+    "noGame": "Its game is not in the library.",
+    "ofGame": "It belongs to “{name}”; it is outside its folder.",
+    "showGame": "Show the game",
+    "showGameNamed": "Show the game “{name}”",
+    "kind": "Kind",
+    "game": "Game"
+  },
+  "panel": {
+    "version": "Version",
+    "updates": "{n} updates",
+    "updatesOne": "1 update",
+    "noUpdates": "no updates",
+    "newestInLibrary": "the newest in your library",
+    "newestWithGame": "the newest with the game",
+    "baseVersion": "(the base game's)",
+    "latestOk": "It is the latest there is, according to the {source}.",
+    "latestMissing": "v{v} exists and is not in your library. From the {source}.",
+    "latestElsewhere": "v{v} is in your library, outside the game's folder.",
+    "showIt": "Show where it is",
+    "source": {
+      "title-db": "title list",
+      "game-tdb": "GameTDB database"
+    },
+    "versions": "Versions",
+    "notInLibrary": "Not in the library",
+    "newestPill": "Newest",
+    "basePill": "Base game",
+    "missingPill": "Missing",
+    "revisions": "Revisions",
+    "revisionsSub": "{n} files, one game",
+    "revDefault": "Default",
+    "revUse": "Use this",
+    "revUseLabel": "Use {rev} as the default",
+    "revUntagged": "Original",
+    "revNote": "The default is the one shown in the library and the one that will be copied to the device once sync arrives.",
+    "revChanged": "{rev} is now the default.",
+    "region": "{system}, {region}",
+    "regionCountry": "{system}, {region}, {country}",
+    "regionLikely": "{system}, {region} (likely, per GameTDB and 3dbrew)",
+    "regionUnknown": "Region letter “{letter}” not identified ({code})",
+    "titleId": "Title ID",
+    "dlc": "DLC",
+    "dlcSub": "{n} in the DLC/ folder",
+    "dlcSubOne": "1 in the DLC/ folder",
+    "readArt": "Read the included art",
+    "readArtDone": "Art read for {n} files.",
+    "readArtDoneOne": "Art read for 1 file.",
+    "readArtNone": "Nothing was written: these packages carry no art that can be read, or their slots already have an image.",
+    "searchArt": "Search for art",
+    "searchArtLabel": "Search for art for {name}",
+    "searchArtFor": "Art for {name}",
+    "searchArtOnly": "ScreenScraper and SteamGridDB results only. Nothing is written until you pick one.",
+    "searchArtNone": "No ScreenScraper or SteamGridDB result for that title.",
+    "searchArtDone": "Art for {name} updated.",
+    "searchArtClose": "Close the search",
+    "relatedDemo": "Related demo",
+    "demoCard": "Separate game, {size}",
+    "demo": "Demo",
+    "openFull": "Open the full game",
+    "fullInLibrary": "{name}, in your library",
+    "fullMissing": "It is a demo of {name}. The full game is not in your library.",
+    "demoNote": "The demo is a separate game with its own folder and cover. Its saves do not carry over to the full game.",
+    "fromFull": "from the full game",
+    "folders": "Mods, cheats, extras and saves",
+    "folderEmpty": "empty",
+    "files": "{n} files",
+    "filesOne": "1 file",
+    "filesMany": "more than {n} files",
+    "savesLater": "This game's saves will show here, with date and emulator, once block 5 arrives.",
+    "gameFolder": "Game folder"
   }
 }

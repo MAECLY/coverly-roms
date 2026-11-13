@@ -89,6 +89,20 @@ describe('viewStore prefs', () => {
     expect(store.getState().prefs).toBe(before);
   });
 
+  it('opens the panel at a section once, for the add-on summary (§8.2)', () => {
+    store.getState().openDrawer('version');
+    expect(store.getState().drawerOpen).toBe(true);
+    expect(store.getState().panelSection).toBe('version');
+    store.getState().clearPanelSection();
+    expect(store.getState().panelSection).toBeNull();
+    store.getState().openDrawer('version');
+    store.getState().openDrawer();
+    expect(store.getState().panelSection).toBeNull();
+    store.getState().openDrawer('version');
+    store.getState().closeDrawer();
+    expect(store.getState().panelSection).toBeNull();
+  });
+
   it('reset() keeps prefs and root', () => {
     store.getState().loadFor('/a');
     store.getState().setView('gallery');
@@ -97,6 +111,24 @@ describe('viewStore prefs', () => {
     expect(store.getState().prefs.view).toBe('gallery');
     expect(store.getState().root).toBe('/a');
     expect(store.getState().drawerOpen).toBe(false);
+  });
+
+  it('keeps the open Details games for the session (addon views §8.4)', () => {
+    const s = () => store.getState();
+    expect(s().expanded).toBeNull();
+    s().initExpanded([4]);
+    expect([...s().expanded!]).toEqual([4]);
+    // Only the first time Details shows.
+    s().initExpanded([7]);
+    expect([...s().expanded!]).toEqual([4]);
+    s().setExpanded(9, true);
+    s().setExpanded(4, false);
+    expect([...s().expanded!]).toEqual([9]);
+    const same = s().expanded;
+    s().setExpanded(9, true);
+    expect(s().expanded).toBe(same);
+    s().reset();
+    expect(s().expanded).toBeNull();
   });
 
   it('keeps the layout alias in step with prefs.view', () => {

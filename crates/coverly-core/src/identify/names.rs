@@ -23,6 +23,7 @@ pub enum Region {
     Italy,
     Korea,
     Netherlands,
+    Russia,
     Spain,
     Sweden,
     Taiwan,
@@ -48,6 +49,7 @@ impl Region {
             "italy" => Italy,
             "korea" => Korea,
             "netherlands" => Netherlands,
+            "russia" => Russia,
             "spain" => Spain,
             "sweden" => Sweden,
             "taiwan" => Taiwan,
@@ -78,6 +80,7 @@ impl Region {
             Italy => "Italy",
             Korea => "Korea",
             Netherlands => "Netherlands",
+            Russia => "Russia",
             Spain => "Spain",
             Sweden => "Sweden",
             Taiwan => "Taiwan",
@@ -830,9 +833,9 @@ fn disc_group(g: &str) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bare_region, Region};
+    use super::{bare_region, parse_tags, Region};
 
-    const ALL: [Region; 19] = [
+    const ALL: [Region; 20] = [
         Region::World,
         Region::Usa,
         Region::Europe,
@@ -848,11 +851,25 @@ mod tests {
         Region::Italy,
         Region::Korea,
         Region::Netherlands,
+        Region::Russia,
         Region::Spain,
         Region::Sweden,
         Region::Taiwan,
         Region::UnitedKingdom,
     ];
+
+    #[test]
+    fn russia_is_a_no_intro_region() {
+        assert_eq!(Region::from_no_intro("Russia"), Some(Region::Russia));
+        assert_eq!(Region::Russia.no_intro_word(), "Russia");
+        assert_eq!(
+            serde_json::to_string(&Region::Russia).unwrap(),
+            "\"russia\""
+        );
+        let tags = parse_tags("Pocket Card Jockey (Russia)");
+        assert_eq!(tags.regions, vec![Region::Russia]);
+        assert_eq!(tags.title_key, parse_tags("Pocket Card Jockey").title_key);
+    }
 
     #[test]
     fn no_intro_word_round_trips() {

@@ -20,6 +20,22 @@ describe('search', () => {
     expect(keys).toEqual(['pokemon oro.sfc', 'zelda.smc']);
   });
 
+  it('a game matches by its own name or any of its updates and DLC', () => {
+    const lantern = {
+      ...entry(0, 'Lantern Harbor (USA)', 'pkg'),
+      children: [
+        { name: 'Lantern Harbor (v1.10)' },
+        { name: 'Lantern Harbor - Lighthouse Keeper Pack' },
+      ],
+    } as EntryView;
+    const [key] = buildSearchKeys([lantern]);
+    expect(key).toContain('lantern harbor (usa).pkg');
+    for (const t of queryTokens('lighthouse keeper')) expect(key).toContain(t);
+    // A word never runs from one name into the next.
+    expect(key).not.toContain('pkglantern');
+    expect(key).not.toContain(')lantern');
+  });
+
   it('splits the query into folded tokens', () => {
     expect(queryTokens('  POKÉMON   oro ')).toEqual(['pokemon', 'oro']);
     expect(queryTokens('   ')).toEqual([]);

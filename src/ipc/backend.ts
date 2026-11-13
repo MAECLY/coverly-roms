@@ -6,6 +6,9 @@ import { hasTauriIpc, type AppInfo } from './appInfo';
 import type {
   ArtImage,
   CandidateView,
+  ChildArtReadView,
+  ChildMedia,
+  ChildView,
   CatalogStatus,
   CreditLink,
   CredentialKey,
@@ -20,6 +23,7 @@ import type {
   ExportFormat,
   FillRequest,
   FolderProbe,
+  GameDetailsView,
   IdentityView,
   IntegrationTestResult,
   IntegrationView,
@@ -78,6 +82,54 @@ export interface Backend {
   readArt(generation: number, entryId: number, media: Media): Promise<ArtImage>;
   identifyEntry(generation: number, entryId: number): Promise<IdentityView>;
   revealEntry(generation: number, entryId: number): Promise<void>;
+  /** The game panel's lazy, offline facts (part C D3). `request` comes
+   * back in the answer: drop one that is not the latest. */
+  gameDetails(
+    generation: number,
+    entryId: number,
+    request: number,
+  ): Promise<GameDetailsView>;
+  /** Makes this revision the default of its group in this library (D7);
+   * answers the library's choices (version group → `rel_path`). */
+  setDefaultRevision(
+    generation: number,
+    entryId: number,
+  ): Promise<Record<string, string>>;
+  /** «Leer el arte incluido»: the art the game's updates and DLC carry in
+   * the clear, into their empty slots (an undoable job, D11 b). */
+  readChildArt(generation: number, entryId: number): Promise<ChildArtReadView>;
+  /** «Buscar arte» on an update or DLC: a title search for child
+   * `childIndex` (ScreenScraper and SteamGridDB results only). Nothing is
+   * written. */
+  searchChildArt(
+    generation: number,
+    entryId: number,
+    childIndex: number,
+    query: string,
+  ): Promise<CandidateView[]>;
+  /** A child search result, as it would be written. */
+  childSearchArt(
+    generation: number,
+    entryId: number,
+    childIndex: number,
+    candidate: number,
+  ): Promise<ArtImage>;
+  /** Writes result `candidate` of the child's last search into its
+   * `slot`, on an explicit pick only. Answers the game's children again. */
+  setChildArtFromSearch(
+    generation: number,
+    entryId: number,
+    childIndex: number,
+    slot: ChildMedia,
+    candidate: number,
+  ): Promise<ChildView[]>;
+  /** One art slot of an update or DLC, by index (never a path). */
+  readChildArtBytes(
+    generation: number,
+    entryId: number,
+    childIndex: number,
+    slot: ChildMedia,
+  ): Promise<ArtImage>;
   pickFolder(): Promise<string | null>;
   onFolderDrop(cb: (path: string) => void): Promise<() => void>;
   startFill(generation: number, request: FillRequest): Promise<JobView>;
@@ -160,6 +212,11 @@ export interface Backend {
   organizeUndo(job: string, includeLater: boolean): Promise<OrganizeUndoView>;
   /** Saves plan `planId` as JSON through a native dialog; null when cancelled. */
   organizeExportPlan(planId: number): Promise<string | null>;
+  /** The icon a pile's update, DLC or demo carries in the clear, read
+   * from its source file for its row (addon views D15); by plan and item
+   * id, never a path. Nothing is written; rejects with `art-missing` when
+   * the package has none in the clear. */
+  organizeChildThumb(planId: number, itemId: number): Promise<ArtImage>;
   onOrganizeProgress(
     cb: (e: OrganizeProgressEvent) => void,
   ): Promise<() => void>;

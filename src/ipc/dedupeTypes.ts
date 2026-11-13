@@ -73,6 +73,7 @@ export type RegionId =
   | 'italy'
   | 'korea'
   | 'netherlands'
+  | 'russia'
   | 'spain'
   | 'sweden'
   | 'taiwan'

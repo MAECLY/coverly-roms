@@ -254,12 +254,14 @@ fn companions_follow_and_are_renamed_with_catalogue_names() {
             Companion {
                 source: "Game.sav".into(),
                 target: "ROMS/GBA/Game (USA).sav".into(),
-                licence: false
+                licence: false,
+                child_art: false
             },
             Companion {
                 source: "Game.state3".into(),
                 target: "ROMS/GBA/Game (USA).state3".into(),
-                licence: false
+                licence: false,
+                child_art: false
             },
         ]
     );
@@ -285,7 +287,8 @@ fn a_companion_collision_keeps_the_original_name() {
         vec![Companion {
             source: "Game.sav".into(),
             target: "ROMS/GBA/Game.sav".into(),
-            licence: false
+            licence: false,
+            child_art: false
         }]
     );
 }
@@ -491,7 +494,8 @@ fn auto_save_states_with_two_extensions_follow_and_are_renamed() {
         vec![Companion {
             source: "Game.state.auto".into(),
             target: "ROMS/GBA/Game (USA).state.auto".into(),
-            licence: false
+            licence: false,
+            child_art: false
         }]
     );
 }
@@ -524,12 +528,14 @@ fn split_wbfs_parts_move_with_their_image() {
             Companion {
                 source: "Galaxy.wbf1".into(),
                 target: wii.join("Super Mario Galaxy (Europe).wbf1"),
-                licence: false
+                licence: false,
+                child_art: false
             },
             Companion {
                 source: "Galaxy.WBF2".into(),
                 target: wii.join("Super Mario Galaxy (Europe).WBF2"),
-                licence: false
+                licence: false,
+                child_art: false
             },
         ]
     );

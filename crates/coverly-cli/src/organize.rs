@@ -1782,6 +1782,15 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::PointEmulatorHere { emulator, folder } => {
             format!("point {emulator} at this folder: {folder}")
         }
+        ItemNote::RegionLetterUnknown { letter } => {
+            format!("region letter “{letter}” not identified; no region is added to the name")
+        }
+        ItemNote::ChildArtStays { count } => format!(
+            "{count} art {} of this update or DLC {} where {}",
+            if *count == 1 { "file" } else { "files" },
+            if *count == 1 { "stays" } else { "stay" },
+            if *count == 1 { "it is" } else { "they are" },
+        ),
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })
@@ -3024,6 +3033,7 @@ mod tests {
             source: p("BLUS30001.rap").into(),
             target: p("PS3").join("Resistance").join("BLUS30001.rap"),
             licence: true,
+            child_art: false,
         });
         let mut rap = test_item(1, "BLUS30001.rap");
         rap.action = OrganizeAction::Left {
@@ -3069,6 +3079,7 @@ mod tests {
             source: p("BLUS30001.rap").into(),
             target: p("PS3").join("Resistance").join("BLUS30001.rap"),
             licence: true,
+            child_art: false,
         });
         let mut rap = test_item(1, "BLUS30001.rap");
         rap.action = OrganizeAction::Left {
@@ -3290,6 +3301,18 @@ mod tests {
             Some("point shadPS4 at this folder: addcont")
         );
         assert_eq!(
+            note_text(&ItemNote::RegionLetterUnknown { letter: 'T' }).as_deref(),
+            Some("region letter “T” not identified; no region is added to the name")
+        );
+        assert_eq!(
+            note_text(&ItemNote::ChildArtStays { count: 2 }).as_deref(),
+            Some("2 art files of this update or DLC stay where they are")
+        );
+        assert_eq!(
+            note_text(&ItemNote::ChildArtStays { count: 1 }).as_deref(),
+            Some("1 art file of this update or DLC stays where it is")
+        );
+        assert_eq!(
             addon_format_name(AddonFormat::CemuGraphicPack),
             "Cemu graphic pack"
         );
@@ -3452,6 +3475,54 @@ mod tests {
         );
         assert!(!table.contains("mod for Pokemon Y"), "{table}");
         assert!(table.contains("3DS/  (3)"), "{table}");
+    }
+
+    #[test]
+    fn an_unknown_3ds_region_letter_is_listed_on_its_base_row() {
+        let p = std::path::Path::new;
+        let mut base = test_item(0, "Zelda CTR-P-AXXT.cia");
+        base.system_id = Some("3ds".into());
+        base.folder = Some("3DS".into());
+        base.target = Some(p("3DS").join("Zelda").join("Zelda CTR-P-AXXT.cia"));
+        base.notes = vec![ItemNote::RegionLetterUnknown { letter: 'T' }];
+        base.game = Some(GameLink::new(GameRole::Base));
+        // Its update (the table does not nest updates, only addons): the
+        // base's note stays on the base's row and never reaches the update.
+        let mut update = test_item(1, "Zelda Update v1.1.cia");
+        update.system_id = Some("3ds".into());
+        update.folder = Some("3DS".into());
+        update.target = Some(
+            p("3DS")
+                .join("Zelda")
+                .join("Updates")
+                .join("Zelda Update v1.1.cia"),
+        );
+        let mut link = GameLink::new(GameRole::Update);
+        link.of = Some(0);
+        link.version = Some("1.1".into());
+        update.game = Some(link);
+        let plan = plan_with_items(vec![base, update]);
+        let table = render_table(
+            &plan,
+            &SystemDb::builtin(),
+            &OrganizeOptions::default(),
+            true,
+        );
+        let lines: Vec<&str> = table.lines().collect();
+        let at = lines
+            .iter()
+            .position(|l| l.contains("Zelda CTR-P-AXXT.cia →"))
+            .unwrap_or_else(|| panic!("{table}"));
+        assert!(
+            lines[at].contains("region letter “T” not identified; no region is added to the name"),
+            "{table}"
+        );
+        let update_row = lines
+            .iter()
+            .find(|l| l.contains("Zelda Update v1.1.cia →"))
+            .unwrap_or_else(|| panic!("{table}"));
+        assert!(!update_row.contains("region letter"), "{table}");
+        assert_eq!(table.matches("region letter").count(), 1, "{table}");
     }
 
     #[test]

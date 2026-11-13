@@ -7,12 +7,13 @@ import { create } from 'zustand';
 import { getBackend } from '@/ipc/backend';
 import { toBackendError, type BackendError } from '@/ipc/errors';
 import type {
+  ChildView,
   EntryArtUpdate,
   LibraryView,
   RecentLibrary,
   ScanProgress,
 } from '@/ipc/types';
-import { dropArtUrls } from '@/lib/artCache';
+import { dropArtUrls, dropChildArtUrls } from '@/lib/artCache';
 import { buildSearchKeys } from '@/lib/search';
 
 import { useFilterStore } from './filterStore';
@@ -27,6 +28,9 @@ interface LibraryState {
   view: LibraryView | null;
   /** Search keys indexed by entry id. */
   keys: readonly string[];
+  /** The revision chosen per version group in this library (D7): version
+   * group → `rel_path`; empty while none was chosen. */
+  revisionDefaults: Readonly<Record<string, string>>;
   /** Folder of the open library, as picked. */
   path: string | null;
   progress: ScanProgress | null;
@@ -45,13 +49,26 @@ interface LibraryState {
   fail(e: unknown): void;
   /** New art marks of rewritten entries; another generation is ignored. */
   applyArtUpdates(generation: number, updates: readonly EntryArtUpdate[]): void;
+  /** The updates and DLC of entry `entryId` with new art marks (the
+   * panel's «Leer el arte incluido» or «Buscar arte»). */
+  applyChildren(
+    generation: number,
+    entryId: number,
+    children: readonly ChildView[],
+  ): void;
+  /** Makes this revision its game's default (D7); the answer of a library
+   * that is no longer open is dropped. */
+  setDefaultRevision(entryId: number): Promise<void>;
   close(): void;
 }
+
+const NO_DEFAULTS: Readonly<Record<string, string>> = Object.freeze({});
 
 const initial = {
   status: 'idle' as LibraryStatus,
   view: null,
   keys: [],
+  revisionDefaults: NO_DEFAULTS,
   path: null,
   progress: null,
   error: null,
@@ -108,6 +125,7 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
         status: 'ready',
         view,
         keys: buildSearchKeys(view.entries),
+        revisionDefaults: view.revision_defaults ?? NO_DEFAULTS,
         path,
         progress: null,
         openingPath: null,
@@ -149,6 +167,39 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
     });
     dropArtUrls(generation, [...byId.keys()]);
     set({ view: { ...view, entries } });
+  },
+  applyChildren(generation, entryId, children) {
+    const view = get().view;
+    if (!view || view.generation !== generation) return;
+    const entries = view.entries.map((e) =>
+      e.id === entryId ? { ...e, children: [...children] } : e,
+    );
+    dropChildArtUrls(generation, entryId);
+    set({ view: { ...view, entries } });
+  },
+  async setDefaultRevision(entryId) {
+    const view = get().view;
+    if (!view) return;
+    const backend = await getBackend();
+    const choices = await backend.setDefaultRevision(view.generation, entryId);
+    if (get().view?.generation !== view.generation) return;
+    set({ revisionDefaults: choices });
+    // A game is selected through its default revision (D1): when another
+    // revision of the same game was selected, the selection follows the
+    // new default so every view still finds the game.
+    const chosen = view.entries.find((e) => e.id === entryId);
+    const selection = useSelectionStore.getState();
+    const selected =
+      selection.selectedId === null
+        ? undefined
+        : view.entries.find((e) => e.id === selection.selectedId);
+    if (
+      chosen?.version_group !== undefined &&
+      selected !== undefined &&
+      selected.id !== entryId &&
+      selected.version_group === chosen.version_group
+    )
+      selection.select(entryId);
   },
   close() {
     requestSeq += 1;

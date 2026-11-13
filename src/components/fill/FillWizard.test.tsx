@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '@/App';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { getBackend, setBackend } from '@/ipc/backend';
+import { MOCK_ADDONS } from '@/ipc/mock/addonViewsFixture';
 import { FIXTURE_NOW, generateLibrary } from '@/ipc/mock/fixture';
 import {
   createMockBackend,
@@ -23,7 +24,11 @@ import { MemoryStorage } from '@/test/storage';
 
 import { FillWizard } from './FillWizard';
 
-async function setup(opts: MockOptions = {}, locale: 'en' | 'es' = 'en') {
+async function setup(
+  opts: MockOptions = {},
+  locale: 'en' | 'es' = 'en',
+  path: string = MOCK_LIBRARIES[1].path,
+) {
   const backend = createMockBackend({
     delayMs: 0,
     now: FIXTURE_NOW,
@@ -33,7 +38,7 @@ async function setup(opts: MockOptions = {}, locale: 'en' | 'es' = 'en') {
   setBackend(backend);
   resetLibraryStore();
   useJobStore.getState().reset();
-  await useLibraryStore.getState().open(MOCK_LIBRARIES[1].path);
+  await useLibraryStore.getState().open(path);
   render(
     <I18nProvider locale={locale}>
       <App />
@@ -373,6 +378,18 @@ describe('Fill wizard', () => {
     expect(selected).toBeDisabled();
     await userEvent.click(selected);
     expect(selected).not.toBeChecked();
+  });
+
+  it('starts on the whole library when nothing narrows it, orphans or not (D4)', async () => {
+    const { view } = await setup({}, 'en', MOCK_ADDONS);
+    expect(view.entries.some((e) => e.orphan !== undefined)).toBe(true);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    expect(
+      within(dialog).getByRole('radio', { name: /Whole library/ }),
+    ).toBeChecked();
   });
 
   it('closes on Escape', async () => {

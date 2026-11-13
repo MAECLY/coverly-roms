@@ -14,6 +14,10 @@ import {
 } from 'react';
 
 import { Button } from '@/components/ui/button';
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@/components/ui/toggle-group';
 import { useActiveRange } from '@/hooks/useActiveRange';
 import { useElementSize } from '@/hooks/useElementSize';
 import { LocaleContext } from '@/i18n/core';
@@ -25,23 +29,31 @@ import {
   type Media,
   type SystemView,
 } from '@/ipc/types';
-import { COVER_GAP, COVER_SIZES } from '@/lib/coverSizes';
+import { COVER_GAP, metrics as coverMetrics } from '@/lib/coverSizes';
+import { hasFreshChild } from '@/lib/games';
 import { groupEntries, sectionLabel, type Section } from '@/lib/grouping';
 import { nearestByLeft } from '@/lib/keyboardNav';
-import type { CoverSize } from '@/lib/viewPrefs';
 import {
   SHELF_LIMIT,
   seeAllTarget,
+  shelfBoxWidth,
+  shelfDlc,
   shelfHeight,
   shelfOfIndex,
 } from '@/lib/shelves';
+import { useReducedMotion } from '@/lib/useReducedMotion';
 import { cn } from '@/lib/utils';
+import {
+  SHELF_ADDONS_IDS,
+  type CoverSize,
+  type ShelfAddons,
+} from '@/lib/viewPrefs';
 import { useFilterStore } from '@/stores/filterStore';
 import { useViewStore } from '@/stores/viewStore';
 
 import { CoverTile, type TileSystemMark } from './CoverTile';
 import { SECTION_ROW_H, SectionHeaderRow } from './SectionHeaderRow';
-import { entryIdOf, type ViewProps } from './types';
+import { entryIdOf, type ViewContent, type ViewProps } from './types';
 import { useViewKeys } from './useViewKeys';
 
 const GAP = COVER_GAP;
@@ -80,6 +92,12 @@ interface ShelfProps {
   savedLeft: number;
   onScrolled(key: string, left: number): void;
   style: CSSProperties;
+  /** The games behind the entries (part C), if any. */
+  content: ViewContent | undefined;
+  /** Where each box's DLC stand (§8.7). */
+  addons: ShelfAddons;
+  /** Edges fan out on hover and selection (no reduced motion). */
+  fan: boolean;
 }
 
 /** One shelf: the shelf-rule header with its "See all", over a strip of
@@ -100,11 +118,14 @@ function Shelf({
   savedLeft,
   onScrolled,
   style,
+  content,
+  addons,
+  fan,
 }: ShelfProps) {
   const t = useT();
   const locale = useContext(LocaleContext);
-  const metrics = COVER_SIZES[size];
-  const cellW = metrics.tileW + GAP;
+  const contentLine = content?.line === true;
+  const metrics = coverMetrics(size, contentLine);
   const shown = Math.min(section.count, SHELF_LIMIT);
   const more = section.count > SHELF_LIMIT;
   const cells = shown + (more ? 1 : 0);
@@ -112,6 +133,16 @@ function Shelf({
   const group = sectionLabel(section, t);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const rangeExtractor = useActiveRange(activeCell, null);
+  // A box with its DLC beside it is wider than a tile (§8.7).
+  const byEntry = content?.byEntry;
+  const cellW = useCallback(
+    (i: number) => {
+      const entry = i < shown ? entries[section.start + i] : undefined;
+      const dlc = entry ? shelfDlc(byEntry?.get(entry.id)) : 0;
+      return shelfBoxWidth(size, addons, dlc) + GAP;
+    },
+    [entries, section.start, shown, byEntry, size, addons],
+  );
   const getItemKey = useCallback(
     (i: number) =>
       i < shown ? (entries[section.start + i]?.id ?? i) : 'see-all',
@@ -122,7 +153,7 @@ function Shelf({
     horizontal: true,
     count: cells,
     getScrollElement: () => stripRef.current,
-    estimateSize: () => cellW,
+    estimateSize: cellW,
     paddingStart: GAP,
     paddingEnd: GAP,
     overscan: 2,
@@ -238,6 +269,7 @@ function Shelf({
             }
             const entry = entries[section.start + item.index];
             if (!entry) return null;
+            const game = byEntry?.get(entry.id);
             return (
               <CoverTile
                 key={item.key}
@@ -250,6 +282,12 @@ function Shelf({
                 systemMark={systemMark}
                 colIndex={item.index + 1}
                 style={at}
+                game={game}
+                contentLine={contentLine}
+                isNew={
+                  game !== undefined && hasFreshChild(game, content?.fresh)
+                }
+                shelf={{ mode: addons, fan }}
               />
             );
           })}
@@ -275,10 +313,15 @@ export function ShelvesView({
   onSelect,
   onOpen,
   onPreview,
+  content,
 }: ViewProps) {
   const t = useT();
   const baseId = useId();
+  const setPrefs = useViewStore((s) => s.setPrefs);
+  const reduced = useReducedMotion();
   const stop = prefs.coverSize;
+  const addons = prefs.shelfAddons;
+  const contentLine = content?.line === true;
   const groupBy = prefs.groupBy === 'none' ? 'system' : prefs.groupBy;
   // Shelves are always grouped: ungrouped is shown by system (spec §B.5).
   const { entries, sections } = useMemo(() => {
@@ -298,7 +341,15 @@ export function ShelvesView({
   const systemMark: TileSystemMark = groupBy === 'system' ? 'none' : 'badge';
 
   const [ref, size, element] = useElementSize<HTMLDivElement>();
-  const shelfH = shelfHeight(stop);
+  const shelfH = shelfHeight(stop, contentLine);
+  // The «Complementos» choice shows only when some box has DLC.
+  const byEntry = content?.byEntry;
+  const anyDlc = useMemo(
+    () =>
+      byEntry !== undefined &&
+      entries.some((e) => shelfDlc(byEntry.get(e.id)) > 0),
+    [entries, byEntry],
+  );
   const pageShelves = Math.max(1, Math.floor(size.height / shelfH));
   const indexOf = useMemo(
     () => new Map(entries.map((e, i) => [e.id, i])),
@@ -331,8 +382,9 @@ export function ShelvesView({
 
   const rangeExtractor = useActiveRange(cursorShelf, null);
   const getItemKey = useCallback(
-    (i: number) => `${sections[i]?.key ?? i}:${stop}`,
-    [sections, stop],
+    (i: number) =>
+      `${sections[i]?.key ?? i}:${stop}:${contentLine ? 'c' : ''}:${addons}`,
+    [sections, stop, contentLine, addons],
   );
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual is not memoisable by the React Compiler
   const virtualizer = useVirtualizer({
@@ -510,7 +562,13 @@ export function ShelvesView({
     const id = entryIdOf(ev.target);
     if (id !== null) {
       setSeeAll(null);
-      onOpen(id);
+      // The add-on summary opens the panel at its Versión section (§8.2).
+      const onVersion = content?.onOpenVersion;
+      const summary =
+        ev.target instanceof Element &&
+        ev.target.closest('[data-open-version]') !== null;
+      if (summary && onVersion) onVersion(id);
+      else onOpen(id);
     }
   }
 
@@ -531,63 +589,94 @@ export function ShelvesView({
         ? `entry-${selectedId}`
         : undefined;
 
+  const labelId = `${baseId}-addons`;
   return (
-    <div
-      ref={ref}
-      role="grid"
-      aria-label={t('layouts.announce', { view: t('layouts.shelves') })}
-      data-view-root=""
-      aria-rowcount={sections.length * 2}
-      aria-colcount={maxCells}
-      aria-activedescendant={activeDescendant}
-      tabIndex={0}
-      className="shelves"
-      onKeyDown={onKeyDown}
-      onClick={onClick}
-      onFocus={(ev) => {
-        // A click on a tile focuses its strip: hand focus back to the grid
-        // so the keys keep working.
-        if (
-          ev.target !== ev.currentTarget &&
-          ev.target.classList.contains('shelf__strip')
-        )
-          ev.currentTarget.focus({ preventScroll: true });
-      }}
-    >
-      <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-        {virtualizer.getVirtualItems().map((item) => {
-          const section = sections[item.index];
-          if (!section) return null;
-          const activeCell =
-            seeAllShelf === item.index
-              ? Math.min(section.count, SHELF_LIMIT)
-              : item.index === activeShelf && activeVisible
-                ? activePos
-                : -1;
-          return (
-            <Shelf
-              key={item.key}
-              section={section}
-              shelfIndex={item.index}
-              entries={entries}
-              systems={systems}
-              generation={generation}
-              art={prefs.art}
-              size={stop}
-              systemMark={systemMark}
-              selectedId={seeAllShelf === null ? selectedId : null}
-              activeCell={activeCell}
-              width={size.width}
-              seeAllId={seeAllId(item.index)}
-              savedLeft={scrollLefts.current.get(section.key) ?? 0}
-              onScrolled={onScrolled}
-              style={{
-                transform: `translateY(${item.start}px)`,
-                height: shelfH,
-              }}
-            />
-          );
-        })}
+    <div className="shelves-shell">
+      {anyDlc && (
+        <div className="shelves-bar">
+          <span id={labelId} className="shelves-bar__label">
+            {t('content.shelves.label')}
+          </span>
+          <SegmentedControl
+            size="sm"
+            aria-labelledby={labelId}
+            value={addons}
+            onValueChange={(v) => {
+              const next = SHELF_ADDONS_IDS.find((id) => id === v);
+              if (next) setPrefs({ shelfAddons: next });
+            }}
+          >
+            <SegmentedControlItem value="behind">
+              {t('content.shelves.behind')}
+            </SegmentedControlItem>
+            <SegmentedControlItem value="beside">
+              {t('content.shelves.beside')}
+            </SegmentedControlItem>
+          </SegmentedControl>
+        </div>
+      )}
+      <div
+        ref={ref}
+        role="grid"
+        aria-label={t('layouts.announce', { view: t('layouts.shelves') })}
+        data-view-root=""
+        aria-rowcount={sections.length * 2}
+        aria-colcount={maxCells}
+        aria-activedescendant={activeDescendant}
+        tabIndex={0}
+        className="shelves"
+        onKeyDown={onKeyDown}
+        onClick={onClick}
+        onFocus={(ev) => {
+          // A click on a tile focuses its strip: hand focus back to the grid
+          // so the keys keep working.
+          if (
+            ev.target !== ev.currentTarget &&
+            ev.target.classList.contains('shelf__strip')
+          )
+            ev.currentTarget.focus({ preventScroll: true });
+        }}
+      >
+        <div
+          style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
+        >
+          {virtualizer.getVirtualItems().map((item) => {
+            const section = sections[item.index];
+            if (!section) return null;
+            const activeCell =
+              seeAllShelf === item.index
+                ? Math.min(section.count, SHELF_LIMIT)
+                : item.index === activeShelf && activeVisible
+                  ? activePos
+                  : -1;
+            return (
+              <Shelf
+                key={item.key}
+                section={section}
+                shelfIndex={item.index}
+                entries={entries}
+                systems={systems}
+                generation={generation}
+                art={prefs.art}
+                size={stop}
+                systemMark={systemMark}
+                selectedId={seeAllShelf === null ? selectedId : null}
+                activeCell={activeCell}
+                width={size.width}
+                seeAllId={seeAllId(item.index)}
+                savedLeft={scrollLefts.current.get(section.key) ?? 0}
+                onScrolled={onScrolled}
+                style={{
+                  transform: `translateY(${item.start}px)`,
+                  height: shelfH,
+                }}
+                content={content}
+                addons={addons}
+                fan={!reduced}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );

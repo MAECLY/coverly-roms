@@ -130,6 +130,28 @@ describe('mock backend', () => {
     expect(b.revealed).toEqual([3]);
   });
 
+  it('answers the game panel commands with the Rust checks (part C)', async () => {
+    const b = backend();
+    const view = await b.openLibrary(SMALL);
+    const g = view.generation;
+    expect(await b.gameDetails(g, 0, 7)).toEqual({ request: 7, children: [] });
+    await expect(b.gameDetails(g, 99_999, 1)).rejects.toMatchObject({
+      code: 'unknown-entry',
+    });
+    // A lone ROM is no revision.
+    await expect(b.setDefaultRevision(g, 0)).rejects.toMatchObject({
+      code: 'bad-request',
+    });
+    expect(await b.readChildArt(g, 0)).toEqual({
+      written: 0,
+      skipped: [],
+      children: [],
+    });
+    await expect(b.readChildArtBytes(g, 0, 0, 'icon')).rejects.toMatchObject({
+      code: 'unknown-child',
+    });
+  });
+
   it('opens a dropped folder by name', async () => {
     const b = backend();
     const dropped: string[] = [];

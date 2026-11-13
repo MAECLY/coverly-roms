@@ -12,13 +12,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import App from '@/App';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
+import { BackendError } from '@/ipc/errors';
+import { MOCK_ADDONS } from '@/ipc/mock/addonViewsFixture';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import {
   createMockBackend,
   MOCK_LIBRARIES,
   type MockBackend,
 } from '@/ipc/mock/mockBackend';
-import type { EntryView, Media } from '@/ipc/types';
+import type { EntryView, LibraryView, Media } from '@/ipc/types';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useViewStore } from '@/stores/viewStore';
@@ -445,7 +447,12 @@ describe('Detail drawer', () => {
       );
       expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
       expect(useViewStore.getState().prefs.inspector).toBe(false);
-      expect(document.activeElement).toHaveAttribute('role', 'grid');
+      // Details' treegrid hands the focus on to the selected game's row.
+      expect(document.activeElement).toHaveAttribute('role', 'row');
+      expect(document.activeElement).toHaveAttribute(
+        'data-entry-id',
+        String(view.entries[0]!.id),
+      );
     });
 
     it.each(['columns', 'gallery'] as const)(
@@ -456,6 +463,132 @@ describe('Detail drawer', () => {
         act(() => useSelectionStore.getState().select(view.entries[0]!.id));
         expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
       },
+    );
+  });
+});
+
+describe('Game panel (addon views §8.8 1–3)', () => {
+  let restore: () => void;
+  beforeEach(() => {
+    restore = stubLayout(1280, 800);
+  });
+  afterEach(() => {
+    restore();
+    setBackend(null);
+  });
+
+  async function openAddons() {
+    backend = createMockBackend({ delayMs: 0, now: FIXTURE_NOW });
+    setBackend(backend);
+    resetLibraryStore();
+    await useLibraryStore.getState().open(MOCK_ADDONS);
+    render(
+      <I18nProvider locale="es">
+        <App />
+      </I18nProvider>,
+    );
+    return useLibraryStore.getState().view!;
+  }
+  const named = (view: LibraryView, prefix: string) =>
+    view.entries.find((e) => e.name.startsWith(prefix))!;
+
+  it('reads the game’s facts once per game and drops a stale answer', async () => {
+    const view = await openAddons();
+    const moss = named(view, 'Moss Garden');
+    const lantern = named(view, 'Lantern Harbor (USA)');
+    // The first answer (Moss Garden) only arrives after the second.
+    let release: () => void = () => {};
+    const original = backend.gameDetails.bind(backend);
+    const calls: number[] = [];
+    backend.gameDetails = async (gen, id, request) => {
+      calls.push(id);
+      const answer = await original(gen, id, request);
+      if (id === moss.id) await new Promise<void>((r) => (release = r));
+      return answer;
+    };
+    act(() => {
+      useSelectionStore.getState().select(moss.id);
+      useViewStore.getState().openDrawer();
+    });
+    await waitFor(() => expect(calls).toEqual([moss.id]));
+    act(() => useSelectionStore.getState().select(lantern.id));
+    const drawer = await screen.findByRole('complementary', {
+      name: lantern.name,
+    });
+    await waitFor(() => expect(calls).toEqual([moss.id, lantern.id]));
+    await act(async () => release());
+    // Moss Garden's unknown letter never shows on Lantern Harbor.
+    expect(within(drawer).queryByText(/sin identificar/)).toBeNull();
+    expect(await within(drawer).findByText('CUSA31415')).toBeInTheDocument();
+  });
+
+  it('shows the 3DS letter it could not identify', async () => {
+    const view = await openAddons();
+    const drawer = show(named(view, 'Moss Garden'));
+    expect(
+      await within(drawer).findByText(
+        'Letra de región «T» sin identificar (CTR-P-AMGT)',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('puts Versión above the art and leaves no facts on a failure', async () => {
+    const view = await openAddons();
+    backend.gameDetails = () =>
+      Promise.reject(new BackendError('io', 'unreadable'));
+    const drawer = show(named(view, 'Lantern Harbor (USA)'));
+    const version = within(drawer).getByRole('region', { name: /^Versión/ });
+    expect(version.querySelector('.panel-ver__big')).toHaveTextContent('v1.10');
+    expect(
+      version.compareDocumentPosition(
+        within(drawer).getByRole('heading', { name: 'Identidad' }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await waitFor(() => expect(drawer.querySelector('.panel-head')).toBeNull());
+  });
+
+  it('shows where a newer update sits outside the game’s folder', async () => {
+    const view = await openAddons();
+    const tw = named(view, 'Tidewalker');
+    const drawer = show(tw);
+    await userEvent.click(
+      within(drawer).getByRole('button', { name: 'Ver dónde está' }),
+    );
+    expect(useViewStore.getState().scope).toEqual({ kind: 'orphans' });
+    expect(useSelectionStore.getState().selectedId).toBe(
+      tw.newer_elsewhere!.entry,
+    );
+  });
+
+  it('makes another revision the default of its game', async () => {
+    const view = await openAddons();
+    const rev1 = named(view, 'Star Courier (USA) (Rev 1)');
+    const original = view.entries.find((e) => e.name === 'Star Courier (USA)')!;
+    const drawer = show(rev1);
+    const sec = within(drawer).getByRole('region', { name: /^Revisiones/ });
+    await userEvent.click(
+      within(sec).getByRole('button', {
+        name: 'Usar Original como predeterminada',
+      }),
+    );
+    await waitFor(() =>
+      expect(useLibraryStore.getState().revisionDefaults).toEqual({
+        [original.version_group!]: original.rel_path,
+      }),
+    );
+    // The selection follows the game's new representative file.
+    expect(useSelectionStore.getState().selectedId).toBe(original.id);
+    const now = await screen.findByRole('complementary', {
+      name: original.name,
+    });
+    const again = within(now).getByRole('region', { name: /^Revisiones/ });
+    expect(
+      within(again)
+        .getByRole('button', { name: 'Predeterminada' })
+        .closest('li'),
+    ).toHaveTextContent('Original');
+    expect(again.querySelector('[aria-live="polite"]')).toHaveTextContent(
+      'Original es ahora la predeterminada.',
     );
   });
 });

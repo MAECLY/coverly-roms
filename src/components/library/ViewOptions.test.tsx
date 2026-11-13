@@ -132,6 +132,18 @@ describe('ViewOptions', () => {
     expect(dir).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('names a sort chosen from a Details header in the other views', async () => {
+    // Versión and Contenido sort from Details' headers only; the sort is
+    // kept when the view changes, and the menu must still say it.
+    useViewStore.getState().setSort({ key: 'version', dir: 'desc' });
+    const { dialog } = await open('covers');
+    const select = within(dialog).getByRole<HTMLSelectElement>('combobox', {
+      name: 'Sort by',
+    });
+    expect(select.value).toBe('version');
+    expect(select.selectedOptions[0]).toHaveTextContent('Version');
+  });
+
   it('shows, hides and reorders Details columns; the name stays', async () => {
     const { user, dialog } = await open('details');
     const list = within(dialog).getByRole('group', { name: 'Visible columns' });

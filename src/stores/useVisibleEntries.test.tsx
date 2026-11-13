@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setBackend } from '@/ipc/backend';
+import { MOCK_ADDONS } from '@/ipc/mock/addonViewsFixture';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
 import type { JobView } from '@/ipc/types';
@@ -11,6 +12,7 @@ import { useFilterStore } from './filterStore';
 import { useJobStore } from './jobStore';
 import { resetLibraryStore, useLibraryStore } from './libraryStore';
 import { useVisibleEntries } from './useVisibleEntries';
+import { DEFAULT_SORT } from '@/lib/sort';
 import { useViewStore } from './viewStore';
 
 describe('useVisibleEntries', () => {
@@ -98,5 +100,155 @@ describe('useVisibleEntries', () => {
     expect(result.current.sections.map((s) => [s.key, s.count])).toEqual([
       ['art:complete', 240],
     ]);
+  });
+});
+
+describe('useVisibleEntries on games (D1, D4, D13)', () => {
+  beforeEach(async () => {
+    setBackend(
+      createMockBackend({ delayMs: 0, now: FIXTURE_NOW, storage: null }),
+    );
+    resetLibraryStore();
+    await useLibraryStore.getState().open(MOCK_ADDONS);
+  });
+  afterEach(() => {
+    act(() => useViewStore.getState().setPrefs({ groupBy: 'none' }));
+    setBackend(null);
+  });
+
+  const entryNamed = (name: string) =>
+    useLibraryStore.getState().view!.entries.find((e) => e.name === name)!;
+
+  it('shows games: revisions folded, orphans apart, counts', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    const { visible, visibleGames, games, orphans, counts } = result.current;
+    const names = visible.map((e) => e.name);
+    expect(names).toContain('Star Courier (USA) (Rev 1)');
+    expect(names).not.toContain('Star Courier (USA)');
+    expect(names).not.toContain('Tidewalker (v1.3.0)');
+    expect(visibleGames.map((g) => g.id)).toEqual(visible.map((e) => e.id));
+    expect(games).toHaveLength(visible.length);
+    expect(orphans).toHaveLength(2);
+    expect(counts).toMatchObject({ games: 9, demos: 2, orphans: 2 });
+    expect(result.current.shownCounts).toEqual(counts);
+  });
+
+  it('a game matches the search by the name of its DLC', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    act(() => useFilterStore.getState().setQuery('lighthouse keeper'));
+    expect(result.current.visible.map((e) => e.name)).toEqual([
+      'Lantern Harbor (USA)',
+    ]);
+    expect(result.current.shownCounts.games).toBe(1);
+    expect(result.current.shownCounts.updates).toBe(2);
+  });
+
+  it('sorting reorders games, never their updates and DLC', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    const before = result.current.visibleGames.map((g) =>
+      g.children.map((c) => c.index),
+    );
+    act(() => useViewStore.getState().setSort({ key: 'name', dir: 'desc' }));
+    const sorted = result.current.visible.map((e) => e.name);
+    expect(sorted).toEqual(
+      [...sorted].sort((a, b) =>
+        b.localeCompare(a, undefined, { sensitivity: 'base', numeric: true }),
+      ),
+    );
+    const after = result.current.visibleGames.map((g) =>
+      g.children.map((c) => c.index),
+    );
+    expect([...after].sort()).toEqual([...before].sort());
+  });
+
+  it('sorting by Contenido counts revisions and demos, as the cell does', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    act(() => useViewStore.getState().setSort({ key: 'content', dir: 'desc' }));
+    const order = result.current.visibleGames.map(
+      (g) => g.children.length + g.revisions.length - 1 + g.demos.length,
+    );
+    expect(order).toEqual([...order].sort((a, b) => b - a));
+    // Star Courier holds two revisions and nothing else: it is no empty game.
+    const names = result.current.visible.map((e) => e.name);
+    expect(names.indexOf('Star Courier (USA) (Rev 1)')).toBeLessThan(
+      names.indexOf('Pebble League'),
+    );
+    act(() => useViewStore.getState().setSort(DEFAULT_SORT));
+  });
+
+  it('the orphans scope lists only them and falls back to all', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    act(() => useViewStore.getState().setScope({ kind: 'orphans' }));
+    expect(result.current.visible.map((e) => e.orphan)).toEqual([
+      'update',
+      'dlc',
+    ]);
+    // Organizar placed them: the library comes back without orphans.
+    act(() => {
+      const view = useLibraryStore.getState().view!;
+      useLibraryStore.setState({
+        view: {
+          ...view,
+          entries: view.entries.filter((e) => e.orphan === undefined),
+        },
+      });
+    });
+    expect(useViewStore.getState().scope).toEqual({ kind: 'all' });
+    expect(result.current.visible).toHaveLength(result.current.games.length);
+  });
+
+  it('content chips keep the games that have it, ANDed with the rest (D14)', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    const { games, contentCounts } = result.current;
+    const withDlc = games.filter((g) => g.dlc.length > 0);
+    expect(contentCounts.dlc).toBe(withDlc.length);
+    expect(contentCounts.demos).toBe(2);
+    act(() => useFilterStore.getState().toggleContent('dlc'));
+    expect(result.current.visibleGames.map((g) => g.id).sort()).toEqual(
+      withDlc.map((g) => g.id).sort(),
+    );
+    // Counts stay those of the scope, whatever is pressed.
+    expect(result.current.contentCounts).toEqual(contentCounts);
+    act(() => useFilterStore.getState().toggleContent('demos'));
+    expect(result.current.visible).toHaveLength(0);
+    act(() => useFilterStore.getState().clear());
+    expect(useFilterStore.getState().filters.content.dlc).toBe(false);
+    expect(result.current.visible).toHaveLength(games.length);
+  });
+
+  it('content chips never hide the orphans list, which has no chips (D13, D14)', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    act(() => {
+      useFilterStore.getState().toggleContent('dlc');
+      useViewStore.getState().setScope({ kind: 'orphans' });
+    });
+    expect(result.current.visible.map((e) => e.orphan)).toEqual([
+      'update',
+      'dlc',
+    ]);
+    // Back on the games, the chip still holds.
+    act(() => useViewStore.getState().setScope({ kind: 'all' }));
+    expect(result.current.visibleGames.every((g) => g.dlc.length > 0)).toBe(
+      true,
+    );
+    act(() => useFilterStore.getState().reset());
+  });
+
+  it('«Le falta la última actualización» finds the game with a newer orphan', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    act(() => useFilterStore.getState().toggleContent('missing'));
+    expect(result.current.visible.map((e) => e.name)).toEqual([
+      entryNamed('Tidewalker').name,
+    ]);
+    act(() => useFilterStore.getState().reset());
+  });
+
+  it('follows the revision default the user chose', async () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    const untagged = entryNamed('Star Courier (USA)');
+    await act(() => useLibraryStore.getState().setDefaultRevision(untagged.id));
+    const names = result.current.visible.map((e) => e.name);
+    expect(names).toContain('Star Courier (USA)');
+    expect(names).not.toContain('Star Courier (USA) (Rev 1)');
   });
 });

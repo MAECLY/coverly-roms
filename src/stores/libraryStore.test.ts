@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setBackend, type Backend } from '@/ipc/backend';
 import { FIXTURE_NOW, generateLibrary } from '@/ipc/mock/fixture';
+import { MOCK_ADDONS } from '@/ipc/mock/addonViewsFixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
 import type { LibraryView, ScanProgress } from '@/ipc/types';
 
@@ -185,5 +186,45 @@ describe('library store', () => {
     useLibraryStore.getState().close();
     expect(useLibraryStore.getState().status).toBe('idle');
     expect(useLibraryStore.getState().view).toBeNull();
+  });
+
+  it('moves the selection to the revision chosen as its game default (D1, D7)', async () => {
+    setBackend(
+      createMockBackend({ delayMs: 0, now: FIXTURE_NOW, storage: null }),
+    );
+    await useLibraryStore.getState().open(MOCK_ADDONS);
+    const view = useLibraryStore.getState().view!;
+    const named = (name: string) => view.entries.find((e) => e.name === name)!;
+    const untagged = named('Star Courier (USA)');
+    const rev1 = named('Star Courier (USA) (Rev 1)');
+    const other = named('Kite Days');
+    // The game is selected through its default (Rev 1): the selection
+    // follows the new default, which is now the game's handle.
+    useSelectionStore.getState().select(rev1.id);
+    await useLibraryStore.getState().setDefaultRevision(untagged.id);
+    expect(useSelectionStore.getState().selectedId).toBe(untagged.id);
+    // Another game's selection is left alone.
+    useSelectionStore.getState().select(other.id);
+    await useLibraryStore.getState().setDefaultRevision(rev1.id);
+    expect(useSelectionStore.getState().selectedId).toBe(other.id);
+  });
+
+  it('keeps the revision defaults and updates them on a new choice (D7)', async () => {
+    setBackend(
+      createMockBackend({ delayMs: 0, now: FIXTURE_NOW, storage: null }),
+    );
+    await useLibraryStore.getState().open(MOCK_ADDONS);
+    expect(useLibraryStore.getState().revisionDefaults).toEqual({});
+    const view = useLibraryStore.getState().view!;
+    const untagged = view.entries.find((e) => e.name === 'Star Courier (USA)')!;
+    await useLibraryStore.getState().setDefaultRevision(untagged.id);
+    expect(useLibraryStore.getState().revisionDefaults).toEqual({
+      [untagged.version_group!]: untagged.rel_path,
+    });
+    // An answer for a library that was closed meanwhile is dropped.
+    const pending = useLibraryStore.getState().setDefaultRevision(untagged.id);
+    useLibraryStore.getState().close();
+    await pending;
+    expect(useLibraryStore.getState().revisionDefaults).toEqual({});
   });
 });

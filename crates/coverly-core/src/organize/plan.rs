@@ -53,10 +53,11 @@ use crate::organize::library_bases::{
     LookupBudget,
 };
 use crate::organize::target::{
-    assign_targets_in, attach_set_aside_companions, default_companion_exts, dlc_target,
-    file_system_is_fat32, folder_dir, folder_gate, game_children_follow, game_children_targets,
-    game_folder_name, is_game_folder_system, licence_companions, limit_fat_folders, overlay_pairs,
-    sibling_targets, siblings_follow, windows_paths, DirIndex, ExtractShape, Subdir, TargetLayout,
+    assign_targets_in, attach_set_aside_companions, child_art_companions, default_companion_exts,
+    dlc_target, file_system_is_fat32, folder_dir, folder_gate, game_children_follow,
+    game_children_targets, game_folder_name, is_game_folder_system, licence_companions,
+    limit_fat_folders, overlay_pairs, sibling_targets, siblings_follow, windows_paths, DirIndex,
+    ExtractShape, Subdir, TargetLayout,
 };
 use crate::organize::walk::{
     is_broad_root, walk, MetaProbe, TreeSummary, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
@@ -439,6 +440,14 @@ pub enum ItemNote {
     HeaderMismatch { needs: HeaderFit },
     /// The emulator (product name) has to be pointed at `folder` (D15).
     PointEmulatorHere { emulator: String, folder: String },
+    /// A 3DS product code ends in a region letter the verified table does
+    /// not know: no region is added to the name (part C §5, P-1).
+    RegionLetterUnknown { letter: char },
+    /// `count` art files of this update or DLC (its slots beside it and
+    /// their origin file) stay where they are: the layout shows no child
+    /// art, or their name is taken or too long at the target (part C
+    /// D10 d, D16).
+    ChildArtStays { count: usize },
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -543,6 +552,11 @@ pub struct Companion {
     /// never opened, it follows by a same-volume rename or stays.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub licence: bool,
+    /// An art slot or origin file of an update or DLC (part C D10 d): it
+    /// keeps the child's new stem, and a name taken at its target leaves
+    /// it where it is (never a numbered name, never replaced).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub child_art: bool,
 }
 
 /// What an item is to its game (game folders spec D16).
@@ -3471,7 +3485,9 @@ fn identify_one(
 /// 10: system titles, emulator caches and configs, and the kinds, versions
 /// and regions game folders read (game folders spec D11, D14, D18).
 /// 11: addon verdicts (mods spec D10).
-pub(crate) const FACTS_VERSION: u32 = 11;
+/// 12: 3DS bases and demos take their region from the verified letter
+/// table and flag unknown letters (part C D12, P-1).
+pub(crate) const FACTS_VERSION: u32 = 12;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -3486,6 +3502,26 @@ fn memoised_facts(cache: &Cache, c: &WalkCandidate) -> Option<Facts> {
     let json = cache.organize_facts(&c.path, c.size, c.mtime_ns).ok()??;
     let stored: StoredFacts = serde_json::from_str(&json).ok()?;
     (stored.v == FACTS_VERSION).then_some(stored.facts)
+}
+
+/// The console verdict Organizar memoised for the file at `path` with
+/// this `size` and `mtime_ns` (nanoseconds since the epoch), if any: the
+/// first payload that has one (part C D3: the game panel reuses what a
+/// plan already read, never writes facts of its own).
+pub fn memoised_console(
+    cache: &Cache,
+    path: &Path,
+    size: u64,
+    mtime_ns: i64,
+) -> Option<crate::consoles::ConsoleId> {
+    let json = cache.organize_facts(path, size, mtime_ns).ok()??;
+    let stored: StoredFacts = serde_json::from_str(&json).ok()?;
+    (stored.v == FACTS_VERSION)
+        .then_some(stored.facts)?
+        .inspection
+        .payloads
+        .into_iter()
+        .find_map(|p| p.sniff.console)
 }
 
 /// Facts that depend only on the file: not those cut short by a budget,
@@ -3724,6 +3760,16 @@ pub fn plan_from_survey(
                     && !item.notes.contains(&ItemNote::Homebrew)
                 {
                     item.notes.push(ItemNote::Homebrew);
+                }
+                // A 3DS region letter the verified table does not know
+                // (part C P-1): said, never guessed.
+                if let Some(flag) = header.and_then(|con| con.region_letter.as_ref()) {
+                    let note = ItemNote::RegionLetterUnknown {
+                        letter: flag.letter,
+                    };
+                    if !item.is_left() && !item.notes.contains(&note) {
+                        item.notes.push(note);
+                    }
                 }
                 // A part's title id, once the catalogue had its say (D6).
                 if let OrganizeAction::Left {
@@ -4082,6 +4128,18 @@ pub fn plan_from_survey(
             licence_companions(&mut items, &layout, &mut index);
         }
     }
+    // An update's or DLC's own art follows it, or stays and is listed
+    // (part C D10 d, D16).
+    let is_child = |it: &OrganizeItem| {
+        it.game
+            .as_ref()
+            .is_some_and(|g| matches!(g.role, GameRole::Update | GameRole::Dlc))
+            || survey
+                .entries
+                .get(it.id)
+                .is_some_and(|e| matches!(effective_kind(e), TitleKind::Update | TitleKind::Dlc))
+    };
+    child_art_companions(&mut items, &layout, src, &is_child, &mut index);
     point_at_keepers(&mut items, &dups.keepers);
     attach_set_aside_companions(
         &mut items,
@@ -5063,6 +5121,7 @@ fn attach_chd_folders(
                     source: rel(src, chd),
                     target: to,
                     licence: false,
+                    child_art: false,
                 });
             }
         }
@@ -5405,6 +5464,10 @@ mod tests {
                 json!({"kind": "missing-disc", "n": 2}),
             ),
             (ItemNote::EncryptedName, json!({"kind": "encrypted-name"})),
+            (
+                ItemNote::RegionLetterUnknown { letter: 'T' },
+                json!({"kind": "region-letter-unknown", "letter": "T"}),
+            ),
         ] {
             assert_eq!(to_value(&note).unwrap(), wire);
             assert_eq!(serde_json::from_value::<ItemNote>(wire).unwrap(), note);
@@ -5440,12 +5503,44 @@ mod tests {
             facts: f,
         })
         .unwrap();
-        assert_eq!(FACTS_VERSION, 11);
-        old["v"] = 10.into();
+        assert_eq!(FACTS_VERSION, 12);
+        old["v"] = 11.into();
         cache
             .put_organize_facts(&c.path, c.size, c.mtime_ns, &old.to_string())
             .unwrap();
         assert!(memoised_facts(&cache, &c).is_none());
+    }
+
+    /// Part C D3: the game panel reuses the console verdict a plan
+    /// memoised for the same file, size and mtime, and only of this facts
+    /// version.
+    #[test]
+    fn the_memoised_console_verdict_is_read_back() {
+        let cache = Cache::in_memory().unwrap();
+        let c = WalkCandidate {
+            path: PathBuf::from("/lib/ROMS/3DS/Game.3ds"),
+            ext: "3ds".into(),
+            size: 10,
+            mtime_ns: 1_700_000_000_000_000_000,
+            cloud_only: false,
+        };
+        assert_eq!(memoised_console(&cache, &c.path, c.size, c.mtime_ns), None);
+        let mut sniff = Sniff::default();
+        sniff.add_console(vec![crate::consoles::ConsoleId::proven("3ds", "NCSD")]);
+        let mut insp = Inspection::new(Container::Raw);
+        insp.payloads = vec![Payload {
+            name: "Game.3ds".into(),
+            ext: "3ds".into(),
+            size: 10,
+            crc32: None,
+            sniff,
+        }];
+        remember_facts(&cache, &c, &facts(insp));
+        let id = memoised_console(&cache, &c.path, c.size, c.mtime_ns).unwrap();
+        assert_eq!((id.system.as_str(), id.detail.as_str()), ("3ds", "NCSD"));
+        // Another size or mtime is another file.
+        assert_eq!(memoised_console(&cache, &c.path, 11, c.mtime_ns), None);
+        assert_eq!(memoised_console(&cache, &c.path, c.size, 1), None);
     }
 
     #[test]
@@ -5565,6 +5660,7 @@ mod tests {
             source: "a.rap".into(),
             target: "b.rap".into(),
             licence: false,
+            child_art: false,
         };
         let bare = to_value(&c).unwrap();
         assert!(bare.get("licence").is_none(), "{bare}");
@@ -5576,6 +5672,12 @@ mod tests {
         let full = to_value(&c).unwrap();
         assert_eq!(full["licence"], true);
         assert_eq!(serde_json::from_value::<Companion>(full).unwrap(), c);
+        // Part C D10 d: the child art flag, the same way.
+        assert!(bare.get("child_art").is_none(), "{bare}");
+        c.child_art = true;
+        let art = to_value(&c).unwrap();
+        assert_eq!(art["child_art"], true);
+        assert_eq!(serde_json::from_value::<Companion>(art).unwrap(), c);
     }
 
     #[test]

@@ -1002,3 +1002,49 @@ fn saves_fingerprint_survives_a_new_copy_joining() {
     assert_eq!(saves_fingerprint(&now), fp);
     assert!(remembered_pick_holds(&now, 2, &fp));
 }
+
+#[test]
+fn a_3ds_letter_not_in_the_verified_table_gives_the_keeper_no_region() {
+    // Part C §5: `U` is not attested for 3DS, so the header gives no
+    // region and the pair is not told apart by an `Australia` guess.
+    use coverly_core::consoles::{identify, testing as ct, Budgeted};
+    let header_region = |code: &str| {
+        let mut src = ct::ncsd(code, 0x0004_0000_0005_5D00, false);
+        let len = src.len;
+        identify(&mut Budgeted::new(&mut src, len), "3ds", "Game.3ds")
+            .unwrap()
+            .region
+    };
+    assert_eq!(header_region("CTR-P-AXXU"), None);
+    assert_eq!(header_region("CTR-P-AXXE"), Some(Region::Usa));
+    let a = unit(0, "3ds", "Game U.3ds", UnitKind::Single, 5);
+    let b = unit(1, "3ds", "Game E.3ds", UnitKind::Single, 10);
+    let untagged = parse_tags("Game");
+    let mut ca = cand(0, &a);
+    ca.tags = Some(&untagged);
+    ca.relation = Relation::Version;
+    ca.region = header_region("CTR-P-AXXU");
+    let mut cb = cand(1, &b);
+    cb.tags = Some(&untagged);
+    cb.relation = Relation::Version;
+    cb.region = header_region("CTR-P-AXXE");
+    let australia_first = region_order(&["australia", "usa"].map(String::from));
+    let (_, reason, _, _) = choose(
+        &[ca, cb],
+        &all_rules(),
+        &australia_first,
+        &no_order(),
+        None,
+        None,
+    );
+    assert!(
+        !matches!(
+            reason,
+            KeepReason::Region {
+                kept: Region::Australia,
+                ..
+            }
+        ),
+        "{reason:?}"
+    );
+}

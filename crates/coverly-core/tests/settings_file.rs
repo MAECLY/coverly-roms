@@ -1624,3 +1624,224 @@ fn a_build_without_catalogues_ignores_the_group() {
     let value: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(value["catalogs"]["switch"]["enabled"], json!(true));
 }
+
+// --- Revision defaults keyed by library root (addon views D7) -------------
+
+fn recent_at(path: &str, opened_at: i64) -> RecentLibrary {
+    RecentLibrary {
+        path: path.into(),
+        name: path.trim_start_matches('/').into(),
+        profile_id: "onion".into(),
+        roms: 1,
+        opened_at,
+    }
+}
+
+#[test]
+fn an_old_settings_file_loads_without_the_field() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        &format!(r#"{{"version":3,"library":{{"ignored_dirs":["bios"],"recent":[{RECENT}]}}}}"#),
+    );
+    let (s, report) = load_settings(dir.path(), &known());
+    assert!(s.library.revision_defaults.is_empty());
+    assert_eq!(s.library.recent.len(), 1);
+    assert_eq!(report.notice, None);
+    assert!(report.fixed.is_empty(), "{:?}", report.fixed);
+    // Nothing is written for an empty map: an unchanged file stays as it was.
+    let text = serde_json::to_string(&s).unwrap();
+    assert!(!text.contains("revision_defaults"));
+}
+
+#[test]
+fn a_new_file_loads_in_a_struct_without_it() {
+    // The shape an older build reads (no `deny_unknown_fields`).
+    #[derive(serde::Deserialize, Default)]
+    #[serde(default)]
+    #[allow(dead_code)]
+    struct OldLibraryGroup {
+        default_profile: Option<String>,
+        ignored_dirs: Vec<String>,
+        ignored_exts: Vec<String>,
+        include_hidden: bool,
+        follow_symlinks: bool,
+        recent: Vec<RecentLibrary>,
+    }
+    #[derive(serde::Deserialize, Default)]
+    #[serde(default)]
+    struct OldSettings {
+        version: u32,
+        library: OldLibraryGroup,
+    }
+    let mut s = Settings::default();
+    s.remember(recent_at("/Volumes/SD", 5));
+    s.set_revision_default(
+        Path::new("/Volumes/SD"),
+        "sfc:star courier",
+        "SFC/Star Courier (Rev 1).sfc",
+    );
+    let text = serde_json::to_string(&s).unwrap();
+    assert!(text.contains("revision_defaults"));
+    let old: OldSettings = serde_json::from_str(&text).unwrap();
+    assert_eq!(old.version, SETTINGS_VERSION);
+    assert_eq!(old.library.recent.len(), 1);
+    // And this build reads it back.
+    let dir = tempfile::tempdir().unwrap();
+    save_settings(dir.path(), &s).unwrap();
+    let (back, report) = load_settings(dir.path(), &known());
+    assert_eq!(back, s);
+    assert!(report.fixed.is_empty(), "{:?}", report.fixed);
+}
+
+#[test]
+fn set_and_read_by_root() {
+    let mut s = Settings::default();
+    let a = Path::new("/Volumes/SD");
+    let b = Path::new("/Users/demo/ROMs");
+    s.set_revision_default(a, "sfc:star courier", "SFC/Star Courier (Rev 1).sfc");
+    s.set_revision_default(b, "sfc:star courier", "SFC/Star Courier.sfc");
+    assert_eq!(
+        s.revision_default(a, "sfc:star courier"),
+        Some("SFC/Star Courier (Rev 1).sfc")
+    );
+    assert_eq!(
+        s.revision_default(b, "sfc:star courier"),
+        Some("SFC/Star Courier.sfc")
+    );
+    assert_eq!(s.revision_default(a, "sfc:other"), None);
+    // The whole map of one library, for the library view.
+    let of_a = s.revision_defaults_of(Path::new("/Volumes/SD/")).unwrap();
+    assert_eq!(of_a.len(), 1);
+    assert_eq!(
+        of_a.get("sfc:star courier").map(String::as_str),
+        Some("SFC/Star Courier (Rev 1).sfc")
+    );
+    assert!(s.revision_defaults_of(Path::new("/elsewhere")).is_none());
+    assert_eq!(
+        s.revision_default(Path::new("/elsewhere"), "sfc:star courier"),
+        None
+    );
+    // The same root spelled with a trailing separator is the same library.
+    assert_eq!(
+        s.revision_default(Path::new("/Volumes/SD/"), "sfc:star courier"),
+        Some("SFC/Star Courier (Rev 1).sfc")
+    );
+    // A choice made on Windows holds on macOS for the same card: rel paths
+    // compare by components, whatever the separator.
+    let stored = s.revision_default(a, "sfc:star courier").unwrap();
+    assert!(same_rel(stored, "SFC\\Star Courier (Rev 1).sfc"));
+    assert!(!same_rel(stored, "SFC\\Star Courier (Rev 2).sfc"));
+    // Set with Windows separators, stored '/'-separated.
+    s.set_revision_default(a, "sfc:star courier", "SFC\\Star Courier (Rev 2).sfc");
+    assert_eq!(
+        s.revision_default(a, "sfc:star courier"),
+        Some("SFC/Star Courier (Rev 2).sfc")
+    );
+    assert_eq!(s.library.revision_defaults.len(), 2);
+    assert_eq!(SETTINGS_VERSION, 3, "the field needs no new format version");
+}
+
+#[test]
+fn prune_touches_only_the_open_library() {
+    let mut s = Settings::default();
+    let a = Path::new("/Volumes/SD");
+    let b = Path::new("/Volumes/Other");
+    s.set_revision_default(a, "sfc:live", "SFC/Live (Rev 1).sfc");
+    s.set_revision_default(a, "sfc:stale", "SFC/Gone (Rev 1).sfc");
+    s.set_revision_default(b, "sfc:stale", "SFC/Gone (Rev 1).sfc");
+    s.prune_revision_defaults(a, &|group, rel| {
+        group == "sfc:live" && same_rel(rel, "SFC\\Live (Rev 1).sfc")
+    });
+    assert_eq!(
+        s.revision_default(a, "sfc:live"),
+        Some("SFC/Live (Rev 1).sfc")
+    );
+    assert_eq!(s.revision_default(a, "sfc:stale"), None);
+    assert_eq!(
+        s.revision_default(b, "sfc:stale"),
+        Some("SFC/Gone (Rev 1).sfc"),
+        "another library's choices are never touched"
+    );
+    // A root left with nothing is dropped from the map.
+    s.prune_revision_defaults(a, &|_, _| false);
+    assert_eq!(s.library.revision_defaults.len(), 1);
+}
+
+#[test]
+fn the_map_is_capped() {
+    let mut s = Settings::default();
+    // Every root also in the recent list (set directly: `remember` keeps
+    // ten), so the oldest `opened_at` goes first.
+    s.library.recent = (0..=MAX_REVISION_ROOTS)
+        .map(|i| recent_at(&format!("/lib{i}"), 1_000 + i as i64))
+        .collect();
+    s.library.recent.swap(0, 500); // the order of the list does not matter
+    for i in 0..=MAX_REVISION_ROOTS {
+        s.set_revision_default(Path::new(&format!("/lib{i}")), "g", "a.sfc");
+    }
+    assert_eq!(s.library.revision_defaults.len(), MAX_REVISION_ROOTS);
+    assert_eq!(s.revision_default(Path::new("/lib0"), "g"), None);
+    assert_eq!(s.revision_default(Path::new("/lib1"), "g"), Some("a.sfc"));
+    let last = format!("/lib{MAX_REVISION_ROOTS}");
+    assert_eq!(s.revision_default(Path::new(&last), "g"), Some("a.sfc"));
+    assert_eq!(MAX_REVISION_ROOTS, 1_000);
+}
+
+#[test]
+fn roots_not_in_recent_go_before_older_recent_ones() {
+    let mut s = Settings::default();
+    s.library.recent = vec![recent_at("/old", 1)];
+    s.set_revision_default(Path::new("/old"), "g", "a.sfc");
+    for i in 0..MAX_REVISION_ROOTS {
+        s.set_revision_default(Path::new(&format!("/x{i}")), "g", "a.sfc");
+    }
+    assert_eq!(s.library.revision_defaults.len(), MAX_REVISION_ROOTS);
+    assert_eq!(s.revision_default(Path::new("/old"), "g"), Some("a.sfc"));
+    // The root just set is never the one dropped.
+    let last = format!("/x{}", MAX_REVISION_ROOTS - 1);
+    assert_eq!(s.revision_default(Path::new(&last), "g"), Some("a.sfc"));
+}
+
+#[test]
+fn bad_revision_default_entries_are_dropped_one_by_one() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"version":3,"library":{"revision_defaults":{
+            "/Volumes/SD":{"sfc:a":"SFC/A (Rev 1).sfc","sfc:b":7,"sfc:c":""},
+            "/broken":"nope",
+            "/empty":{}}}}"#,
+    );
+    let (s, report) = load_settings(dir.path(), &known());
+    let sd = Path::new("/Volumes/SD");
+    assert_eq!(s.revision_default(sd, "sfc:a"), Some("SFC/A (Rev 1).sfc"));
+    assert_eq!(s.revision_default(sd, "sfc:b"), None);
+    assert_eq!(s.revision_default(sd, "sfc:c"), None);
+    assert_eq!(s.library.revision_defaults.len(), 1);
+    assert!(report
+        .fixed
+        .contains(&"library.revision_defaults".to_string()));
+}
+
+#[test]
+fn two_spellings_of_one_root_in_the_file_are_one_library() {
+    // Hand edits or another OS can leave `/Volumes/SD` and `/Volumes/SD/`
+    // side by side: they are one library, so their choices merge (the
+    // first spelling's choice wins a clash) and the cap counts it once.
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"version":3,"library":{"revision_defaults":{
+            "/Volumes/SD":{"sfc:a":"SFC/A (Rev 1).sfc"},
+            "/Volumes/SD/":{"sfc:a":"SFC/A (Rev 2).sfc","sfc:b":"SFC/B (Rev 1).sfc"}}}}"#,
+    );
+    let (mut s, _) = load_settings(dir.path(), &known());
+    assert_eq!(s.library.revision_defaults.len(), 1);
+    let sd = Path::new("/Volumes/SD/");
+    assert_eq!(s.revision_default(sd, "sfc:a"), Some("SFC/A (Rev 1).sfc"));
+    assert_eq!(s.revision_default(sd, "sfc:b"), Some("SFC/B (Rev 1).sfc"));
+    // Pruning the library prunes every choice it had, whatever the spelling.
+    s.prune_revision_defaults(Path::new("/Volumes/SD"), &|_, _| false);
+    assert!(s.library.revision_defaults.is_empty());
+}

@@ -398,6 +398,38 @@ fn survey_key(opts: &OrganizeOptions) -> OrganizeOptions {
     }
 }
 
+/// The icon a pile's update, DLC or demo carries in the clear, for its
+/// Organizar row (part C D15): read from the item's **source** file, which
+/// the stored plan names (the webview sends only the plan and item ids),
+/// canonicalised and kept inside the pile. Nothing is written. A row that
+/// is not a child, or a package without art in the clear, answers
+/// `ArtMissing`; an unknown item, `UnknownEntry`.
+pub fn child_thumb(stored: &StoredPlan, item_id: usize) -> Result<Vec<u8>, IpcError> {
+    let unknown = || IpcError::UnknownEntry(u32::try_from(item_id).unwrap_or(u32::MAX));
+    let missing = || IpcError::ArtMissing("icon".into());
+    let item = stored
+        .plan
+        .items
+        .iter()
+        .find(|i| i.id == item_id)
+        .ok_or_else(unknown)?;
+    let child = item.game.as_ref().is_some_and(|g| {
+        matches!(
+            g.role,
+            coverly_core::organize::GameRole::Update
+                | coverly_core::organize::GameRole::Dlc
+                | coverly_core::organize::GameRole::Demo
+        )
+    });
+    let rel = item.sources.first().filter(|_| child).ok_or_else(missing)?;
+    let root = std::fs::canonicalize(&stored.plan.source_root).map_err(|_| missing())?;
+    let path = std::fs::canonicalize(stored.plan.source_root.join(rel)).map_err(|_| missing())?;
+    if !path.starts_with(&root) {
+        return Err(IpcError::OutsideLibrary(path.display().to_string()));
+    }
+    coverly_core::art::children::icon_preview(&path).ok_or_else(missing)
+}
+
 /// Sends planning progress of `plan_id` at most every 100 ms; the first
 /// event of a phase and the last of a count always go through.
 pub struct Throttle {

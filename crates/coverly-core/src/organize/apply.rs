@@ -26,8 +26,9 @@ use crate::organize::extract::{
     ExtractTick,
 };
 use crate::organize::plan::{
-    ArchiveAfter, ExtractEntry, ExtractSource, ItemKind, OrganizeAction, OrganizeItem,
-    OrganizePhase, OrganizePlan, OrganizeProgress, Transfer, TransferMode, SPACE_RESERVE,
+    ArchiveAfter, Companion, ExtractEntry, ExtractSource, GameRole, ItemKind, OrganizeAction,
+    OrganizeItem, OrganizePhase, OrganizePlan, OrganizeProgress, Transfer, TransferMode,
+    SPACE_RESERVE,
 };
 use crate::organize::target::DirIndex;
 use crate::organize::walk::{tree_summary, OsMetaProbe, WalkOptions};
@@ -1374,6 +1375,35 @@ fn stem(name: &str) -> &str {
     }
 }
 
+/// A companion's planned target `to`, renamed after its item when the item
+/// landed under another name (`planned` → `actual`, file names): a name
+/// starting with the item's planned stem takes the actual one. A child's
+/// art slots of a folder item are named after the whole folder name (part
+/// C D10 d), so they follow the whole name, not a stem cut at a dot.
+fn companion_target(
+    to: &Path,
+    kind: ItemKind,
+    child_art: bool,
+    planned: &str,
+    actual: &str,
+) -> PathBuf {
+    let (from, into) = if child_art && kind == ItemKind::Folder {
+        (planned, actual)
+    } else {
+        (stem(planned), stem(actual))
+    };
+    if from != into {
+        if let Some(rest) = to
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_prefix(from))
+        {
+            return to.with_file_name(format!("{into}{rest}"));
+        }
+    }
+    to.to_path_buf()
+}
+
 fn split(path: &Path) -> Option<(&Path, &str)> {
     Some((path.parent()?, path.file_name()?.to_str()?))
 }
@@ -1502,6 +1532,7 @@ impl<'a> Run<'a> {
             }
             match self.apply_item(item) {
                 Step::Done(status, targets) => {
+                    self.read_child_art(item, &status, &targets);
                     record_outcome(&mut report, item.id, status, targets);
                     if let (Some(left), Some(outcome)) =
                         (self.licences_left.remove(&item.id), report.items.last_mut())
@@ -2069,6 +2100,33 @@ impl<'a> Run<'a> {
         Step::Done(status, targets)
     }
 
+    /// An update or DLC that landed in its game folder of the library gets
+    /// the art its package carries in the clear in its empty slots, in
+    /// this job's journal (part C D11 a). Best effort: the child is in
+    /// place either way, and a slot already filled (by its own art that
+    /// followed it) is kept without opening the package.
+    fn read_child_art(&mut self, item: &OrganizeItem, status: &ItemStatus, targets: &[PathBuf]) {
+        if self.plan.layout != crate::profiles::LIBRARY_PROFILE_ID
+            || !matches!(
+                status,
+                ItemStatus::Moved
+                    | ItemStatus::Copied
+                    | ItemStatus::CopiedNotRemoved
+                    | ItemStatus::Extracted
+                    | ItemStatus::ExtractedKept
+            )
+            || !item.game.as_ref().is_some_and(|g| {
+                matches!(g.role, GameRole::Update | GameRole::Dlc) && g.folder.is_some()
+            })
+        {
+            return;
+        }
+        let Some(child) = targets.first() else {
+            return;
+        };
+        let _ = crate::art::children::read_child_art(&[child.as_path()], &mut self.writer);
+    }
+
     /// Companions follow the ROM (already at `targets[0]`), under its final
     /// name; a companion an earlier run transferred is not done again.
     /// `Some` is a pause: the volume itself is the problem.
@@ -2084,35 +2142,61 @@ impl<'a> Run<'a> {
             .first()
             .and_then(|t| t.file_name())
             .and_then(|n| n.to_str())
-            .unwrap_or("");
-        let (planned_stem, actual_stem) = (stem(planned).to_string(), stem(actual).to_string());
+            .unwrap_or("")
+            .to_string();
+        let target_of = |companion: &Companion| {
+            companion_target(
+                &root.join(&companion.target),
+                item.kind,
+                companion.child_art,
+                planned,
+                &actual,
+            )
+        };
+        // A child's art (part C D10 d) follows whole or not at all: one
+        // slot name taken since the plan keeps every one of them, and its
+        // origin file, where they were (the origin file would vouch for
+        // someone else's art).
+        let child_art_stays = item.companions.iter().any(|companion| {
+            if !companion.child_art {
+                return false;
+            }
+            let from = self.plan.source_root.join(&companion.source);
+            if record_of(&self.records, item.id, &from).is_some()
+                || !fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file())
+            {
+                return false;
+            }
+            split(&target_of(companion)).is_some_and(|(dir, name)| self.index.taken(dir, name))
+        });
         for companion in &item.companions {
             let from = self.plan.source_root.join(&companion.source);
             if let Some(record) = record_of(&self.records, item.id, &from) {
                 targets.push(record.target.clone());
                 continue;
             }
+            if companion.child_art && child_art_stays {
+                continue;
+            }
             if !fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file()) {
                 continue;
             }
-            let mut to = root.join(&companion.target);
-            if planned_stem != actual_stem {
-                if let Some(rest) = to
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .and_then(|n| n.strip_prefix(planned_stem.as_str()))
-                {
-                    to = to.with_file_name(format!("{actual_stem}{rest}"));
-                }
-            }
+            let mut to = target_of(companion);
             if companion.licence {
                 if let Some(pause) = self.move_licence(item.id, &from, &to, targets) {
                     return Some(pause);
                 }
                 continue;
             }
-            let to = self.free_name(&to);
-            match self.transfer(&from, &to, Collision::Rename, item.id) {
+            // A child's art keeps its slot name: a numbered or replaced
+            // slot would no longer map to its child.
+            let collision = if companion.child_art {
+                Collision::Skip
+            } else {
+                to = self.free_name(&to);
+                Collision::Rename
+            };
+            match self.transfer(&from, &to, collision, item.id) {
                 Ok(
                     MoveOutcome::Moved { to, .. }
                     | MoveOutcome::Copied { to, .. }
@@ -2748,6 +2832,54 @@ mod tests {
         assert_eq!(numbered("README", 3), "README (3)");
         assert_eq!(stem("Game (2).cue"), "Game (2)");
         assert_eq!(stem(".hidden"), ".hidden");
+    }
+
+    /// Part C D10 d: a folder child's slots are named after its whole
+    /// folder name, so a folder renamed at apply (`v1.3.0` → `v1.3.0 (2)`)
+    /// takes its art to the whole new name, never to the slot of the
+    /// folder it collided with.
+    #[test]
+    fn a_renamed_folder_child_takes_its_art_to_its_whole_new_name() {
+        let media = Path::new("Game").join("Updates").join(".media");
+        let icon = media.join("Tidewalker v1.3.0-icon.png");
+        assert_eq!(
+            companion_target(
+                &icon,
+                ItemKind::Folder,
+                true,
+                "Tidewalker v1.3.0",
+                "Tidewalker v1.3.0 (2)"
+            ),
+            media.join("Tidewalker v1.3.0 (2)-icon.png")
+        );
+        // A file child and other companions keep the stem rule.
+        let file_icon = media.join("Pack v1.0-icon.png");
+        assert_eq!(
+            companion_target(
+                &file_icon,
+                ItemKind::File,
+                true,
+                "Pack v1.0.cia",
+                "Pack v1.0 (2).cia"
+            ),
+            media.join("Pack v1.0 (2)-icon.png")
+        );
+        let sav = Path::new("GB").join("Tetris.sav");
+        assert_eq!(
+            companion_target(&sav, ItemKind::File, false, "Tetris.gb", "Tetris (2).gb"),
+            Path::new("GB").join("Tetris (2).sav")
+        );
+        // Unchanged names leave the target alone.
+        assert_eq!(
+            companion_target(
+                &icon,
+                ItemKind::Folder,
+                true,
+                "Tidewalker v1.3.0",
+                "Tidewalker v1.3.0"
+            ),
+            icon
+        );
     }
 
     #[test]

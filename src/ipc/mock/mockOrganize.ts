@@ -123,6 +123,7 @@ import {
   MOCK_SWITCH,
   type AdjustPile,
 } from './adjustFixture';
+import { MOCK_ADDONS, MOCK_ADDONS_HUGE } from './addonViewsFixture';
 import { MOCK_DISC_ARCHIVES, type MockArchiveEntry } from './discFixture';
 import {
   GAME_FOLDER_FILES,
@@ -154,7 +155,7 @@ export const MOCK_PICK_KEY = 'coverly.mock.pick';
 /**
  * What "Open folder…" picks in the browser mock, so the organise offer is
  * reachable from the start screen:
- * `?mockPick=downloads|loose|mixed|retro|modern|current|huge|switch|odd|discs|dupes-title|gamefolders|mods|<absolute path>` (or
+ * `?mockPick=downloads|loose|mixed|retro|modern|current|huge|switch|odd|discs|dupes-title|gamefolders|mods|addons|addons-huge|<absolute path>` (or
  * localStorage `coverly.mock.pick`). `downloads` is the owner's pile as it
  * is now (`MOCK_SAMPLE`), `loose` the same pile before any of it was sorted
  * (`MOCK_DOWNLOADS`), `retro` the systems batch 1 pile (`MOCK_RETRO`),
@@ -165,7 +166,11 @@ export const MOCK_PICK_KEY = 'coverly.mock.pick';
  * `gamefolders` the game folders pile (`MOCK_GAMEFOLDERS`, game folders
  * spec §9.3), and `mods` the mods, patches and cheats pile (`MOCK_MODS`,
  * `modsFixture.ts`, mods spec §9.3: a request's `emulators` re-derive its
- * placements from the fixture's translator tables).
+ * placements from the fixture's translator tables), and `addons` the
+ * add-ons library of part C (`MOCK_ADDONS`, `addonViewsFixture.ts`: games
+ * with updates, DLC, demos and revisions, opened as a library without
+ * Organizar) and `addons-huge` its 10 000-game variant
+ * (`MOCK_ADDONS_HUGE`, 50 000 updates and DLC, the D1 performance check).
  * Null: the first fixture library, as before.
  */
 export function readMockPick(): string | null {
@@ -183,6 +188,8 @@ export function readMockPick(): string | null {
     if (v === 'dupes-title') return MOCK_DUPES_TITLE;
     if (v === 'gamefolders') return MOCK_GAMEFOLDERS;
     if (v === 'mods') return MOCK_MODS;
+    if (v === 'addons') return MOCK_ADDONS;
+    if (v === 'addons-huge') return MOCK_ADDONS_HUGE;
     return v && v.startsWith('/') ? v : null;
   };
   try {
@@ -1710,6 +1717,29 @@ function addedFile(name: string): PileFile {
     : { name, size: 32_768, left: { kind: 'unknown' } };
 }
 
+/** Systems whose updates and DLC carry an icon in the clear (part C
+ * D11): not Switch, whose NCAs are encrypted. */
+const THUMB_SYSTEMS: ReadonlySet<string> = new Set([
+  '3ds',
+  'ps3',
+  'ps4',
+  'ps5',
+  'psvita',
+  'wiiu',
+  'xbox360',
+]);
+
+/** A child's 256 px icon as the mock reads it from its package. */
+function childThumbSvg(itemId: number): string {
+  const hue = (itemId * 71 + 23) % 360;
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">` +
+    `<rect width="100%" height="100%" fill="hsl(${hue} 45% 38%)"/>` +
+    `<circle cx="128" cy="128" r="72" fill="hsl(${(hue + 180) % 360} 50% 62%)"/>` +
+    `</svg>`
+  );
+}
+
 type OrganizeApi = Pick<
   Backend,
   | 'probeFolder'
@@ -1720,6 +1750,7 @@ type OrganizeApi = Pick<
   | 'organizeCancelApply'
   | 'organizeUndo'
   | 'organizeExportPlan'
+  | 'organizeChildThumb'
   | 'onOrganizeProgress'
   | 'onOrganizeChanged'
 > & {
@@ -3415,6 +3446,21 @@ export function createMockOrganize(
         text: JSON.stringify(plan, null, 2),
       });
       return MOCK_PLAN_EXPORT;
+    },
+    async organizeChildThumb(planId, itemId) {
+      const { plan } = planOf(stored(planId), []);
+      const item = plan.items.find((i) => i.id === itemId);
+      if (!item) throw new BackendError('unknown-entry', String(itemId));
+      const role = item.game?.role;
+      const child = role === 'update' || role === 'dlc' || role === 'demo';
+      // Like Rust: only a child, and only a package with art in the clear
+      // (a Switch NCA is encrypted, so it has none).
+      if (!child || !THUMB_SYSTEMS.has(item.system_id ?? ''))
+        throw new BackendError('art-missing', 'icon');
+      return {
+        bytes: new TextEncoder().encode(childThumbSvg(itemId)),
+        mime: 'image/svg+xml',
+      };
     },
     onOrganizeProgress: (cb) => listen(progress, cb),
     onOrganizeChanged: (cb) => listen(changed, cb),

@@ -46,6 +46,7 @@ fn mine(id: &str, template: &str) -> ProfileFile {
         dlc_folder: BTreeMap::new(),
         game_folders: false,
         emulators: Default::default(),
+        child_art: false,
     }
 }
 

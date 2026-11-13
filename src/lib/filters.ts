@@ -1,5 +1,6 @@
 import type { EntryView, Region } from '@/ipc/types';
 
+import type { Game } from './games';
 import { queryTokens } from './search';
 
 export type ArtFilter =
@@ -19,6 +20,28 @@ export const ART_FILTERS: readonly ArtFilter[] = [
   'complete',
 ];
 
+/** The «Mostrar juegos que» chips (addon views D14). */
+export type ContentKey = 'updates' | 'missing' | 'dlc' | 'demos';
+
+export const CONTENT_KEYS: readonly ContentKey[] = [
+  'updates',
+  'missing',
+  'dlc',
+  'demos',
+];
+
+/** Each chip pressed or not; pressed chips combine with AND. */
+export type ContentFilters = Readonly<Record<ContentKey, boolean>>;
+
+/**
+ * The 3.1 seam (spec §10): true when an offline title list knows a version
+ * above the game's installed one. Rust decides it with `version_order`
+ * (TypeScript never orders versions); there is no title list yet, so the
+ * library passes none and «Le falta la última actualización» compares
+ * only within the library (`Game.missing`, D6).
+ */
+export type BehindLatest = (game: Game) => boolean;
+
 export interface Filters {
   query: string;
   art: ArtFilter;
@@ -32,7 +55,16 @@ export interface Filters {
   /** Inclusive bounds, bytes. */
   sizeMin: number | null;
   sizeMax: number | null;
+  /** Content chips; they work on games, not on scan entries. */
+  content: ContentFilters;
 }
+
+export const NO_CONTENT: ContentFilters = {
+  updates: false,
+  missing: false,
+  dlc: false,
+  demos: false,
+};
 
 export const EMPTY_FILTERS: Filters = {
   query: '',
@@ -44,6 +76,7 @@ export const EMPTY_FILTERS: Filters = {
   modifiedTo: null,
   sizeMin: null,
   sizeMax: null,
+  content: NO_CONTENT,
 };
 
 export type FacetField = 'art' | 'systems' | 'exts' | 'regions';
@@ -116,6 +149,63 @@ export function applyFilters(
   return entries.filter((e) => matches(e, keys[e.id] ?? '', f, tokens));
 }
 
+/** Whether `game` has what the chip `key` names. */
+export function matchesContentKey(
+  game: Game,
+  key: ContentKey,
+  behind?: BehindLatest,
+): boolean {
+  switch (key) {
+    case 'updates':
+      return game.updates.length > 0;
+    case 'missing':
+      return game.missing !== null || (behind?.(game) ?? false);
+    case 'dlc':
+      return game.dlc.length > 0;
+    case 'demos':
+      return game.isDemo;
+  }
+}
+
+/** Any content chip pressed. */
+export function contentActive(content: ContentFilters): boolean {
+  return CONTENT_KEYS.some((k) => content[k]);
+}
+
+/**
+ * The games that pass every pressed content chip (AND). The panel filters
+ * and the search run on the games' entries (`applyFilters`), so both
+ * combine with AND too. Returns `games` itself when no chip is pressed.
+ */
+export function applyGameFilters(
+  games: readonly Game[],
+  filters: Pick<Filters, 'content'>,
+  behind?: BehindLatest,
+): readonly Game[] {
+  const on = CONTENT_KEYS.filter((k) => filters.content[k]);
+  if (on.length === 0) return games;
+  return games.filter((g) => on.every((k) => matchesContentKey(g, k, behind)));
+}
+
+/** How many of `games` each chip would keep on its own; orphans never. */
+export function contentFacets(
+  games: readonly Game[],
+  behind?: BehindLatest,
+): Record<ContentKey, number> {
+  const out: Record<ContentKey, number> = {
+    updates: 0,
+    missing: 0,
+    dlc: 0,
+    demos: 0,
+  };
+  for (const g of games) {
+    if (g.orphan !== null) continue;
+    for (const k of CONTENT_KEYS)
+      if (matchesContentKey(g, k, behind)) out[k] += 1;
+  }
+  return out;
+}
+
 export interface Facets {
   art: Record<ArtFilter, number>;
   systems: Map<number, number>;
@@ -155,7 +245,8 @@ export function computeFacets(
   return { art, systems, exts, regions };
 }
 
-/** Filters set besides the search query. */
+/** Filter-panel filters set (not the search query, not the content
+ * chips, which show their own pressed state). */
 export function activeFilterCount(f: Filters): number {
   return [
     f.art !== 'all',

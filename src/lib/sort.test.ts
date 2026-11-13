@@ -42,3 +42,63 @@ describe('sortEntries', () => {
     expect(ids(list)).toEqual([0, 1, 2]);
   });
 });
+
+describe('sortEntries by Versión and Contenido (addon views §8.4)', () => {
+  const v = (id: number, over: Partial<EntryView>): EntryView => ({
+    ...e(id, `g${id}`, 0, 1, 1),
+    ...over,
+  });
+  const child = (index: number) => ({
+    index,
+    rel_path: `x/${index}`,
+    name: `c${index}`,
+    role: 'dlc' as const,
+    size: 1,
+    mtime: 0,
+    art: { icon: false, banner: false },
+  });
+
+  it('orders versions naturally, a game without one last', () => {
+    const list = [
+      v(0, { installed: '1.0.10' }),
+      v(1, {}),
+      v(2, { installed: '1.0.2' }),
+      v(3, { revision: 'Rev 1' }),
+    ];
+    expect(
+      ids(sortEntries(list, { key: 'version', dir: 'asc' }, names)),
+    ).toEqual([2, 0, 3, 1]);
+  });
+
+  it('orders by how many updates and DLC a game holds', () => {
+    const list = [
+      v(0, { children: [child(0), child(1)] }),
+      v(1, {}),
+      v(2, { children: [child(0)] }),
+    ];
+    expect(
+      ids(sortEntries(list, { key: 'content', dir: 'desc' }, names)),
+    ).toEqual([0, 2, 1]);
+  });
+
+  it('orders by what the Contenido cell counts, when told', () => {
+    // A retro game with two revisions and a game with a demo hold
+    // content the entry's children do not show.
+    const list = [v(0, {}), v(1, { children: [child(0)] }), v(2, {}), v(3, {})];
+    const held = new Map([
+      [1, 1],
+      [2, 3],
+      [3, 2],
+    ]);
+    expect(
+      ids(
+        sortEntries(
+          list,
+          { key: 'content', dir: 'desc' },
+          names,
+          (e) => held.get(e.id) ?? 0,
+        ),
+      ),
+    ).toEqual([2, 3, 1, 0]);
+  });
+});

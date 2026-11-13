@@ -47,7 +47,10 @@
       }
     ],
     "scan_ms": 42,
-    "loose_files": 3
+    "loose_files": 3,
+    "revision_defaults": {
+      "snes:star courier (usa)": "ROMS/SFC/Star Courier (USA) (Rev 1).sfc"
+    }
   },
   "scan_progress": {
     "generation": 3,
@@ -2859,6 +2862,19 @@
       "kind": "disc-set"
     }
   ],
+  "region_letter_note": {
+    "kind": "region-letter-unknown",
+    "letter": "T"
+  },
+  "child_art_note": {
+    "kind": "child-art-stays",
+    "count": 2
+  },
+  "child_art_companion": {
+    "source": "Pokemon Y/DLC/.media/Pack-icon.png",
+    "target": "3DS/Pokemon Y/DLC/.media/Pokemon Y - Pack-icon.png",
+    "child_art": true
+  },
   "adjustments_playlist": {
     "path": "ROMS/Saturn/Grandia (Japan).m3u",
     "discs": [
@@ -3376,5 +3392,202 @@
       }
     ],
     "system": "ps4"
+  },
+  "game_content_entries": [
+    {
+      "id": 10,
+      "system": 1,
+      "rel_path": "switch/Tidewalker/Tidewalker (Rev 1) (v1.0.0).nsp",
+      "dir": "switch/Tidewalker",
+      "name": "Tidewalker (Rev 1) (v1.0.0)",
+      "ext": "nsp",
+      "size": 2000000,
+      "mtime": 1700000000,
+      "regions": [],
+      "art": {
+        "cover": "present",
+        "screenshot": "unsupported",
+        "title": "unsupported"
+      },
+      "children": [
+        {
+          "index": 1,
+          "rel_path": "switch/Tidewalker/Updates/Tidewalker (v1.0.2).nsp",
+          "name": "Tidewalker (v1.0.2)",
+          "role": "update",
+          "version": "1.0.2",
+          "size": 300000,
+          "mtime": 1700000100,
+          "art": {
+            "icon": true,
+            "banner": false,
+            "icon_origin": "package"
+          }
+        },
+        {
+          "index": 0,
+          "rel_path": "switch/Tidewalker/DLC/Tidewalker - Reef Pack.nsp",
+          "name": "Tidewalker - Reef Pack",
+          "role": "dlc",
+          "size": 50000,
+          "mtime": 1700000200,
+          "art": {
+            "icon": false,
+            "banner": false
+          }
+        }
+      ],
+      "version_group": "switch:tidewalker",
+      "revision": "Rev 1",
+      "version": "1.0.0",
+      "installed": "1.0.2",
+      "newer_elsewhere": {
+        "entry": 11,
+        "version": "1.3.0"
+      },
+      "addons": {
+        "mods": 1,
+        "cheats": 2,
+        "extras": 3,
+        "saves": 0,
+        "capped": true
+      }
+    },
+    {
+      "id": 11,
+      "system": 1,
+      "rel_path": "switch/Tidewalker (Update)/Updates/Tidewalker (v1.3.0).nsp",
+      "dir": "switch/Tidewalker (Update)/Updates",
+      "name": "Tidewalker (v1.3.0)",
+      "ext": "nsp",
+      "size": 2000000,
+      "mtime": 1700000000,
+      "regions": [],
+      "art": {
+        "cover": "present",
+        "screenshot": "unsupported",
+        "title": "unsupported"
+      },
+      "orphan": "update",
+      "orphan_of": 10,
+      "version": "1.3.0"
+    },
+    {
+      "id": 12,
+      "system": 1,
+      "rel_path": "switch/Tidewalker (Demo).nsp",
+      "dir": "switch",
+      "name": "Tidewalker (Demo)",
+      "ext": "nsp",
+      "size": 2000000,
+      "mtime": 1700000000,
+      "regions": [],
+      "art": {
+        "cover": "present",
+        "screenshot": "unsupported",
+        "title": "unsupported"
+      },
+      "demo": {
+        "of": 10,
+        "of_name": "Tidewalker (Rev 1) (v1.0.0)"
+      }
+    },
+    {
+      "id": 13,
+      "system": 1,
+      "rel_path": "switch/Coral Drift",
+      "dir": "switch",
+      "name": "Coral Drift",
+      "ext": "nsp",
+      "size": 2000000,
+      "mtime": 1700000000,
+      "regions": [],
+      "art": {
+        "cover": "present",
+        "screenshot": "unsupported",
+        "title": "unsupported"
+      },
+      "addons": {
+        "mods": 0,
+        "cheats": 1,
+        "extras": 0,
+        "saves": 0
+      },
+      "folder_root": true
+    }
+  ],
+  "game_details": {
+    "request": 4,
+    "title_id": "0004000000055E00",
+    "product_code": "CTR-P-AXXT",
+    "region": {
+      "letter": "S",
+      "code": "CTR-P-AXXS",
+      "region": "europe",
+      "country": "spain",
+      "certainty": "certain"
+    },
+    "latest": {
+      "version": "1.3.0",
+      "source": "title-db"
+    },
+    "latest_installed": false,
+    "children": [
+      {
+        "index": 0,
+        "title_id": "0004000E00055E00",
+        "kind": "update"
+      },
+      {
+        "index": 1
+      }
+    ]
+  },
+  "game_details_bare": {
+    "request": 5,
+    "children": []
+  },
+  "child_art_read": {
+    "job": "20261113-120000-ab12",
+    "written": 1,
+    "skipped": [
+      {
+        "index": 1,
+        "why": "no-art-in-clear"
+      }
+    ],
+    "children": [
+      {
+        "index": 0,
+        "rel_path": "ROMS/3DS/Lantern Harbor/DLC/Lantern Harbor - Pack.cia",
+        "name": "Lantern Harbor - Pack",
+        "role": "dlc",
+        "size": 64,
+        "mtime": 1700000000,
+        "art": {
+          "icon": true,
+          "banner": false,
+          "icon_origin": "package"
+        }
+      }
+    ]
+  },
+  "child_art_read_nothing": {
+    "written": 0,
+    "skipped": [],
+    "children": []
+  },
+  "child_skip_reasons": [
+    "key-material",
+    "no-art-in-clear",
+    "exists",
+    "path-too-long",
+    "read-only",
+    "refused"
+  ],
+  "region_certainties": ["certain", "likely", "unknown"],
+  "unknown_child": {
+    "code": "unknown-child",
+    "detail": 3
   }
 }

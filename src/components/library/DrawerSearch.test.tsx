@@ -1,10 +1,11 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import App from '@/App';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
+import { MOCK_ADDONS } from '@/ipc/mock/addonViewsFixture';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
 import type { EntryView } from '@/ipc/types';
@@ -160,5 +161,71 @@ describe('drawer search by title', () => {
       within(drawer).getByRole('button', { name: 'Back to candidates' }),
     );
     await within(drawer).findByRole('group', { name: 'Candidates' });
+  });
+});
+
+describe('drawer search for an update or DLC (addon views D11)', () => {
+  let restore: () => void;
+  beforeEach(() => {
+    restore = stubLayout(1280, 800);
+  });
+  afterEach(() => {
+    restore();
+    setBackend(null);
+  });
+
+  it('searches for the DLC and writes its slot only on a pick, never the game’s art', async () => {
+    setBackend(
+      createMockBackend({
+        delayMs: 0,
+        now: FIXTURE_NOW,
+        storage: new MemoryStorage(),
+      }),
+    );
+    resetLibraryStore();
+    resetSettingsStore();
+    useJobStore.getState().reset();
+    await useSettingsStore.getState().load();
+    await useLibraryStore.getState().open(MOCK_ADDONS);
+    render(
+      <I18nProvider locale="en">
+        <App />
+      </I18nProvider>,
+    );
+    const view = useLibraryStore.getState().view!;
+    const game = view.entries.find((e) => e.name === 'Neon Rhythm')!;
+    const before = game.art;
+    const drawer = show(game);
+    const dlc = within(drawer).getByRole('region', { name: /^DLC/ });
+    await userEvent.click(
+      within(dlc).getByRole('button', {
+        name: 'Search for art for Neon Rhythm - Synthwave Pack',
+      }),
+    );
+    expect(
+      within(dlc).getByRole('searchbox', { name: 'Title to search' }),
+    ).toHaveValue('Neon Rhythm - Synthwave Pack');
+    const results = await within(dlc).findByRole('group', {
+      name: 'Search results',
+    });
+    // Looking is not writing.
+    const synth = () =>
+      useLibraryStore
+        .getState()
+        .view!.entries[game.id]!.children!.find((c) =>
+          c.name.endsWith('Synthwave Pack'),
+        )!;
+    expect(synth().art.icon).toBe(false);
+    await userEvent.click(within(results).getAllByRole('button')[0]!);
+    await waitFor(() => expect(synth().art.icon).toBe(true));
+    expect(synth().art.icon_origin).toBe('screenscraper');
+    const row = within(dlc)
+      .getAllByRole('listitem')
+      .find((li) => li.textContent?.includes('Synthwave Pack'))!;
+    expect(within(row).getByText('ScreenScraper')).toBeInTheDocument();
+    // The game's own art is untouched.
+    expect(useLibraryStore.getState().view!.entries[game.id]!.art).toEqual(
+      before,
+    );
   });
 });
