@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use coverly_core::art::children::ChildArtMarks;
+use coverly_core::art::children::{ChildArtMarks, SkipWhy};
 use coverly_core::art::ArtState;
 use coverly_core::game_folder::ChildRole;
 use coverly_core::identify::names::Region;
@@ -131,6 +131,28 @@ pub struct ChildView {
     /// Unix seconds.
     pub mtime: i64,
     pub art: ChildArtMarks,
+}
+
+/// A child the «Leer el arte incluido» job left without new art, and why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct ChildSkipView {
+    /// `ChildView.index`.
+    pub index: u32,
+    pub why: SkipWhy,
+}
+
+/// What `read_child_art` did (part C D11 b).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ChildArtReadView {
+    /// The job to undo; absent when nothing was written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job: Option<String>,
+    /// Slot files written.
+    pub written: u32,
+    pub skipped: Vec<ChildSkipView>,
+    /// The game's children again, with their new art marks (same order
+    /// as `EntryView.children`).
+    pub children: Vec<ChildView>,
 }
 
 /// What a demo is linked to.

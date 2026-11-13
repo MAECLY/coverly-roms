@@ -17,6 +17,13 @@ import {
   type PickReason,
   type SourceInfo,
   type CandidateView,
+  type ChildArtReadView,
+  type ChildDetailView,
+  type ChildMedia,
+  type ChildSkipWhy,
+  type GameDetailsView,
+  type RegionCertainty,
+  type RegionVerdictView,
   type DedupeJobView,
   type DedupeOutcomeView,
   type DedupePlanView,
@@ -172,6 +179,39 @@ const CHILD_KEYS = [
   'mtime',
   'art',
 ] as const;
+const GAME_DETAILS_KEYS = [
+  'request',
+  'title_id',
+  'product_code',
+  'region',
+  'latest',
+  'children',
+] as const;
+const REGION_VERDICT_KEYS = [
+  'letter',
+  'code',
+  'region',
+  'country',
+  'certainty',
+] as const;
+const CHILD_DETAIL_KEYS = ['index', 'title_id', 'kind'] as const;
+const CHILD_ART_READ_KEYS = ['job', 'written', 'skipped', 'children'] as const;
+/** Every `SkipWhy` and `Certainty`, in Rust's order. */
+const CHILD_SKIP_WHYS = [
+  'key-material',
+  'no-art-in-clear',
+  'exists',
+  'path-too-long',
+  'read-only',
+  'refused',
+] as const;
+const REGION_CERTAINTIES = ['certain', 'likely', 'unknown'] as const;
+const _allChildSkipWhys: AllMembers<ChildSkipWhy, typeof CHILD_SKIP_WHYS> =
+  CHILD_SKIP_WHYS;
+const _allRegionCertainties: AllMembers<
+  RegionCertainty,
+  typeof REGION_CERTAINTIES
+> = REGION_CERTAINTIES;
 const CHILD_ART_KEYS = [
   'icon',
   'banner',
@@ -575,6 +615,38 @@ const checks: [string, readonly string[], object][] = [
     }) as object,
   ],
   [
+    'GameDetailsView',
+    GAME_DETAILS_KEYS satisfies AllKeys<
+      GameDetailsView,
+      typeof GAME_DETAILS_KEYS
+    >,
+    sample.game_details,
+  ],
+  [
+    'RegionVerdictView',
+    REGION_VERDICT_KEYS satisfies AllKeys<
+      RegionVerdictView,
+      typeof REGION_VERDICT_KEYS
+    >,
+    sample.game_details.region,
+  ],
+  [
+    'ChildDetailView',
+    CHILD_DETAIL_KEYS satisfies AllKeys<
+      ChildDetailView,
+      typeof CHILD_DETAIL_KEYS
+    >,
+    sample.game_details.children[0]!,
+  ],
+  [
+    'ChildArtReadView',
+    CHILD_ART_READ_KEYS satisfies AllKeys<
+      ChildArtReadView,
+      typeof CHILD_ART_READ_KEYS
+    >,
+    sample.child_art_read,
+  ],
+  [
     'SystemView',
     SYSTEM_KEYS satisfies AllKeys<SystemView, typeof SYSTEM_KEYS>,
     sample.library_view.systems[0]!,
@@ -910,6 +982,33 @@ const checks: [string, readonly string[], object][] = [
 describe('wire contract', () => {
   it.each(checks)('%s keys match the Rust sample', (_name, keys, value) => {
     expect(Object.keys(value).sort()).toEqual([...keys].sort());
+  });
+
+  it('the game panel answers use the Rust spellings (part C D3, D11)', () => {
+    const details = sample.game_details as GameDetailsView;
+    expect(details.region).toEqual({
+      letter: 'S',
+      code: 'CTR-P-AXXS',
+      region: 'europe',
+      country: 'spain',
+      certainty: 'certain',
+    });
+    expect(details.latest).toEqual({ version: '1.3.0', source: 'title-db' });
+    expect(details.children[1]).toEqual({ index: 1 });
+    // Optional fields are left out, never null.
+    expect(sample.game_details_bare).toEqual({ request: 5, children: [] });
+    expect(Object.keys(sample.child_art_read_nothing).sort()).toEqual([
+      'children',
+      'skipped',
+      'written',
+    ]);
+    const read = sample.child_art_read as ChildArtReadView;
+    expect(read.skipped).toEqual([{ index: 1, why: 'no-art-in-clear' }]);
+    expect(sample.child_skip_reasons).toEqual([...CHILD_SKIP_WHYS]);
+    expect(sample.region_certainties).toEqual([...REGION_CERTAINTIES]);
+    expect(toBackendError(sample.unknown_child).code).toBe('unknown-child');
+    const slots = requests.child_media as ChildMedia[];
+    expect(slots).toEqual(['icon', 'banner'] satisfies ChildMedia[]);
   });
 
   it('game content uses the Rust spellings and ids (addon views D2)', () => {
@@ -1880,6 +1979,8 @@ void _allHeaderFits;
 void _allEmulatorIds;
 void _allNotSupportedWhys;
 void _allUnlinkedWhys;
+void _allChildSkipWhys;
+void _allRegionCertainties;
 
 /** Every `IdSource`, in Rust's declaration order. */
 const ID_SOURCES = [

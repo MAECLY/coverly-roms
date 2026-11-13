@@ -2,6 +2,7 @@
 //! and keeping, per entry, the paths only the backend may touch.
 
 pub mod art;
+pub mod details;
 pub mod identify;
 pub mod refresh;
 pub mod view;
@@ -293,6 +294,57 @@ fn warning(w: &coverly_core::scan::ScanWarning) -> WarningView {
         path: w.path.display().to_string(),
         message: w.message.clone(),
     }
+}
+
+/// The version group and `/`-separated `rel_path` of entry `id`, when it
+/// is a current member of a group of more than one (D7): what
+/// `set_default_revision` stores. No group or path comes from the webview.
+pub fn revision_choice(session: &Session, id: u32) -> Result<(String, String), IpcError> {
+    let entry = session
+        .entries
+        .get(id as usize)
+        .ok_or(IpcError::UnknownEntry(id))?;
+    let group = entry
+        .rom
+        .version_group
+        .as_deref()
+        .filter(|g| group_members(session, g) > 1)
+        .ok_or_else(|| {
+            IpcError::BadRequest(format!("entry {id} is not one of several revisions"))
+        })?;
+    Ok((
+        group.to_string(),
+        rel_string(&session.root, &entry.rom.path),
+    ))
+}
+
+/// Whether `rel` (compared by components) is still a member of `group`
+/// and the group still has more than one member: a choice that is not is
+/// pruned from the library's settings.
+pub fn revision_live(session: &Session, group: &str, rel: &str) -> bool {
+    group_members(session, group) > 1
+        && session.entries.iter().any(|e| {
+            e.rom.version_group.as_deref() == Some(group)
+                && coverly_core::settings::same_rel(&rel_string(&session.root, &e.rom.path), rel)
+        })
+}
+
+fn group_members(session: &Session, group: &str) -> usize {
+    session
+        .entries
+        .iter()
+        .filter(|e| e.rom.role.is_none() && e.rom.version_group.as_deref() == Some(group))
+        .count()
+}
+
+/// The children of entry `id` as the webview lists them (newest first),
+/// read again from disk: their art marks after a write.
+pub fn entry_children(session: &Session, id: u32) -> Result<Vec<ChildView>, IpcError> {
+    let entry = session
+        .entries
+        .get(id as usize)
+        .ok_or(IpcError::UnknownEntry(id))?;
+    Ok(child_views(&session.root, &entry.system_id, &entry.rom))
 }
 
 /// The game-content fields of one system's entries (addon views D2,

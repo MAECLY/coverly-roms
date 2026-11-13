@@ -257,6 +257,15 @@ fn rust_reads_the_shared_requests() {
             },
         ]
     );
+    let slots: Vec<coverly_core::art::children::ChildMedia> =
+        serde_json::from_value(req["child_media"].clone()).unwrap();
+    assert_eq!(
+        slots,
+        [
+            coverly_core::art::children::ChildMedia::Icon,
+            coverly_core::art::children::ChildMedia::Banner
+        ]
+    );
     let filters: Vec<ItemFilter> = serde_json::from_value(req["item_filters"].clone()).unwrap();
     assert_eq!(filters.len(), 4);
     let formats: Vec<ExportFormat> = serde_json::from_value(req["export_formats"].clone()).unwrap();
@@ -2374,6 +2383,107 @@ fn game_content_entries_match_the_shared_sample() {
         },
     );
     let actual = json!({ "game_content_entries": [game, orphan, demo] });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+/// Part C D3, D11 b: the game panel's lazy facts (every field) and what
+/// «Leer el arte incluido» answers.
+#[test]
+fn game_panel_answers_match_the_shared_sample() {
+    use coverly_core::art::children::{ChildArtMarks, SkipWhy};
+    use coverly_core::catalog::latest::{LatestKnown, LatestSource};
+    use coverly_core::consoles::ctr_region::Certainty;
+    use coverly_core::consoles::TitleKind;
+    use coverly_core::game_folder::ChildRole;
+    use coverly_roms_lib::library::details::{ChildDetailView, GameDetailsView, RegionVerdictView};
+    use coverly_roms_lib::library::view::{ChildArtReadView, ChildSkipView};
+
+    let details = GameDetailsView {
+        request: 4,
+        title_id: Some("0004000000055E00".into()),
+        product_code: Some("CTR-P-AXXT".into()),
+        region: Some(RegionVerdictView {
+            letter: "S".into(),
+            code: "CTR-P-AXXS".into(),
+            region: Some(Region::Europe),
+            country: Some(Region::Spain),
+            certainty: Certainty::Certain,
+        }),
+        latest: Some(LatestKnown {
+            version: "1.3.0".into(),
+            source: LatestSource::TitleDb,
+        }),
+        children: vec![
+            ChildDetailView {
+                index: 0,
+                title_id: Some("0004000E00055E00".into()),
+                kind: Some(TitleKind::Update),
+            },
+            ChildDetailView {
+                index: 1,
+                title_id: None,
+                kind: None,
+            },
+        ],
+    };
+    let bare = GameDetailsView {
+        request: 5,
+        ..GameDetailsView::default()
+    };
+    let read = ChildArtReadView {
+        job: Some("20261113-120000-ab12".into()),
+        written: 1,
+        skipped: vec![ChildSkipView {
+            index: 1,
+            why: SkipWhy::NoArtInClear,
+        }],
+        children: vec![ChildView {
+            index: 0,
+            rel_path: "ROMS/3DS/Lantern Harbor/DLC/Lantern Harbor - Pack.cia".into(),
+            name: "Lantern Harbor - Pack".into(),
+            role: ChildRole::Dlc,
+            version: None,
+            size: 64,
+            mtime: 1_700_000_000,
+            art: ChildArtMarks {
+                icon: true,
+                banner: false,
+                icon_origin: Some(coverly_core::art::children::ChildOrigin::Package),
+                banner_origin: None,
+            },
+        }],
+    };
+    let nothing = ChildArtReadView {
+        job: None,
+        written: 0,
+        skipped: vec![],
+        children: vec![],
+    };
+    let actual = json!({
+        "game_details": details,
+        "game_details_bare": bare,
+        "child_art_read": read,
+        "child_art_read_nothing": nothing,
+        "child_skip_reasons": [
+            SkipWhy::KeyMaterial,
+            SkipWhy::NoArtInClear,
+            SkipWhy::Exists,
+            SkipWhy::PathTooLong,
+            SkipWhy::ReadOnly,
+            SkipWhy::Refused,
+        ],
+        "region_certainties": [Certainty::Certain, Certainty::Likely, Certainty::Unknown],
+        "unknown_child": IpcError::UnknownChild(3),
+    });
     let expected: Value =
         serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
     for (key, value) in actual.as_object().unwrap() {

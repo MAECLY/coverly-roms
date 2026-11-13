@@ -208,6 +208,66 @@ pub async fn identify_entry(
     .await
 }
 
+/// What the game panel reads lazily (part C D3): offline, off the UI
+/// thread; `request` comes back so the webview drops a superseded answer.
+#[tauri::command]
+pub async fn game_details(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    request: u32,
+) -> Result<crate::library::details::GameDetailsView, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .game_details(generation, entry_id, request)
+    })
+    .await
+}
+
+/// Makes this revision the default of its group (part C D7); answers the
+/// library's choices (version group → `rel_path`).
+#[tauri::command]
+pub async fn set_default_revision(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+) -> Result<std::collections::BTreeMap<String, String>, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .set_default_revision(generation, entry_id)
+    })
+    .await
+}
+
+/// «Leer el arte incluido»: the art a game's updates and DLC carry in the
+/// clear, written to their empty slots in an undoable job (part C D11 b).
+#[tauri::command]
+pub async fn read_child_art(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+) -> Result<crate::library::view::ChildArtReadView, IpcError> {
+    blocking(move || app.state::<AppState>().read_child_art(generation, entry_id)).await
+}
+
+/// The raw bytes of one art slot of an update or DLC (an `ArrayBuffer` in
+/// JS); the child is named by its index, never by a path.
+#[tauri::command]
+pub async fn read_child_art_bytes(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    child_index: u32,
+    slot: coverly_core::art::children::ChildMedia,
+) -> Result<tauri::ipc::Response, IpcError> {
+    blocking(move || {
+        let session = app.state::<AppState>().session(generation)?;
+        crate::library::art::read_child_art_bytes(&session, entry_id, child_index, slot)
+            .map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
 /// Shows the entry's file in Finder / Explorer / the file manager.
 #[tauri::command]
 pub fn reveal_entry(

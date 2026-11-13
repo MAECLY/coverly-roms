@@ -686,6 +686,9 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     },
   ];
 
+  /** Revision defaults chosen per library root (part C D7). */
+  const revisionChoices = new Map<string, Record<string, string>>();
+
   const entryOf = (gen: number, id: number): EntryView => {
     if (!current) throw new BackendError('no-library');
     if (current.generation !== gen) throw new BackendError('stale-library');
@@ -849,6 +852,49 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     async revealEntry(gen, id) {
       entryOf(gen, id);
       revealed.push(id);
+    },
+    // Part C: the panel's commands. The add-ons mock library (Task 13)
+    // gives them richer answers; these keep Rust's checks and shapes.
+    async gameDetails(gen, id, request) {
+      const e = entryOf(gen, id);
+      await sleep(delayMs);
+      return {
+        request,
+        children: (e.children ?? []).map((c) => ({ index: c.index })),
+      };
+    },
+    async setDefaultRevision(gen, id) {
+      const e = entryOf(gen, id);
+      const group = e.version_group;
+      const members = group
+        ? current!.entries.filter((x) => x.version_group === group).length
+        : 0;
+      if (!group || members < 2) {
+        throw new BackendError(
+          'bad-request',
+          `entry ${id} is not one of several revisions`,
+        );
+      }
+      // Kept per library root, as Rust keys the settings; the view sent
+      // with the library is left as it was.
+      const root = current!.root;
+      const choices = {
+        ...current!.revision_defaults,
+        ...revisionChoices.get(root),
+        [group]: e.rel_path,
+      };
+      revisionChoices.set(root, choices);
+      return { ...choices };
+    },
+    async readChildArt(gen, id) {
+      const e = entryOf(gen, id);
+      return { written: 0, skipped: [], children: e.children ?? [] };
+    },
+    async readChildArtBytes(gen, id, childIndex, slot) {
+      const e = entryOf(gen, id);
+      const child = e.children?.find((c) => c.index === childIndex);
+      if (!child) throw new BackendError('unknown-child', String(childIndex));
+      throw new BackendError('art-missing', slot);
     },
     pickFolder: () =>
       Promise.resolve(opts.folder ?? readMockPick() ?? MOCK_LIBRARIES[0].path),

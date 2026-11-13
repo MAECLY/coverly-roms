@@ -129,5 +129,6 @@
     "quarantine": {
       "kind": "trash"
     }
-  }
+  },
+  "child_media": ["icon", "banner"]
 }

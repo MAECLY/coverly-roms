@@ -11,15 +11,17 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use coverly_core::art::children::SkipWhy;
 use coverly_core::art::{resolve_art, target_path};
 use coverly_core::audit::{build_report, write_csv};
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::catalog::latest::{LatestVersions, NoTitleList};
 use coverly_core::catalog::TitleNames;
 use coverly_core::credentials::{
     store_secret, CredentialKey, CredentialStatus, CredentialStore, MemoryStore, Presence,
     SourceKeys,
 };
-use coverly_core::fill::{remove_art, write_local_image, FillSettings, RomRef};
+use coverly_core::fill::{read_children_art, remove_art, write_local_image, FillSettings, RomRef};
 use coverly_core::gather::Scope;
 use coverly_core::identify::dat::DatStore;
 use coverly_core::identify::overrides::{
@@ -59,9 +61,13 @@ use crate::jobs::view::{
 };
 use crate::jobs::{with_env, FillConfig, JobEvents, JobManager, ManualWrite};
 use crate::library::art::{inside_root, media_name, MAX_ART_BYTES};
+use crate::library::details::GameDetailsView;
 use crate::library::identify::IdentityView;
 use crate::library::refresh::{ids_for_art_paths, refresh_entries, subset_scan, EntryArtUpdate};
-use crate::library::view::{LibrarySettingsView, LibraryView, RecentView, ScanProgressEvent};
+use crate::library::view::{
+    ChildArtReadView, ChildSkipView, LibrarySettingsView, LibraryView, RecentView,
+    ScanProgressEvent,
+};
 use crate::library::{open_session, OpenRequest, Session};
 use crate::organize::view::{
     FolderProbeView, OrganizeJobView, OrganizePlanView, OrganizeRequest, OrganizeUndoView,
@@ -129,6 +135,9 @@ pub struct AppState {
     /// The language the webview last said it shows (`es-ES`, `en`…), for
     /// the catalogue's region file while the language setting is automatic.
     ui_locale: Mutex<Option<String>>,
+    /// The offline title list that knows a title's newest version (the 3.1
+    /// seam, part C D6): [`NoTitleList`] until 3.1 ships one.
+    title_list: Box<dyn LatestVersions>,
 }
 
 /// A snapshot of the stored keys, dropped when a credential is saved or
@@ -379,7 +388,14 @@ impl AppState {
             catalog_cancel: AtomicBool::new(false),
             catalog_base: None,
             ui_locale: Mutex::new(None),
+            title_list: Box::new(NoTitleList),
         }
+    }
+
+    /// Asks `list` for a title's newest version instead of nobody (tests).
+    pub fn with_title_list(mut self, list: Box<dyn LatestVersions>) -> AppState {
+        self.title_list = list;
+        self
     }
 
     /// Looks for external archive tools with `search` instead of this
@@ -1069,6 +1085,97 @@ impl AppState {
         }
         Ok(LibrarySettingsView {
             ignored_dirs: out.settings.library.ignored_dirs,
+        })
+    }
+
+    /// What the game panel reads lazily for entry `id` (part C D3):
+    /// offline, from Organizar's memo or the budgeted header readers.
+    /// `request` is echoed so the webview drops a superseded answer.
+    pub fn game_details(
+        &self,
+        generation: u64,
+        id: u32,
+        request: u32,
+    ) -> Result<GameDetailsView, IpcError> {
+        let session = self.session(generation)?;
+        // The memo only saves reads: without it every header is read again.
+        let cache = self.cache().ok();
+        crate::library::details::game_details(
+            &session,
+            id,
+            request,
+            self.title_list.as_ref(),
+            cache.as_ref(),
+        )
+    }
+
+    /// Makes entry `id` the default revision of its group in this library
+    /// (part C D7), prunes this library's stale choices and answers its
+    /// choices (version group → `rel_path`).
+    pub fn set_default_revision(
+        &self,
+        generation: u64,
+        id: u32,
+    ) -> Result<BTreeMap<String, String>, IpcError> {
+        let session = self.session(generation)?;
+        let (group, rel) = crate::library::revision_choice(&session, id)?;
+        let root = session.root.clone();
+        let settings = self.edit(|s| {
+            s.set_revision_default(&root, &group, &rel);
+            s.prune_revision_defaults(&root, &|g, r| crate::library::revision_live(&session, g, r));
+        })?;
+        Ok(settings
+            .revision_defaults_of(&root)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    /// Reads the art the updates and DLC of entry `id` carry in the clear
+    /// into their empty slots, in a job undone like any manual write (part
+    /// C D11 b). A child that resolves outside the library is not read.
+    /// `WriteDenied` when the library cannot be written at all (the
+    /// read-only reason the panel shows).
+    pub fn read_child_art(&self, generation: u64, id: u32) -> Result<ChildArtReadView, IpcError> {
+        let (_writing, session, cfg) = self.writable_entry(generation, id)?;
+        let root = absolute_root(&session)?;
+        let entry = &session.entries[id as usize];
+        let mut skipped = Vec::new();
+        let mut inside: Vec<(u32, &Path)> = Vec::new();
+        for (index, child) in entry.rom.children.iter().enumerate() {
+            match inside_root(&session, &child.path) {
+                Ok(_) => inside.push((index as u32, child.path.as_path())),
+                Err(_) => skipped.push(ChildSkipView {
+                    index: index as u32,
+                    why: SkipWhy::Refused,
+                }),
+            }
+        }
+        let paths: Vec<&Path> = inside.iter().map(|(_, p)| *p).collect();
+        let (job, report) =
+            read_children_art(&root, &paths, &cfg.data_dir, &cfg.settings.manual_options())?;
+        if report.written.is_empty()
+            && !report.skipped.is_empty()
+            && report
+                .skipped
+                .iter()
+                .all(|(_, why)| *why == SkipWhy::ReadOnly)
+        {
+            return Err(IpcError::WriteDenied(session.root.display().to_string()));
+        }
+        for (path, why) in &report.skipped {
+            if let Some((index, _)) = inside.iter().find(|(_, p)| p == path) {
+                skipped.push(ChildSkipView {
+                    index: *index,
+                    why: *why,
+                });
+            }
+        }
+        skipped.sort_by_key(|s| s.index);
+        Ok(ChildArtReadView {
+            job,
+            written: u32::try_from(report.written.len()).unwrap_or(u32::MAX),
+            skipped,
+            children: crate::library::entry_children(&session, id)?,
         })
     }
 

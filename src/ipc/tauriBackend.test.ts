@@ -67,6 +67,42 @@ describe('Tauri backend', () => {
     ]);
   });
 
+  it('names the game panel commands by id, never by path (part C)', async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((cmd, args) => {
+      calls.push([cmd, args]);
+      if (cmd === 'read_child_art_bytes') return PNG.buffer;
+      if (cmd === 'game_details') return { request: 4, children: [] };
+      if (cmd === 'read_child_art')
+        return { written: 0, skipped: [], children: [] };
+      return { 'snes:star courier': 'ROMS/SFC/Star Courier (Rev 1).sfc' };
+    });
+    const b = createTauriBackend();
+    expect(await b.gameDetails(3, 9, 4)).toEqual({ request: 4, children: [] });
+    expect(await b.setDefaultRevision(3, 9)).toEqual({
+      'snes:star courier': 'ROMS/SFC/Star Courier (Rev 1).sfc',
+    });
+    await b.readChildArt(3, 9);
+    const icon = await b.readChildArtBytes(3, 9, 2, 'icon');
+    expect(icon.mime).toBe('image/png');
+    expect(calls).toEqual([
+      ['game_details', { generation: 3, entryId: 9, request: 4 }],
+      ['set_default_revision', { generation: 3, entryId: 9 }],
+      ['read_child_art', { generation: 3, entryId: 9 }],
+      [
+        'read_child_art_bytes',
+        { generation: 3, entryId: 9, childIndex: 2, slot: 'icon' },
+      ],
+    ]);
+  });
+
+  it('refuses child art that is not an image', async () => {
+    mockIPC(() => new TextEncoder().encode('<svg/>').buffer);
+    await expect(
+      createTauriBackend().readChildArtBytes(1, 0, 0, 'banner'),
+    ).rejects.toMatchObject({ code: 'art-unreadable' });
+  });
+
   it('refuses bytes that are not an image', async () => {
     mockIPC(() => new TextEncoder().encode('<svg/>').buffer);
     await expect(

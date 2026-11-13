@@ -17,6 +17,7 @@ import { sniffImageMime } from './sniff';
 import type {
   ArtImage,
   CandidateView,
+  ChildArtReadView,
   CatalogStatus,
   CredentialStatus,
   DedupeJobView,
@@ -25,6 +26,7 @@ import type {
   EntriesUpdated,
   EntryArtUpdate,
   FolderProbe,
+  GameDetailsView,
   IdentityView,
   IntegrationTestResult,
   IntegrationView,
@@ -122,6 +124,22 @@ export function createTauriBackend(): Backend {
       call<IdentityView>('identify_entry', { generation, entryId }),
     revealEntry: (generation, entryId) =>
       call<void>('reveal_entry', { generation, entryId }),
+    gameDetails: (generation, entryId, request) =>
+      call<GameDetailsView>('game_details', { generation, entryId, request }),
+    setDefaultRevision: (generation, entryId) =>
+      call<Record<string, string>>('set_default_revision', {
+        generation,
+        entryId,
+      }),
+    readChildArt: (generation, entryId) =>
+      call<ChildArtReadView>('read_child_art', { generation, entryId }),
+    readChildArtBytes: (generation, entryId, childIndex, slot) =>
+      image('read_child_art_bytes', {
+        generation,
+        entryId,
+        childIndex,
+        slot,
+      }),
     async pickFolder() {
       const picked = await open({ directory: true, multiple: false });
       return typeof picked === 'string' ? picked : null;

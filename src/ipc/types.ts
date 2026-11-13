@@ -92,6 +92,72 @@ export interface ChildView {
   art: ChildArtMarks;
 }
 
+/** An art slot of an update or DLC (Rust `ChildMedia`). */
+export type ChildMedia = 'icon' | 'banner';
+
+/** How sure the verified 3DS letter table is (Rust `Certainty`). */
+export type RegionCertainty = 'certain' | 'likely' | 'unknown';
+
+/** The 3DS region verdict of a product code (part C §5). */
+export interface RegionVerdictView {
+  /** The last letter of the game code (`E`, `P`, `T`…). */
+  letter: string;
+  /** The product code as read, upper-cased. */
+  code: string;
+  region?: Region;
+  country?: Region;
+  certainty: RegionCertainty;
+}
+
+/** Which offline title list knew the newest version (Rust `LatestSource`). */
+export type LatestSource = 'title-db' | 'game-tdb';
+
+/** The newest version an offline title list knows (D6); never invented. */
+export interface LatestView {
+  version: string;
+  source: LatestSource;
+}
+
+/** What the headers say about one update or DLC (`ChildView.index`). */
+export interface ChildDetailView {
+  index: number;
+  title_id?: string;
+  /** Never `unknown`: left out instead. */
+  kind?: TitleKind;
+}
+
+/** The game panel's lazy facts (D3): offline, read when it opens. */
+export interface GameDetailsView {
+  /** The request id sent, echoed: drop an answer that is not the latest. */
+  request: number;
+  title_id?: string;
+  product_code?: string;
+  /** 3DS only. */
+  region?: RegionVerdictView;
+  /** Only when a title list answered. */
+  latest?: LatestView;
+  children: ChildDetailView[];
+}
+
+/** Why «Leer el arte incluido» wrote nothing for a child (Rust `SkipWhy`). */
+export type ChildSkipWhy =
+  | 'key-material'
+  | 'no-art-in-clear'
+  | 'exists'
+  | 'path-too-long'
+  | 'read-only'
+  | 'refused';
+
+/** What `read_child_art` did (D11 b). */
+export interface ChildArtReadView {
+  /** The job to undo; absent when nothing was written. */
+  job?: string;
+  written: number;
+  skipped: { index: number; why: ChildSkipWhy }[];
+  /** The game's children again, with their new art marks. */
+  children: ChildView[];
+}
+
 export interface EntryView {
   id: number;
   system: number;

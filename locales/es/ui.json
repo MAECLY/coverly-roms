@@ -433,6 +433,7 @@
     "stale-library": "La biblioteca se ha vuelto a abrir. Inténtalo de nuevo.",
     "superseded": "Mientras tanto se abrió otra biblioteca.",
     "unknown-entry": "Esta ROM ya no está en la biblioteca.",
+    "unknown-child": "Esta actualización o DLC ya no está en la biblioteca.",
     "art-missing": "No hay imagen para esta ROM.",
     "outside-library": "Este archivo está fuera de la biblioteca y no se ha abierto.",
     "art-too-large": "Esta imagen es demasiado grande para mostrarla.",

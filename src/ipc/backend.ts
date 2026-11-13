@@ -6,6 +6,8 @@ import { hasTauriIpc, type AppInfo } from './appInfo';
 import type {
   ArtImage,
   CandidateView,
+  ChildArtReadView,
+  ChildMedia,
   CatalogStatus,
   CreditLink,
   CredentialKey,
@@ -20,6 +22,7 @@ import type {
   ExportFormat,
   FillRequest,
   FolderProbe,
+  GameDetailsView,
   IdentityView,
   IntegrationTestResult,
   IntegrationView,
@@ -78,6 +81,29 @@ export interface Backend {
   readArt(generation: number, entryId: number, media: Media): Promise<ArtImage>;
   identifyEntry(generation: number, entryId: number): Promise<IdentityView>;
   revealEntry(generation: number, entryId: number): Promise<void>;
+  /** The game panel's lazy, offline facts (part C D3). `request` comes
+   * back in the answer: drop one that is not the latest. */
+  gameDetails(
+    generation: number,
+    entryId: number,
+    request: number,
+  ): Promise<GameDetailsView>;
+  /** Makes this revision the default of its group in this library (D7);
+   * answers the library's choices (version group → `rel_path`). */
+  setDefaultRevision(
+    generation: number,
+    entryId: number,
+  ): Promise<Record<string, string>>;
+  /** «Leer el arte incluido»: the art the game's updates and DLC carry in
+   * the clear, into their empty slots (an undoable job, D11 b). */
+  readChildArt(generation: number, entryId: number): Promise<ChildArtReadView>;
+  /** One art slot of an update or DLC, by index (never a path). */
+  readChildArtBytes(
+    generation: number,
+    entryId: number,
+    childIndex: number,
+    slot: ChildMedia,
+  ): Promise<ArtImage>;
   pickFolder(): Promise<string | null>;
   onFolderDrop(cb: (path: string) => void): Promise<() => void>;
   startFill(generation: number, request: FillRequest): Promise<JobView>;
