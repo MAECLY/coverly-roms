@@ -660,6 +660,21 @@ pub fn remove_art(
     settle(close(writer, data_dir, opts), outcome)
 }
 
+/// Reads the art `children` carry in the clear into their empty slots in a
+/// job of its own (part C D11 b, the panel's «Leer el arte incluido»):
+/// journaled and undone like any manual write. The job id is `None` when
+/// nothing was written (the job is dropped, as in [`remove_art`]).
+pub fn read_children_art(
+    root: &Path,
+    children: &[&Path],
+    data_dir: &Path,
+    opts: &ManualOptions,
+) -> Result<(Option<String>, crate::art::children::ChildArtReport), WriteError> {
+    let mut writer = Writer::begin(root, data_dir)?;
+    let outcome = crate::art::children::read_child_art(children, &mut writer);
+    settle(close(writer, data_dir, opts), outcome)
+}
+
 /// The checks `Writer::write` makes before touching anything, made before
 /// a journal exists.
 fn precheck(root: &Path, target: &Path) -> Result<(), WriteError> {

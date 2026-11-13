@@ -3504,6 +3504,26 @@ fn memoised_facts(cache: &Cache, c: &WalkCandidate) -> Option<Facts> {
     (stored.v == FACTS_VERSION).then_some(stored.facts)
 }
 
+/// The console verdict Organizar memoised for the file at `path` with
+/// this `size` and `mtime_ns` (nanoseconds since the epoch), if any: the
+/// first payload that has one (part C D3: the game panel reuses what a
+/// plan already read, never writes facts of its own).
+pub fn memoised_console(
+    cache: &Cache,
+    path: &Path,
+    size: u64,
+    mtime_ns: i64,
+) -> Option<crate::consoles::ConsoleId> {
+    let json = cache.organize_facts(path, size, mtime_ns).ok()??;
+    let stored: StoredFacts = serde_json::from_str(&json).ok()?;
+    (stored.v == FACTS_VERSION)
+        .then_some(stored.facts)?
+        .inspection
+        .payloads
+        .into_iter()
+        .find_map(|p| p.sniff.console)
+}
+
 /// Facts that depend only on the file: not those cut short by a budget,
 /// nor an archive that an external tool found later could open, nor one
 /// an external tool listed or failed on (the tool, its version or the
@@ -5489,6 +5509,38 @@ mod tests {
             .put_organize_facts(&c.path, c.size, c.mtime_ns, &old.to_string())
             .unwrap();
         assert!(memoised_facts(&cache, &c).is_none());
+    }
+
+    /// Part C D3: the game panel reuses the console verdict a plan
+    /// memoised for the same file, size and mtime, and only of this facts
+    /// version.
+    #[test]
+    fn the_memoised_console_verdict_is_read_back() {
+        let cache = Cache::in_memory().unwrap();
+        let c = WalkCandidate {
+            path: PathBuf::from("/lib/ROMS/3DS/Game.3ds"),
+            ext: "3ds".into(),
+            size: 10,
+            mtime_ns: 1_700_000_000_000_000_000,
+            cloud_only: false,
+        };
+        assert_eq!(memoised_console(&cache, &c.path, c.size, c.mtime_ns), None);
+        let mut sniff = Sniff::default();
+        sniff.add_console(vec![crate::consoles::ConsoleId::proven("3ds", "NCSD")]);
+        let mut insp = Inspection::new(Container::Raw);
+        insp.payloads = vec![Payload {
+            name: "Game.3ds".into(),
+            ext: "3ds".into(),
+            size: 10,
+            crc32: None,
+            sniff,
+        }];
+        remember_facts(&cache, &c, &facts(insp));
+        let id = memoised_console(&cache, &c.path, c.size, c.mtime_ns).unwrap();
+        assert_eq!((id.system.as_str(), id.detail.as_str()), ("3ds", "NCSD"));
+        // Another size or mtime is another file.
+        assert_eq!(memoised_console(&cache, &c.path, 11, c.mtime_ns), None);
+        assert_eq!(memoised_console(&cache, &c.path, c.size, 1), None);
     }
 
     #[test]

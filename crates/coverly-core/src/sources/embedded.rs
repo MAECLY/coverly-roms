@@ -176,49 +176,67 @@ fn stamp(path: &Path) -> Option<String> {
 /// any other file through the budgeted header readers. A cloud
 /// placeholder is never read.
 fn locators(path: &Path) -> Vec<ArtLocator> {
-    let Ok(meta) = fs::metadata(path) else {
-        return Vec::new();
-    };
-    if meta.is_dir() {
+    if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
         return dir_art(path);
     }
+    console_of(path, false).map(|id| id.art).unwrap_or_default()
+}
+
+/// What the console readers say about the game, update, DLC or demo at
+/// `path` (part C D3): a folder through the folder probes, a VPK or a
+/// `.zip` through its zip listing (a Vita package delivered as a zip), any
+/// other file through the budgeted header readers. Only clear headers are
+/// read: a key, ticket or licence file ([`consoles::is_key_material`]) is
+/// never opened, nor is a cloud placeholder; nothing is decrypted.
+pub fn console_on_disk(path: &Path) -> Option<consoles::ConsoleId> {
+    let name = path.file_name()?.to_string_lossy();
+    if consoles::is_key_material(&name) {
+        return None;
+    }
+    if fs::metadata(path).ok()?.is_dir() {
+        return dir_console(path);
+    }
+    console_of(path, true)
+}
+
+/// The console verdict of the file at `path`; a `.zip` is read like a VPK
+/// when `zip_as_vpk`.
+fn console_of(path: &Path, zip_as_vpk: bool) -> Option<consoles::ConsoleId> {
+    let meta = fs::metadata(path).ok()?;
     if !meta.is_file() || OsMetaProbe.cloud_only(path, &meta) {
-        return Vec::new();
+        return None;
     }
     let ext = crate::scan::classify::extension(path);
-    if ext == "vpk" {
+    if ext == "vpk" || (zip_as_vpk && ext == "zip") {
         let limits = crate::archive::Limits::default();
-        return crate::organize::inspect::vpk_console(path, &limits)
-            .map(|id| id.art)
-            .unwrap_or_default();
+        return crate::organize::inspect::vpk_console(path, &limits);
     }
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let Ok(file) = consoles::open_rom(path) else {
-        return Vec::new();
-    };
+    let file = consoles::open_rom(path).ok()?;
     let mut at = FileAt(file);
     let mut src = Budgeted::new(&mut at, meta.len());
     consoles::identify(&mut src, &ext, &name)
-        .map(|id| id.art)
-        .unwrap_or_default()
+}
+
+/// The console verdict of a folder game (the walk's own probes, spec D12).
+fn dir_console(dir: &Path) -> Option<consoles::ConsoleId> {
+    let listed = list_dir(dir)?;
+    if listed.len() > MAX_ROOT_NAMES {
+        return None;
+    }
+    let names: Vec<String> = listed.into_iter().map(|(n, _, _)| n).collect();
+    match consoles::identify_dir_on_disk(dir, &names) {
+        Ok(Some(found)) => Some(found.id),
+        _ => None,
+    }
 }
 
 /// The icon locators of a folder game (the walk's own probes, spec D12).
 fn dir_art(dir: &Path) -> Vec<ArtLocator> {
-    let Some(listed) = list_dir(dir) else {
-        return Vec::new();
-    };
-    if listed.len() > MAX_ROOT_NAMES {
-        return Vec::new();
-    }
-    let names: Vec<String> = listed.into_iter().map(|(n, _, _)| n).collect();
-    match consoles::identify_dir_on_disk(dir, &names) {
-        Ok(Some(found)) => found.id.art,
-        _ => Vec::new(),
-    }
+    dir_console(dir).map(|id| id.art).unwrap_or_default()
 }
 
 /// Most bytes read for one banner of a folder child (part C D11): a PS4
@@ -245,10 +263,7 @@ const BANNER_FILES: [(&[&str], ArtFormat); 3] = [
 /// refused key material by name; nothing here decrypts anything.
 pub(crate) fn child_locators(path: &Path) -> Vec<ArtLocator> {
     if crate::scan::classify::extension(path) == "zip" && path.is_file() {
-        let limits = crate::archive::Limits::default();
-        return crate::organize::inspect::vpk_console(path, &limits)
-            .map(|id| id.art)
-            .unwrap_or_default();
+        return console_of(path, true).map(|id| id.art).unwrap_or_default();
     }
     locators(path)
 }
