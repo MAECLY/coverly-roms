@@ -945,13 +945,23 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
         );
       }
       // Kept per library root, as Rust keys the settings; the view sent
-      // with the library is left as it was.
+      // with the library is left as it was. Like Rust, this library's
+      // choices whose group no longer has several members, or whose path
+      // is no longer one of them, are pruned.
       const root = current!.root;
-      const choices = {
-        ...current!.revision_defaults,
-        ...revisionChoices.get(root),
-        [group]: e.rel_path,
+      const live = ([g, rel]: [string, string]) => {
+        const members = current!.entries.filter(
+          (x) => !x.orphan && x.version_group === g,
+        );
+        return members.length > 1 && members.some((x) => x.rel_path === rel);
       };
+      const choices = Object.fromEntries(
+        Object.entries({
+          ...current!.revision_defaults,
+          ...revisionChoices.get(root),
+          [group]: e.rel_path,
+        }).filter(live),
+      );
       revisionChoices.set(root, choices);
       saveRevisionChoices();
       return { ...choices };

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { EntryView, LibraryView } from '../types';
+import type { ChildView, EntryView, LibraryView } from '../types';
 import {
   ADDONS_NEW_CHILD,
   addonViewsHuge,
@@ -21,6 +21,31 @@ const byName = (view: LibraryView, name: string): EntryView => {
 
 const systemId = (view: LibraryView, e: EntryView) =>
   view.systems[e.system]?.system_id;
+
+/** Rust `child_views`: versioned children first, newest first (numeric
+ * parts), then by name in byte order. */
+const rustChildOrder = (a: ChildView, b: ChildView): number => {
+  const parts = (c: ChildView) => c.version?.split('.').map(Number);
+  const [x, y] = [parts(a), parts(b)];
+  if (x && !y) return -1;
+  if (!x && y) return 1;
+  if (x && y) {
+    for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+      const d = (y[i] ?? 0) - (x[i] ?? 0);
+      if (d !== 0) return d;
+    }
+  }
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+};
+
+const expectRustOrder = (view: LibraryView) => {
+  for (const e of view.entries) {
+    const children = e.children ?? [];
+    expect(children.map((c) => c.rel_path)).toEqual(
+      [...children].sort(rustChildOrder).map((c) => c.rel_path),
+    );
+  }
+};
 
 describe('add-ons mock library (?mockPick=addons)', () => {
   const view = addonViewsLibrary(3, FIXTURE_NOW);
@@ -142,6 +167,10 @@ describe('add-ons mock library (?mockPick=addons)', () => {
     }
   });
 
+  it('orders every game’s children as Rust sends them', () => {
+    expectRustOrder(view);
+  });
+
   it('is deterministic', () => {
     expect(addonViewsLibrary(3, FIXTURE_NOW)).toEqual(view);
   });
@@ -158,6 +187,10 @@ describe('huge add-ons mock library (?mockPick=addons-huge)', () => {
     const ids = new Set(huge.entries.map((e) => e.id));
     for (const e of huge.entries)
       if (e.demo?.of !== undefined) expect(ids.has(e.demo.of)).toBe(true);
+  });
+
+  it('orders every game’s children as Rust sends them', () => {
+    expectRustOrder(huge);
   });
 
   it('is deterministic (seeded)', () => {
@@ -230,6 +263,39 @@ describe('add-ons mock backend', () => {
     expect(reloaded.revision_defaults).toEqual({
       [plain.version_group!]: plain.rel_path,
     });
+  });
+
+  it('prunes stale revision choices when one is set, as Rust does', async () => {
+    const plain = byName(
+      addonViewsLibrary(0, FIXTURE_NOW),
+      'Star Courier (USA)',
+    );
+    const group = plain.version_group!;
+    const rev1 = `${plain.dir}/Star Courier (USA) (Rev 1).sfc`;
+    const stale = {
+      'snes:gone (usa)': 'ROMS/SFC/Gone (USA).sfc',
+      [`${group}x`]: plain.rel_path,
+    };
+    storage.setItem(
+      MOCK_REVISIONS_KEY,
+      JSON.stringify({
+        [MOCK_ADDONS]: { ...stale, [group]: rev1 },
+        '/Users/demo/Other': stale,
+      }),
+    );
+    const b = backend();
+    const view = await b.openLibrary(MOCK_ADDONS);
+    // Like Rust, the library opens with what the settings hold.
+    expect(view.revision_defaults).toEqual({ ...stale, [group]: rev1 });
+    const out = await b.setDefaultRevision(view.generation, plain.id);
+    expect(out).toEqual({ [group]: plain.rel_path });
+    const saved = JSON.parse(storage.getItem(MOCK_REVISIONS_KEY)!) as Record<
+      string,
+      unknown
+    >;
+    expect(saved[MOCK_ADDONS]).toEqual({ [group]: plain.rel_path });
+    // Other libraries' choices are not this library's to prune.
+    expect(saved['/Users/demo/Other']).toEqual(stale);
   });
 
   it('reads child art in the clear as package icons, never on Switch', async () => {

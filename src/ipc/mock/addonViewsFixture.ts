@@ -463,7 +463,11 @@ export function addonViewsHuge(
         ),
       );
     }
-    for (let d = 1; d <= count - updates; d += 1) {
+    // Then the DLC by name in byte order (`Pack 10` before `Pack 2`).
+    const dlc = Array.from({ length: count - updates }, (_, i) => i + 1).sort(
+      (a, b) => (`Pack ${a}` < `Pack ${b}` ? -1 : 1),
+    );
+    for (const d of dlc) {
       const art = rand() < 0.3;
       children.push(
         child(
