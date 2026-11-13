@@ -74,11 +74,20 @@ describe('OrphansList', () => {
     useViewStore.getState().setScope({ kind: 'orphans' });
     list();
     const button = within(rowOf(linked.entry.name)).getByRole('button', {
-      name: 'Ver el juego',
+      name: `Ver el juego «${game.entry.name}»`,
     });
     await userEvent.click(button);
     expect(useSelectionStore.getState().selectedId).toBe(game.id);
     expect(useViewStore.getState().scope).toEqual({ kind: 'all' });
+  });
+
+  it('names each «Ver el juego» after its game, starting with the visible words', () => {
+    list();
+    const button = within(rowOf(linked.entry.name)).getByRole('button', {
+      name: `Ver el juego «${game.entry.name}»`,
+    });
+    // Visible label stays the short phrase; the name begins with it (WCAG 2.5.3).
+    expect(button).toHaveTextContent(/^Ver el juego$/);
   });
 
   it('speaks English too', () => {
@@ -93,7 +102,7 @@ describe('OrphansList', () => {
     ).toBeInTheDocument();
     expect(
       within(rowOf(linked.entry.name)).getByRole('button', {
-        name: 'Show the game',
+        name: `Show the game “${game.entry.name}”`,
       }),
     ).toBeInTheDocument();
   });

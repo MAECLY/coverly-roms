@@ -2034,6 +2034,7 @@
     "noGame": "Its game is not in the library.",
     "ofGame": "It belongs to “{name}”; it is outside its folder.",
     "showGame": "Show the game",
+    "showGameNamed": "Show the game “{name}”",
     "kind": "Kind",
     "game": "Game"
   }

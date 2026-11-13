@@ -2034,6 +2034,7 @@
     "noGame": "Su juego no está en la biblioteca.",
     "ofGame": "Es de «{name}»; está fuera de su carpeta.",
     "showGame": "Ver el juego",
+    "showGameNamed": "Ver el juego «{name}»",
     "kind": "Tipo",
     "game": "Juego"
   }

@@ -88,6 +88,11 @@ export function OrphansList({
                       <Button
                         variant="link"
                         size="sm"
+                        // One «Ver el juego» per row: the name says whose,
+                        // and starts with the visible words (WCAG 2.5.3).
+                        aria-label={t('orphans.showGameNamed', {
+                          name: owner.entry.name,
+                        })}
                         onClick={() => showGame(owner)}
                       >
                         {t('orphans.showGame')}
