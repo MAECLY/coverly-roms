@@ -60,6 +60,11 @@ export function ContentFilters({
   }, [shown]);
   const [presses, setPresses] = useState(0);
   const [message, setMessage] = useState('');
+  // Emptied on each press so a result equal to the last one is said again.
+  const announceLater = () => {
+    setMessage('');
+    setPresses((p) => p + 1);
+  };
   useEffect(() => {
     if (presses === 0) return;
     const id = window.setTimeout(() => {
@@ -83,7 +88,7 @@ export function ContentFilters({
     for (const k of CONTENT_KEYS) {
       if (next.includes(k) !== content[k]) toggleContent(k);
     }
-    setPresses((p) => p + 1);
+    announceLater();
   };
 
   const chip = (key: ContentKey) => {
@@ -141,7 +146,7 @@ export function ContentFilters({
           size="sm"
           onClick={() => {
             clearContent();
-            setPresses((p) => p + 1);
+            announceLater();
             groupRef.current?.querySelector<HTMLElement>('button')?.focus();
           }}
         >

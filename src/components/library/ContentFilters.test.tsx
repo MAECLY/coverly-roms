@@ -102,6 +102,18 @@ describe('ContentFilters (D14)', () => {
     expect(live()).toBe('Ningún juego cumple estos filtros.');
   });
 
+  it('a press empties the live region first, so the same result is said again', () => {
+    const { setShown } = row({ shown: 9 });
+    fireEvent.click(screen.getByRole('button', { name: /Tiene DLC/ }));
+    setShown(0);
+    act(() => vi.advanceTimersByTime(500));
+    expect(live()).toBe('Ningún juego cumple estos filtros.');
+    fireEvent.click(screen.getByRole('button', { name: /Solo demos/ }));
+    expect(live()).toBe('');
+    act(() => vi.advanceTimersByTime(500));
+    expect(live()).toBe('Ningún juego cumple estos filtros.');
+  });
+
   it('one game is said in the singular', () => {
     const { setShown } = row();
     fireEvent.click(screen.getByRole('button', { name: /Solo demos/ }));
