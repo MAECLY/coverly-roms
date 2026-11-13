@@ -3079,3 +3079,37 @@ time {
     order: -1;
   }
 }
+
+/* Columns: a game opened into its typed groups (addon views §8.5). The
+   row suffix (`+1 DLC`, `↑ falta v1.3.0`) is mono and never colour only;
+   the fixed folders sit after a hairline; a child's art is shown at a
+   preview size. */
+.miller__suffix {
+  flex: none;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+  font-family: var(--cr-font-mono);
+}
+
+.miller__suffix--warning,
+.miller__warning {
+  color: var(--cr-warning);
+  font-weight: 600;
+}
+
+.miller__row--separated {
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.child-thumb.miller__child-art {
+  align-self: center;
+  width: 160px;
+  height: 160px;
+}
+
+@media (forced-colors: active) {
+  .miller__suffix--warning,
+  .miller__warning {
+    color: CanvasText;
+  }
+}

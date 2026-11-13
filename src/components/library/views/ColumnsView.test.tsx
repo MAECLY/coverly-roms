@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
+import { addonViewsLibrary } from '@/ipc/mock/addonViewsFixture';
 import { FIXTURE_NOW, generateLibrary } from '@/ipc/mock/fixture';
 import { createMockBackend } from '@/ipc/mock/mockBackend';
 import type { EntryView } from '@/ipc/types';
 import { clearArtCache } from '@/lib/artCache';
+import { buildGames } from '@/lib/games';
 import { DEFAULT_PREFS } from '@/lib/viewPrefs';
 import { useViewStore } from '@/stores/viewStore';
 import { stubLayout } from '@/test/layout';
@@ -320,5 +322,191 @@ describe('ColumnsView', () => {
     render(<Harness entries={lib.entries} />);
     screen.getByRole('group', { name: 'Columns view' }).focus();
     expect(screen.getByRole('listbox', { name: 'Systems' })).toHaveFocus();
+  });
+});
+
+describe('ColumnsView: games with content (addon views §8.5)', () => {
+  const addons = addonViewsLibrary(1, FIXTURE_NOW);
+  // An ordinary sub-folder beside the game folders: SFC/Hacks.
+  const hack: EntryView = {
+    ...addons.entries.find((e) => e.name === 'Star Courier (USA)')!,
+    id: addons.entries.length,
+    rel_path: 'ROMS/SFC/Hacks/Star Courier Turbo.sfc',
+    dir: 'ROMS/SFC/Hacks',
+    name: 'Star Courier Turbo',
+  };
+  delete hack.version_group;
+  const all = [...addons.entries, hack];
+  const { games, byEntry } = buildGames(all, {});
+  const shown = games.map((g) => g.entry);
+  const idOf = (name: string) => shown.find((e) => e.name === name)!.id;
+
+  function GamesHarness({
+    initial = null,
+    onOpenChild = () => {},
+  }: {
+    initial?: number | null;
+    onOpenChild?: (id: number, child: number) => void;
+  }) {
+    const [selected, setSelected] = useState<number | null>(initial);
+    return (
+      <I18nProvider locale="en">
+        <ColumnsView
+          entries={shown}
+          sections={[{ key: 'all', label: '', start: 0, count: shown.length }]}
+          prefs={{ ...DEFAULT_PREFS, view: 'columns' }}
+          onPreview={() => {}}
+          systems={addons.systems}
+          generation={1}
+          selectedId={selected}
+          onSelect={setSelected}
+          onOpen={setSelected}
+          content={{
+            byEntry,
+            line: true,
+            fresh: new Set(),
+            onOpenChild,
+          }}
+        />
+      </I18nProvider>
+    );
+  }
+
+  let restore: () => void;
+  beforeEach(() => {
+    restore = stubLayout(1600, 800);
+    setBackend(createMockBackend({ delayMs: 0, now: FIXTURE_NOW }));
+    useViewStore.setState({ scope: { kind: 'all' } });
+  });
+  afterEach(() => {
+    restore();
+    clearArtCache();
+    setBackend(null);
+  });
+
+  const options = (name: string) =>
+    within(screen.getByRole('listbox', { name })).getAllByRole('option');
+
+  it('lists a game folder as its game, with a +1 DLC suffix', () => {
+    render(<GamesHarness initial={idOf('Tidewalker')} />);
+    // Game folders are their games; Pebble League's plain folder stays.
+    expect(options('Folders').map((o) => o.textContent)).toEqual([
+      expect.stringContaining('(root)'),
+      expect.stringContaining('Pebble League'),
+    ]);
+    const row = options('Games').find((o) =>
+      o.textContent?.startsWith('Tidewalker'),
+    )!;
+    expect(row).toHaveTextContent('+1 DLC');
+    expect(row).toHaveTextContent('↑ v1.3.0 missing');
+  });
+
+  it('keeps SFC/Hacks a folder', () => {
+    render(<GamesHarness initial={hack.id} />);
+    expect(options('Folders').map((o) => o.textContent)).toEqual([
+      expect.stringContaining('(root)'),
+      expect.stringContaining('Hacks'),
+    ]);
+  });
+
+  it('opens Lantern Harbor into its typed groups in order, with counts', async () => {
+    const user = userEvent.setup();
+    render(<GamesHarness initial={idOf('Lantern Harbor (USA)')} />);
+    const gamesPane = screen.getByRole('listbox', { name: 'Games' });
+    gamesPane.focus();
+    await user.keyboard('{ArrowRight}');
+    const content = screen.getByRole('listbox', { name: 'Content' });
+    expect(content).toHaveFocus();
+    expect(options('Content').map((o) => o.textContent)).toEqual([
+      'Base game',
+      'Updates2',
+      'DLC1',
+      'Demo',
+      'Cheats2',
+      'Mods1',
+      'Extras3',
+    ]);
+    // ← leaves, as today.
+    await user.keyboard('{ArrowLeft}');
+    expect(gamesPane).toHaveFocus();
+  });
+
+  it('jumps from «Demo» to the demo game’s own column path', async () => {
+    const user = userEvent.setup();
+    render(<GamesHarness initial={idOf('Lantern Harbor (USA)')} />);
+    screen.getByRole('listbox', { name: 'Games' }).focus();
+    await user.keyboard('{ArrowRight}');
+    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{Enter}');
+    const demo = idOf('Lantern Harbor (Demo)');
+    const gamesPane = screen.getByRole('listbox', { name: 'Games' });
+    expect(gamesPane).toHaveFocus();
+    expect(gamesPane).toHaveAttribute('aria-activedescendant', `entry-${demo}`);
+  });
+
+  it('shows a DLC’s file, size and art origin in the preview', async () => {
+    const user = userEvent.setup();
+    const onOpenChild = vi.fn();
+    render(
+      <GamesHarness
+        initial={idOf('Lantern Harbor (USA)')}
+        onOpenChild={onOpenChild}
+      />,
+    );
+    screen.getByRole('listbox', { name: 'Games' }).focus();
+    await user.keyboard('{ArrowRight}{ArrowDown}{ArrowDown}{ArrowRight}');
+    const files = screen.getByRole('listbox', { name: 'Files' });
+    expect(files).toHaveFocus();
+    expect(options('Files')[0]).toHaveTextContent(
+      'Lantern Harbor - Lighthouse Keeper Pack',
+    );
+    const preview = screen.getByRole('region', { name: 'Preview' });
+    expect(
+      within(preview).getByRole('heading', {
+        name: 'Lantern Harbor - Lighthouse Keeper Pack',
+      }),
+    ).toBeVisible();
+    expect(preview).toHaveTextContent('Art');
+    expect(preview).toHaveTextContent('Own, in the package');
+    expect(preview).toHaveTextContent(
+      'ROMS/PS4/Lantern Harbor/DLC/Lantern Harbor - Lighthouse Keeper Pack.pkg',
+    );
+    // Enter opens the panel at that DLC.
+    await user.keyboard('{Enter}');
+    expect(onOpenChild).toHaveBeenCalledWith(idOf('Lantern Harbor (USA)'), 2);
+  });
+
+  it('says a Switch DLC with no art of its own uses the base game’s', async () => {
+    const user = userEvent.setup();
+    render(<GamesHarness initial={idOf('Tidewalker')} />);
+    screen.getByRole('listbox', { name: 'Games' }).focus();
+    await user.keyboard('{ArrowRight}{ArrowDown}{ArrowDown}{ArrowRight}');
+    expect(screen.getByRole('region', { name: 'Preview' })).toHaveTextContent(
+      'From the base game',
+    );
+  });
+
+  it('opens a loose game with revisions, the default first', async () => {
+    const user = userEvent.setup();
+    render(<GamesHarness initial={idOf('Star Courier (USA) (Rev 1)')} />);
+    screen.getByRole('listbox', { name: 'Games' }).focus();
+    await user.keyboard('{ArrowRight}');
+    expect(options('Content').map((o) => o.textContent)).toEqual([
+      'Base game',
+      'Revisions2',
+    ]);
+    await user.keyboard('{ArrowDown}{ArrowRight}');
+    expect(options('Files')[0]).toHaveTextContent(
+      'Star Courier (USA) (Rev 1)default',
+    );
+  });
+
+  it('→ on a plain game goes nowhere', async () => {
+    const user = userEvent.setup();
+    render(<GamesHarness initial={idOf('Pebble League')} />);
+    const gamesPane = screen.getByRole('listbox', { name: 'Games' });
+    gamesPane.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(gamesPane).toHaveFocus();
+    expect(screen.queryByRole('listbox', { name: 'Content' })).toBeNull();
   });
 });

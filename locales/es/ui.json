@@ -934,7 +934,9 @@
       "systems": "Sistemas",
       "folders": "Carpetas",
       "games": "Juegos",
-      "preview": "Vista previa"
+      "preview": "Vista previa",
+      "content": "Contenido",
+      "files": "Archivos"
     },
     "folderRoot": "(raíz)",
     "previewEmpty": "Elige un juego para ver su arte y su archivo.",
@@ -2033,6 +2035,27 @@
       "dlc": "+{n}",
       "missing": "↑",
       "demo": "demo"
+    },
+    "columns": {
+      "group": {
+        "base": "Juego base",
+        "updates": "Actualizaciones",
+        "dlc": "DLC",
+        "revisions": "Revisiones",
+        "demo": "Demo",
+        "cheats": "Trucos",
+        "mods": "Mods",
+        "extras": "Extras",
+        "saves": "Partidas"
+      },
+      "file": "Archivo",
+      "art": "Arte",
+      "artOwn": "Propio, {origin}",
+      "artOwnBare": "Propio",
+      "artBase": "Del juego base",
+      "artNone": "Sin arte",
+      "default": "predeterminada",
+      "demoLink": "Ir a la demo, {name}"
     }
   },
   "spoken": {

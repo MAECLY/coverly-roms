@@ -934,7 +934,9 @@
       "systems": "Systems",
       "folders": "Folders",
       "games": "Games",
-      "preview": "Preview"
+      "preview": "Preview",
+      "content": "Content",
+      "files": "Files"
     },
     "folderRoot": "(root)",
     "previewEmpty": "Choose a game to see its art and file.",
@@ -2033,6 +2035,27 @@
       "dlc": "+{n}",
       "missing": "↑",
       "demo": "demo"
+    },
+    "columns": {
+      "group": {
+        "base": "Base game",
+        "updates": "Updates",
+        "dlc": "DLC",
+        "revisions": "Revisions",
+        "demo": "Demo",
+        "cheats": "Cheats",
+        "mods": "Mods",
+        "extras": "Extras",
+        "saves": "Saves"
+      },
+      "file": "File",
+      "art": "Art",
+      "artOwn": "Own, {origin}",
+      "artOwnBare": "Own",
+      "artBase": "From the base game",
+      "artNone": "No art",
+      "default": "default",
+      "demoLink": "Go to the demo, {name}"
     }
   },
   "spoken": {
