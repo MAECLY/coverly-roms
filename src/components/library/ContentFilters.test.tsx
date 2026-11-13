@@ -141,6 +141,16 @@ describe('ContentFilters (D14)', () => {
     expect(live()).toBe('Filtros de contenido quitados: 1 juego.');
   });
 
+  it('chips wrap their words and the group shrinks, so a narrow window never scrolls sideways', () => {
+    row();
+    const group = screen.getByRole('group', { name: 'Mostrar juegos que' });
+    expect(group).toHaveClass('min-w-0');
+    for (const chip of screen.getAllByRole('button')) {
+      expect(chip).toHaveClass('whitespace-normal', 'h-auto');
+      expect(chip).not.toHaveClass('whitespace-nowrap');
+    }
+  });
+
   it('a chip at 0 stays enabled', () => {
     row({ counts: { ...COUNTS, missing: 0 } });
     expect(screen.getByRole('button', { name: /Le falta/ })).toBeEnabled();

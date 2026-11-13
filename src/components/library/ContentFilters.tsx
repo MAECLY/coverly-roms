@@ -15,7 +15,7 @@ import { Tip } from './Tip';
 const ANNOUNCE_MS = 500;
 
 const CHIP = cn(
-  'group inline-flex h-control-sm select-none items-center gap-1.5 whitespace-nowrap rounded-full border border-cr-border bg-cr-surface pl-2 pr-2.5 text-ui text-cr-text',
+  'group inline-flex h-auto min-h-[var(--cr-control-sm)] max-w-full select-none items-center gap-1.5 whitespace-normal rounded-full border border-cr-border bg-cr-surface py-0.5 pl-2 pr-2.5 text-left text-ui text-cr-text',
   'transition-colors duration-fast ease-standard hover:border-cr-border-strong',
   'aria-pressed:border-cr-primary aria-pressed:bg-cr-primary-subtle aria-pressed:text-cr-primary-subtle-fg',
   focusRing,
@@ -145,7 +145,7 @@ export function ContentFilters({
         value={pressed}
         onValueChange={onValueChange}
         aria-labelledby={labelId}
-        className="flex-wrap gap-1.5"
+        className="min-w-0 max-w-full flex-wrap gap-1.5"
       >
         {CONTENT_KEYS.map(chip)}
       </ToggleGroup>
