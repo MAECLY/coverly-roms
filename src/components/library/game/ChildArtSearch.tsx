@@ -129,7 +129,11 @@ export function ChildArtSearch({
         onSubmit={(e) => {
           e.preventDefault();
           const q = query.trim();
-          if (q) setAsked((a) => ({ seq: a.seq + 1, q }));
+          // A pick names a result of the search on screen: a new search
+          // while it is written could make it write one of the new list.
+          if (!q || writing) return;
+          setError(null);
+          setAsked((a) => ({ seq: a.seq + 1, q }));
         }}
       >
         <label className="relative flex min-w-0 flex-1 items-center">
@@ -149,7 +153,7 @@ export function ChildArtSearch({
             onKeyDown={onEscape}
           />
         </label>
-        <Button type="submit" size="sm" disabled={!query.trim()}>
+        <Button type="submit" size="sm" disabled={!query.trim() || writing}>
           {t('drawer.searchGo')}
         </Button>
       </form>

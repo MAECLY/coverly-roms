@@ -208,6 +208,79 @@ describe('DlcSection (addon views §8.8 4, D11)', () => {
     expect(within(sec).queryByRole('searchbox')).toBeNull();
   });
 
+  it('gives the focus back to «Buscar arte» when the search closes', async () => {
+    const sec = section(gameOf('Neon Rhythm'));
+    const open = within(sec).getAllByRole('button', {
+      name: /^Buscar arte/,
+    })[0]!;
+    await userEvent.click(open);
+    await within(sec).findByRole('group', {
+      name: 'Resultados de la búsqueda',
+    });
+    await userEvent.keyboard('{Escape}');
+    expect(open).toHaveFocus();
+    await userEvent.click(open);
+    await within(sec).findByRole('group', {
+      name: 'Resultados de la búsqueda',
+    });
+    await userEvent.click(
+      within(sec).getByRole('button', { name: 'Cerrar la búsqueda' }),
+    );
+    expect(open).toHaveFocus();
+  });
+
+  it('drops the last search error once a new search answers', async () => {
+    let calls = 0;
+    setBackend({
+      ...backend,
+      searchChildArt: (...args) => {
+        calls += 1;
+        return calls === 1
+          ? Promise.reject(new BackendError('network', 'offline'))
+          : backend.searchChildArt(...args);
+      },
+    });
+    const sec = section(gameOf('Neon Rhythm'));
+    await userEvent.click(
+      within(sec).getAllByRole('button', { name: /^Buscar arte/ })[0]!,
+    );
+    expect(await within(sec).findByRole('alert')).toBeInTheDocument();
+    await userEvent.click(within(sec).getByRole('button', { name: 'Buscar' }));
+    await within(sec).findByRole('group', {
+      name: 'Resultados de la búsqueda',
+    });
+    expect(within(sec).queryByRole('alert')).toBeNull();
+  });
+
+  it('starts no new search while a pick is being written', async () => {
+    let finish: (c: ChildView[]) => void = () => {};
+    const searchChildArt = vi.fn(backend.searchChildArt);
+    setBackend({
+      ...backend,
+      searchChildArt,
+      setChildArtFromSearch: () =>
+        new Promise<ChildView[]>((r) => {
+          finish = r;
+        }),
+    });
+    const nr = gameOf('Neon Rhythm');
+    const sec = section(nr);
+    await userEvent.click(
+      within(sec).getAllByRole('button', { name: /^Buscar arte/ })[0]!,
+    );
+    const results = await within(sec).findByRole('group', {
+      name: 'Resultados de la búsqueda',
+    });
+    await userEvent.click(within(results).getAllByRole('button')[0]!);
+    // The pick names a result of this search: another search now could
+    // make it write a result of that one instead.
+    const go = within(sec).getByRole('button', { name: 'Buscar' });
+    expect(go).toBeDisabled();
+    await userEvent.type(within(sec).getByRole('searchbox'), '{Enter}');
+    expect(searchChildArt).toHaveBeenCalledTimes(1);
+    finish([...nr.children]);
+  });
+
   it('closes the search with Escape, writing nothing', async () => {
     const setChildArtFromSearch = vi.fn(backend.setChildArtFromSearch);
     setBackend({ ...backend, setChildArtFromSearch });

@@ -1,4 +1,4 @@
-import { useContext, useState } from 'react';
+import { useContext, useRef, useState } from 'react';
 
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -86,6 +86,14 @@ export function DlcSection({
       ...p,
       game: game.id,
     }));
+
+  /** Each row's «Buscar arte», to take the focus back when its search
+   * closes (the search held it and is gone). */
+  const toggles = useRef(new Map<number, HTMLButtonElement>());
+  function closeSearch(index: number, p: Partial<typeof mine> = {}) {
+    patch({ ...p, searching: null });
+    toggles.current.get(index)?.focus();
+  }
 
   const n = game.dlc.length;
   const sub =
@@ -194,6 +202,10 @@ export function DlcSection({
                 <Button
                   size="sm"
                   variant="secondary"
+                  ref={(el) => {
+                    if (el) toggles.current.set(c.index, el);
+                    else toggles.current.delete(c.index);
+                  }}
                   aria-expanded={open}
                   aria-label={t('panel.searchArtLabel', { name: c.name })}
                   onClick={() => patch({ searching: open ? null : c.index })}
@@ -209,12 +221,11 @@ export function DlcSection({
                   initialQuery={childQuery(entry.name, c.name)}
                   onWritten={(children) => {
                     onChildren(children);
-                    patch({
-                      searching: null,
+                    closeSearch(c.index, {
                       said: t('panel.searchArtDone', { name: c.name }),
                     });
                   }}
-                  onClose={() => patch({ searching: null })}
+                  onClose={() => closeSearch(c.index)}
                 />
               )}
             </li>
