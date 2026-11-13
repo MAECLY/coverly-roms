@@ -262,10 +262,13 @@ pub fn files_of(child: &Path) -> Vec<(Option<ChildMedia>, PathBuf)> {
 }
 
 /// The origins of a child's art. A missing, oversized or invalid file
-/// reads as empty (no origin known).
+/// reads as empty (no origin known), and so does anything that is not a
+/// regular file (a link, a folder, a FIFO that would block the open).
 pub fn read_art_json(child: &Path) -> ArtJson {
     let path = art_json_path(child);
-    if path.as_os_str().is_empty() {
+    if path.as_os_str().is_empty()
+        || !fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_file())
+    {
         return ArtJson::default();
     }
     let Ok(file) = fs::File::open(&path) else {
@@ -800,6 +803,31 @@ mod tests {
         huge.resize(MAX_ART_JSON_BYTES as usize + 1, b' ');
         fs::write(&path, huge).unwrap();
         assert_eq!(read_art_json(&child), ArtJson::default());
+    }
+
+    /// An origin file that is not a regular file (a FIFO, a folder) reads
+    /// as empty without being opened: opening a FIFO would block the scan.
+    #[cfg(unix)]
+    #[test]
+    fn an_art_json_that_is_not_a_file_is_never_opened() {
+        let lib = tempfile::TempDir::new().unwrap();
+        let child = at(lib.path(), "Game/DLC/Pack.cia");
+        let path = art_json_path(&child);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let c = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+        // SAFETY: `c` is a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let probe = child.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(read_art_json(&probe));
+        });
+        let got = rx.recv_timeout(std::time::Duration::from_secs(5));
+        if got.is_err() {
+            // Unblock the reader so the test process can end.
+            let _ = fs::OpenOptions::new().write(true).open(&path);
+        }
+        assert_eq!(got, Ok(ArtJson::default()));
     }
 
     #[test]
