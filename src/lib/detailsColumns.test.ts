@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
+import { translate } from '@/i18n/core';
+import type { TFunction } from '@/i18n/useT';
+import { addonViewsLibrary } from '@/ipc/mock/addonViewsFixture';
+
 import {
   COLUMN_DEFS,
+  contentCell,
   FIT_MAX,
   FIT_MIN,
   ROW_HEIGHT,
@@ -12,7 +17,9 @@ import {
   moveColumn,
   resizeColumn,
   toggleColumn,
+  versionCell,
 } from './detailsColumns';
+import { buildGames } from './games';
 import {
   sanitisePrefs,
   DEFAULT_PREFS,
@@ -168,5 +175,50 @@ describe('detailsColumns', () => {
 
   it('keeps rows at least 24px tall', () => {
     expect(ROW_HEIGHT).toEqual({ comfortable: 34, compact: 24 });
+  });
+});
+
+describe('Versión and Contenido cells (addon views §8.4)', () => {
+  const tEs: TFunction = (k, v) => translate('es', k, v);
+  const lib = addonViewsLibrary(1, 1_800_000_000);
+  const { games } = buildGames(lib.entries, {});
+  const named = (prefix: string) =>
+    games.find((g) => g.entry.name.startsWith(prefix))!;
+
+  it('writes the installed version, the missing one, the revision or a dash', () => {
+    const lantern = named('Lantern Harbor (USA)');
+    expect(versionCell(lantern.entry, lantern, tEs)).toEqual({ text: 'v1.10' });
+    const tide = named('Tidewalker');
+    expect(versionCell(tide.entry, tide, tEs)).toEqual({
+      text: 'v1.0.2',
+      warning: '↑ falta v1.3.0',
+    });
+    const star = named('Star Courier');
+    expect(versionCell(star.entry, star, tEs)).toEqual({ text: 'Rev 1' });
+    const pebble = named('Pebble League');
+    expect(versionCell(pebble.entry, pebble, tEs)).toEqual({ text: '—' });
+    // Without games, the entry's own facts.
+    expect(versionCell({ ...pebble.entry, version: '2.0' }, null, tEs)).toEqual(
+      {
+        text: 'v2.0',
+      },
+    );
+  });
+
+  it('sums up what a game holds', () => {
+    expect(contentCell(named('Lantern Harbor (USA)'), tEs, 'es')).toBe(
+      '2 act., 1 DLC, demo aparte',
+    );
+    expect(contentCell(named('Tidewalker'), tEs, 'es')).toBe('1 act., 1 DLC');
+    expect(contentCell(named('Star Courier'), tEs, 'es')).toBe('2 revisiones');
+    expect(contentCell(named('Lantern Harbor (Demo)'), tEs, 'es')).toBe(
+      'Demo de Lantern Harbor (USA)',
+    );
+    expect(contentCell(named('Pebble League'), tEs, 'es')).toBe('—');
+  });
+
+  it('sorts by Versión and Contenido', () => {
+    expect(COLUMN_DEFS.version.sortKey).toBe('version');
+    expect(COLUMN_DEFS.content.sortKey).toBe('content');
   });
 });

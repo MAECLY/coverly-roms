@@ -5,9 +5,12 @@
  */
 import type { ReactNode } from 'react';
 
+import type { TFunction } from '@/i18n/useT';
 import type { EntryView } from '@/ipc/types';
 
+import type { Game } from './games';
 import type { SortKey } from './sort';
+import { displayVersion } from './versions';
 import {
   DETAILS_COLUMN_IDS,
   type Density,
@@ -49,8 +52,8 @@ export const COLUMN_DEFS: Readonly<Record<DetailsColumnId, Def>> =
   Object.freeze({
     thumb: def('thumb', 40, 32),
     name: def('name', 200, 120, 'name'),
-    version: def('version', 140, 72),
-    content: def('content', 168, 88),
+    version: def('version', 140, 72, 'version'),
+    content: def('content', 168, 88, 'content'),
     system: def('system', 160, 96, 'system'),
     folder: def('folder', 160, 80),
     regions: def('regions', 96, 56),
@@ -78,6 +81,68 @@ export const FIT_MAX = 600;
 export const MAX_COLUMN_WIDTH = 600;
 /** The cell's horizontal padding (0.5rem each side) plus a pixel of slack. */
 const CELL_PADDING = 17;
+
+/** The Versión cell: the text, and the warning drawn after it. */
+export interface VersionCell {
+  text: string;
+  /** «↑ falta v1.3.0»: a newer update is not in the game's folder. */
+  warning?: string;
+}
+
+/**
+ * Versión (§8.4): «v1.2» (the installed version, Rust D5), «v1.0.2» with
+ * «↑ falta v1.3.0» when a newer update is elsewhere, «Rev 1» for a retro
+ * game with revisions, the file's own version, or «—».
+ */
+export function versionCell(
+  e: EntryView,
+  game: Game | null,
+  t: TFunction,
+): VersionCell {
+  const installed = game?.installed ?? e.installed;
+  const missing = game?.missing ?? e.newer_elsewhere;
+  if (installed !== undefined && installed !== null) {
+    const cell: VersionCell = { text: displayVersion(installed) };
+    if (missing)
+      cell.warning = t('content.summary.missing', {
+        v: missing.version.replace(/^[vV]/, ''),
+      });
+    return cell;
+  }
+  if (game && game.revisions.length > 1 && e.revision !== undefined)
+    return { text: e.revision };
+  if (e.version !== undefined) return { text: displayVersion(e.version) };
+  return { text: e.revision ?? '—' };
+}
+
+/**
+ * Contenido (§8.4): «2 act., 1 DLC, demo aparte», «2 revisiones», a
+ * demo's «Demo de …», or «—». Revisions and demos only show with games.
+ */
+export function contentCell(
+  game: Game | null,
+  t: TFunction,
+  locale: string,
+  e: EntryView | undefined = game?.entry,
+): string {
+  const n = new Intl.NumberFormat(locale);
+  const children = game?.children ?? e?.children ?? [];
+  const updates = children.filter((c) => c.role === 'update').length;
+  const dlc = children.length - updates;
+  const parts: string[] = [];
+  if (updates === 1) parts.push(t('content.cell.updatesOne'));
+  else if (updates > 1)
+    parts.push(t('content.cell.updates', { n: n.format(updates) }));
+  if (dlc > 0) parts.push(`${n.format(dlc)} DLC`);
+  if (game && game.revisions.length > 1)
+    parts.push(
+      t('content.cell.revisions', { n: n.format(game.revisions.length) }),
+    );
+  if (game && game.demos.length > 0) parts.push(t('content.cell.demoApart'));
+  if (parts.length === 0 && game?.isDemo && game.entry.demo?.of_name)
+    return t('content.demoOf', { name: game.entry.demo.of_name });
+  return parts.length > 0 ? parts.join(', ') : '—';
+}
 
 const catalogueIndex = (id: DetailsColumnId) => DETAILS_COLUMN_IDS.indexOf(id);
 

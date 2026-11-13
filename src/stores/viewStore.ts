@@ -52,6 +52,12 @@ interface ViewState {
   panelSection: PanelSection | null;
   filtersOpen: boolean;
   overlay: Overlay;
+  /**
+   * The games open in the Details treegrid (game entry ids), for the
+   * session; `null` until Details first shows, when the selected game
+   * starts open (addon views §8.4).
+   */
+  expanded: ReadonlySet<number> | null;
   setScope(scope: Scope): void;
   /** Load the prefs of a library (Explorer's per-folder memory). */
   loadFor(root: string): void;
@@ -70,6 +76,10 @@ interface ViewState {
   toggleFilters(): void;
   setOverlay(overlay: Overlay): void;
   closeOverlay(): void;
+  /** Opens or closes one game in the Details treegrid. */
+  setExpanded(id: number, open: boolean): void;
+  /** The first time Details shows: these games start open. */
+  initExpanded(ids: readonly number[]): void;
   /** Per-library state back to defaults (prefs and root are kept). */
   reset(): void;
 }
@@ -91,6 +101,7 @@ export const useViewStore = create<ViewState>()((set, get) => {
     panelSection: null,
     filtersOpen: false,
     overlay: 'none',
+    expanded: null,
     setScope: (scope) => set({ scope }),
     loadFor(root) {
       set({ root });
@@ -124,6 +135,17 @@ export const useViewStore = create<ViewState>()((set, get) => {
     toggleFilters: () => set((s) => ({ filtersOpen: !s.filtersOpen })),
     setOverlay: (overlay) => set({ overlay }),
     closeOverlay: () => set({ overlay: 'none' }),
+    setExpanded(id, open) {
+      const now = get().expanded;
+      if (now !== null && now.has(id) === open) return;
+      const next = new Set(now);
+      if (open) next.add(id);
+      else next.delete(id);
+      set({ expanded: next });
+    },
+    initExpanded(ids) {
+      if (get().expanded === null) set({ expanded: new Set(ids) });
+    },
     reset: () =>
       set({
         scope: { kind: 'all' },
@@ -132,6 +154,7 @@ export const useViewStore = create<ViewState>()((set, get) => {
         panelSection: null,
         filtersOpen: false,
         overlay: 'none',
+        expanded: null,
       }),
   };
 });
