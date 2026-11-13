@@ -133,7 +133,20 @@ describe('newChildren («Nuevo», D18)', () => {
     resetSeenSession();
     expect(newChildren('/lib', library(['a', 'b']), throwing).size).toBe(0);
     resetSeenSession();
-    expect(newChildren('/lib', library(['a']), undefined).size).toBe(0);
+    expect(newChildren('/lib', library(['a']), null).size).toBe(0);
+  });
+
+  it('neither seeds nor forgets the set while the library shows no children', () => {
+    const storage = new MemoryStorage();
+    // The view is empty while the library loads or rescans.
+    expect(newChildren('/lib', library([]), storage).size).toBe(0);
+    expect(newChildren('/lib', library(['a', 'b']), storage).size).toBe(0);
+    resetSeenSession();
+    expect(newChildren('/lib', library([]), storage).size).toBe(0);
+    resetSeenSession();
+    expect([...newChildren('/lib', library(['a', 'b', 'c']), storage)]).toEqual(
+      ['c'],
+    );
   });
 
   it('ignores a corrupt file', () => {

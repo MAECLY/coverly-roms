@@ -105,14 +105,21 @@ function childPaths(games: readonly Game[]): Set<string> {
 
 /**
  * The `rel_path`s of `games`' children to tag «Nuevo» in the library at
- * `root`. Saves the current set as seen for the next open.
+ * `root`. Saves the current set as seen for the next open. `storage`
+ * defaults to `localStorage`; `null` means there is none.
+ *
+ * A library that shows no children (still loading, mid-rescan) neither
+ * seeds nor overwrites the set: an empty baseline would tag every child
+ * once they arrive, and an empty saved set would tag them all at the next
+ * open.
  */
 export function newChildren(
   root: string,
   games: readonly Game[],
-  storage: Storage | undefined = defaultStorage(),
+  storage: Storage | null = defaultStorage() ?? null,
 ): ReadonlySet<string> {
   const current = childPaths(games);
+  if (current.size === 0) return new Set();
   const tooMany = current.size > MAX_SEEN_PATHS;
   if (!storage || tooMany) {
     session.set(root, null);
