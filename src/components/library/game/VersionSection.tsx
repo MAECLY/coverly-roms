@@ -83,7 +83,8 @@ export function VersionSection({
         <p className="panel-ver">
           <span className="panel-ver__big">{vText(big)}</span>
           <span className="panel-ver__lbl">
-            {t('panel.newestInLibrary')}
+            {/* A newer update outside the folder is in the library too. */}
+            {t(game.missing ? 'panel.newestWithGame' : 'panel.newestInLibrary')}
             {updates.length === 0 && ` ${t('panel.baseVersion')}`}
           </span>
         </p>

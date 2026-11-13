@@ -116,6 +116,12 @@ describe('VersionSection (addon views §8.8 2, D5, D6)', () => {
       'La v1.3.0 está en tu biblioteca, fuera de la carpeta del juego.',
     );
     expect(callout).toHaveTextContent('↑');
+    // The big version is the newest with the game, not in the library:
+    // the callout just said a newer one is in the library.
+    expect(sec.querySelector('.panel-ver__lbl')).toHaveTextContent(
+      'la más nueva junto al juego',
+    );
+    expect(within(sec).queryByText(/la más nueva de tu biblioteca/)).toBeNull();
     await userEvent.click(
       within(sec).getByRole('button', { name: 'Ver dónde está' }),
     );

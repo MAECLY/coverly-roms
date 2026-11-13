@@ -2104,6 +2104,7 @@
     "updatesOne": "1 actualización",
     "noUpdates": "sin actualizaciones",
     "newestInLibrary": "la más nueva de tu biblioteca",
+    "newestWithGame": "la más nueva junto al juego",
     "baseVersion": "(la del juego base)",
     "latestOk": "Es la última que existe, según la {source}.",
     "latestMissing": "Existe la v{v} y no está en tu biblioteca. Dato de la {source}.",
