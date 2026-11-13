@@ -1830,6 +1830,15 @@ time {
   background: var(--cr-surface);
 }
 
+/* A narrow content column (phone widths) wraps the toggle's words rather
+   than pushing the page sideways. */
+.mounts-bar > button {
+  max-width: 100%;
+  height: auto;
+  min-height: 2rem;
+  white-space: normal;
+}
+
 .mounts-bar__hint {
   color: var(--cr-text-secondary);
   font-size: 0.75rem;
