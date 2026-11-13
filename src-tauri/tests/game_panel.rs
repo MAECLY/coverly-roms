@@ -288,3 +288,29 @@ fn game_details_asks_the_title_list_offline() {
         IpcError::UnknownEntry(99)
     );
 }
+
+/// A library that cannot be written answers write-denied, even when its
+/// updates carry no art at all (the usual 3DS game): nothing was written
+/// and the only write tried was refused.
+#[cfg(unix)]
+#[test]
+fn read_child_art_on_a_read_only_library_is_write_denied() {
+    use std::os::unix::fs::PermissionsExt;
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let lib = TempDir::new().unwrap();
+    game_with_children(lib.path());
+    let view = open(&st, lib.path());
+    let id = id_of(&view, "Lantern Harbor (USA)");
+    let dlc_dir = lib
+        .path()
+        .join("ROMS")
+        .join("3DS")
+        .join("Lantern Harbor (USA)")
+        .join("DLC");
+    fs::set_permissions(&dlc_dir, fs::Permissions::from_mode(0o555)).unwrap();
+    let out = st.read_child_art(view.generation, id);
+    fs::set_permissions(&dlc_dir, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(matches!(out, Err(IpcError::WriteDenied(_))), "{out:?}");
+    assert!(!dlc_dir.join(".media").exists());
+}

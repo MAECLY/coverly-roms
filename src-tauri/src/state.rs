@@ -1133,8 +1133,8 @@ impl AppState {
     /// Reads the art the updates and DLC of entry `id` carry in the clear
     /// into their empty slots, in a job undone like any manual write (part
     /// C D11 b). A child that resolves outside the library is not read.
-    /// `WriteDenied` when the library cannot be written at all (the
-    /// read-only reason the panel shows).
+    /// `WriteDenied` when nothing could be written and a write was refused
+    /// (the read-only reason the panel shows).
     pub fn read_child_art(&self, generation: u64, id: u32) -> Result<ChildArtReadView, IpcError> {
         let (_writing, session, cfg) = self.writable_entry(generation, id)?;
         let root = absolute_root(&session)?;
@@ -1153,12 +1153,13 @@ impl AppState {
         let paths: Vec<&Path> = inside.iter().map(|(_, p)| *p).collect();
         let (job, report) =
             read_children_art(&root, &paths, &cfg.data_dir, &cfg.settings.manual_options())?;
+        // Nothing written and a write refused: the library cannot be
+        // written (children without art in the clear do not hide that).
         if report.written.is_empty()
-            && !report.skipped.is_empty()
             && report
                 .skipped
                 .iter()
-                .all(|(_, why)| *why == SkipWhy::ReadOnly)
+                .any(|(_, why)| *why == SkipWhy::ReadOnly)
         {
             return Err(IpcError::WriteDenied(session.root.display().to_string()));
         }
