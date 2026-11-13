@@ -1937,5 +1937,82 @@
         "use": "Puente entre los IDs de cada servicio"
       }
     }
+  },
+  "content": {
+    "filters": {
+      "label": "Mostrar juegos que",
+      "updates": "Tiene actualizaciones",
+      "missing": "Le falta la última actualización",
+      "missingHint": "Compara solo dentro de tu biblioteca hasta que haya lista de títulos.",
+      "dlc": "Tiene DLC",
+      "demos": "Solo demos",
+      "result": "{n} juegos con estos filtros.",
+      "resultOne": "1 juego con estos filtros.",
+      "none": "Ningún juego cumple estos filtros."
+    },
+    "summary": {
+      "dlc": "+{n} DLC",
+      "rev": "{n} rev.",
+      "missing": "↑ falta v{v}"
+    },
+    "new": "Nuevo",
+    "kind": {
+      "update": "Actualización",
+      "dlc": "DLC",
+      "revision": "Revisión",
+      "demo": "Demo",
+      "folder": "Carpeta"
+    },
+    "newest": "la más nueva",
+    "notInLibrary": "no está en la biblioteca",
+    "cell": {
+      "updates": "{n} act.",
+      "updatesOne": "1 act.",
+      "demoApart": "demo aparte",
+      "revisions": "{n} revisiones"
+    },
+    "demoOf": "Demo de {name}",
+    "folderSummary": "Mods, trucos, extras y partidas",
+    "keysHint": "Teclado: ↑ ↓ mueven entre filas, → despliega, ← pliega o sube al juego, Intro abre la ficha. Las filas de contenido no cuentan en el total ni entran en las acciones por lotes.",
+    "shelves": {
+      "label": "Complementos",
+      "behind": "Detrás de la caja",
+      "beside": "Al lado",
+      "with": "Con {n} complementos",
+      "withOne": "Con 1 complemento"
+    },
+    "mounts": {
+      "toggle": "Huecos del contenido ({n})",
+      "hint": "Actualizaciones con arte propio y todos los DLC."
+    },
+    "slot": {
+      "icon": "Icono",
+      "banner": "Banner",
+      "missing": "falta",
+      "inherits": "usa el del juego base"
+    },
+    "origin": {
+      "package": "incluido en el paquete",
+      "ss": "ScreenScraper",
+      "sgdb": "SteamGridDB",
+      "user": "tuyo",
+      "base": "arte del juego"
+    },
+    "noArt": "sin arte"
+  },
+  "spoken": {
+    "head": "{title}, {system}",
+    "full": "{head}. {parts}",
+    "demoOf": "demo de {name}",
+    "demoAlone": "demo; el juego completo no está en la biblioteca",
+    "dlc": "{n} DLC",
+    "updates": "{n} actualizaciones",
+    "updatesOne": "1 actualización",
+    "newest": "la más nueva {v}",
+    "missing": "falta la última actualización, {v}",
+    "revisions": "{n} revisiones",
+    "revisionUsed": "se usa {rev}",
+    "hasDemo": "tiene demo",
+    "newContent": "contenido nuevo desde el último escaneo"
   }
 }

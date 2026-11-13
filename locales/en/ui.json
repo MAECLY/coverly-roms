@@ -1937,5 +1937,82 @@
         "use": "A bridge between each service's IDs"
       }
     }
+  },
+  "content": {
+    "filters": {
+      "label": "Show games that",
+      "updates": "Have updates",
+      "missing": "Are missing the latest update",
+      "missingHint": "Compares only within your library until a title list is available.",
+      "dlc": "Have DLC",
+      "demos": "Demos only",
+      "result": "{n} games match these filters.",
+      "resultOne": "1 game matches these filters.",
+      "none": "No game matches these filters."
+    },
+    "summary": {
+      "dlc": "+{n} DLC",
+      "rev": "{n} rev.",
+      "missing": "↑ v{v} missing"
+    },
+    "new": "New",
+    "kind": {
+      "update": "Update",
+      "dlc": "DLC",
+      "revision": "Revision",
+      "demo": "Demo",
+      "folder": "Folder"
+    },
+    "newest": "the newest",
+    "notInLibrary": "not in the library",
+    "cell": {
+      "updates": "{n} upd.",
+      "updatesOne": "1 upd.",
+      "demoApart": "separate demo",
+      "revisions": "{n} revisions"
+    },
+    "demoOf": "Demo of {name}",
+    "folderSummary": "Mods, cheats, extras and saves",
+    "keysHint": "Keyboard: ↑ ↓ move between rows, → expands, ← collapses or goes up to the game, Enter opens the panel. Content rows do not count in the total and are left out of bulk actions.",
+    "shelves": {
+      "label": "Add-ons",
+      "behind": "Behind the box",
+      "beside": "Beside it",
+      "with": "With {n} add-ons",
+      "withOne": "With 1 add-on"
+    },
+    "mounts": {
+      "toggle": "Content slots ({n})",
+      "hint": "Updates with their own art and every DLC."
+    },
+    "slot": {
+      "icon": "Icon",
+      "banner": "Banner",
+      "missing": "missing",
+      "inherits": "uses the base game's"
+    },
+    "origin": {
+      "package": "in the package",
+      "ss": "ScreenScraper",
+      "sgdb": "SteamGridDB",
+      "user": "yours",
+      "base": "game art"
+    },
+    "noArt": "no art"
+  },
+  "spoken": {
+    "head": "{title}, {system}",
+    "full": "{head}. {parts}",
+    "demoOf": "demo of {name}",
+    "demoAlone": "demo; the full game is not in the library",
+    "dlc": "{n} DLC",
+    "updates": "{n} updates",
+    "updatesOne": "1 update",
+    "newest": "the newest {v}",
+    "missing": "missing the latest update, {v}",
+    "revisions": "{n} revisions",
+    "revisionUsed": "using {rev}",
+    "hasDemo": "has a demo",
+    "newContent": "new content since the last scan"
   }
 }
