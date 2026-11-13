@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { I18nProvider } from '@/i18n/I18nProvider';
@@ -52,6 +52,26 @@ describe('FilterPanel', () => {
     expect(container.querySelectorAll('[data-system-icon]')).toHaveLength(
       shown.length,
     );
+  });
+});
+
+describe('FilterPanel «Quitar filtros»', () => {
+  afterEach(() => useFilterStore.getState().reset());
+
+  it('also releases the content chips (D14) and keeps the search', () => {
+    act(() => {
+      useFilterStore.getState().toggleContent('dlc');
+      useFilterStore.getState().setQuery('harbor');
+    });
+    render(
+      <I18nProvider locale="es">
+        <FilterPanel view={view} facets={facets} />
+      </I18nProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar filtros' }));
+    const { filters } = useFilterStore.getState();
+    expect(filters.content).toEqual(EMPTY_FILTERS.content);
+    expect(filters.query).toBe('harbor');
   });
 });
 

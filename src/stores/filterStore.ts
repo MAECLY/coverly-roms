@@ -1,7 +1,13 @@
 import { create } from 'zustand';
 
 import type { Region } from '@/ipc/types';
-import { EMPTY_FILTERS, type ArtFilter, type Filters } from '@/lib/filters';
+import {
+  EMPTY_FILTERS,
+  NO_CONTENT,
+  type ArtFilter,
+  type ContentKey,
+  type Filters,
+} from '@/lib/filters';
 
 function toggle<T>(list: readonly T[], value: T): T[] {
   return list.includes(value)
@@ -18,6 +24,11 @@ interface FilterState {
   toggleRegion(region: Region): void;
   setDates(from: number | null, to: number | null): void;
   setSizes(min: number | null, max: number | null): void;
+  /** Presses or releases a «Mostrar juegos que» chip (D14). Kept in
+   * memory like every other filter. */
+  toggleContent(key: ContentKey): void;
+  /** Releases every content chip, leaving the other filters as they are. */
+  clearContent(): void;
   /** Clears every filter but keeps the search text. */
   clear(): void;
   /** Back to no filters and no search. */
@@ -45,6 +56,14 @@ export const useFilterStore = create<FilterState>()((set) => {
       })),
     setDates: (modifiedFrom, modifiedTo) => patch({ modifiedFrom, modifiedTo }),
     setSizes: (sizeMin, sizeMax) => patch({ sizeMin, sizeMax }),
+    toggleContent: (key) =>
+      set((s) => ({
+        filters: {
+          ...s.filters,
+          content: { ...s.filters.content, [key]: !s.filters.content[key] },
+        },
+      })),
+    clearContent: () => patch({ content: NO_CONTENT }),
     clear: () =>
       set((s) => ({ filters: { ...EMPTY_FILTERS, query: s.filters.query } })),
     reset: () => set({ filters: EMPTY_FILTERS }),

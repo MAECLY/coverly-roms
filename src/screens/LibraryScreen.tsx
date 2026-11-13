@@ -9,6 +9,7 @@ import {
 import { FillWizard } from '@/components/fill/FillWizard';
 import { JobsPanel } from '@/components/fill/JobsPanel';
 import { ReviewQueue } from '@/components/fill/ReviewQueue';
+import { ContentFilters } from '@/components/library/ContentFilters';
 import { DetailDrawer } from '@/components/library/DetailDrawer';
 import { FilterPanel } from '@/components/library/FilterPanel';
 import { OrphansList } from '@/components/library/OrphansList';
@@ -52,6 +53,7 @@ export function LibraryScreen() {
     visibleGames,
     sections,
     facets,
+    contentCounts,
     now,
     games,
     orphans,
@@ -286,6 +288,14 @@ export function LibraryScreen() {
         />
         <main className="library-main">
           <UpdateBanner />
+          {/* «Mostrar juegos que» above the views (D14, Q5); the orphans
+              list is add-ons, not games, so it has no chips. */}
+          {!orphansOpen && (
+            <ContentFilters
+              counts={contentCounts}
+              shown={visibleGames.length}
+            />
+          )}
           {filtersOpen && <FilterPanel view={view} facets={facets} />}
           <div ref={contentRef} className="library-content">
             {content}

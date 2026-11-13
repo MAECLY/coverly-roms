@@ -1,7 +1,14 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 
 import { REGIONS, type EntryView } from '@/ipc/types';
-import { applyFilters, computeFacets, type Facets } from '@/lib/filters';
+import {
+  applyFilters,
+  applyGameFilters,
+  computeFacets,
+  contentFacets,
+  type ContentKey,
+  type Facets,
+} from '@/lib/filters';
 import {
   buildGames,
   gameCounts,
@@ -35,6 +42,8 @@ export interface VisibleEntries {
   scoped: EntryView[];
   /** Facet counts within the scope (filter panel), one per game. */
   facets: Facets;
+  /** How many games of the scope each content chip keeps (D14). */
+  contentCounts: Readonly<Record<ContentKey, number>>;
   /** Every game of the library that is not an orphan, in library order. */
   games: readonly Game[];
   /** Updates and DLC whose game is not in their folder (D13). */
@@ -83,12 +92,23 @@ export function useVisibleEntries(): VisibleEntries {
     if (scope !== storedScope) setScope(scope);
   }, [scope, storedScope, setScope]);
 
-  const scoped = useMemo(() => {
+  const scopedGames = useMemo(() => {
     const pool = scope.kind === 'orphans' ? orphans : games;
-    const out: EntryView[] = [];
-    for (const g of pool) if (inScope(g.entry, scope, now)) out.push(g.entry);
-    return out;
+    return pool.filter((g) => inScope(g.entry, scope, now));
   }, [games, orphans, scope, now]);
+  const scoped = useMemo(() => scopedGames.map((g) => g.entry), [scopedGames]);
+  const contentCounts = useMemo(
+    () => contentFacets(scopedGames),
+    [scopedGames],
+  );
+  // The content chips work on games (D14); the panel filters and the
+  // search then run on what is left, so all of them combine with AND.
+  // No title list yet (3.1): «missing» compares within the library only.
+  const content = filters.content;
+  const contentPassed = useMemo(() => {
+    const kept = applyGameFilters(scopedGames, { content });
+    return kept === scopedGames ? scoped : kept.map((g) => g.entry);
+  }, [scopedGames, scoped, content]);
   const systemNames = useMemo(
     () => view?.systems.map((s) => s.name) ?? [],
     [view],
@@ -96,8 +116,13 @@ export function useVisibleEntries(): VisibleEntries {
   // Games sort by their representative entry; a game's updates and DLC
   // stay in the order Rust sent them.
   const sorted = useMemo(
-    () => sortEntries(applyFilters(scoped, keys, filters), sort, systemNames),
-    [scoped, keys, filters, sort, systemNames],
+    () =>
+      sortEntries(
+        applyFilters(contentPassed, keys, filters),
+        sort,
+        systemNames,
+      ),
+    [contentPassed, keys, filters, sort, systemNames],
   );
 
   // Art groups stay as they were when a fill started, so applied art does
@@ -136,8 +161,8 @@ export function useVisibleEntries(): VisibleEntries {
     return gameCounts(visibleGames, orphans);
   }, [scope, visibleGames, games, orphans, counts]);
   const facets = useMemo(
-    () => computeFacets(scoped, keys, filters),
-    [scoped, keys, filters],
+    () => computeFacets(contentPassed, keys, filters),
+    [contentPassed, keys, filters],
   );
   return {
     visible: grouped.ordered,
@@ -145,6 +170,7 @@ export function useVisibleEntries(): VisibleEntries {
     sections: grouped.sections,
     scoped,
     facets,
+    contentCounts,
     games,
     orphans,
     counts,

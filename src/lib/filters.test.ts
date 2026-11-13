@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import { FIXTURE_NOW, generateLibrary } from '@/ipc/mock/fixture';
-import type { ArtMark, EntryView } from '@/ipc/types';
+import type { ArtMark, ChildView, EntryView } from '@/ipc/types';
 
 import {
   activeFilterCount,
   applyFilters,
+  applyGameFilters,
   computeFacets,
+  contentActive,
+  contentFacets,
   dayEnd,
   dayStart,
   EMPTY_FILTERS,
@@ -14,6 +17,7 @@ import {
   toDateInput,
   type Filters,
 } from './filters';
+import type { Game } from './games';
 import { buildSearchKeys } from './search';
 
 function e(
@@ -174,5 +178,122 @@ describe('date inputs', () => {
     expect(toDateInput(start)).toBe('2026-10-16');
     expect(dayStart('')).toBeNull();
     expect(toDateInput(null)).toBe('');
+  });
+});
+
+const child = (index: number, role: ChildView['role']): ChildView => ({
+  index,
+  rel_path: `G/${role}/${String(index)}`,
+  name: `${role} ${String(index)}`,
+  role,
+  size: 1,
+  mtime: 0,
+  art: { icon: false, banner: false },
+});
+
+function game(id: number, over: Partial<Game> = {}): Game {
+  const updates = over.updates ?? [];
+  const dlc = over.dlc ?? [];
+  const entry = e(id);
+  return {
+    id,
+    entry,
+    revisions: [entry],
+    children: [...updates, ...dlc],
+    updates,
+    dlc,
+    isDemo: false,
+    demoOf: null,
+    demos: [],
+    installed: null,
+    missing: null,
+    orphan: null,
+    ...over,
+  };
+}
+
+// Lantern Harbor: updates and DLC. Tidewalker: an update, DLC and a newer
+// update outside its folder. Star Courier: nothing. Its demo: a demo.
+const lantern = game(0, {
+  updates: [child(0, 'update'), child(1, 'update')],
+  dlc: [child(2, 'dlc')],
+  installed: '1.10',
+});
+const tidewalker = game(1, {
+  updates: [child(0, 'update')],
+  dlc: [child(1, 'dlc')],
+  installed: '1.0.2',
+  missing: { entry: 9, version: '1.3.0' },
+});
+const courier = game(2);
+const demo = game(3, { isDemo: true, demoOf: 0 });
+const GAMES = [lantern, tidewalker, courier, demo];
+
+const content = (over: Partial<Filters['content']>): Filters =>
+  f({ content: { ...EMPTY_FILTERS.content, ...over } });
+const ids = (games: readonly Game[]) => games.map((g) => g.id);
+
+describe('content filters (D14)', () => {
+  it('start off and keep every game', () => {
+    expect(EMPTY_FILTERS.content).toEqual({
+      updates: false,
+      missing: false,
+      dlc: false,
+      demos: false,
+    });
+    expect(contentActive(EMPTY_FILTERS.content)).toBe(false);
+    expect(applyGameFilters(GAMES, EMPTY_FILTERS)).toEqual(GAMES);
+  });
+
+  it('each chip keeps the games it names', () => {
+    expect(ids(applyGameFilters(GAMES, content({ updates: true })))).toEqual([
+      0, 1,
+    ]);
+    expect(ids(applyGameFilters(GAMES, content({ missing: true })))).toEqual([
+      1,
+    ]);
+    expect(ids(applyGameFilters(GAMES, content({ dlc: true })))).toEqual([
+      0, 1,
+    ]);
+    expect(ids(applyGameFilters(GAMES, content({ demos: true })))).toEqual([3]);
+  });
+
+  it('combines chips with AND', () => {
+    expect(
+      ids(applyGameFilters(GAMES, content({ updates: true, missing: true }))),
+    ).toEqual([1]);
+    expect(
+      ids(applyGameFilters(GAMES, content({ dlc: true, demos: true }))),
+    ).toEqual([]);
+    expect(contentActive(content({ dlc: true }).content)).toBe(true);
+  });
+
+  it('a title list that knows a newer version makes a game miss it (3.1 seam)', () => {
+    // Star Courier has no orphan update; the fake list says it is behind.
+    const behind = (g: Game) => g.id === 2;
+    expect(
+      ids(applyGameFilters(GAMES, content({ missing: true }), behind)),
+    ).toEqual([1, 2]);
+    expect(contentFacets(GAMES, behind).missing).toBe(2);
+  });
+
+  it('counts each chip over the games given, never orphans', () => {
+    const orphan = game(4, { orphan: 'update' });
+    expect(contentFacets([...GAMES, orphan])).toEqual({
+      updates: 2,
+      missing: 1,
+      dlc: 2,
+      demos: 1,
+    });
+    expect(contentFacets([])).toEqual({
+      updates: 0,
+      missing: 0,
+      dlc: 0,
+      demos: 0,
+    });
+  });
+
+  it('are not panel filters: the toolbar badge ignores them', () => {
+    expect(activeFilterCount(content({ dlc: true, demos: true }))).toBe(0);
   });
 });

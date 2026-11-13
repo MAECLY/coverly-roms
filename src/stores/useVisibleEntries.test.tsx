@@ -181,6 +181,34 @@ describe('useVisibleEntries on games (D1, D4, D13)', () => {
     expect(result.current.visible).toHaveLength(result.current.games.length);
   });
 
+  it('content chips keep the games that have it, ANDed with the rest (D14)', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    const { games, contentCounts } = result.current;
+    const withDlc = games.filter((g) => g.dlc.length > 0);
+    expect(contentCounts.dlc).toBe(withDlc.length);
+    expect(contentCounts.demos).toBe(2);
+    act(() => useFilterStore.getState().toggleContent('dlc'));
+    expect(result.current.visibleGames.map((g) => g.id).sort()).toEqual(
+      withDlc.map((g) => g.id).sort(),
+    );
+    // Counts stay those of the scope, whatever is pressed.
+    expect(result.current.contentCounts).toEqual(contentCounts);
+    act(() => useFilterStore.getState().toggleContent('demos'));
+    expect(result.current.visible).toHaveLength(0);
+    act(() => useFilterStore.getState().clear());
+    expect(useFilterStore.getState().filters.content.dlc).toBe(false);
+    expect(result.current.visible).toHaveLength(games.length);
+  });
+
+  it('«Le falta la última actualización» finds the game with a newer orphan', () => {
+    const { result } = renderHook(() => useVisibleEntries());
+    act(() => useFilterStore.getState().toggleContent('missing'));
+    expect(result.current.visible.map((e) => e.name)).toEqual([
+      entryNamed('Tidewalker').name,
+    ]);
+    act(() => useFilterStore.getState().reset());
+  });
+
   it('follows the revision default the user chose', async () => {
     const { result } = renderHook(() => useVisibleEntries());
     const untagged = entryNamed('Star Courier (USA)');
