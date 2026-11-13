@@ -1270,6 +1270,180 @@ time {
   font-size: 1.25rem;
 }
 
+/* Estantes with add-ons (addon views §8.7): the view bar holds the
+   «Complementos» choice; the shelves fill what is left. */
+.shelves-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.shelves-shell > .shelves {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+.shelves-bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  min-width: 0;
+  padding: 0.5rem 1rem;
+  /* A narrow window scrolls the choice rather than clipping it. */
+  overflow-x: auto;
+  border-bottom: 1px solid var(--cr-border);
+  background: var(--cr-surface);
+}
+
+.shelves-bar__label {
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-label);
+}
+
+/* One box per game: its DLC stand behind it as edges (up to three, each
+   9px further right and 7px further up when fanned, 3px closer at rest),
+   in the room the cover gives up so the tile keeps its size. Hover and
+   selection fan them out (D17); the token override zeroes the motion
+   under reduced motion, and the view drops the fan class as well. */
+.cover-tile__art--stack {
+  padding: var(--stack-y) var(--stack-x) 0 0;
+}
+
+.cover-tile__art--beside {
+  display: flex;
+  align-items: flex-start;
+}
+
+.shelf-case {
+  position: relative;
+  z-index: 1;
+  flex: none;
+}
+
+.shelf-stack {
+  position: absolute;
+  z-index: 0;
+  top: var(--stack-y);
+  right: var(--stack-x);
+  bottom: 0;
+  left: 0;
+}
+
+.shelf-edge {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--cr-radius-md);
+  box-shadow: 0 0 0 1px var(--cr-border-strong);
+  transform: translate(
+    calc(var(--i) * (9px - 3px)),
+    calc(var(--i) * (-7px + 2px))
+  );
+}
+
+.shelf-edge--1 {
+  z-index: 3;
+  background: var(--cr-surface-raised);
+}
+
+.shelf-edge--2 {
+  z-index: 2;
+  background: var(--cr-surface);
+}
+
+.shelf-edge--3 {
+  z-index: 1;
+  background: var(--cr-surface-sunken);
+}
+
+.shelf-stack--fan .shelf-edge {
+  transition: transform var(--cr-duration-fast) var(--cr-ease-standard);
+}
+
+.cover-tile:hover .shelf-stack--fan .shelf-edge,
+.cover-tile[aria-selected='true'] .shelf-stack--fan .shelf-edge {
+  transform: translate(calc(var(--i) * 9px), calc(var(--i) * -7px));
+}
+
+/* «+n» on the last edge, in the corner the edges leave free of the cover. */
+.shelf-edge__more {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  padding: 0 0.25rem;
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  box-shadow: 0 0 0 1px var(--cr-border);
+  color: var(--cr-text-secondary);
+  font: 400 10px/14px var(--cr-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* «Al lado»: the DLC's own icons in a column after a hairline. */
+.shelf-beside {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-left: 0.375rem;
+  padding-left: 0.375rem;
+  border-left: 1px solid var(--cr-border-strong);
+}
+
+.shelf-beside__more {
+  display: grid;
+  place-items: center;
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--cr-border);
+  color: var(--cr-text-secondary);
+  font: 400 10px/1 var(--cr-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.shelf-beside__more--24 {
+  width: 24px;
+  height: 24px;
+}
+
+.shelf-beside__more--48 {
+  width: 48px;
+  height: 48px;
+  font-size: 11px;
+}
+
+/* «Con 3 complementos» under the box (the summary line). */
+.shelf-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+  text-overflow: ellipsis;
+}
+
+@media (forced-colors: active) {
+  .shelf-edge {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    box-shadow: none;
+  }
+
+  .shelf-edge__more,
+  .shelf-beside__more {
+    border: 1px solid CanvasText;
+    box-shadow: none;
+  }
+
+  .shelf-beside {
+    border-left-color: CanvasText;
+  }
+}
+
 /* Gallery (spec §B.4.4): one game's art large on a sunken mat, its facts in
    a 280px pane beside it, and an 88px filmstrip of 64px thumbnails below.
    Group boundaries are a shelf rule stood on end: a hairline with the 3px

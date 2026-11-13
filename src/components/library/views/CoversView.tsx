@@ -9,7 +9,7 @@ import {
   columnsFor,
   metrics as coverMetrics,
 } from '@/lib/coverSizes';
-import type { Game } from '@/lib/games';
+import { hasFreshChild } from '@/lib/games';
 import { nextIndex } from '@/lib/keyboardNav';
 import { buildRowModel, coveringSections, moveVertical } from '@/lib/rowModel';
 
@@ -27,15 +27,6 @@ const VERTICAL: Readonly<Record<string, 1 | -1>> = {
   PageDown: 1,
   PageUp: -1,
 };
-
-/** A child of the game is tagged «Nuevo» (D18). */
-function isFresh(game: Game, fresh: ReadonlySet<string> | undefined): boolean {
-  return (
-    fresh !== undefined &&
-    fresh.size > 0 &&
-    game.children.some((c) => fresh.has(c.rel_path))
-  );
-}
 
 /** Covers (⌘1): the cover grid, in rows of tiles under section headers. */
 export function CoversView({
@@ -211,7 +202,9 @@ export function CoversView({
                     selected={entry.id === selectedId}
                     game={game}
                     contentLine={contentLine}
-                    isNew={game !== undefined && isFresh(game, content?.fresh)}
+                    isNew={
+                      game !== undefined && hasFreshChild(game, content?.fresh)
+                    }
                   />
                 );
               })}

@@ -128,6 +128,9 @@ export interface SpokenOptions {
   isNew?: boolean;
   /** For `Intl.NumberFormat`; the runtime's default when absent. */
   locale?: string;
+  /** Estantes: the DLC are said as the box's «complementos» (§8.7), the
+   * word its label shows. */
+  addons?: boolean;
 }
 
 interface Memo {
@@ -159,7 +162,11 @@ function build(
     );
   }
   if (game.dlc.length > 0)
-    parts.push(t('spoken.dlc', { n: n.format(game.dlc.length) }));
+    parts.push(
+      opts.addons
+        ? count('spoken.addons', game.dlc.length)
+        : t('spoken.dlc', { n: n.format(game.dlc.length) }),
+    );
   if (game.updates.length > 0) {
     parts.push(count('spoken.updates', game.updates.length));
     if (game.installed !== null)
@@ -204,6 +211,7 @@ export function spokenSummary(
     demoOfName ?? null,
     opts.isNew === true,
     opts.locale ?? null,
+    opts.addons === true,
   ]);
   const hit = memo.get(game);
   if (hit && hit.t === t && hit.key === key) return hit.text;

@@ -4,12 +4,28 @@ import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { I18nProvider } from '@/i18n/I18nProvider';
+import { setBackend } from '@/ipc/backend';
+import { MOCK_ADDONS } from '@/ipc/mock/addonViewsFixture';
 import { FIXTURE_NOW, generateLibrary } from '@/ipc/mock/fixture';
-import { MEDIA, REGIONS, type EntryView } from '@/ipc/types';
+import { createMockBackend } from '@/ipc/mock/mockBackend';
+import {
+  MEDIA,
+  REGIONS,
+  type ChildView,
+  type EntryView,
+  type LibraryView,
+} from '@/ipc/types';
+import { clearArtCache } from '@/lib/artCache';
 import { COVER_GAP, COVER_SIZES } from '@/lib/coverSizes';
 import { EMPTY_FILTERS } from '@/lib/filters';
+import { buildGames } from '@/lib/games';
 import { groupEntries } from '@/lib/grouping';
-import { DEFAULT_PREFS, type CoverSize, type GroupBy } from '@/lib/viewPrefs';
+import {
+  DEFAULT_PREFS,
+  sanitisePrefs,
+  type CoverSize,
+  type GroupBy,
+} from '@/lib/viewPrefs';
 import { useFilterStore } from '@/stores/filterStore';
 import { useViewStore } from '@/stores/viewStore';
 import { stubLayout } from '@/test/layout';
@@ -369,5 +385,186 @@ describe('ShelvesView', () => {
     await user.click(screen.getByRole('button', { name: /^See all 4 in/ }));
     expect(useFilterStore.getState().filters.regions).toEqual(['japan']);
     expect(useViewStore.getState().prefs.view).toBe('covers');
+  });
+});
+
+describe('ShelvesView: DLC behind the box (addon views §8.7)', () => {
+  let lib: LibraryView;
+  let restore: () => void;
+  beforeEach(async () => {
+    restore = stubLayout(1600, 1200);
+    const backend = createMockBackend({ delayMs: 0, now: FIXTURE_NOW });
+    lib = await backend.openLibrary(MOCK_ADDONS);
+    setBackend(backend);
+    let n = 0;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:${++n}`);
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    useViewStore.setState({ scope: { kind: 'all' } });
+    useViewStore.getState().setPrefs({ shelfAddons: 'behind' });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    restore();
+    clearArtCache();
+    setBackend(null);
+  });
+
+  /** Neon Rhythm with two more DLC: five in all. */
+  const fiveDlc = (e: EntryView): EntryView =>
+    e.name === 'Neon Rhythm'
+      ? {
+          ...e,
+          children: [
+            ...e.children!,
+            ...[3, 4].map((index): ChildView => ({
+              ...e.children![0]!,
+              index,
+              rel_path: `${e.children![0]!.rel_path}.${index}`,
+              name: `Neon Rhythm - Pack ${index}`,
+            })),
+          ],
+        }
+      : e;
+
+  function AddonHarness({
+    edit = (e) => e,
+  }: {
+    edit?: (e: EntryView) => EntryView;
+  }) {
+    const { games, byEntry } = buildGames(lib.entries.map(edit), {});
+    const entries = games.map((g) => g.entry);
+    const prefs = useViewStore((s) => s.prefs);
+    const [selected, setSelected] = useState<number | null>(null);
+    return (
+      <I18nProvider locale="es">
+        <ShelvesView
+          entries={entries}
+          sections={[]}
+          prefs={{ ...prefs, view: 'shelves', groupBy: 'none', coverSize: 'm' }}
+          onPreview={() => {}}
+          systems={lib.systems}
+          generation={lib.generation}
+          selectedId={selected}
+          onSelect={setSelected}
+          onOpen={setSelected}
+          content={{ byEntry, line: true, fresh: new Set() }}
+        />
+      </I18nProvider>
+    );
+  }
+
+  const box = (name: string) => {
+    const hit = screen
+      .getAllByRole('gridcell')
+      .find((c) => c.textContent?.includes(name));
+    if (!hit) throw new Error(`no box for ${name}`);
+    return hit;
+  };
+  const edges = (cell: HTMLElement) =>
+    cell.querySelectorAll<HTMLElement>('.shelf-edge');
+
+  it('shows three DLC edges behind Neon Rhythm and no «+n»', () => {
+    render(<AddonHarness />);
+    const nr = box('Neon Rhythm');
+    expect(edges(nr)).toHaveLength(3);
+    expect(nr.querySelector('.shelf-edge__more')).toBeNull();
+    expect(nr).toHaveTextContent('Con 3 complementos');
+    // One box per game: no tile for a DLC.
+    expect(screen.queryByText(/Night Drive Pack/)).toBeNull();
+  });
+
+  it('stops at three edges and says «+2» on the last for five DLC', () => {
+    render(<AddonHarness edit={fiveDlc} />);
+    const nr = box('Neon Rhythm');
+    expect(edges(nr)).toHaveLength(3);
+    expect(nr.querySelector('.shelf-edge__more')).toHaveTextContent('+2');
+    expect(nr).toHaveTextContent('Con 5 complementos');
+  });
+
+  it('hides the edges from screen readers and says the add-ons in the name', () => {
+    render(<AddonHarness />);
+    const nr = box('Neon Rhythm');
+    expect(nr.querySelector('.shelf-stack')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    expect(nr).toHaveAccessibleName(/con 3 complementos/);
+    const lh = box('Lantern Harbor (USA)');
+    expect(edges(lh)).toHaveLength(1);
+    expect(lh).toHaveAccessibleName(/con 1 complemento\b/);
+  });
+
+  it('says a missing newest update under the box', () => {
+    render(<AddonHarness />);
+    const tw = box('Tidewalker');
+    expect(tw).toHaveTextContent('↑ falta v1.3.0');
+    expect(tw).toHaveAccessibleName(/falta la última actualización, v1\.3\.0/);
+  });
+
+  it('keeps «Al lado» after a re-render from the saved prefs', async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<AddonHarness />);
+    const group = screen.getByRole('radiogroup', { name: 'Complementos' });
+    expect(
+      within(group).getByRole('radio', { name: 'Detrás de la caja' }),
+    ).toHaveAttribute('aria-checked', 'true');
+    await user.click(within(group).getByRole('radio', { name: 'Al lado' }));
+    expect(useViewStore.getState().prefs.shelfAddons).toBe('beside');
+    unmount();
+    // A new session: the prefs come back through sanitisePrefs.
+    const saved = sanitisePrefs(
+      JSON.parse(JSON.stringify(useViewStore.getState().prefs)),
+    );
+    expect(saved.shelfAddons).toBe('beside');
+    useViewStore.getState().setPrefs(saved);
+    render(<AddonHarness />);
+    expect(screen.getByRole('radio', { name: 'Al lado' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    const nr = box('Neon Rhythm');
+    expect(edges(nr)).toHaveLength(0);
+    expect(nr.querySelectorAll('.shelf-beside .child-thumb')).toHaveLength(3);
+    expect(nr).toHaveAccessibleName(/con 3 complementos/);
+    // The box is wider than a plain tile by the column of icons.
+    expect(parseFloat(nr.style.width)).toBeGreaterThan(COVER_SIZES.m.tileW);
+    expect(parseFloat(box('Pebble League').style.width)).toBe(
+      COVER_SIZES.m.tileW,
+    );
+  });
+
+  it('fans the edges only without reduced motion', () => {
+    const { unmount } = render(<AddonHarness />);
+    expect(box('Neon Rhythm').querySelector('.shelf-stack')).toHaveClass(
+      'shelf-stack--fan',
+    );
+    unmount();
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('prefers-reduced-motion'),
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    }));
+    render(<AddonHarness />);
+    expect(box('Neon Rhythm').querySelector('.shelf-stack')).not.toHaveClass(
+      'shelf-stack--fan',
+    );
+  });
+
+  it('gives a demo its own box, «Demo de …», with nothing behind it', () => {
+    render(<AddonHarness />);
+    const demo = box('Lantern Harbor (Demo)');
+    expect(demo).toHaveTextContent('Demo de Lantern Harbor');
+    expect(edges(demo)).toHaveLength(0);
+  });
+
+  it('shows no add-ons bar in a library without DLC', () => {
+    render(<Harness entries={ofSystem(0, 5)} />);
+    expect(screen.queryByRole('radiogroup', { name: 'Add-ons' })).toBeNull();
   });
 });

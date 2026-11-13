@@ -241,3 +241,15 @@ export function gameCounts(
     orphans: orphans.length,
   };
 }
+
+/** A child of the game is tagged «Nuevo» (D18). */
+export function hasFreshChild(
+  game: Game,
+  fresh: ReadonlySet<string> | undefined,
+): boolean {
+  return (
+    fresh !== undefined &&
+    fresh.size > 0 &&
+    game.children.some((c) => fresh.has(c.rel_path))
+  );
+}

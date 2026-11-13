@@ -2076,6 +2076,8 @@
     "demoOf": "demo de {name}",
     "demoAlone": "demo; el juego completo no está en la biblioteca",
     "dlc": "{n} DLC",
+    "addons": "con {n} complementos",
+    "addonsOne": "con 1 complemento",
     "updates": "{n} actualizaciones",
     "updatesOne": "1 actualización",
     "newest": "la más nueva {v}",
