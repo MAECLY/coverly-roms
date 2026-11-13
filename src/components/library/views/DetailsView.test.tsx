@@ -601,6 +601,19 @@ describe('DetailsView: the treegrid of games and their content (addon views §8.
     expect(gameRow('Pebble League')).not.toHaveAttribute('aria-expanded');
   });
 
+  it('a Contenido cell that can be cut short carries its whole text', () => {
+    render(<TreeHarness initial="Lantern Harbor (USA)" />);
+    const cell = (row: Element) =>
+      row.querySelector<HTMLElement>('.cell--content')!;
+    const game = cell(gameRow('Lantern Harbor (USA)'));
+    expect(game).toHaveAttribute('title', game.textContent!);
+    const folder = cell(document.querySelector('[data-row-key^="f:"]')!);
+    expect(folder.textContent).not.toBe('');
+    expect(folder).toHaveAttribute('title', folder.textContent!);
+    // «—» needs no tooltip.
+    expect(cell(gameRow('Pebble League'))).not.toHaveAttribute('title');
+  });
+
   it('counts the header and every flattened row in aria-rowcount', () => {
     render(<TreeHarness initial="Lantern Harbor (USA)" />);
     const games = lib.entries.filter(

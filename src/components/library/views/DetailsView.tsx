@@ -318,6 +318,10 @@ function cellTitle(
       return (
         e.regions.map((r) => ctx.t(`regions.${r}`)).join(', ') || undefined
       );
+    case 'content': {
+      const text = contentCell(ctx.gameOf(e), ctx.t, ctx.locale, e);
+      return text === '—' ? undefined : text;
+    }
     default:
       return undefined;
   }
@@ -990,7 +994,11 @@ export function DetailsView({
                     role="gridcell"
                     className={`cell cell--${col.id}`}
                     title={
-                      col.id === 'name' ? rowName(row, ctx, games) : undefined
+                      col.id === 'name'
+                        ? rowName(row, ctx, games)
+                        : col.id === 'content' && row.kind === 'folder'
+                          ? folderCounts(row.addons, ctx) || undefined
+                          : undefined
                     }
                   >
                     {contentRowCell(col.id, row, owner, ctx, games)}
