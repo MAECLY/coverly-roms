@@ -120,6 +120,40 @@ describe('RevisionsSection (addon views §8.8 3, D7)', () => {
     expect(sec().querySelector('[aria-live="polite"]')).toHaveTextContent('');
   });
 
+  it('leaves a failure and its message on the game it belongs to', async () => {
+    const onUse = vi.fn(() =>
+      Promise.reject(new BackendError('io', 'settings.json: disk full')),
+    );
+    const { sec, rerender } = section(star(), onUse);
+    await userEvent.click(
+      within(sec()).getByRole('button', {
+        name: 'Usar Original como predeterminada',
+      }),
+    );
+    await waitFor(() =>
+      expect(within(sec()).getByRole('alert')).toBeInTheDocument(),
+    );
+    // The panel moves on to another game with revisions: same component,
+    // another version group.
+    const other = star();
+    const moved = (e: (typeof other.revisions)[number]) => ({
+      ...e,
+      id: e.id + 1000,
+      name: e.name.replace('Star Courier', 'Comet Relay'),
+      rel_path: e.rel_path.replace('Star Courier', 'Comet Relay'),
+      version_group: 'comet relay',
+    });
+    const revisions = other.revisions.map(moved);
+    rerender({
+      ...other,
+      id: revisions[0]!.id,
+      entry: revisions[0]!,
+      revisions,
+    });
+    expect(within(sec()).queryByRole('alert')).toBeNull();
+    expect(sec().querySelector('[aria-live="polite"]')).toHaveTextContent('');
+  });
+
   it('does nothing when the default is pressed again', async () => {
     const onUse = vi.fn(() => Promise.resolve());
     const { sec } = section(star(), onUse);

@@ -25,8 +25,17 @@ export function RevisionsSection({
 }) {
   const t = useT();
   const locale = useContext(LocaleContext);
-  const [said, setSaid] = useState('');
-  const [error, setError] = useState<BackendError | null>(null);
+  // What was said and what failed belong to one game (its version group):
+  // the panel keeps this component when it moves to another game, and a
+  // late answer must not speak for the game now shown.
+  const group = game.entry.version_group ?? `#${String(game.id)}`;
+  const [status, setStatus] = useState<{
+    group: string;
+    said: string;
+    error: BackendError | null;
+  }>({ group, said: '', error: null });
+  const said = status.group === group ? status.said : '';
+  const error = status.group === group ? status.error : null;
   const rows = useMemo(
     () => [...game.revisions].sort(byRevisionDesc),
     [game.revisions],
@@ -35,13 +44,17 @@ export function RevisionsSection({
   const label = (e: EntryView) => e.revision ?? t('panel.revUntagged');
 
   async function use(e: EntryView) {
-    setError(null);
-    setSaid('');
+    const mine = group;
+    setStatus({ group: mine, said: '', error: null });
     try {
       await onUse(e.id);
-      setSaid(t('panel.revChanged', { rev: label(e) }));
+      setStatus({
+        group: mine,
+        said: t('panel.revChanged', { rev: label(e) }),
+        error: null,
+      });
     } catch (err) {
-      setError(toBackendError(err));
+      setStatus({ group: mine, said: '', error: toBackendError(err) });
     }
   }
 
