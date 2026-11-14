@@ -163,20 +163,26 @@ pub fn parse_name(stem: &str, strip_numbering: bool) -> ParsedName {
     }
 }
 
-/// Drops a trailing ` for NesicaxLive` (ASCII case-insensitive, whole
-/// words) from the text outside brackets: a distribution marker, never part
-/// of a title (spec 2026-10-26-pc-arcade P7). A name that is only the
-/// marker keeps it.
+/// Drops a trailing `for NesicaxLive` (ASCII case-insensitive, whole
+/// words, any whitespace between them) from the text outside brackets: a
+/// distribution marker, never part of a title (spec 2026-10-26-pc-arcade
+/// P7). A name that is only the marker keeps it.
 fn strip_nesicaxlive(outside: &str) -> &str {
-    const MARKER: &str = " for nesicaxlive";
     let trimmed = outside.trim_end();
-    let Some(cut) = trimmed.len().checked_sub(MARKER.len()) else {
+    let Some(last) = trimmed.rsplit(char::is_whitespace).next() else {
         return outside;
     };
-    if !trimmed.is_char_boundary(cut) || !trimmed[cut..].eq_ignore_ascii_case(MARKER) {
+    if !last.eq_ignore_ascii_case("nesicaxlive") {
         return outside;
     }
-    let head = &trimmed[..cut];
+    let before = trimmed[..trimmed.len() - last.len()].trim_end();
+    let Some(word) = before.rsplit(char::is_whitespace).next() else {
+        return outside;
+    };
+    if !word.eq_ignore_ascii_case("for") {
+        return outside;
+    }
+    let head = &before[..before.len() - word.len()];
     if head.trim().is_empty() {
         outside
     } else {
@@ -868,6 +874,10 @@ mod tests {
             ("Raiden IV (Type X)", "Raiden IV"),
             ("Homura (type x)", "Homura"),
             ("Chaos Code (Type X2)", "Chaos Code"),
+            // Any run of spaces, tabs or underscores separates the words.
+            ("Akai Katana Shin  for\tNesicaxLive", "Akai Katana Shin"),
+            ("Akai_Katana_Shin__for_NesicaxLive", "Akai Katana Shin"),
+            ("Homura (Japan) for NesicaxLive", "Homura"),
             // Only a trailing, whole-word marker is dropped.
             ("Made for NesicaxLive Fans", "Made for NesicaxLive Fans"),
             ("Fornesicaxlive", "Fornesicaxlive"),
