@@ -3,9 +3,10 @@
  * the write in flight, the last Extras job of each game (for «Deshacer»
  * and `Cmd/Ctrl+Z`) and the selected files. Files are named by the
  * `(rev, index)` handle of the listing on screen (D22); every write
- * answers the next listing, which replaces it. A request counter drops
- * any listing a newer request superseded, and a listing of a game that is
- * no longer open is never shown (D4).
+ * answers the next listing, which replaces it. Requests are numbered: an
+ * answer older than the listing on screen is dropped, and a listing of a
+ * game that is no longer open is never shown (D4). A request that fails
+ * or answers for another game supersedes nothing.
  */
 import { create } from 'zustand';
 
@@ -84,14 +85,56 @@ const INITIAL = {
   anchor: null,
 } satisfies Partial<ExtrasState>;
 
-/** Numbers every request that answers a listing; only the last applies. */
+/** Numbers every request that answers a listing. */
 let seq = 0;
+/** The request whose listing is on screen: older answers are dropped. */
+let applied = 0;
+/** The last listing request: the section loads until it settles. */
+let listReq = 0;
+
+/** The selection of `prev` carried by path into `next` (indexes are per
+ * listing, D22: a stale index could name another file). */
+function carrySelection(
+  prev: ExtrasView,
+  next: ExtrasView,
+  selection: ReadonlySet<number>,
+  anchor: number | null,
+): { selection: ReadonlySet<number>; anchor: number | null } {
+  if (selection.size === 0 && anchor === null) return { selection, anchor };
+  const pathOf = new Map(prev.files.map((f) => [f.index, f.path]));
+  const indexOf = new Map(next.files.map((f) => [f.path, f.index]));
+  const follow = (i: number) => {
+    const p = pathOf.get(i);
+    return p === undefined ? undefined : indexOf.get(p);
+  };
+  const kept = new Set<number>();
+  for (const i of selection) {
+    const j = follow(i);
+    if (j !== undefined) kept.add(j);
+  }
+  const a = anchor === null ? undefined : follow(anchor);
+  return {
+    selection: kept.size > 0 ? kept : EMPTY,
+    anchor: a ?? null,
+  };
+}
 
 export const useExtrasStore = create<ExtrasState>()((set, get) => {
   /** Shows `listing` when it answers request `req` of the open game. */
   function show(req: number, listing: ExtrasView): boolean {
-    if (req !== seq || listing.entry_id !== get().entryId) return false;
-    set({ listing, loading: false, error: null });
+    const s = get();
+    if (req <= applied || listing.entry_id !== s.entryId) return false;
+    applied = req;
+    const carried =
+      s.listing && s.listing.entry_id === listing.entry_id
+        ? carrySelection(s.listing, listing, s.selection, s.anchor)
+        : { selection: EMPTY, anchor: null };
+    set({
+      listing,
+      error: null,
+      ...carried,
+      ...(req >= listReq ? { loading: false } : {}),
+    });
     usePlayerStore.getState().syncListing(listing);
     return true;
   }
@@ -105,13 +148,16 @@ export const useExtrasStore = create<ExtrasState>()((set, get) => {
     const { generation, entryId } = get();
     if (generation === null || entryId === null) return;
     const req = ++seq;
+    listReq = req;
     set({ loading: true });
     try {
       const backend = await getBackend();
       show(req, await backend.extrasList(generation, entryId));
     } catch (e) {
-      if (req === seq && entryId === get().entryId)
-        set({ loading: false, error: toBackendError(e) });
+      if (req !== listReq || entryId !== get().entryId) return;
+      // A newer answer is already on screen: only the loading ends.
+      if (req <= applied) set({ loading: false });
+      else set({ loading: false, error: toBackendError(e) });
     }
   }
 
@@ -257,6 +303,8 @@ export const useExtrasStore = create<ExtrasState>()((set, get) => {
 
     reset() {
       seq++;
+      applied = seq;
+      listReq = seq;
       set(INITIAL);
     },
   };

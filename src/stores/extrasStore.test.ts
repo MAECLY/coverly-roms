@@ -5,7 +5,13 @@ import { BackendError } from '@/ipc/errors';
 import { MOCK_EXTRAS } from '@/ipc/mock/extrasFixture';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
-import type { CategoryRef, ExtrasView, LibraryView } from '@/ipc/types';
+import type {
+  CategoryRef,
+  ExtraFileView,
+  ExtrasView,
+  ExtrasWriteView,
+  LibraryView,
+} from '@/ipc/types';
 
 import { useExtrasStore } from './extrasStore';
 import { currentTrack, usePlayerStore } from './playerStore';
@@ -50,7 +56,27 @@ function deferredBackend() {
   return { backend, calls };
 }
 
-function view(entry_id: number, rev: number): ExtrasView {
+function file(index: number, path: string): ExtraFileView {
+  return {
+    index,
+    category: SOUNDTRACK,
+    path,
+    name: path.split('/').pop()!,
+    kind: 'audio',
+    provenance: 'user',
+    format: null,
+    tags: [],
+    size: 1,
+    link: false,
+    playable: 'inline',
+  };
+}
+
+function view(
+  entry_id: number,
+  rev: number,
+  files: ExtraFileView[] = [],
+): ExtrasView {
   return {
     entry_id,
     rev,
@@ -58,7 +84,7 @@ function view(entry_id: number, rev: number): ExtrasView {
     index: { state: 'ok' },
     writable: { kind: 'yes' },
     categories: [],
-    files: [],
+    files,
     missing: [],
     capped: false,
     system: 'ps3',
@@ -276,5 +302,95 @@ describe('extrasStore', () => {
     store().applyWrite({ ...w, job: 'other', listing: view(999, 1) });
     expect(store().listing).toBe(w.listing);
     expect(store().lastJob[999]).toBe('other');
+  });
+
+  it('an add finishing for another game keeps the open game loading its listing', async () => {
+    const { backend, calls } = deferredBackend();
+    setBackend(backend);
+    const first = store().open(1, 10);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    const other: ExtrasWriteView = {
+      job: 'job-11',
+      listing: view(11, 1),
+      notes: [],
+    };
+    store().applyWrite(other);
+    calls[0]!.resolve(view(10, 1));
+    await first;
+    expect(store().listing?.entry_id).toBe(10);
+    expect(store().loading).toBe(false);
+    expect(store().lastJob[11]).toBe('job-11');
+  });
+
+  it('a failed write does not leave a refresh in flight loading forever', async () => {
+    const { backend, calls } = deferredBackend();
+    (backend as unknown as Record<string, unknown>).extrasSetTags = () =>
+      Promise.reject(new BackendError('io', 'disk gone'));
+    setBackend(backend);
+    const first = store().open(1, 10);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    calls[0]!.resolve(view(10, 1, [file(0, 'Soundtrack/a.flac')]));
+    await first;
+    const again = store().refresh();
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    await expect(store().setTags(0, ['x'])).rejects.toMatchObject({
+      code: 'io',
+    });
+    calls[1]!.resolve(view(10, 2, [file(0, 'Soundtrack/a.flac')]));
+    await again;
+    expect(store().listing?.rev).toBe(2);
+    expect(store().loading).toBe(false);
+  });
+
+  it('a listing that answers before a write still loses to the write', async () => {
+    const { backend, calls } = deferredBackend();
+    const writes: ((w: ExtrasWriteView) => void)[] = [];
+    (backend as unknown as Record<string, unknown>).extrasSetTags = () =>
+      new Promise<ExtrasWriteView>((resolve) => writes.push(resolve));
+    setBackend(backend);
+    const first = store().open(1, 10);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    calls[0]!.resolve(view(10, 1, [file(0, 'Soundtrack/a.flac')]));
+    await first;
+    const again = store().refresh();
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    const tagged = store().setTags(0, ['x']);
+    await vi.waitFor(() => expect(writes).toHaveLength(1));
+    writes[0]!({ job: 'j', listing: view(10, 3), notes: [] });
+    await tagged;
+    calls[1]!.resolve(view(10, 2));
+    await again;
+    expect(store().listing?.rev).toBe(3);
+    expect(store().loading).toBe(false);
+  });
+
+  it('a new listing keeps the selected files by path, not by stale index', async () => {
+    const { backend, calls } = deferredBackend();
+    setBackend(backend);
+    const first = store().open(1, 10);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    calls[0]!.resolve(
+      view(10, 1, [
+        file(0, 'Soundtrack/a.flac'),
+        file(1, 'Soundtrack/b.flac'),
+        file(2, 'Soundtrack/c.flac'),
+      ]),
+    );
+    await first;
+    store().select(1, 'only');
+    store().select(2, 'toggle');
+    // a.flac went away outside the app: the others got new handles.
+    const again = store().refresh();
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    calls[1]!.resolve(
+      view(10, 2, [
+        file(0, 'Soundtrack/b.flac'),
+        file(1, 'Soundtrack/c.flac'),
+        file(2, 'Soundtrack/d.flac'),
+      ]),
+    );
+    await again;
+    expect([...store().selection].sort()).toEqual([0, 1]);
+    expect(store().anchor).toBe(1);
   });
 });
