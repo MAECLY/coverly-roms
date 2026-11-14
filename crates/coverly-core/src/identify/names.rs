@@ -149,7 +149,7 @@ pub fn parse_name(stem: &str, strip_numbering: bool) -> ParsedName {
             year.get_or_insert(y);
         }
     }
-    let title = tidy_title(&outside);
+    let title = tidy_title(strip_nesicaxlive(&outside));
     let key = compare_key(&title);
     let short_key = compare_key(&without_subtitle(&title));
     let numeral = numeral_of(&key);
@@ -160,6 +160,27 @@ pub fn parse_name(stem: &str, strip_numbering: bool) -> ParsedName {
         numeral,
         key,
         short_key,
+    }
+}
+
+/// Drops a trailing ` for NesicaxLive` (ASCII case-insensitive, whole
+/// words) from the text outside brackets: a distribution marker, never part
+/// of a title (spec 2026-10-26-pc-arcade P7). A name that is only the
+/// marker keeps it.
+fn strip_nesicaxlive(outside: &str) -> &str {
+    const MARKER: &str = " for nesicaxlive";
+    let trimmed = outside.trim_end();
+    let Some(cut) = trimmed.len().checked_sub(MARKER.len()) else {
+        return outside;
+    };
+    if !trimmed.is_char_boundary(cut) || !trimmed[cut..].eq_ignore_ascii_case(MARKER) {
+        return outside;
+    }
+    let head = &trimmed[..cut];
+    if head.trim().is_empty() {
+        outside
+    } else {
+        head
     }
 }
 
@@ -833,7 +854,31 @@ fn disc_group(g: &str) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bare_region, parse_tags, Region};
+    use super::{bare_region, parse_name, parse_tags, Region};
+
+    #[test]
+    fn nesicaxlive_marker_is_not_part_of_the_title() {
+        for (stem, title) in [
+            ("Akai Katana Shin for NesicaxLive", "Akai Katana Shin"),
+            ("Akai Katana Shin FOR NESICAXLIVE", "Akai Katana Shin"),
+            (
+                "King of Fighters XIII Climax for NesicaxLive (Japan)",
+                "King of Fighters XIII Climax",
+            ),
+            ("Raiden IV (Type X)", "Raiden IV"),
+            ("Homura (type x)", "Homura"),
+            ("Chaos Code (Type X2)", "Chaos Code"),
+            // Only a trailing, whole-word marker is dropped.
+            ("Made for NesicaxLive Fans", "Made for NesicaxLive Fans"),
+            ("Fornesicaxlive", "Fornesicaxlive"),
+            ("for NesicaxLive", "for NesicaxLive"),
+        ] {
+            assert_eq!(parse_name(stem, false).title, title, "{stem}");
+        }
+        let a = parse_name("Akai Katana Shin for NesicaxLive", false);
+        let b = parse_name("Akai Katana Shin", false);
+        assert_eq!(a.key, b.key);
+    }
 
     const ALL: [Region; 20] = [
         Region::World,
