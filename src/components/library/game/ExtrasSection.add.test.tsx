@@ -114,6 +114,20 @@ describe('ExtrasSection adds (D11 a, D13, §8.3)', () => {
     await waitFor(() => expect(files().length).toBe(before));
   });
 
+  it('cancelling the add dialog gives the button that opened it its focus back', async () => {
+    await setup();
+    const r = await show('Tidewalker');
+    for (const name of ['Añadir archivos', 'Añadir a Arte']) {
+      const button = within(r).getByRole('button', { name });
+      button.focus();
+      fireEvent.click(button);
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      await waitFor(() => expect(button).toHaveFocus());
+    }
+  });
+
   it('a category’s «+» starts every file in that category', async () => {
     await setup();
     const r = await show('Moss Garden');

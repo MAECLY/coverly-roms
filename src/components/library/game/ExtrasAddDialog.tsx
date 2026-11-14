@@ -100,12 +100,16 @@ export function ExtrasAddDialog({
   targets,
   onCommit,
   onClose,
+  returnFocus,
 }: {
   request: AddRequest | null;
   targets: readonly CategoryRef[];
   /** Copies; answers the error to show, or null when it started. */
   onCommit(choices: AddChoice[], tags: AddTags): Promise<BackendError | null>;
   onClose(): void;
+  /** Where the focus goes back on close: the control that started the add
+   * (the native picker in between leaves Radix nothing to go back to). */
+  returnFocus?: (() => HTMLElement | null) | undefined;
 }) {
   return (
     <Dialog
@@ -122,6 +126,7 @@ export function ExtrasAddDialog({
           targets={targets}
           onCommit={onCommit}
           onClose={onClose}
+          returnFocus={returnFocus}
         />
       )}
     </Dialog>
@@ -133,11 +138,13 @@ function AddContent({
   targets,
   onCommit,
   onClose,
+  returnFocus,
 }: {
   request: AddRequest;
   targets: readonly CategoryRef[];
   onCommit(choices: AddChoice[], tags: AddTags): Promise<BackendError | null>;
   onClose(): void;
+  returnFocus?: (() => HTMLElement | null) | undefined;
 }) {
   const t = useT();
   const tr = useRichT();
@@ -199,7 +206,17 @@ function AddContent({
   }
 
   return (
-    <DialogContent size="lg" className="extras-add">
+    <DialogContent
+      size="lg"
+      className="extras-add"
+      onCloseAutoFocus={(e) => {
+        const back = returnFocus?.();
+        if (back?.isConnected) {
+          e.preventDefault();
+          back.focus();
+        }
+      }}
+    >
       <DialogHeader>
         <DialogTitle>
           {request.ask ? t('extras.whichCategory') : t('extras.add')}

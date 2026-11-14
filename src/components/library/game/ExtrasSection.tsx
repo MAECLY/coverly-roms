@@ -329,6 +329,9 @@ export function ExtrasSection({
     n: number;
   } | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
+  /** The control an add started from, for the add dialog to hand the
+   * focus back to. */
+  const addOpener = useRef<HTMLElement | null>(null);
   const focusAfter = useRef<FocusAfter | null>(null);
   const drag = useRef<Drag | null>(null);
   const swallow = useRef(false);
@@ -677,6 +680,10 @@ export function ExtrasSection({
    * Rust), then the add dialog. */
   async function pickAdd(category?: CategoryRef) {
     setWriteError(null);
+    addOpener.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     try {
       const b = await getBackend();
       const plan = await b.extrasAddPick(generation, entry.id);
@@ -719,6 +726,8 @@ export function ExtrasSection({
    * it landed on none). */
   async function dropAdd(d: SectionDrop) {
     setWriteError(null);
+    // A drop comes from outside the window: no control to go back to.
+    addOpener.current = null;
     const to = d.key
       ? (targets.find((c) => categoryKey(c) === d.key) ?? null)
       : null;
@@ -1325,6 +1334,7 @@ export function ExtrasSection({
           targets={targets}
           onCommit={commitAdd}
           onClose={() => setAddReq(null)}
+          returnFocus={() => addOpener.current}
         />
         <AlertDialog
           open={confirm !== null}
