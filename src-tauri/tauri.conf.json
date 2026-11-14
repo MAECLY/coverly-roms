@@ -22,7 +22,28 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost; worker-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": [],
+          "deny": [
+            "**/*.rap",
+            "**/*.rif",
+            "**/*.edat",
+            "**/act.dat",
+            "**/*.tik",
+            "**/ticket.db",
+            "**/seeddb.bin",
+            "**/*.keys",
+            "**/keys.txt",
+            "**/otp.bin",
+            "**/kv.bin",
+            "**/work.bin",
+            "**/.*"
+          ]
+        }
+      }
     }
   },
   "bundle": {

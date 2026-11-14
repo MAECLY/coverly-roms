@@ -4,6 +4,7 @@
 pub mod art;
 pub mod details;
 pub mod extras;
+pub mod extras_media;
 pub mod identify;
 pub mod refresh;
 pub mod view;

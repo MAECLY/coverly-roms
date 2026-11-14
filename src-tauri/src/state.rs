@@ -1036,6 +1036,68 @@ impl AppState {
         crate::library::extras::handle(&listed, index)
     }
 
+    /// Grants file `index` of entry `id`'s listing `rev` to the asset
+    /// protocol `scope`, alone, after the canonical checks of part D D12
+    /// (a regular file under the game's `Extras/` inside the open library,
+    /// not a link, not key material, unchanged since the listing).
+    pub fn extras_media(
+        &self,
+        generation: u64,
+        id: u32,
+        rev: u64,
+        index: u32,
+        scope: &tauri::scope::fs::Scope,
+    ) -> Result<crate::library::extras_media::MediaView, IpcError> {
+        let session = self.session(generation)?;
+        let handle = self.extras_handle(generation, id, rev, index)?;
+        let (canon, view) =
+            crate::library::extras_media::media_target(&handle, &session.root_canon)?;
+        scope
+            .allow_file(&canon)
+            .map_err(|e| IpcError::Io(e.to_string()))?;
+        Ok(view)
+    }
+
+    /// The text of file `index` (txt, md, nfo; at most 1 MiB, D17).
+    pub fn extras_read_text(
+        &self,
+        generation: u64,
+        id: u32,
+        rev: u64,
+        index: u32,
+    ) -> Result<crate::library::extras_media::TextView, IpcError> {
+        let session = self.session(generation)?;
+        let handle = self.extras_handle(generation, id, rev, index)?;
+        crate::library::extras_media::read_text(&handle, &session.root_canon)
+    }
+
+    /// The path of file `index` to hand to another app: allow-listed
+    /// types only (D17), resolved here, never sent by the webview.
+    pub fn extras_open_target(
+        &self,
+        generation: u64,
+        id: u32,
+        rev: u64,
+        index: u32,
+    ) -> Result<PathBuf, IpcError> {
+        let session = self.session(generation)?;
+        let handle = self.extras_handle(generation, id, rev, index)?;
+        crate::library::extras_media::open_target(&handle, &session.root_canon)
+    }
+
+    /// The path of file `index` to show in the file manager.
+    pub fn extras_reveal_target(
+        &self,
+        generation: u64,
+        id: u32,
+        rev: u64,
+        index: u32,
+    ) -> Result<PathBuf, IpcError> {
+        let session = self.session(generation)?;
+        let handle = self.extras_handle(generation, id, rev, index)?;
+        crate::library::extras_media::reveal_target(&handle, &session.root_canon)
+    }
+
     /// Resolves the art of `ids` again and installs the updated session,
     /// if `generation` is still the open library.
     pub fn refresh_entries(

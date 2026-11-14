@@ -1658,3 +1658,464 @@ mod adds {
         assert!(o.st.jobs().begin_manual().is_ok(), "the guard is released");
     }
 }
+
+/// Media, text, reveal and open-external (part D D12, D17, P-6): files by
+/// handle only, each media file granted alone after canonical checks.
+mod media {
+    use coverly_core::consoles::{start_open_log, take_open_log};
+    use coverly_roms_lib::library::extras_media::{MediaKind, TextEncoding, TEXT_MAX};
+    use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
+    use tauri::utils::config::AssetProtocolConfig;
+    use tauri::Manager;
+
+    use super::*;
+
+    /// A mock app whose asset scope is the shipped one (allow nothing,
+    /// deny keys and dotfiles).
+    fn app() -> tauri::App<MockRuntime> {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let asset: AssetProtocolConfig =
+            serde_json::from_value(conf["app"]["security"]["assetProtocol"].clone()).unwrap();
+        let mut ctx = mock_context(noop_assets());
+        ctx.config_mut().app.security.asset_protocol = asset;
+        mock_builder().build(ctx).expect("mock app")
+    }
+
+    /// A library folder without a dot in its name (unix glob `**` does
+    /// not cross dot folders, so the deny fence is checked too).
+    fn lib_dir() -> TempDir {
+        tempfile::Builder::new()
+            .prefix("coverly-lib-")
+            .tempdir()
+            .unwrap()
+    }
+
+    fn canon(p: &Path) -> PathBuf {
+        fs::canonicalize(p).unwrap()
+    }
+
+    #[test]
+    fn extras_media_grants_exactly_one_file_inside_extras() {
+        let config = TempDir::new().unwrap();
+        let lib = lib_dir();
+        let o = opened(state(&config), &lib);
+        let app = app();
+        let scope = app.asset_protocol_scope();
+        let listed = o.list();
+        let flac = extra(lib.path(), "Soundtrack/01 Opening.flac");
+        let png = extra(lib.path(), "Artwork/front.png");
+        assert!(!scope.is_allowed(&flac), "nothing before a grant");
+
+        let media =
+            o.st.extras_media(
+                o.generation,
+                o.id,
+                listed.rev,
+                index_of(&listed, "Soundtrack/01 Opening.flac"),
+                &scope,
+            )
+            .unwrap();
+        assert_eq!(media.kind, MediaKind::Audio);
+        assert_eq!(media.mime, "audio/flac");
+        assert_eq!(Path::new(&media.src_path), canon(&flac));
+        assert!(scope.is_allowed(&flac));
+        assert!(scope.is_allowed(canon(&flac)));
+        assert!(!scope.is_allowed(&png), "its sibling in Extras/");
+        assert!(
+            !scope.is_allowed(game(lib.path()).join("Lantern Harbor (USA).cia")),
+            "the game itself"
+        );
+        assert!(!scope.is_allowed(extra(lib.path(), "extras.json")));
+
+        let image =
+            o.st.extras_media(
+                o.generation,
+                o.id,
+                listed.rev,
+                index_of(&listed, "Artwork/front.png"),
+                &scope,
+            )
+            .unwrap();
+        assert_eq!(
+            (image.kind, image.mime.as_str()),
+            (MediaKind::Image, "image/png")
+        );
+        assert!(scope.is_allowed(&png));
+        let wire = serde_json::to_value(&image).unwrap();
+        assert_eq!(wire["kind"], "image");
+        assert!(wire.get("src_path").is_some(), "{wire}");
+    }
+
+    #[test]
+    fn refuses_outside_root_non_extras_key_names_old_generation() {
+        let config = TempDir::new().unwrap();
+        let lib = lib_dir();
+        put(
+            lib.path(),
+            &format!("{GAME}/Extras/Soundtrack/game.rap"),
+            &[9u8; 16],
+        );
+        let o = opened(state(&config), &lib);
+        let app = app();
+        let scope = app.asset_protocol_scope();
+        let listed = o.list();
+        let media = |rel: &str| {
+            o.st.extras_media(
+                o.generation,
+                o.id,
+                listed.rev,
+                index_of(&listed, rel),
+                &scope,
+            )
+        };
+
+        // Not media: packages, and text (read by `extras_read_text`).
+        for rel in ["Themes/harbor.p3t", "readme.txt"] {
+            assert_eq!(
+                media(rel).unwrap_err(),
+                IpcError::ExtrasRefused {
+                    why: "not-media".into()
+                },
+                "{rel}"
+            );
+        }
+        // Key material: refused before anything opens it.
+        start_open_log();
+        assert!(matches!(
+            media("Soundtrack/game.rap"),
+            Err(IpcError::ExtrasRefused { .. })
+        ));
+        let rap = extra(lib.path(), "Soundtrack/game.rap");
+        assert!(!take_open_log().iter().any(|p| p.ends_with("game.rap")));
+        assert!(!scope.is_allowed(&rap));
+
+        // A file changed since the listing: list again.
+        put(
+            lib.path(),
+            &format!("{GAME}/Extras/Artwork/front.png"),
+            &[3u8; 17],
+        );
+        assert_eq!(
+            media("Artwork/front.png").unwrap_err(),
+            IpcError::ExtrasChanged
+        );
+        // An older listing, and a library opened again.
+        let flac = index_of(&listed, "Soundtrack/01 Opening.flac");
+        let newer = o.list();
+        assert_eq!(
+            o.st.extras_media(o.generation, o.id, listed.rev, flac, &scope)
+                .unwrap_err(),
+            IpcError::ExtrasChanged
+        );
+        let reopened = open(&o.st, lib.path());
+        assert_ne!(reopened.generation, o.generation);
+        assert_eq!(
+            o.st.extras_media(o.generation, o.id, newer.rev, flac, &scope)
+                .unwrap_err(),
+            IpcError::StaleLibrary
+        );
+        assert!(!scope.is_allowed(extra(lib.path(), "Soundtrack/01 Opening.flac")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_outside_root_when_extras_is_swapped_for_a_link_out() {
+        let config = TempDir::new().unwrap();
+        let lib = lib_dir();
+        let o = opened(state(&config), &lib);
+        let app = app();
+        let scope = app.asset_protocol_scope();
+        let listed = o.list();
+        // The same files (same sizes and times) outside the library, and
+        // `Extras/` swapped for a link to them after the listing.
+        let outside = lib_dir();
+        let real = game(lib.path()).join("Extras");
+        let copy = outside.path().join("Extras");
+        let status = std::process::Command::new("cp")
+            .arg("-Rp")
+            .arg(&real)
+            .arg(&copy)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        fs::rename(&real, game(lib.path()).join("Extras-real")).unwrap();
+        std::os::unix::fs::symlink(&copy, &real).unwrap();
+        let got = o.st.extras_media(
+            o.generation,
+            o.id,
+            listed.rev,
+            index_of(&listed, "Soundtrack/01 Opening.flac"),
+            &scope,
+        );
+        assert!(matches!(got, Err(IpcError::OutsideLibrary(_))), "{got:?}");
+        assert!(!scope.is_allowed(copy.join("Soundtrack").join("01 Opening.flac")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_symlink_pointing_out() {
+        let config = TempDir::new().unwrap();
+        let lib = lib_dir();
+        let outside = lib_dir();
+        let secret = outside.path().join("secret.mp3");
+        fs::write(&secret, b"ID3").unwrap();
+        library(lib.path());
+        std::os::unix::fs::symlink(&secret, extra(lib.path(), "Soundtrack/link.mp3")).unwrap();
+        let st = state(&config);
+        let view = open(&st, lib.path());
+        let id = id_of(&view, "Lantern Harbor (USA)");
+        let listed = st.extras_list(view.generation, id).unwrap();
+        let link = index_of(&listed, "Soundtrack/link.mp3");
+        assert!(listed.files[link as usize].link);
+        let app = app();
+        let scope = app.asset_protocol_scope();
+        assert_eq!(
+            st.extras_media(view.generation, id, listed.rev, link, &scope)
+                .unwrap_err(),
+            IpcError::ExtrasRefused { why: "link".into() }
+        );
+        assert!(!scope.is_allowed(&secret));
+        assert!(!scope.is_allowed(extra(lib.path(), "Soundtrack/link.mp3")));
+        // Nor handed to another app, nor read as text.
+        assert!(st
+            .extras_open_target(view.generation, id, listed.rev, link)
+            .is_err());
+    }
+
+    /// P-6: a grant cannot be taken back, so the protocol must resolve
+    /// the requested path before matching the scope. Tauri's asset handler
+    /// answers 403 when `Scope::is_allowed` is false, before it opens
+    /// anything (the mock runtime registers no URI scheme handler, so the
+    /// gate it calls is driven directly).
+    #[cfg(unix)]
+    #[test]
+    fn a_granted_path_swapped_for_a_symlink_out_is_refused_by_the_protocol() {
+        let config = TempDir::new().unwrap();
+        let lib = lib_dir();
+        let o = opened(state(&config), &lib);
+        let app = app();
+        let scope = app.asset_protocol_scope();
+        let listed = o.list();
+        let grant = |rel: &str| {
+            let m =
+                o.st.extras_media(
+                    o.generation,
+                    o.id,
+                    listed.rev,
+                    index_of(&listed, rel),
+                    &scope,
+                )
+                .unwrap();
+            PathBuf::from(m.src_path)
+        };
+        let outside = lib_dir();
+
+        // The file itself swapped for a link out.
+        let flac = grant("Soundtrack/01 Opening.flac");
+        assert!(scope.is_allowed(&flac));
+        let secret = outside.path().join("secret.flac");
+        fs::write(&secret, b"fLaC secret").unwrap();
+        fs::remove_file(&flac).unwrap();
+        std::os::unix::fs::symlink(&secret, &flac).unwrap();
+        assert!(!scope.is_allowed(&flac), "a granted path now a link out");
+
+        // A relative link out.
+        fs::remove_file(&flac).unwrap();
+        std::os::unix::fs::symlink(
+            Path::new("..")
+                .join("..")
+                .join("..")
+                .join("..")
+                .join("..")
+                .join("x.flac"),
+            &flac,
+        )
+        .unwrap();
+        assert!(!scope.is_allowed(&flac));
+
+        // Its folder swapped for a link to a folder holding the same name.
+        let png = grant("Artwork/front.png");
+        assert!(scope.is_allowed(&png));
+        let art = png.parent().unwrap().to_path_buf();
+        let elsewhere = outside.path().join("Artwork");
+        fs::create_dir(&elsewhere).unwrap();
+        fs::write(elsewhere.join("front.png"), b"secret").unwrap();
+        fs::rename(&art, art.with_file_name("Artwork-real")).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &art).unwrap();
+        assert!(
+            !scope.is_allowed(&png),
+            "a granted path behind a folder link out"
+        );
+        assert!(!scope.is_allowed(elsewhere.join("front.png")));
+    }
+
+    #[test]
+    fn read_text_caps_at_1_mib_and_decodes_cp437_nfo() {
+        let config = TempDir::new().unwrap();
+        let lib = lib_dir();
+        let cap = usize::try_from(TEXT_MAX).unwrap();
+        // CP437 art in an .nfo; Latin-1 in a .txt; UTF-8 in a .md.
+        put(
+            lib.path(),
+            &format!("{GAME}/Extras/Guides/scene.nfo"),
+            &[0xB0, 0xDB, b' ', 0x82],
+        );
+        put(
+            lib.path(),
+            &format!("{GAME}/Extras/Guides/notes.txt"),
+            b"caf\xe9",
+        );
+        put(
+            lib.path(),
+            &format!("{GAME}/Extras/Guides/a.md"),
+            "\u{feff}# Guía".as_bytes(),
+        );
+        put(
+            lib.path(),
+            &format!("{GAME}/Extras/Guides/big.txt"),
+            &vec![b'a'; cap + 10],
+        );
+        // A two-byte character cut by the cap.
+        let mut cut = vec![b'a'; cap - 1];
+        cut.extend_from_slice("é".as_bytes());
+        put(lib.path(), &format!("{GAME}/Extras/Guides/cut.txt"), &cut);
+        let o = opened(state(&config), &lib);
+        let listed = o.list();
+        let text = |rel: &str| {
+            o.st.extras_read_text(o.generation, o.id, listed.rev, index_of(&listed, rel))
+        };
+
+        let hello = text("readme.txt").unwrap();
+        assert_eq!((hello.text.as_str(), hello.truncated), ("hello", false));
+        assert_eq!(hello.encoding, TextEncoding::Utf8);
+        let nfo = text("Guides/scene.nfo").unwrap();
+        assert_eq!(nfo.text, "░█ é");
+        assert_eq!(nfo.encoding, TextEncoding::Cp437);
+        let latin = text("Guides/notes.txt").unwrap();
+        assert_eq!(latin.text, "café");
+        assert_eq!(latin.encoding, TextEncoding::Latin1);
+        assert_eq!(text("Guides/a.md").unwrap().text, "# Guía", "BOM dropped");
+        let big = text("Guides/big.txt").unwrap();
+        assert!(big.truncated);
+        assert_eq!(big.text.len(), cap);
+        let cut = text("Guides/cut.txt").unwrap();
+        assert!(cut.truncated);
+        assert_eq!(
+            cut.encoding,
+            TextEncoding::Utf8,
+            "a cut character is not Latin-1"
+        );
+        assert_eq!(cut.text.len(), cap - 1);
+        assert!(cut.text.bytes().all(|b| b == b'a'));
+
+        for rel in ["Soundtrack/01 Opening.flac", "Themes/harbor.p3t"] {
+            assert_eq!(
+                text(rel).unwrap_err(),
+                IpcError::ExtrasRefused {
+                    why: "not-text".into()
+                },
+                "{rel}"
+            );
+        }
+        let wire = serde_json::to_value(text("Guides/scene.nfo").unwrap()).unwrap();
+        assert_eq!(wire["encoding"], "cp437");
+    }
+
+    #[test]
+    fn open_external_refuses_packages_executables_scripts_shortcuts() {
+        let config = TempDir::new().unwrap();
+        let lib = lib_dir();
+        let names = [
+            "theme.pkg",
+            "setup.exe",
+            "run.bat",
+            "run.cmd",
+            "tool.com",
+            "setup.msi",
+            "boot.ps1",
+            "boot.vbs",
+            "boot.js",
+            "tool.jar",
+            "run.command",
+            "run.sh",
+            "app.desktop",
+            "link.lnk",
+            "site.url",
+            "site.webloc",
+            "saver.scr",
+            "tool.AppImage",
+            "avatar.PKG",
+            "README",
+            "game.rap",
+        ];
+        for n in names {
+            put(lib.path(), &format!("{GAME}/Extras/Guides/{n}"), b"x");
+        }
+        let o = opened(state(&config), &lib);
+        let listed = o.list();
+        start_open_log();
+        for n in names.iter().copied().chain(["Themes/harbor.p3t"]) {
+            let rel = if n.contains('/') {
+                n.to_string()
+            } else {
+                format!("Guides/{n}")
+            };
+            assert_eq!(
+                o.st.extras_open_target(o.generation, o.id, listed.rev, index_of(&listed, &rel))
+                    .unwrap_err(),
+                IpcError::ExtrasRefused {
+                    why: "reveal-only".into()
+                },
+                "{rel}"
+            );
+            // Reveal stays possible for every one of them.
+            let shown =
+                o.st.extras_reveal_target(o.generation, o.id, listed.rev, index_of(&listed, &rel))
+                    .unwrap();
+            assert_eq!(shown.file_name(), extra(lib.path(), &rel).file_name());
+        }
+        // Other tests log too: nothing of this library was opened.
+        let base = canon(lib.path());
+        let log = take_open_log();
+        assert!(
+            !log.iter()
+                .any(|p| p.starts_with(lib.path()) || p.starts_with(&base)),
+            "{log:?}"
+        );
+    }
+
+    #[test]
+    fn open_external_allows_audio_video_image_document_and_chiptunes() {
+        let config = TempDir::new().unwrap();
+        let lib = lib_dir();
+        let names = [
+            "Guides/manual.pdf",
+            "Videos/intro.webm",
+            "Soundtrack/track.spc",
+            "Soundtrack/song.vgz",
+            "Artwork/book.cbz",
+            "Guides/story.epub",
+        ];
+        for n in names {
+            put(lib.path(), &format!("{GAME}/Extras/{n}"), b"x");
+        }
+        let o = opened(state(&config), &lib);
+        let listed = o.list();
+        for rel in names.into_iter().chain([
+            "Soundtrack/01 Opening.flac",
+            "Artwork/front.png",
+            "readme.txt",
+        ]) {
+            let path =
+                o.st.extras_open_target(o.generation, o.id, listed.rev, index_of(&listed, rel))
+                    .unwrap();
+            assert_eq!(path, canon(&extra(lib.path(), rel)), "{rel}");
+        }
+        assert_eq!(
+            o.st.extras_open_target(o.generation, o.id, listed.rev + 99, 0)
+                .unwrap_err(),
+            IpcError::ExtrasChanged
+        );
+    }
+}

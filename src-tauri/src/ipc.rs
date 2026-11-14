@@ -449,6 +449,82 @@ pub async fn extras_undo(
     .await
 }
 
+/// Grants extra `index` of listing `rev` to the asset protocol, that one
+/// file only (part D D12), and answers what `convertFileSrc` needs.
+#[tauri::command]
+pub async fn extras_media(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    index: u32,
+) -> Result<crate::library::extras_media::MediaView, IpcError> {
+    blocking(move || {
+        let scope = app.asset_protocol_scope();
+        app.state::<AppState>()
+            .extras_media(generation, entry_id, rev, index, &scope)
+    })
+    .await
+}
+
+/// The text of extra `index` (txt, md, nfo; at most 1 MiB, D17).
+#[tauri::command]
+pub async fn extras_read_text(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    index: u32,
+) -> Result<crate::library::extras_media::TextView, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .extras_read_text(generation, entry_id, rev, index)
+    })
+    .await
+}
+
+/// Shows extra `index` in Finder / Explorer / the file manager.
+#[tauri::command]
+pub async fn extras_reveal(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    index: u32,
+) -> Result<(), IpcError> {
+    blocking(move || {
+        let path = app
+            .state::<AppState>()
+            .extras_reveal_target(generation, entry_id, rev, index)?;
+        app.opener()
+            .reveal_item_in_dir(path)
+            .map_err(|e| IpcError::Io(e.to_string()))
+    })
+    .await
+}
+
+/// Opens extra `index` with the system's app for its type: allow-listed
+/// types only (D17); executables, scripts, shortcuts and packages are
+/// refused (`reveal-only`).
+#[tauri::command]
+pub async fn extras_open_external(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    index: u32,
+) -> Result<(), IpcError> {
+    blocking(move || {
+        let path = app
+            .state::<AppState>()
+            .extras_open_target(generation, entry_id, rev, index)?;
+        app.opener()
+            .open_path(path.to_string_lossy(), None::<&str>)
+            .map_err(|e| IpcError::Io(e.to_string()))
+    })
+    .await
+}
+
 /// The native multi-file dialog, opened from Rust (part D D13): no path
 /// crosses the bridge. Called on a blocking worker, never the main thread
 /// (where it deadlocks on macOS and GTK).
