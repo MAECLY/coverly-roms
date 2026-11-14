@@ -14,7 +14,7 @@ export function VideoView({
   onUnplayable(): void;
 }) {
   return (
-    <div className="media-viewer__stage">
+    <div className="media-viewer__stage media-viewer__stage--video">
       <div className="media-viewer__canvas">
         {/* eslint-disable-next-line jsx-a11y/media-has-caption -- a user's file: its own caption tracks show in the native controls; there is no sidecar to add */}
         <video

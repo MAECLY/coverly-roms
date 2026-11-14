@@ -4949,6 +4949,20 @@ time {
   background: var(--cr-surface);
 }
 
+/* A video is never zoomed: it fills the stage, letterboxed, so a trailer
+ * is not a postage stamp in the middle of the viewer. */
+.media-viewer__stage--video .media-viewer__canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.media-viewer__stage--video .media-viewer__video {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+
 .media-viewer__stage--text {
   padding: 1.25rem 1.5rem;
   background: var(--cr-surface);

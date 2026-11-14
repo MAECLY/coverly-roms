@@ -616,7 +616,7 @@ fn name_taken(dir: &Path, name: &str, own: &str) -> Result<bool, ExtrasError> {
 /// no-clobber rename sees the target as taken on case-insensitive disks.
 /// The file's record follows it; the same name is no job at all. Key
 /// material keeps its name ([`NameRefusal::Reserved`]): renamed to a plain
-/// name (`keys.txt` to `notes.txt`) the viewer would read it.
+/// name (a key list renamed to `notes.txt`) the viewer would read it.
 pub fn rename(
     ctx: &ExtrasCtx,
     listing: &Listing,
