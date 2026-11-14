@@ -422,3 +422,31 @@ fn scan_typex_uppercase_suffix() {
         );
     }
 }
+
+#[test]
+fn scan_typex_skips_the_profile_art_folders_too() {
+    use coverly_core::scan::{scan_library, ScanOptions};
+    // A custom profile's own art folder is not a built-in one: inside a
+    // typex folder it is still art, never a game.
+    let mut p = profile("esde");
+    p.art_dir_names = vec!["Covers".into()];
+    let tmp = TempDir::new().unwrap();
+    let sys = tmp.path().join(&p.roms_root).join("type-x");
+    touch(&sys.join("Raiden IV (Type X)").join("game.exe"), 1);
+    touch(&sys.join("covers").join("Raiden IV (Type X).png"), 2);
+    // A built-in art folder stays skipped as well.
+    touch(&sys.join("images").join("Raiden IV (Type X).png"), 3);
+    let scan = scan_library(
+        tmp.path(),
+        &p,
+        &SystemDb::builtin(),
+        &ScanOptions::default(),
+    );
+    let sys = scan
+        .systems
+        .iter()
+        .find(|s| s.folder_name == "type-x")
+        .unwrap();
+    let names: Vec<String> = sys.roms.iter().map(|r| name(&r.path)).collect();
+    assert_eq!(names, ["Raiden IV (Type X)"]);
+}

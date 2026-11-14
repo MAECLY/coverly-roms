@@ -401,13 +401,19 @@ fn scan_system(
         .get(&system.id)
         .filter(|s| !s.is_empty());
     // A folder-per-game system (spec 2026-10-26-pc-arcade P4) skips the
-    // art folders of every built-in profile, so art written under another
-    // layout is never a game.
+    // art folders of every built-in profile as well as its own (a custom
+    // profile's may be none of them), so art written under any layout is
+    // never a game.
     let per_game = is_folder_per_game(&system.id);
-    let art_dirs: &[String] = if per_game {
+    let art_dirs: std::borrow::Cow<[String]> = if per_game {
         builtin_art_dir_names()
+            .iter()
+            .chain(&profile.art_dir_names)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into()
     } else {
-        &profile.art_dir_names
+        (&profile.art_dir_names[..]).into()
     };
     let mut folder_games: Vec<FolderGame> = Vec::new();
     // Game folders found, by path, with their base.
@@ -432,7 +438,7 @@ fn scan_system(
             if !e.file_type().is_dir() {
                 return true;
             }
-            if is_skipped_dir(&name, art_dirs, opts) || is_quarantine(&name, opts) {
+            if is_skipped_dir(&name, &art_dirs, opts) || is_quarantine(&name, opts) {
                 return false;
             }
             // The system folder itself is never a game (filter_entry also
