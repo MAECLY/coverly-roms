@@ -1130,3 +1130,114 @@ fn organize_never_walks_inside_a_type_x_game() {
     let p = plan(&world, &sys, t.path(), "esde");
     assert!(!p.items.is_empty());
 }
+
+/// Every file and folder below `dir`, relative to it, as component lists.
+fn rel_tree(dir: &Path) -> std::collections::BTreeSet<Vec<String>> {
+    fn walk(base: &Path, dir: &Path, out: &mut std::collections::BTreeSet<Vec<String>>) {
+        for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            out.insert(
+                path.strip_prefix(base)
+                    .unwrap()
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect(),
+            );
+            if entry.file_type().unwrap().is_dir() {
+                walk(base, &path, out);
+            }
+        }
+    }
+    let mut out = std::collections::BTreeSet::new();
+    walk(dir, dir, &mut out);
+    out
+}
+
+#[test]
+fn organize_round_trip_keeps_cave3rd_and_type_x() {
+    use coverly_core::organize::{apply_organize, ApplyEnv, TransferMode};
+    use coverly_core::write::trash::FakeTrash;
+    use coverly_core::write::undo_job;
+    let world = World::new();
+    let roms: [(&str, &[u8]); 1] = [("u4", b"mushihime synthetic")];
+    world.cache_set(MAME_DAT, "mushisam", &roms);
+    world.cache_set(FBNEO_DAT, "mushisam", &roms);
+    let tmp = TempDir::new().unwrap();
+    let (pile, card, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("card"),
+        tmp.path().join("data"),
+    );
+    fs::create_dir_all(&card).unwrap();
+    for rel in [
+        Path::new("cave3rd").join("mushisam.zip"),
+        PathBuf::from("mushisam.zip"),
+    ] {
+        let path = pile.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        common::roms::zip_file(&path, &[(roms[0].0, roms[0].1, true)]);
+        pin_mtime(&path, 1);
+    }
+    touch(
+        &pile
+            .join("type-x")
+            .join("Raiden IV (Type X)")
+            .join("game.exe"),
+        2,
+    );
+    touch(&pile.join("game.exe"), 3);
+    let before = rel_tree(&pile);
+
+    let opts = OrganizeOptions {
+        layout: "batocera".into(),
+        offline: true,
+        target: Some(card.clone()),
+        mode: Some(TransferMode::Move),
+        ..OrganizeOptions::default()
+    };
+    let p = plan_organize(&pile, &opts, &world.env(), &|_| {}, &AtomicBool::new(false)).unwrap();
+    // Dry run: only the loose set moves, and to fbneo.
+    let moving: Vec<_> = p
+        .items
+        .iter()
+        .filter(|i| matches!(i.action, OrganizeAction::Auto))
+        .collect();
+    assert_eq!(moving.len(), 1, "{:?}", p.items);
+    assert_eq!(moving[0].sources[0], Path::new("mushisam.zip"));
+    assert_eq!(moving[0].system_id.as_deref(), Some("fbneo"));
+
+    let report = apply_organize(
+        &p,
+        &ApplyEnv {
+            data_dir: &data,
+            progress: &|_| {},
+            cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
+        },
+    )
+    .unwrap();
+    let after = rel_tree(&pile);
+    let mut expected = before.clone();
+    expected.remove(&vec!["mushisam.zip".to_string()]);
+    assert_eq!(after, expected, "only the loose set left the pile");
+    let landed = rel_tree(&card);
+    assert!(
+        landed
+            .iter()
+            .any(|c| c.len() >= 2 && c[c.len() - 2] == "fbneo" && c[c.len() - 1] == "mushisam.zip"),
+        "{landed:?}"
+    );
+    assert!(landed
+        .iter()
+        .all(|c| !c.iter().any(|n| n == "cave3rd" || n == "type-x")));
+
+    undo_job(&data, report.job.as_deref().unwrap()).unwrap();
+    assert_eq!(rel_tree(&pile), before, "undo restores the pile");
+    assert!(
+        rel_tree(&card)
+            .iter()
+            .all(|c| !c.iter().any(|n| n.ends_with(".zip"))),
+        "undo empties the card"
+    );
+}
