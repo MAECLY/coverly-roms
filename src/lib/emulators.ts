@@ -109,6 +109,7 @@ export const RETROARCH_SYSTEMS: readonly string[] = [
   'model2',
   'model3',
   'naomi2',
+  'cave3rd',
 ];
 
 /** The product name of each emulator (Rust `EmulatorId::display_name`):

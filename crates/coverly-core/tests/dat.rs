@@ -568,12 +568,12 @@ fn a800_keeps_its_dat() {
 
 #[test]
 fn mame_dat_still_maps_to_mame() {
-    // §8.3 / D16: `model2` and `model3` list only `MAME.dat` and come after
-    // `mame`, so the tie keeps the DAT with `mame` and a hash never names
-    // them; a Model 2/3 set found loose goes to `mame`.
+    // §8.3 / D16: `model2`, `model3` and `cave3rd` list only `MAME.dat` and
+    // come after `mame`, so the tie keeps the DAT with `mame` and a hash
+    // never names them; a Model 2/3 set found loose goes to `mame`.
     let db = SystemDb::builtin();
     let dat = "metadat/mame/MAME.dat";
-    for id in ["model2", "model3"] {
+    for id in ["model2", "model3", "cave3rd"] {
         assert_eq!(dat_sources(db.get(id).unwrap()), [dat], "{id}");
     }
     assert_eq!(db.system_for_dat(dat).map(|s| s.id.as_str()), Some("mame"));

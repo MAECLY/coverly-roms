@@ -455,6 +455,9 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
         "triforce",
         [Some("triforce"), Some("triforce"), None, None, None],
     ),
+    // PC arcade (spec 2026-10-26-pc-arcade P14): Batocera/Knulli
+    // `es_systems.yml` `cave3rd`; no other frontend has the folder.
+    ("cave3rd", [None, Some("cave3rd"), None, None, None]),
     // Systems batch 2 (spec §6).
     ("gamecube", [Some("gc"), Some("gamecube"), None, None, None]),
     ("wii", [Some("wii"), Some("wii"), None, None, None]),

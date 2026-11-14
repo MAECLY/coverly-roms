@@ -1186,7 +1186,11 @@ dats = ["dat/Rick Dangerous.dat"]
 # so the DAT keeps mapping to `mame` and a loose set goes there; inside a
 # `model2/`/`model3/` folder a set stays. NAOMI 2 lists two DATs and never
 # wins `MAME.dat`. Triforce discs are `.iso` (Generic): folder only.
-# System 16/18/24/32, Konami and Cave get no system (D16).
+# Cave CV1000 gets `cave3rd` (Batocera and Knulli have the folder; the
+# batch 1 D16 note was wrong, see spec 2026-10-26-pc-arcade P12, P17):
+# MAME.dat only and placed after `mame`, like Model 2, so a loose set
+# still goes to the profile's first arcade system. System 16/18/24/32
+# and Konami get no system (D16).
 
 [[system]]
 id = "model2"
@@ -1227,6 +1231,17 @@ family = "arcade"
 aliases = ["TRIFORCE"]
 weak_extensions = ["iso"]
 arcade = true
+
+[[system]]
+id = "cave3rd"
+name = "Cave CV1000"
+family = "arcade"
+aliases = ["CAVE3RD"]
+extensions = ["zip", "7z"]
+libretro = "MAME"
+arcade = true
+dats = ["metadat/mame/MAME.dat"]
+screenscraper = 75
 
 # ---------------------------------------------------------------------
 # Systems batch 2 (spec 2026-10-26 batch 2, §7): big discs and handhelds

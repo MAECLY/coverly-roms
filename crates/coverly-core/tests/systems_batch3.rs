@@ -156,8 +156,9 @@ fn batch_systems_load_with_name_family_and_disc_flag() {
 }
 
 #[test]
-fn the_catalogue_has_131_systems() {
-    assert_eq!(SystemDb::builtin().all().len(), 131);
+fn the_catalogue_has_132_systems() {
+    // 131 after batch 3, plus `cave3rd` (spec 2026-10-26-pc-arcade).
+    assert_eq!(SystemDb::builtin().all().len(), 132);
 }
 
 #[test]

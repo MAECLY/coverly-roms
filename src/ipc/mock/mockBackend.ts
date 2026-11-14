@@ -458,6 +458,8 @@ const BATOCERA_FOLDERS = {
   wolf3d: 'ecwolf',
   xrick: 'xrick',
   ...EXTRA_ARCADE,
+  // PC arcade (spec 2026-10-26-pc-arcade P14): Batocera/Knulli only.
+  cave3rd: 'cave3rd',
   // Systems batch 2 (spec §6).
   gamecube: 'gamecube',
   wii: 'wii',
