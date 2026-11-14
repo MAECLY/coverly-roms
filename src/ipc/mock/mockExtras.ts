@@ -888,6 +888,7 @@ export function createMockExtras(
       capped: false,
       system: g.system,
       manual_inside: MANUAL_INSIDE.includes(g.system),
+      trash: !g.noTrash,
     };
   }
 
@@ -905,6 +906,7 @@ export function createMockExtras(
       capped: false,
       system,
       manual_inside: MANUAL_INSIDE.includes(system),
+      trash: false,
     };
   }
 

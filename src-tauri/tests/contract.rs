@@ -2634,6 +2634,7 @@ fn extras_views_match_the_shared_sample() {
         capped: false,
         system: "ps3".into(),
         manual_inside: false,
+        trash: true,
     };
     let bare = ExtrasView {
         entry_id: 8,
@@ -2647,6 +2648,7 @@ fn extras_views_match_the_shared_sample() {
         capped: false,
         system: "3ds".into(),
         manual_inside: true,
+        trash: false,
     };
     let history = JobHistoryView {
         job: "20261114T120000Z-1bfb-0000".into(),
@@ -2715,6 +2717,7 @@ fn extras_write_views_match_the_shared_sample() {
         capped: false,
         system: "ps3".into(),
         manual_inside: false,
+        trash: true,
     };
     let write = ExtrasWriteView {
         job: Some("20261114T120000Z-1bfb-0001".into()),
@@ -2882,6 +2885,7 @@ fn extras_add_views_match_the_shared_sample() {
         capped: false,
         system: "snes".into(),
         manual_inside: false,
+        trash: true,
     };
     let write = ExtrasWriteView {
         job: Some("20261114T120000Z-1bfb-0002".into()),

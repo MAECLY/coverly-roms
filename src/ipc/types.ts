@@ -2121,6 +2121,9 @@ export interface ExtrasView {
   system: string;
   /** The system keeps the e-manual inside the game (D16). */
   manual_inside: boolean;
+  /** The drive has a Trash; without one, trashed files are set aside in
+   * `.coverly-trash` inside the library, said before acting (D8). */
+  trash: boolean;
 }
 
 /** Something the user should know about a finished Extras job. */

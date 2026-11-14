@@ -20,6 +20,7 @@ use coverly_core::extras::{
 };
 use coverly_core::game_folder::FixedFolder;
 use coverly_core::organize::plan::dir_writable;
+use coverly_core::write::trash::TrashBackend;
 use serde::{Deserialize, Serialize};
 
 use super::art::inside_root;
@@ -151,6 +152,9 @@ pub struct ExtrasView {
     pub system: String,
     /// The system keeps the e-manual inside the game (D16).
     pub manual_inside: bool,
+    /// The game folder's drive has a Trash; without one, trashed files
+    /// are set aside in `.coverly-trash` and the panel says so first (D8).
+    pub trash: bool,
 }
 
 /// One listing kept by the session.
@@ -363,8 +367,14 @@ fn missing_view(index: usize, r: &ExtraRecord) -> MissingView {
 }
 
 /// The view of a kept listing. `occupied`: a job or a write holds the
-/// library.
-pub fn view(entry_id: u32, system: &str, listed: &ListedExtras, occupied: bool) -> ExtrasView {
+/// library; `trash` answers whether the game folder's drive has a Trash.
+pub fn view(
+    entry_id: u32,
+    system: &str,
+    listed: &ListedExtras,
+    occupied: bool,
+    trash: &dyn TrashBackend,
+) -> ExtrasView {
     let l = &listed.listing;
     let game_folder = listed.game_dir.is_some();
     let writable = match &listed.game_dir {
@@ -396,6 +406,10 @@ pub fn view(entry_id: u32, system: &str, listed: &ListedExtras, occupied: bool) 
         capped: l.capped,
         system: system.to_string(),
         manual_inside: MANUAL_INSIDE.contains(&system),
+        trash: listed
+            .game_dir
+            .as_deref()
+            .is_some_and(|d| trash.available(d)),
     }
 }
 

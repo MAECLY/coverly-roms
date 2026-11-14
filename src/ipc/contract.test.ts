@@ -2178,6 +2178,7 @@ const EXTRAS_VIEW_KEYS = [
   'capped',
   'system',
   'manual_inside',
+  'trash',
 ] as const;
 const CATEGORY_VIEW_KEYS = [
   'category',

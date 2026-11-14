@@ -274,6 +274,7 @@ fn extras_list_for_a_non_game_folder_entry_is_empty_and_never_creates_anything()
     assert_eq!(extras.writable, Writability::ReadOnly);
     assert_eq!(extras.system, "gba");
     assert!(!extras.manual_inside);
+    assert!(!extras.trash, "no game folder, nothing to trash");
     assert!(extras.categories.is_empty());
     assert!(extras.files.is_empty());
     assert!(extras.missing.is_empty());
@@ -619,6 +620,7 @@ fn extras_trash_sends_files_to_the_trash_and_undo_brings_them_back() {
     let bin = TempDir::new().unwrap();
     let o = opened(state_with_trash(&config, &bin), &lib);
     let listed = o.list();
+    assert!(listed.trash, "the listing says the drive has a Trash");
     let done = o
         .write(
             listed.rev,
@@ -2128,4 +2130,17 @@ mod media {
             IpcError::ExtrasChanged
         );
     }
+}
+
+#[test]
+fn extras_list_says_when_the_drive_has_no_trash() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let bin = TempDir::new().unwrap();
+    let state = state(&config).with_trash(std::sync::Arc::new(FakeTrash::unavailable(bin.path())));
+    let listed = opened(state, &lib).list();
+    assert!(
+        !listed.trash,
+        "the panel confirms before setting files aside"
+    );
 }

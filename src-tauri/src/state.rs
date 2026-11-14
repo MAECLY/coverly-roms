@@ -1019,6 +1019,7 @@ impl AppState {
             &system,
             &listed,
             self.jobs.occupied(),
+            self.trash.as_ref(),
         ))
     }
 

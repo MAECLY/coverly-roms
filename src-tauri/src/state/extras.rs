@@ -103,7 +103,7 @@ impl AppState {
             view: ExtrasWriteView {
                 job: outcome.job,
                 // The write is done: the guard still held is this write's.
-                listing: view(id, system, &stored, false),
+                listing: view(id, system, &stored, false, self.trash.as_ref()),
                 notes: outcome.notes,
             },
             updated,
@@ -161,7 +161,7 @@ impl AppState {
         let (dir, listing) = read_listing(session, id)?;
         let stored = lock(&self.extras).store(generation, id, dir, listing);
         let system = &session.entries[id as usize].system_id;
-        Ok(view(id, system, &stored, false))
+        Ok(view(id, system, &stored, false, self.trash.as_ref()))
     }
 
     /// Counts game folder `dir`'s fixed folders again and keeps them in
@@ -541,7 +541,7 @@ impl AddWork {
         }
         Ok(ExtrasWriteView {
             job: outcome.job,
-            listing: view(self.id, &self.system, &stored, false),
+            listing: view(self.id, &self.system, &stored, false, self.trash.as_ref()),
             notes: outcome.notes,
         })
     }

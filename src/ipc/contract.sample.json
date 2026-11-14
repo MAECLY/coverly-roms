@@ -3771,7 +3771,8 @@
     ],
     "capped": false,
     "system": "ps3",
-    "manual_inside": false
+    "manual_inside": false,
+    "trash": true
   },
   "extras_view_bare": {
     "entry_id": 8,
@@ -3788,7 +3789,8 @@
     "missing": [],
     "capped": false,
     "system": "3ds",
-    "manual_inside": true
+    "manual_inside": true,
+    "trash": false
   },
   "extras_index_states": [
     {
@@ -3864,7 +3866,8 @@
       "missing": [],
       "capped": false,
       "system": "ps3",
-      "manual_inside": false
+      "manual_inside": false,
+      "trash": true
     },
     "notes": [
       {
@@ -3910,7 +3913,8 @@
       "missing": [],
       "capped": false,
       "system": "ps3",
-      "manual_inside": false
+      "manual_inside": false,
+      "trash": true
     },
     "notes": []
   },
@@ -3934,7 +3938,8 @@
       "missing": [],
       "capped": false,
       "system": "ps3",
-      "manual_inside": false
+      "manual_inside": false,
+      "trash": true
     }
   },
   "entries_updated_addons": {
@@ -4129,6 +4134,7 @@
           "state": "ok"
         },
         "manual_inside": false,
+        "trash": true,
         "missing": [],
         "rev": 15,
         "system": "snes",
@@ -4172,6 +4178,7 @@
             "state": "ok"
           },
           "manual_inside": false,
+          "trash": true,
           "missing": [],
           "rev": 15,
           "system": "snes",

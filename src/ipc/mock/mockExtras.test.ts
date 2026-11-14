@@ -225,6 +225,9 @@ describe('mock extras library (?mockPick=extras)', () => {
     const { b, gen, id, list } = await open();
     const game = id('Comet Derby');
     const v = await list('Comet Derby');
+    // The listing says so before anything is trashed (D8).
+    expect(v.trash).toBe(false);
+    expect((await list('Tidewalker')).trash).toBe(true);
     const before = names(v);
     const w = await b.extrasTrash(gen, game, v.rev, [0]);
     expect(w.job).not.toBeNull();
