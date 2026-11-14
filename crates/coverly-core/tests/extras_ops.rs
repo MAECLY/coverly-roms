@@ -9,11 +9,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use coverly_core::dedupe::testing::pin_mtime;
 use coverly_core::extras::index::{list, read_index, IndexRead, Listing};
 use coverly_core::extras::ops::{
-    confine, forget, move_to, rename, set_tags, ExtrasCtx, ExtrasError, ExtrasNote, ExtrasOutcome,
+    confine, create_category, forget, move_to, remove_category, rename, rename_category, set_tags,
+    trash, ExtrasCtx, ExtrasError, ExtrasNote, ExtrasOutcome,
 };
 use coverly_core::extras::{CategoryRef, ExtrasCategory, NameRefusal, TagRefusal};
 use coverly_core::write::trash::FakeTrash;
-use coverly_core::write::{job_transfers, list_jobs, undo_job, JobKind};
+use coverly_core::write::{
+    job_transfers, list_jobs, same_volume, undo_job, undo_job_with, JobKind,
+};
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -32,13 +35,19 @@ struct Fx {
     /// The library root, resolved (macOS temp folders sit behind a link).
     root: PathBuf,
     game: PathBuf,
+    same_volume: fn(&std::path::Path, &std::path::Path) -> bool,
 }
 
 impl Fx {
     fn new() -> Fx {
+        Fx::with_trash(FakeTrash::new)
+    }
+
+    /// A fixture whose Trash `make` builds over a folder in the data dir.
+    fn with_trash(make: impl FnOnce(PathBuf) -> FakeTrash) -> Fx {
         let lib = tempfile::tempdir().unwrap();
         let data = tempfile::tempdir().unwrap();
-        let trash = FakeTrash::new(data.path().join("fake-trash"));
+        let trash = make(data.path().join("fake-trash"));
         let root = lib.path().canonicalize().unwrap();
         let game = root.join("snes").join(GAME);
         std::fs::create_dir_all(&game).unwrap();
@@ -48,6 +57,7 @@ impl Fx {
             trash,
             root,
             game: game.clone(),
+            same_volume,
         };
         let rom = game.join(format!("{GAME}.sfc"));
         std::fs::write(&rom, b"synthetic rom").unwrap();
@@ -87,6 +97,7 @@ impl Fx {
             data_dir: self.data.path(),
             trash: &self.trash,
             now: noon(),
+            same_volume: self.same_volume,
         }
     }
 
@@ -948,4 +959,443 @@ fn a_numbered_name_too_long_for_windows_puts_the_file_back() {
     assert_eq!(std::fs::read(fx.extras().join(&name)).unwrap(), b"loose");
     assert_eq!(names_in(&fx, "Guides"), std::slice::from_ref(&name));
     assert!(!fx.index_path().exists());
+}
+
+// ---- Trash and own categories (D1, D8, D10) ----
+
+fn user(name: &str) -> CategoryRef {
+    CategoryRef::User(name.to_string())
+}
+
+fn index_bytes(fx: &Fx) -> Option<Vec<u8>> {
+    std::fs::read(fx.index_path()).ok()
+}
+
+#[test]
+fn trash_uses_the_trash_and_undo_brings_it_back_from_there() {
+    let fx = Fx::new();
+    tag_first(&fx, &["jefe"]);
+    let (l, i) = opening(&fx);
+    let out = trash(&fx.ctx(), &l, &[i]).unwrap();
+    let track = fx.extras().join("Soundtrack").join("01 Opening.flac");
+    assert!(!track.exists());
+    assert_eq!(fx.trash.trashed(), 1);
+    assert!(fx.index()["files"].as_array().unwrap().is_empty());
+    assert!(out.notes.is_empty(), "{:?}", out.notes);
+    assert!(out.listing.files.is_empty());
+    assert_eq!(list_jobs(fx.data.path()).unwrap()[0].kind, JobKind::Extras);
+
+    undo_job_with(fx.data.path(), &out.job.unwrap(), &fx.trash).unwrap();
+    assert_eq!(std::fs::read(&track).unwrap(), TRACK);
+    assert_eq!(
+        record(&fx.index(), "Soundtrack/01 Opening.flac")["tags"],
+        json!(["jefe"])
+    );
+}
+
+#[test]
+fn without_a_trash_the_file_is_set_aside_in_coverly_trash_on_the_same_volume() {
+    let fx = Fx::with_trash(FakeTrash::unavailable);
+    let (l, i) = opening(&fx);
+    let out = trash(&fx.ctx(), &l, &[i]).unwrap();
+    let job = out.job.clone().unwrap();
+    let aside = ["snes", GAME, "Extras", "Soundtrack", "01 Opening.flac"]
+        .iter()
+        .fold(fx.root().join(".coverly-trash").join(&job), |p, c| {
+            p.join(c)
+        });
+    assert_eq!(std::fs::read(&aside).unwrap(), TRACK);
+    assert!(!fx
+        .extras()
+        .join("Soundtrack")
+        .join("01 Opening.flac")
+        .exists());
+    assert!(out.notes.contains(&ExtrasNote::SetAside {
+        folder: format!(".coverly-trash/{job}")
+    }));
+    assert!(fx.index()["files"].as_array().unwrap().is_empty());
+
+    undo_job(fx.data.path(), &job).unwrap();
+    assert_eq!(names_in(&fx, "Soundtrack"), ["01 Opening.flac"]);
+    assert!(!fx.root().join(".coverly-trash").exists());
+}
+
+#[test]
+fn set_aside_is_refused_across_volumes() {
+    let mut fx = Fx::with_trash(FakeTrash::unavailable);
+    fx.same_volume = |_, _| false;
+    let (l, i) = opening(&fx);
+    assert!(matches!(
+        trash(&fx.ctx(), &l, &[i]).unwrap_err(),
+        ExtrasError::NoTrash
+    ));
+    assert_eq!(names_in(&fx, "Soundtrack"), ["01 Opening.flac"]);
+    assert!(!fx.root().join(".coverly-trash").exists());
+    assert!(index_bytes(&fx).is_none());
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
+fn a_trash_failure_never_deletes() {
+    let fx = Fx::with_trash(|d| FakeTrash::new(d).fail_after(0));
+    tag_first(&fx, &["jefe"]);
+    let (l, i) = opening(&fx);
+    let out = trash(&fx.ctx(), &l, &[i]).unwrap();
+    assert_eq!(names_in(&fx, "Soundtrack"), ["01 Opening.flac"]);
+    assert!(out.notes.contains(&ExtrasNote::TrashFailed {
+        name: "01 Opening.flac".into()
+    }));
+    assert_eq!(
+        record(&fx.index(), "Soundtrack/01 Opening.flac")["tags"],
+        json!(["jefe"])
+    );
+}
+
+#[test]
+fn trashing_several_files_is_one_job_and_keeps_the_others() {
+    let fx = Fx::new();
+    fx.put("Soundtrack/02 Boss.flac", b"boss", 3);
+    fx.put("Artwork/front.png", b"png", 4);
+    let l = fx.listing();
+    let a = file_index(&l, "Soundtrack/01 Opening.flac");
+    let b = file_index(&l, "Artwork/front.png");
+    let out = trash(&fx.ctx(), &l, &[a, b, a]).unwrap();
+    assert_eq!(fx.trash.trashed(), 2);
+    assert_eq!(fx.jobs(), 1);
+    assert_eq!(names_in(&fx, "Soundtrack"), ["02 Boss.flac"]);
+    let idx = fx.index();
+    assert_eq!(idx["files"].as_array().unwrap().len(), 1);
+    record(&idx, "Soundtrack/02 Boss.flac");
+    undo_job_with(fx.data.path(), &out.job.unwrap(), &fx.trash).unwrap();
+    assert_eq!(
+        names_in(&fx, "Soundtrack"),
+        ["01 Opening.flac", "02 Boss.flac"]
+    );
+    assert_eq!(names_in(&fx, "Artwork"), ["front.png"]);
+}
+
+#[test]
+fn trash_of_a_stale_listing_is_refused() {
+    let fx = Fx::new();
+    let (l, i) = opening(&fx);
+    pin_mtime(&fx.extras().join("Soundtrack").join("01 Opening.flac"), 9);
+    assert!(matches!(
+        trash(&fx.ctx(), &l, &[i]).unwrap_err(),
+        ExtrasError::Changed
+    ));
+    assert_eq!(fx.trash.trashed(), 0);
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
+fn create_category_validates_and_creates_the_folder() {
+    let fx = Fx::new();
+    let l = fx.listing();
+    for (raw, why) in [
+        ("", NameRefusal::Empty),
+        (".remixes", NameRefusal::Dot),
+        ("a/b", NameRefusal::NotPortable),
+        ("Remixes.", NameRefusal::NotPortable),
+        ("soundtrack", NameRefusal::Taken),
+        ("extras.json", NameRefusal::Reserved),
+    ] {
+        match create_category(&fx.ctx(), &l, raw) {
+            Err(ExtrasError::Name(got)) => assert_eq!(got, why, "{raw:?}"),
+            other => panic!("{raw:?}: {other:?}"),
+        }
+    }
+    assert_eq!(fx.jobs(), 0);
+
+    let out = create_category(&fx.ctx(), &l, "  Remixes ").unwrap();
+    assert!(fx.extras().join("Remixes").is_dir());
+    assert_eq!(
+        fx.index()["categories"],
+        json!({ "Remixes": { "sync": null } })
+    );
+    assert!(out
+        .listing
+        .categories
+        .iter()
+        .any(|c| c.category == user("Remixes") && c.count == 0));
+    // Now taken, in any case.
+    assert!(matches!(
+        create_category(&fx.ctx(), &out.listing, "REMIXES").unwrap_err(),
+        ExtrasError::Name(NameRefusal::Taken)
+    ));
+
+    undo_job(fx.data.path(), &out.job.unwrap()).unwrap();
+    assert!(!fx.extras().join("Remixes").exists());
+    assert!(index_bytes(&fx).is_none());
+    assert_eq!(names_in(&fx, ""), ["Soundtrack"]);
+}
+
+#[test]
+fn create_category_refuses_a_name_a_loose_file_holds() {
+    let fx = Fx::new();
+    fx.put("remixes", b"loose", 3);
+    let l = fx.listing();
+    assert!(matches!(
+        create_category(&fx.ctx(), &l, "Remixes").unwrap_err(),
+        ExtrasError::Name(NameRefusal::Taken)
+    ));
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
+fn rename_category_moves_the_folder_and_rewrites_record_paths() {
+    let fx = Fx::new();
+    fx.put("Remixes/boss.flac", b"boss", 3);
+    fx.put("Remixes/live/encore.flac", b"encore", 4);
+    let l = fx.listing();
+    let i = file_index(&l, "Remixes/boss.flac");
+    let l = set_tags(&fx.ctx(), &l, i, &tags(&["jefe"]))
+        .unwrap()
+        .listing;
+    let before = std::fs::read(fx.index_path()).unwrap();
+
+    let out = rename_category(&fx.ctx(), &l, "Remixes", "Arreglos").unwrap();
+    assert!(!fx.extras().join("Remixes").exists());
+    assert_eq!(names_in(&fx, "Arreglos"), ["boss.flac", "live"]);
+    let idx = fx.index();
+    assert_eq!(record(&idx, "Arreglos/boss.flac")["tags"], json!(["jefe"]));
+    record(&idx, "Arreglos/live/encore.flac");
+    assert!(idx["categories"].get("Remixes").is_none());
+    assert_eq!(idx["categories"]["Arreglos"], json!({ "sync": null }));
+    let j = file_index(&out.listing, "Arreglos/live/encore.flac");
+    assert_eq!(out.listing.files[j].category, user("Arreglos"));
+
+    undo_job(fx.data.path(), &out.job.unwrap()).unwrap();
+    assert!(!fx.extras().join("Arreglos").exists());
+    assert_eq!(names_in(&fx, "Remixes"), ["boss.flac", "live"]);
+    assert_eq!(std::fs::read(fx.index_path()).unwrap(), before);
+}
+
+#[test]
+fn case_only_category_rename_goes_through_a_temporary_name() {
+    let fx = Fx::new();
+    fx.put("remixes/boss.flac", b"boss", 3);
+    let l = fx.listing();
+    let out = rename_category(&fx.ctx(), &l, "remixes", "Remixes").unwrap();
+    let names = names_in(&fx, "");
+    assert!(names.contains(&"Remixes".to_string()), "{names:?}");
+    assert!(!names.contains(&"remixes".to_string()), "{names:?}");
+    assert!(
+        !names.iter().any(|n| n.starts_with(".coverly-")),
+        "{names:?}"
+    );
+    record(&fx.index(), "Remixes/boss.flac");
+
+    undo_job(fx.data.path(), &out.job.unwrap()).unwrap();
+    let names = names_in(&fx, "");
+    assert!(names.contains(&"remixes".to_string()), "{names:?}");
+    assert!(!names.contains(&"Remixes".to_string()), "{names:?}");
+}
+
+#[test]
+fn rename_category_refuses_taken_and_unknown_names() {
+    let fx = Fx::new();
+    fx.put("Remixes/boss.flac", b"boss", 3);
+    fx.put("Covers/a.png", b"png", 4);
+    let l = fx.listing();
+    for (to, why) in [
+        ("covers", NameRefusal::Taken),
+        ("Manuals", NameRefusal::Taken),
+        ("", NameRefusal::Empty),
+        ("a:b", NameRefusal::NotPortable),
+    ] {
+        match rename_category(&fx.ctx(), &l, "Remixes", to) {
+            Err(ExtrasError::Name(got)) => assert_eq!(got, why, "{to:?}"),
+            other => panic!("{to:?}: {other:?}"),
+        }
+    }
+    assert!(matches!(
+        rename_category(&fx.ctx(), &l, "Nope", "Other").unwrap_err(),
+        ExtrasError::Changed
+    ));
+    // The same name is no job.
+    assert!(rename_category(&fx.ctx(), &l, "Remixes", "Remixes")
+        .unwrap()
+        .job
+        .is_none());
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
+fn fixed_categories_cannot_be_renamed_or_removed() {
+    let fx = Fx::new();
+    let l = fx.listing();
+    assert!(matches!(
+        rename_category(&fx.ctx(), &l, "Soundtrack", "Música").unwrap_err(),
+        ExtrasError::Name(NameRefusal::Reserved)
+    ));
+    assert!(matches!(
+        remove_category(&fx.ctx(), &l, "soundtrack").unwrap_err(),
+        ExtrasError::Name(NameRefusal::Reserved)
+    ));
+    assert_eq!(names_in(&fx, "Soundtrack"), ["01 Opening.flac"]);
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
+fn remove_empty_category_is_dir_removed_and_undo_recreates_it() {
+    let fx = Fx::new();
+    std::fs::create_dir(fx.extras().join("Remixes")).unwrap();
+    let l = fx.listing();
+    let out = remove_category(&fx.ctx(), &l, "Remixes").unwrap();
+    assert!(!fx.extras().join("Remixes").exists());
+    assert!(out
+        .listing
+        .categories
+        .iter()
+        .all(|c| c.category != user("Remixes")));
+    assert_eq!(fx.trash.trashed(), 0);
+
+    undo_job(fx.data.path(), &out.job.unwrap()).unwrap();
+    assert!(fx.extras().join("Remixes").is_dir());
+    assert!(index_bytes(&fx).is_none());
+}
+
+#[test]
+fn remove_category_with_files_trashes_them_then_removes_the_folder() {
+    let fx = Fx::new();
+    fx.put("Remixes/boss.flac", b"boss", 3);
+    fx.put("Remixes/live/encore.flac", b"encore", 4);
+    let l = tag_boss_and_record_remixes(&fx);
+    let out = remove_category(&fx.ctx(), &l, "Remixes").unwrap();
+    assert!(!fx.extras().join("Remixes").exists());
+    assert_eq!(fx.trash.trashed(), 2);
+    let idx = fx.index();
+    assert_eq!(idx["files"].as_array().unwrap().len(), 1);
+    record(&idx, "Soundtrack/01 Opening.flac");
+    assert!(idx["categories"].get("Remixes").is_none());
+
+    undo_job_with(fx.data.path(), &out.job.unwrap(), &fx.trash).unwrap();
+    assert_eq!(names_in(&fx, "Remixes"), ["boss.flac", "live"]);
+    assert_eq!(names_in(&fx, "Remixes/live"), ["encore.flac"]);
+    let idx = fx.index();
+    assert_eq!(record(&idx, "Remixes/boss.flac")["tags"], json!(["jefe"]));
+    assert_eq!(idx["categories"]["Remixes"], json!({ "sync": null }));
+}
+
+/// Tags `Remixes/boss.flac` and gives `Remixes` an entry in the index.
+fn tag_boss_and_record_remixes(fx: &Fx) -> Listing {
+    let l = fx.listing();
+    let i = file_index(&l, "Remixes/boss.flac");
+    set_tags(&fx.ctx(), &l, i, &tags(&["jefe"])).unwrap();
+    let mut file = fx.index();
+    file["categories"] = json!({ "Remixes": { "sync": null } });
+    std::fs::write(fx.index_path(), serde_json::to_vec_pretty(&file).unwrap()).unwrap();
+    fx.listing()
+}
+
+#[test]
+fn remove_category_without_a_trash_sets_its_files_aside() {
+    let fx = Fx::with_trash(FakeTrash::unavailable);
+    fx.put("Remixes/boss.flac", b"boss", 3);
+    let l = fx.listing();
+    let out = remove_category(&fx.ctx(), &l, "Remixes").unwrap();
+    let job = out.job.clone().unwrap();
+    assert!(!fx.extras().join("Remixes").exists());
+    let aside = ["snes", GAME, "Extras", "Remixes", "boss.flac"]
+        .iter()
+        .fold(fx.root().join(".coverly-trash").join(&job), |p, c| {
+            p.join(c)
+        });
+    assert_eq!(std::fs::read(&aside).unwrap(), b"boss");
+
+    undo_job(fx.data.path(), &job).unwrap();
+    assert_eq!(names_in(&fx, "Remixes"), ["boss.flac"]);
+    assert!(!fx.root().join(".coverly-trash").exists());
+}
+
+#[test]
+fn remove_category_with_litter_left_refuses_the_folder_removal_but_keeps_files_trashed_undoably() {
+    let fx = Fx::new();
+    fx.put("Remixes/boss.flac", b"boss", 3);
+    fx.put("Remixes/.DS_Store", b"litter", 4);
+    let l = fx.listing();
+    let out = remove_category(&fx.ctx(), &l, "Remixes").unwrap();
+    assert_eq!(fx.trash.trashed(), 1);
+    assert_eq!(names_in(&fx, "Remixes"), [".DS_Store"]);
+    assert!(out.notes.contains(&ExtrasNote::FolderKept {
+        folder: "Remixes".into()
+    }));
+
+    undo_job_with(fx.data.path(), &out.job.unwrap(), &fx.trash).unwrap();
+    assert_eq!(names_in(&fx, "Remixes"), [".DS_Store", "boss.flac"]);
+}
+
+#[test]
+fn trash_and_category_ops_then_undo_restore_tree_and_json() {
+    type Op = fn(&Fx) -> ExtrasOutcome;
+    let ops: [(&str, Op); 5] = [
+        ("trash", |fx| {
+            let (l, i) = opening(fx);
+            trash(&fx.ctx(), &l, &[i]).unwrap()
+        }),
+        ("create", |fx| {
+            create_category(&fx.ctx(), &fx.listing(), "Arreglos").unwrap()
+        }),
+        ("rename", |fx| {
+            rename_category(&fx.ctx(), &fx.listing(), "Remixes", "Arreglos").unwrap()
+        }),
+        ("case-only rename", |fx| {
+            rename_category(&fx.ctx(), &fx.listing(), "Remixes", "REMIXES").unwrap()
+        }),
+        ("remove", |fx| {
+            remove_category(&fx.ctx(), &fx.listing(), "Remixes").unwrap()
+        }),
+    ];
+    for (what, op) in ops {
+        for trash_ok in [true, false] {
+            for with_index in [false, true] {
+                let fx = if trash_ok {
+                    Fx::new()
+                } else {
+                    Fx::with_trash(FakeTrash::unavailable)
+                };
+                fx.put("Remixes/boss.flac", b"boss", 3);
+                if with_index {
+                    let l = fx.listing();
+                    let i = file_index(&l, "Remixes/boss.flac");
+                    set_tags(&fx.ctx(), &l, i, &tags(&["jefe"])).unwrap();
+                }
+                let before = snapshot(&fx);
+                let lib_before = common::tree(&fx.root());
+                let out = op(&fx);
+                assert_ne!(snapshot(&fx), before, "{what}");
+                undo_job_with(fx.data.path(), &out.job.unwrap(), &fx.trash).unwrap();
+                assert_eq!(
+                    snapshot(&fx),
+                    before,
+                    "{what} (trash {trash_ok}, index {with_index})"
+                );
+                let mut lib_after = common::tree(&fx.root());
+                let mut lib_before = lib_before;
+                for t in [&mut lib_after, &mut lib_before] {
+                    t.retain(|k, _| !k.last().is_some_and(|n| n == "extras.json"));
+                }
+                assert_eq!(lib_after, lib_before, "{what}: nothing left beside");
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_set_aside_folder_that_is_a_symlink_is_never_used() {
+    let fx = Fx::with_trash(FakeTrash::unavailable);
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(elsewhere.path(), fx.root().join(".coverly-trash")).unwrap();
+    let (l, i) = opening(&fx);
+    assert!(matches!(
+        trash(&fx.ctx(), &l, &[i]).unwrap_err(),
+        ExtrasError::NoTrash
+    ));
+    assert_eq!(names_in(&fx, "Soundtrack"), ["01 Opening.flac"]);
+    assert!(std::fs::read_dir(elsewhere.path())
+        .unwrap()
+        .next()
+        .is_none());
+    assert_eq!(fx.jobs(), 0);
 }

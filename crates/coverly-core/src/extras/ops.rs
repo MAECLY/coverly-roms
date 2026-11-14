@@ -19,16 +19,17 @@ use super::index::{
     list, read_index_bytes, rel_components, serialize, IndexState, ListedFile, Listing, Match,
 };
 use super::{
-    is_reserved_key, normalize_tags, validate_file_stem, CategoryRef, ExtrasFile, NameRefusal,
-    TagRefusal, EXTRAS_JSON,
+    is_reserved_key, normalize_tags, validate_category_name, validate_file_stem, CategoryMeta,
+    CategoryRef, ExtrasCategory, ExtrasFile, NameRefusal, TagRefusal, EXTRAS_JSON,
 };
+use crate::dedupe::apply::{trash_file, TrashStep};
 use crate::game_folder::FixedFolder;
 use crate::organize::target::WINDOWS_MAX_PATH;
 use crate::time::rfc3339_utc;
 use crate::write::trash::TrashBackend;
 use crate::write::{
-    ensure_within, name_key, Collision, JobKind, JobMeta, MoveOutcome, OverwritePolicy, WriteError,
-    WriteOutcome, Writer,
+    ensure_within, name_key, Collision, DirOutcome, JobKind, JobMeta, MoveOutcome, OverwritePolicy,
+    WriteError, WriteOutcome, Writer,
 };
 
 /// The folder below the library root where files are set aside when a
@@ -97,6 +98,12 @@ pub enum ExtrasNote {
     TrashFailed {
         name: String,
     },
+    /// The removed category's folder still holds something the app does
+    /// not list (system litter, a hidden file): it stays, its listed files
+    /// went to the Trash all the same (D8).
+    FolderKept {
+        folder: String,
+    },
     Cancelled {
         copied: usize,
     },
@@ -113,6 +120,10 @@ pub struct ExtrasCtx<'a> {
     pub trash: &'a dyn TrashBackend,
     /// Injected for backup names and `added_at`.
     pub now: SystemTime,
+    /// Whether two paths are on one volume: [`crate::write::same_volume`]
+    /// outside tests. Setting a file aside in `.coverly-trash` is only
+    /// ever a rename (D8).
+    pub same_volume: fn(&Path, &Path) -> bool,
 }
 
 /// A finished Extras job: its id (undo), notes and the new listing.
@@ -684,6 +695,444 @@ impl ExtrasJob<'_> {
         }
     }
 }
+
+// ---- Trash and own categories (D1, D8, D10) ----
+
+/// Sends listed files `files` to the Trash (D8). On a drive without one,
+/// each file is set aside by a rename into
+/// `<library root>/.coverly-trash/<job>/<its path in the library>`, and
+/// the whole action is refused ([`ExtrasError::NoTrash`], nothing
+/// written) when that folder would be on another volume. A file the
+/// Trash refuses stays where it is with [`ExtrasNote::TrashFailed`] and
+/// keeps its record. Never a permanent delete; one job, undone from the
+/// Trash or the set-aside folder.
+pub fn trash(
+    ctx: &ExtrasCtx,
+    listing: &Listing,
+    files: &[usize],
+) -> Result<ExtrasOutcome, ExtrasError> {
+    check_game_dir(ctx)?;
+    let mut picked: Vec<usize> = Vec::new();
+    for &i in files {
+        listed_file(listing, i)?;
+        if !picked.contains(&i) {
+            picked.push(i);
+        }
+    }
+    if picked.is_empty() {
+        return Ok(ExtrasOutcome {
+            job: None,
+            notes: Vec::new(),
+            listing: listing.clone(),
+        });
+    }
+    let extras = extras_dir(ctx.game_dir);
+    let paths = picked
+        .iter()
+        .map(|&i| path_of(&extras, &listing.files[i]))
+        .collect::<Result<Vec<_>, _>>()?;
+    check_set_aside(ctx, &paths)?;
+    let mut job = ExtrasJob::begin(ctx, listing)?;
+    let mut gone = Vec::new();
+    for (&i, path) in picked.iter().zip(&paths) {
+        match job.trash_one(path) {
+            Ok(true) => gone.push(i),
+            Ok(false) => {}
+            Err(e) => {
+                job.abandon();
+                return Err(e);
+            }
+        }
+    }
+    job.forget_listed(gone);
+    job.finish()
+}
+
+/// Refuses before anything is written when a file has no Trash and its
+/// set-aside folder would be on another volume or is not a real folder
+/// (D8).
+fn check_set_aside(ctx: &ExtrasCtx, paths: &[PathBuf]) -> Result<(), ExtrasError> {
+    for path in paths {
+        if !ctx.trash.available(path) && !set_aside_ok(ctx, path) {
+            return Err(ExtrasError::NoTrash);
+        }
+    }
+    Ok(())
+}
+
+/// Whether `path` can be set aside: `.coverly-trash` is absent or a real
+/// folder (a symlink would lead the file out of the library, maybe onto
+/// another drive by a copy), and the library root is on its volume.
+fn set_aside_ok(ctx: &ExtrasCtx, path: &Path) -> bool {
+    let top = ctx.library_root.join(SET_ASIDE_DIR);
+    let top_ok = match fs::symlink_metadata(&top) {
+        Ok(m) => m.is_dir(),
+        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+    };
+    top_ok && (ctx.same_volume)(path, ctx.library_root)
+}
+
+/// The folder name of an existing user category, refused for a fixed
+/// one ([`NameRefusal::Reserved`], D1), a symlink and one not listed.
+fn user_category<'l>(
+    extras: &Path,
+    listing: &'l Listing,
+    name: &str,
+) -> Result<&'l super::index::ListedCategory, ExtrasError> {
+    if ExtrasCategory::from_dir_name(name).is_some() {
+        return Err(ExtrasError::Name(NameRefusal::Reserved));
+    }
+    let wanted = CategoryRef::User(name.to_string());
+    let listed = listing
+        .categories
+        .iter()
+        .find(|c| matches!(c.category, CategoryRef::User(_)) && same_category(&c.category, &wanted))
+        .ok_or(ExtrasError::Changed)?;
+    if listed.link {
+        return Err(ExtrasError::Link(extras.join(name)));
+    }
+    Ok(listed)
+}
+
+/// The names of the user categories listed.
+fn user_names(listing: &Listing) -> Vec<String> {
+    listing
+        .categories
+        .iter()
+        .filter_map(|c| match &c.category {
+            CategoryRef::User(n) => Some(n.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Creates the user category `name` (D1): the typed name trimmed and in
+/// NFC, refused (never rewritten) by the rules of
+/// [`validate_category_name`], when a loose file in `Extras/` holds it or
+/// when the folder's path would be too long for Windows. One job:
+/// `Extras/` and the folder created, the index given the category with
+/// the default sync (`null`, D21).
+pub fn create_category(
+    ctx: &ExtrasCtx,
+    listing: &Listing,
+    name: &str,
+) -> Result<ExtrasOutcome, ExtrasError> {
+    check_game_dir(ctx)?;
+    let extras = extras_dir(ctx.game_dir);
+    let name = validate_category_name(name, &user_names(listing)).map_err(ExtrasError::Name)?;
+    if name_taken(&extras, &name, "")? {
+        return Err(ExtrasError::Name(NameRefusal::Taken));
+    }
+    let dir = extras.join(&name);
+    if too_long_for_windows(&dir) {
+        return Err(ExtrasError::Name(NameRefusal::PathTooLong));
+    }
+    let mut job = ExtrasJob::begin(ctx, listing)?;
+    let made = job.ensure_extras_dir().and_then(|()| {
+        let dir = job.confine(&dir)?;
+        job.w.ensure_dir(&dir)?;
+        Ok(())
+    });
+    if let Err(e) = made {
+        job.abandon();
+        return Err(e);
+    }
+    job.file.categories.insert(name, CategoryMeta::default());
+    job.finish()
+}
+
+/// Renames the user category `from` to the typed `to` (D1): one rename of
+/// its folder (through a temporary name when only the case or the Unicode
+/// normalization changes), every record below it following, and its
+/// settings in the index carried over. Fixed categories are refused
+/// ([`NameRefusal::Reserved`]); so is a category with two spellings on a
+/// case-sensitive disk ([`NameRefusal::Taken`]: renaming would merge or
+/// split them). The same name is no job.
+pub fn rename_category(
+    ctx: &ExtrasCtx,
+    listing: &Listing,
+    from: &str,
+    to: &str,
+) -> Result<ExtrasOutcome, ExtrasError> {
+    check_game_dir(ctx)?;
+    let extras = extras_dir(ctx.game_dir);
+    let listed = user_category(&extras, listing, from)?;
+    let [spelling] = listed.spellings.as_slice() else {
+        return Err(ExtrasError::Name(NameRefusal::Taken));
+    };
+    let others: Vec<String> = user_names(listing)
+        .into_iter()
+        .filter(|n| name_key(n) != name_key(spelling))
+        .collect();
+    let to = validate_category_name(to, &others).map_err(ExtrasError::Name)?;
+    if to == *spelling {
+        return Ok(ExtrasOutcome {
+            job: None,
+            notes: Vec::new(),
+            listing: listing.clone(),
+        });
+    }
+    if name_taken(&extras, &to, spelling)? {
+        return Err(ExtrasError::Name(NameRefusal::Taken));
+    }
+    let old_dir = extras.join(spelling);
+    let new_dir = extras.join(&to);
+    let below = listing
+        .files
+        .iter()
+        .filter(|f| same_category(&f.category, &listed.category));
+    for f in below {
+        let parts = rel_components(&f.path).ok_or(ExtrasError::Changed)?;
+        let path = parts.iter().skip(1).fold(new_dir.clone(), |p, c| p.join(c));
+        if too_long_for_windows(&path) {
+            return Err(ExtrasError::Name(NameRefusal::PathTooLong));
+        }
+    }
+    let mut job = ExtrasJob::begin(ctx, listing)?;
+    if let Err(e) = job.rename_dir(&old_dir, &new_dir) {
+        job.abandon();
+        return Err(e);
+    }
+    let old_key = name_key(spelling);
+    for r in &mut job.file.files {
+        let Some(parts) = rel_components(&r.path) else {
+            continue;
+        };
+        if parts.len() > 1 && name_key(parts[0]) == old_key {
+            let rest = parts[1..].join("/");
+            r.path = format!("{to}/{rest}");
+        }
+    }
+    let keys: Vec<String> = job
+        .file
+        .categories
+        .keys()
+        .filter(|k| name_key(k) == old_key)
+        .cloned()
+        .collect();
+    let mut meta = None;
+    for k in keys {
+        let m = job.file.categories.remove(&k);
+        meta = meta.or(m);
+    }
+    job.file.categories.insert(to, meta.unwrap_or_default());
+    job.finish()
+}
+
+/// Removes the user category `name` (D8): its listed files go to the
+/// Trash (or are set aside, as [`trash`] does), then its emptied folders
+/// are removed, each journaled `DirRemoved` so
+/// undo creates them again. A folder that still holds something (system
+/// litter, a hidden file, a file the Trash refused) stays, with
+/// [`ExtrasNote::FolderKept`]; nothing is ever deleted for good. Fixed
+/// categories are refused ([`NameRefusal::Reserved`]).
+pub fn remove_category(
+    ctx: &ExtrasCtx,
+    listing: &Listing,
+    name: &str,
+) -> Result<ExtrasOutcome, ExtrasError> {
+    check_game_dir(ctx)?;
+    let extras = extras_dir(ctx.game_dir);
+    let listed = user_category(&extras, listing, name)?;
+    let mut picked = Vec::new();
+    for (i, f) in listing.files.iter().enumerate() {
+        if same_category(&f.category, &listed.category) {
+            listed_file(listing, i)?;
+            picked.push(i);
+        }
+    }
+    let paths = picked
+        .iter()
+        .map(|&i| path_of(&extras, &listing.files[i]))
+        .collect::<Result<Vec<_>, _>>()?;
+    check_set_aside(ctx, &paths)?;
+    let mut job = ExtrasJob::begin(ctx, listing)?;
+    let mut gone = Vec::new();
+    for (&i, path) in picked.iter().zip(&paths) {
+        match job.trash_one(path) {
+            Ok(true) => gone.push(i),
+            Ok(false) => {}
+            Err(e) => {
+                job.abandon();
+                return Err(e);
+            }
+        }
+    }
+    job.forget_listed(gone);
+    for spelling in &listed.spellings {
+        if let Err(e) = job.remove_tree(&extras.join(spelling), spelling) {
+            job.abandon();
+            return Err(e);
+        }
+    }
+    let key = name_key(name);
+    job.file.categories.retain(|k, _| name_key(k) != key);
+    job.finish()
+}
+
+impl ExtrasJob<'_> {
+    /// Drops the records of listed files `files` (sent away by this job).
+    fn forget_listed(&mut self, mut files: Vec<usize>) {
+        files.sort_unstable_by(|a, b| b.cmp(a));
+        files.dedup();
+        for i in files {
+            if i < self.listed {
+                self.file.files.remove(i);
+                self.listed -= 1;
+            }
+        }
+    }
+
+    /// Sends one file to the Trash, or sets it aside when its drive has
+    /// none (D8). `Ok(false)`: it stays where it was, with a note.
+    fn trash_one(&mut self, path: &Path) -> Result<bool, ExtrasError> {
+        let path = self.confine(path)?;
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if !self.ctx.trash.available(&path) {
+            return self.set_aside(&path);
+        }
+        match trash_file(&mut self.w, self.ctx.trash, &path, None)? {
+            TrashStep::Trashed { .. } => Ok(true),
+            TrashStep::Kept { .. } | TrashStep::Gone => {
+                self.notes.push(ExtrasNote::TrashFailed { name });
+                Ok(false)
+            }
+        }
+    }
+
+    /// Moves `path` into this job's folder in `.coverly-trash`, keeping its
+    /// path in the library below it: a journaled rename, so undo puts it
+    /// back. Only ever on one volume (checked before the job began).
+    fn set_aside(&mut self, path: &Path) -> Result<bool, ExtrasError> {
+        let rel = path
+            .strip_prefix(self.ctx.library_root)
+            .map_err(|_| ExtrasError::OutsideExtras(path.to_path_buf()))?;
+        if !set_aside_ok(self.ctx, path) {
+            return Err(ExtrasError::NoTrash);
+        }
+        let top = self.ctx.library_root.join(SET_ASIDE_DIR);
+        let folder = top.join(self.w.job_id());
+        let target = self.confine(&folder.join(rel))?;
+        let parent = target.parent().ok_or(ExtrasError::Changed)?;
+        let new_top = fs::symlink_metadata(&top).is_err();
+        self.w.ensure_dir(parent)?;
+        if new_top {
+            hide(&top);
+        }
+        match self.w.move_file(path, &target, Collision::Skip, None)? {
+            MoveOutcome::Moved { .. } => {}
+            _ => return Err(ExtrasError::Changed),
+        }
+        let note = ExtrasNote::SetAside {
+            folder: format!("{SET_ASIDE_DIR}/{}", self.w.job_id()),
+        };
+        if !self.notes.contains(&note) {
+            self.notes.push(note);
+        }
+        Ok(true)
+    }
+
+    /// Renames the folder `from` to `to` in `Extras/`; a change of case
+    /// only goes through `.coverly-<job>-rename` (two journaled moves),
+    /// as the no-clobber rename sees `to` as taken on case-insensitive
+    /// disks. A name taken meanwhile is refused, never suffixed.
+    fn rename_dir(&mut self, from: &Path, to: &Path) -> Result<(), ExtrasError> {
+        let from = self.confine(from)?;
+        let to = self.confine(to)?;
+        let same_key = match (from.file_name(), to.file_name()) {
+            (Some(a), Some(b)) => name_key(&a.to_string_lossy()) == name_key(&b.to_string_lossy()),
+            _ => false,
+        };
+        let original = from.clone();
+        let from = if same_key {
+            let temp = from.with_file_name(format!(".coverly-{}-rename", self.w.job_id()));
+            let temp = self.confine(&temp)?;
+            self.move_dir_once(&from, &temp)?
+        } else {
+            from
+        };
+        match self.move_dir_once(&from, &to) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Never leave the folder under the hidden temporary name.
+                if from != original && fs::symlink_metadata(&from).is_ok() {
+                    self.move_dir_once(&from, &original)?;
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// One journaled no-clobber rename of a folder; a taken name is
+    /// [`NameRefusal::Taken`].
+    fn move_dir_once(&mut self, from: &Path, to: &Path) -> Result<PathBuf, ExtrasError> {
+        let mut quiet = |_: u64| {};
+        match self
+            .w
+            .move_dir(from, to, Collision::Skip, None, &mut quiet)?
+        {
+            DirOutcome::Moved { to: done, .. } if done == to => Ok(done),
+            DirOutcome::SkippedExists { .. } => Err(ExtrasError::Name(NameRefusal::Taken)),
+            _ => Err(ExtrasError::Changed),
+        }
+    }
+
+    /// Removes the folder `dir` and its emptied sub-folders, deepest first,
+    /// each journaled `DirRemoved`. A folder that is not empty stays; when
+    /// `dir` itself stays, [`ExtrasNote::FolderKept`] says so. Symlinks
+    /// are never entered.
+    fn remove_tree(&mut self, dir: &Path, shown: &str) -> Result<(), ExtrasError> {
+        let dir = self.confine(dir)?;
+        let mut dirs: Vec<PathBuf> = walkdir::WalkDir::new(&dir)
+            .follow_links(false)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_dir())
+            .map(walkdir::DirEntry::into_path)
+            .collect();
+        dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+        for d in dirs {
+            let d = self.confine(&d)?;
+            match self.w.remove_empty_dir(&d) {
+                Ok(()) => {}
+                Err(WriteError::NotEmpty(_)) => {
+                    if d == dir {
+                        self.notes.push(ExtrasNote::FolderKept {
+                            folder: shown.to_string(),
+                        });
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Hides the set-aside folder on Windows, where a dot name hides nothing
+/// (D8); best effort. Scan, Organizar and Duplicados skip it by name.
+#[cfg(windows)]
+fn hide(path: &Path) {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileAttributesW, SetFileAttributesW, FILE_ATTRIBUTE_HIDDEN, INVALID_FILE_ATTRIBUTES,
+    };
+
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    // SAFETY: `wide` is a nul-terminated UTF-16 path that outlives both calls.
+    unsafe {
+        let attrs = GetFileAttributesW(wide.as_ptr());
+        if attrs != INVALID_FILE_ATTRIBUTES {
+            SetFileAttributesW(wide.as_ptr(), attrs | FILE_ATTRIBUTE_HIDDEN);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn hide(_path: &Path) {}
 
 #[cfg(test)]
 mod tests {
