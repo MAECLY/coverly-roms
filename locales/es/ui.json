@@ -2318,7 +2318,8 @@
     "next": "Siguiente pista",
     "previous": "Pista anterior",
     "stop": "Detener",
-    "seek": "Posición"
+    "seek": "Posición",
+    "showGame": "Ver los extras de {game}"
   },
   "viewer": {
     "of": "{i} de {n}",

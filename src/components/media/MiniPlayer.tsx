@@ -91,6 +91,7 @@ export function MiniPlayer({ variant }: { variant: 'panel' | 'strip' }) {
       <button
         type="button"
         className="mini-player__game"
+        aria-label={t('player.showGame', { game: track.game })}
         disabled={!ownLibrary}
         onClick={selectGame}
       >

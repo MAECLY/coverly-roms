@@ -110,7 +110,10 @@ describe('MiniPlayer (extras spec D19, §8.3, §8.4)', () => {
     });
     show();
     act(() => store().playFrom(listing(), 0, GAME));
-    fireEvent.click(screen.getByRole('button', { name: 'Tidewalker' }));
+    // Named for where it leads, the game's visible name inside the name.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ver los extras de Tidewalker' }),
+    );
     expect(useSelectionStore.getState().selectedId).toBe(7);
     expect(useViewStore.getState().drawerOpen).toBe(true);
     expect(useViewStore.getState().panelSection).toBe('extras');

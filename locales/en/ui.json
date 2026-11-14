@@ -2318,7 +2318,8 @@
     "next": "Next track",
     "previous": "Previous track",
     "stop": "Stop",
-    "seek": "Position"
+    "seek": "Position",
+    "showGame": "Show the extras of {game}"
   },
   "viewer": {
     "of": "{i} of {n}",
