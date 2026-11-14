@@ -532,7 +532,14 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             }
             if let Some((system, folder)) = &source_per_game {
                 let key = name.to_lowercase();
-                if entry.depth() == 1 && !ignored.contains(&key) && !per_game_art.contains(&key) {
+                // The existing skips run first (P4): a partial download is
+                // reported as one, the quarantine and target never listed.
+                if entry.depth() != 1 || ignored.contains(&key) || per_game_art.contains(&key) {
+                    return false;
+                }
+                if is_partial_download(&name) {
+                    partial_dirs.push(entry.path().to_path_buf());
+                } else if !skip_keys.contains(&dir_key(entry.path())) {
                     folder_games.push((
                         entry.path().to_path_buf(),
                         LeftReason::FolderGame {

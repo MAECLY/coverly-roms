@@ -603,3 +603,56 @@ fn loose_game_exe_is_not_typex() {
         .iter()
         .all(|i| i.system_id.as_deref() != Some("typex")));
 }
+
+#[test]
+fn organize_type_x_source_keeps_the_existing_skips() {
+    use coverly_core::organize::LeftReason;
+    // P4: set-aside and quarantine folders and partial downloads are
+    // skipped before a child folder of a `type-x/` pile counts as a game.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let sys = typex_library(s.path());
+    touch(
+        &sys.join("_Duplicados").join("Old Copy").join("game.exe"),
+        8,
+    );
+    touch(&sys.join("_Duplicates").join("game.exe"), 9);
+    fs::create_dir_all(sys.join("Raiden V.download")).unwrap();
+    let p = plan(&world, &sys, t.path(), "esde");
+    let mut games: Vec<String> = Vec::new();
+    let mut partial: Vec<String> = Vec::new();
+    for i in &p.items {
+        match &i.action {
+            OrganizeAction::Left {
+                reason: LeftReason::FolderGame { .. },
+            } => games.push(name(&i.sources[0])),
+            OrganizeAction::Left {
+                reason: LeftReason::PartialDownload,
+            } => partial.push(name(&i.sources[0])),
+            _ => {}
+        }
+    }
+    games.sort();
+    assert_eq!(
+        games,
+        [
+            "Akai Katana Shin for NesicaxLive",
+            "Chaos Code.exe",
+            "Empty Game",
+            "Raiden IV (Type X)"
+        ]
+    );
+    // (Empty root files read as partial downloads too; only the folder
+    // matters here.)
+    assert!(
+        partial.iter().any(|n| n == "Raiden V.download"),
+        "{partial:?}"
+    );
+    assert!(
+        p.items.iter().all(|i| i
+            .sources
+            .iter()
+            .all(|src| !src.starts_with("_Duplicados") && !src.starts_with("_Duplicates"))),
+        "a quarantine is never walked"
+    );
+}
