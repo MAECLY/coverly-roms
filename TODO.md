@@ -303,9 +303,9 @@ Juego/Extras/
 Tareas:
 
 - [x] Crear y respetar las carpetas fijas en Organizar y en la biblioteca, con deshacer. Hecho en la parte A (PR #45).
-- [x] Detectar y colocar mods, parches de traducción, trucos, licencias y extras oficiales por sistema (según la investigación de abajo). Mods, parches y trucos hechos en la parte B (PR #46), licencias en la parte A (PR #45); los extras oficiales van con el CRUD de `Extras/` (parte D).
-- [ ] CRUD de `Extras/` en la ficha del juego: categorías sugeridas y propias, etiquetas, arrastrar y soltar, deshacer.
-- [ ] `extras.json` con tipo, origen y etiquetas; reproductor de audio y vídeo y visor de imágenes y PDF en la app.
+- [x] Detectar y colocar mods, parches de traducción, trucos, licencias y extras oficiales por sistema (según la investigación de abajo). Mods, parches y trucos hechos en la parte B (PR #46), licencias en la parte A (PR #45); extras oficiales en la parte D (PR #48).
+- [x] CRUD de `Extras/` en la ficha del juego: categorías sugeridas y propias, etiquetas, arrastrar y soltar, deshacer. Hecho en la parte D (PR #48).
+- [x] `extras.json` con tipo, origen y etiquetas; reproductor de audio y vídeo y visor de imágenes y PDF en la app. Hecho en la parte D (PR #48).
 - [x] Traducir `Mods/` y `Cheats/` a la ruta de cada emulador al organizar o sincronizar. Hecho para Organizar en la parte B (PR #46); la sincronización (bloque 4) usará los mismos traductores.
 
 ### Investigación de mods, trucos, licencias y extras por sistema
