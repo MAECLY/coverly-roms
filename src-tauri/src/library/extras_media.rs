@@ -15,7 +15,7 @@ use coverly_core::extras::ops::extras_dir;
 use serde::Serialize;
 
 use super::extras::{playable_of, ExtrasHandle, Playable};
-use crate::error::IpcError;
+use crate::error::{extras_refusal, IpcError};
 
 /// The most bytes of a text extra shown (D17).
 pub const TEXT_MAX: u64 = 1 << 20;
@@ -143,15 +143,15 @@ fn extras_canon(handle: &ExtrasHandle, root_canon: &Path) -> Result<PathBuf, Ipc
 pub fn checked_file(handle: &ExtrasHandle, root_canon: &Path) -> Result<PathBuf, IpcError> {
     let file = &handle.file;
     if is_key_material(&file.name) {
-        return Err(refused("key-file"));
+        return Err(refused(extras_refusal::KEY_FILE));
     }
     if file.link {
-        return Err(refused("link"));
+        return Err(refused(extras_refusal::LINK));
     }
     let path = listed_path(handle)?;
     let meta = fs::symlink_metadata(&path).map_err(|_| IpcError::ExtrasChanged)?;
     if meta.file_type().is_symlink() {
-        return Err(refused("link"));
+        return Err(refused(extras_refusal::LINK));
     }
     if !meta.is_file()
         || meta.len() != file.size
@@ -169,7 +169,7 @@ pub fn checked_file(handle: &ExtrasHandle, root_canon: &Path) -> Result<PathBuf,
         .and_then(|n| n.to_str())
         .ok_or(IpcError::ExtrasChanged)?;
     if is_key_material(name) {
-        return Err(refused("key-file"));
+        return Err(refused(extras_refusal::KEY_FILE));
     }
     if !fs::metadata(&canon).is_ok_and(|m| m.is_file()) {
         return Err(IpcError::ExtrasChanged);
@@ -185,14 +185,14 @@ pub fn media_target(
 ) -> Result<(PathBuf, MediaView), IpcError> {
     let file = &handle.file;
     if is_key_material(&file.name) {
-        return Err(refused("key-file"));
+        return Err(refused(extras_refusal::KEY_FILE));
     }
     if file.link {
-        return Err(refused("link"));
+        return Err(refused(extras_refusal::LINK));
     }
     let (kind, mime) = media_of(&file.name)
         .filter(|_| playable_of(&file.name, file.link) == Playable::Inline)
-        .ok_or_else(|| refused("not-media"))?;
+        .ok_or_else(|| refused(extras_refusal::NOT_MEDIA))?;
     let canon = checked_file(handle, root_canon)?;
     Ok((
         canon.clone(),
@@ -221,10 +221,10 @@ fn plain_path(canon: &Path) -> String {
 /// A text extra (txt, md, nfo), at most [`TEXT_MAX`] bytes of it.
 pub fn read_text(handle: &ExtrasHandle, root_canon: &Path) -> Result<TextView, IpcError> {
     if is_key_material(&handle.file.name) {
-        return Err(refused("key-file"));
+        return Err(refused(extras_refusal::KEY_FILE));
     }
     if !is_text(&handle.file.name) || handle.file.link {
-        return Err(refused("not-text"));
+        return Err(refused(extras_refusal::NOT_TEXT));
     }
     let canon = checked_file(handle, root_canon)?;
     let mut bytes = Vec::new();
@@ -274,7 +274,7 @@ pub fn decode_text(bytes: &[u8], truncated: bool, nfo: bool) -> (String, TextEnc
 /// key material and unknown types are `reveal-only`.
 pub fn open_target(handle: &ExtrasHandle, root_canon: &Path) -> Result<PathBuf, IpcError> {
     if playable_of(&handle.file.name, handle.file.link) == Playable::RevealOnly {
-        return Err(refused("reveal-only"));
+        return Err(refused(extras_refusal::REVEAL_ONLY));
     }
     checked_file(handle, root_canon).map(plain)
 }

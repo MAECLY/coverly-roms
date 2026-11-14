@@ -4040,6 +4040,36 @@
       "detail": {
         "why": "link"
       }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "key-file"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "not-media"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "not-text"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "reveal-only"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "drop-expired"
+      }
     }
   ],
   "extras_add_plan": {

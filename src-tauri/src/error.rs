@@ -167,6 +167,26 @@ fn reason<T: Serialize>(r: &T) -> String {
         .unwrap_or_default()
 }
 
+/// The `extras-refused` reasons of viewing, opening and adding a file
+/// (writes refuse with the core's name and tag reasons, D20): kebab-case,
+/// rendered by the webview, never prose.
+pub mod extras_refusal {
+    /// A key or licence file: never opened, played or shown.
+    pub const KEY_FILE: &str = "key-file";
+    /// A symlink: listed, never followed or served.
+    pub const LINK: &str = "link";
+    /// Not played or shown in the app.
+    pub const NOT_MEDIA: &str = "not-media";
+    /// Not a text file the viewer shows.
+    pub const NOT_TEXT: &str = "not-text";
+    /// Only revealed in the file manager, never opened with another app.
+    pub const REVEAL_ONLY: &str = "reveal-only";
+    /// An OS drop already added, or too old.
+    pub const DROP_EXPIRED: &str = "drop-expired";
+    /// Every reason above but [`LINK`] (a write's reason too).
+    pub const ACCESS: [&str; 5] = [KEY_FILE, NOT_MEDIA, NOT_TEXT, REVEAL_ONLY, DROP_EXPIRED];
+}
+
 /// An Extras write refused or failed (part D D1, D5, D8, D20, D22): names
 /// and tags reach the webview as kebab-case reasons, never as prose.
 impl From<coverly_core::extras::ops::ExtrasError> for IpcError {
@@ -184,7 +204,7 @@ impl From<coverly_core::extras::ops::ExtrasError> for IpcError {
             E::NoTrash => refused("no-trash"),
             E::TooMany => refused("too-many"),
             E::NoSpace { needed, free } => IpcError::NoSpace(format!("{needed}/{free}")),
-            E::Link(_) => refused("link"),
+            E::Link(_) => refused(extras_refusal::LINK),
             E::OutsideExtras(p) => IpcError::OutsideLibrary(p.display().to_string()),
             E::Cancelled => IpcError::Cancelled,
             E::Write(w) => w.into(),

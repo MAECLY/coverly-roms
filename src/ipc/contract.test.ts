@@ -2285,6 +2285,12 @@ const EXTRAS_REFUSALS = [
   'no-trash',
   'too-many',
   'link',
+  // Viewing, opening and adding (src-tauri error::extras_refusal::ACCESS).
+  'key-file',
+  'not-media',
+  'not-text',
+  'reveal-only',
+  'drop-expired',
 ] as const satisfies readonly ExtrasRefusal[];
 const EXTRAS_NOTE_KINDS = [
   'malformed-saved',

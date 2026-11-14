@@ -266,7 +266,7 @@ impl AppState {
         lock(&self.drops)
             .take(token, Instant::now())
             .ok_or_else(|| IpcError::ExtrasRefused {
-                why: "drop-expired".into(),
+                why: crate::error::extras_refusal::DROP_EXPIRED.into(),
             })
     }
 

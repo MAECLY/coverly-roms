@@ -2173,7 +2173,17 @@ export type ExtrasRefusal =
   | 'index-unreadable'
   | 'no-trash'
   | 'too-many'
-  | 'link';
+  | 'link'
+  /** A key or licence file: never opened, played or shown. */
+  | 'key-file'
+  /** Not played or shown in the app (a package, a text file…). */
+  | 'not-media'
+  /** Not a text file (txt, md, nfo). */
+  | 'not-text'
+  /** Only shown in the file manager, never opened with another app. */
+  | 'reveal-only'
+  /** The drop is too old or was already added: drop the files again. */
+  | 'drop-expired';
 
 /** One file the add dialog offers; `index` names it in the commit. */
 export interface AddFileView {

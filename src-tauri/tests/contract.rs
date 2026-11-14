@@ -2789,6 +2789,12 @@ fn extras_write_views_match_the_shared_sample() {
     ]
     .into_iter()
     .map(IpcError::from)
+    // Viewing, opening and adding refuse with their own reasons.
+    .chain(
+        coverly_roms_lib::error::extras_refusal::ACCESS
+            .into_iter()
+            .map(|why| IpcError::ExtrasRefused { why: why.into() }),
+    )
     .collect();
     let actual = json!({
         "extras_write": write,
