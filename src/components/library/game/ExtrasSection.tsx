@@ -224,7 +224,10 @@ type FocusAfter =
   /** An own category just created or renamed: its menu button. */
   | { band: string }
   /** An own category just removed: «Nueva categoría». */
-  | { newCategory: true };
+  | { newCategory: true }
+  /** An undo started with the focus in the section: the file it was on,
+   * by name, else «Añadir archivos», so the focus never drops to the page. */
+  | { undone: string | null };
 
 type Confirm =
   | { kind: 'trash'; files: number[]; name: string }
@@ -373,6 +376,24 @@ export function ExtrasSection({
   useEffect(() => {
     const want = focusAfter.current;
     if (!want || !listing) return;
+    if ('undone' in want) {
+      const section = sectionRef.current;
+      if (!section) return;
+      focusAfter.current = null;
+      if (section.contains(document.activeElement)) return;
+      const file =
+        want.undone === null
+          ? undefined
+          : listing.files.find((f) => f.name === want.undone);
+      const el =
+        (file &&
+          section.querySelector<HTMLElement>(
+            `[data-file="${file.index}"] [data-extras-primary]`,
+          )) ??
+        section.querySelector<HTMLElement>('.extras-head__add');
+      el?.focus();
+      return;
+    }
     if ('newCategory' in want) {
       const button = sectionRef.current?.querySelector<HTMLElement>(
         '[data-extras-new-category]',
@@ -501,6 +522,15 @@ export function ExtrasSection({
 
   async function undoJobs(entryId: number, jobs: readonly string[]) {
     setWriteError(null);
+    const active = document.activeElement;
+    const row =
+      active instanceof HTMLElement && sectionRef.current?.contains(active)
+        ? active.closest<HTMLElement>('[data-file]')
+        : null;
+    const was = row ? fileAt(Number(row.dataset.file)) : undefined;
+    // Set before the listing changes: the focus effect runs on that render.
+    if (sectionRef.current?.contains(active))
+      focusAfter.current = { undone: was?.name ?? null };
     try {
       for (const job of [...jobs].reverse())
         await store().undoJob(entryId, job);
@@ -512,6 +542,7 @@ export function ExtrasSection({
       }
       announce(t('extras.undone'));
     } catch (e) {
+      focusAfter.current = null;
       setWriteError(toBackendError(e));
     }
   }

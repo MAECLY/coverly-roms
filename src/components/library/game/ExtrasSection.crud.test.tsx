@@ -654,6 +654,32 @@ describe('ExtrasSection CRUD (extras spec §8.3, D11 b, D23)', () => {
       window.removeEventListener('keydown', outer);
     });
 
+    it('keeps the focus on the file Cmd/Ctrl+Z moved back, never on the page', async () => {
+      show('Tidewalker');
+      const r = await listed('Tidewalker');
+      row(r, 'Key Art.png').focus();
+      fireEvent.keyDown(row(r, 'Key Art.png'), {
+        key: 'ArrowDown',
+        altKey: true,
+      });
+      await waitFor(() =>
+        expect(pathOf('Key Art.png')).toBe('Videos/Key Art.png'),
+      );
+      await waitFor(() => expect(row(r, 'Key Art.png')).toHaveFocus());
+      fireEvent.keyDown(row(r, 'Key Art.png'), {
+        key: 'z',
+        code: 'KeyZ',
+        metaKey: true,
+      });
+      await waitFor(() =>
+        expect(pathOf('Key Art.png')).toBe('Artwork/Key Art.png'),
+      );
+      await waitFor(() => expect(row(r, 'Key Art.png')).toHaveFocus());
+      expect(row(r, 'Key Art.png')).toHaveAccessibleDescription(
+        'Artwork/Key Art.png',
+      );
+    });
+
     it('keeps the library shortcuts + - 0 i / from firing on a row', async () => {
       const outer = vi.fn();
       window.addEventListener('keydown', outer);
