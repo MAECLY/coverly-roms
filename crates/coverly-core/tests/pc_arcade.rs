@@ -1072,3 +1072,61 @@ fn typex_reads_no_byte() {
         assert!(cache.quick_id(&r.path, r.size, mtime).unwrap().is_none());
     }
 }
+
+/// A pile picked at a Type X game, or at a folder inside one (P5, P16):
+/// the walk lists, measures and opens nothing, and proposes nothing, so a
+/// game's own files are never read nor moved out of it.
+#[test]
+fn organize_never_walks_inside_a_type_x_game() {
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let sys = typex_library(&s.path().join("ROMS"));
+    let game = sys.join("Raiden IV (Type X)");
+    // Invented bytes: ROM-like names that would otherwise be sorted.
+    let binary: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
+    for (rel, n) in [
+        (Path::new("data").join("sound.zip"), 20),
+        (PathBuf::from("mushisam.zip"), 21),
+        (PathBuf::from("Raiden.sfc"), 22),
+    ] {
+        fs::write(game.join(&rel), &binary).unwrap();
+        pin_mtime(&game.join(&rel), n);
+    }
+    let db = SystemDb::builtin();
+    let profiles = builtin_profiles();
+    let cache = Cache::in_memory().unwrap();
+    for source in [game.clone(), game.join("data")] {
+        for layout in ["esde", "batocera"] {
+            let probe = CountingProbe::default();
+            let env = OrganizeEnv {
+                db: &db,
+                profiles: &profiles,
+                cache: &cache,
+                dats: None,
+                probe: &probe,
+                online: None,
+                titles: None,
+                now: SystemTime::now(),
+            };
+            let opts = OrganizeOptions {
+                layout: layout.into(),
+                offline: true,
+                target: Some(t.path().to_path_buf()),
+                ..OrganizeOptions::default()
+            };
+            let p = plan_organize(&source, &opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap();
+            assert!(
+                p.items.is_empty(),
+                "{layout} {}: {:?}",
+                source.display(),
+                p.items.iter().map(|i| &i.sources).collect::<Vec<_>>()
+            );
+            let seen = probe.seen.lock().unwrap().clone();
+            assert!(seen.is_empty(), "{layout}: the walk measured {seen:?}");
+        }
+    }
+    // A pile that only holds a folder named like the system is still
+    // walked: the rule is about being inside a game, not near one.
+    let world = World::new();
+    let p = plan(&world, &sys, t.path(), "esde");
+    assert!(!p.items.is_empty());
+}
