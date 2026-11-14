@@ -1,13 +1,20 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronRight, Plus } from 'lucide-react';
-import { useId, useRef } from 'react';
+import { ChevronRight, MoreHorizontal, Plus } from 'lucide-react';
+import { useId, useRef, useState } from 'react';
 
 import { Tip } from '@/components/library/Tip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useT } from '@/i18n/useT';
 import type { CategoryRef, ExtraFileView } from '@/ipc/types';
-import { categoryLabel, diskName } from '@/lib/extras';
+import { categoryKey, categoryLabel, diskName } from '@/lib/extras';
 
 import { ExtraRow } from './ExtraRow';
+import { useExtrasActions } from './extrasContext';
 
 /** More files than this in one category: the band starts collapsed and
  * renders only the rows in view (extras spec §8.2). */
@@ -29,6 +36,10 @@ export interface ExtrasCategoryProps {
   manualNote: boolean;
   /** Its rows are shown (a band over 200 files starts closed). */
   open: boolean;
+  /** Every file of the category, whatever the filter shows. */
+  total?: number | undefined;
+  /** A dragged row is over this band: the drop highlight. */
+  dropOver?: boolean | undefined;
   onToggle(): void;
   onFocusRow(index: number): void;
   onAdd?: ((category: CategoryRef) => void) | undefined;
@@ -50,6 +61,8 @@ export function ExtrasCategory({
   playingPath,
   manualNote,
   open,
+  total,
+  dropOver,
   onToggle,
   onFocusRow,
   onAdd,
@@ -58,6 +71,9 @@ export function ExtrasCategory({
 }: ExtrasCategoryProps) {
   const t = useT();
   const id = useId();
+  const a = useExtrasActions();
+  const [renaming, setRenaming] = useState(false);
+  const count = total ?? files.length;
   const label = categoryLabel(category, t);
   const dir = diskName(category);
   const official = files.some((f) => f.provenance === 'official');
@@ -78,6 +94,8 @@ export function ExtrasCategory({
       aria-labelledby={`${id}-h`}
       className="extras-band"
       data-large={large || undefined}
+      data-extras-band={categoryKey(category)}
+      data-drop={dropOver || undefined}
     >
       <div className="extras-band__head">
         {large && (
@@ -91,11 +109,18 @@ export function ExtrasCategory({
             <ChevronRight aria-hidden />
           </button>
         )}
-        <h4 id={`${id}-h`} className="extras-band__name">
-          {label}
-        </h4>
+        {renaming && category.kind === 'user' ? (
+          <CategoryRename
+            name={category.name}
+            onDone={() => setRenaming(false)}
+          />
+        ) : (
+          <h4 id={`${id}-h`} className="extras-band__name">
+            {label}
+          </h4>
+        )}
         {dir && <span className="extras-band__dir mono">{dir}</span>}
-        <span className="extras-band__count mono">{files.length}</span>
+        <span className="extras-band__count mono">{count}</span>
         {official && (
           <span className="extras-official">{t('extras.official')}</span>
         )}
@@ -111,6 +136,31 @@ export function ExtrasCategory({
               <Plus aria-hidden />
             </button>
           </Tip>
+        )}
+        {category.kind === 'user' && (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="extras-band__add"
+                aria-label={t('extras.categoryMenu', { category: label })}
+                disabled={!a.canWrite}
+              >
+                <MoreHorizontal aria-hidden />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => setRenaming(true)}>
+                {t('extras.rename')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => a.removeCategory(category.name, count)}
+              >
+                {t('extras.categoryRemove')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
       {manualNote && (
@@ -128,6 +178,61 @@ export function ExtrasCategory({
             ))}
           </ul>
         ))}
+    </div>
+  );
+}
+
+/** An own category's name in an input (D1): `Enter` saves, `Esc` cancels
+ * without closing the panel; a refused name says why under it. */
+function CategoryRename({ name, onDone }: { name: string; onDone(): void }) {
+  const t = useT();
+  const a = useExtrasActions();
+  const [value, setValue] = useState(name);
+  const [error, setError] = useState<string | null>(null);
+  const errId = useId();
+
+  async function save() {
+    if (value === name) return onDone();
+    const refused = await a.renameCategory(name, value);
+    if (refused === null) onDone();
+    else setError(refused);
+  }
+
+  return (
+    <div className="extras-rename extras-rename--band">
+      <input
+        type="text"
+        className="extras-rename__input"
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- the user asked to rename this category
+        autoFocus
+        value={value}
+        aria-label={t('extras.categoryName')}
+        aria-invalid={error !== null || undefined}
+        aria-describedby={error ? errId : undefined}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setError(null);
+        }}
+        onBlur={() => {
+          if (error === null) onDone();
+        }}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            void save();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            onDone();
+          }
+        }}
+      />
+      {error && (
+        <p id={errId} role="alert" className="extras-rename__error">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

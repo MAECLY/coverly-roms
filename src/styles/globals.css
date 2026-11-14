@@ -3023,6 +3023,314 @@ time {
   color: var(--cr-text-secondary);
 }
 
+/* The checkbox takes the glyph's place on hover, focus, or once anything
+   is selected (§8.3): the row stays one line, the selection reads at the
+   edge where a finger runs down a box's contents list. */
+.extras-row__lead {
+  display: grid;
+  width: 0.875rem;
+  height: 1.5rem;
+  place-items: center;
+}
+
+.extras-row__lead > * {
+  grid-area: 1 / 1;
+}
+
+.extras-row__lead .extras-row__glyph {
+  margin-top: 0;
+}
+
+.extras-row__check {
+  opacity: 0;
+}
+
+.extras-row:hover .extras-row__check,
+.extras-row:focus-within .extras-row__check,
+.panel-extras:has(.extras-bulk) .extras-row__check,
+.extras-row__check[data-state='checked'] {
+  opacity: 1;
+}
+
+.extras-row:hover .extras-row__glyph,
+.extras-row:focus-within .extras-row__glyph,
+.panel-extras:has(.extras-bulk) .extras-row__glyph {
+  visibility: hidden;
+}
+
+.extras-row[data-selected] {
+  background: var(--cr-primary-subtle);
+}
+
+/* A moved row is outlined where it lands, then lets go. */
+.extras-row[data-landed] {
+  animation: extras-landed var(--cr-duration-slower) var(--cr-ease-standard);
+}
+
+@keyframes extras-landed {
+  from {
+    box-shadow: inset 0 0 0 var(--cr-border-width-focus) var(--cr-primary);
+  }
+
+  to {
+    box-shadow: inset 0 0 0 var(--cr-border-width-focus) transparent;
+  }
+}
+
+/* Inline rename: the stem in a well, the extension fixed beside it. */
+.extras-rename {
+  min-width: 0;
+}
+
+.extras-rename__field {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.extras-rename__input {
+  min-width: 0;
+  flex: 1;
+  height: 1.5rem;
+  padding: 0 0.375rem;
+  border: 1px solid var(--cr-ring);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-sunken);
+  color: var(--cr-text);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.extras-rename__input:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-ring);
+  outline-offset: 0;
+}
+
+.extras-rename__input[aria-invalid='true'] {
+  border-color: var(--cr-danger);
+}
+
+.extras-rename__ext {
+  flex: none;
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+}
+
+.extras-rename__error {
+  margin: 0.125rem 0 0;
+  color: var(--cr-danger);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.extras-rename--band {
+  flex: 1;
+}
+
+/* Drag onto a band: Buckram fades in where the file would land. */
+.extras-band,
+.extras-slot {
+  transition:
+    background-color var(--cr-duration-fast) var(--cr-ease-standard),
+    border-color var(--cr-duration-fast) var(--cr-ease-standard);
+}
+
+.extras-band[data-drop] {
+  border-color: var(--cr-primary);
+  background: var(--cr-primary-subtle);
+}
+
+.extras-band[data-drop] > .extras-band__head {
+  background: color-mix(in srgb, var(--cr-primary) 14%, var(--cr-surface));
+}
+
+.extras-slot[data-drop] {
+  border-color: var(--cr-primary);
+  background: var(--cr-primary-subtle);
+  color: var(--cr-text);
+}
+
+.panel-extras[data-dragging],
+.panel-extras[data-dragging] * {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* The ghost row follows the pointer without easing. */
+.extras-ghost {
+  position: fixed;
+  z-index: 60;
+  top: 0;
+  left: 0;
+  display: flex;
+  max-width: 16rem;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.1875rem 0.5rem;
+  border: 1px solid var(--cr-primary);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface);
+  box-shadow: var(--cr-shadow-raised);
+  color: var(--cr-text);
+  font-size: 0.8125rem;
+  pointer-events: none;
+}
+
+.extras-ghost__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.extras-ghost__n {
+  padding: 0 0.3125rem;
+  border-radius: var(--cr-radius-full);
+  background: var(--cr-primary);
+  color: var(--cr-primary-fg);
+  font-size: 0.6875rem;
+}
+
+/* Tag and text filters above the bands. */
+.extras-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.375rem;
+}
+
+.extras-filter__tags {
+  flex-wrap: wrap;
+}
+
+.extras-filter__chip {
+  height: 1.375rem;
+  min-width: 0;
+  padding: 0 0.5rem;
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-full);
+  font-size: 0.6875rem;
+}
+
+.extras-filter__chip[data-state='on'] {
+  border-color: var(--cr-primary);
+  background: var(--cr-primary-subtle);
+  color: var(--cr-primary-subtle-fg);
+}
+
+.extras-filter__text {
+  flex: 1 1 10rem;
+}
+
+/* The selection's bar: one quiet line above the bands. */
+.extras-bulk {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.125rem;
+  margin-top: 0.5rem;
+  padding: 0.125rem 0.125rem 0.125rem 0.5rem;
+  border: 1px solid var(--cr-primary);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-primary-subtle);
+}
+
+.extras-bulk__count {
+  margin-right: auto;
+  color: var(--cr-primary-subtle-fg);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.extras-bulk svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+/* The tags popover. */
+.extras-tagpop {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.extras-tagpop__h {
+  overflow: hidden;
+  margin: 0;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.extras-tagpop__sub {
+  margin: 0 0 0.25rem;
+  color: var(--cr-text-secondary);
+  font-size: 0.6875rem;
+}
+
+.extras-tagpop__note {
+  margin: 0;
+}
+
+.extras-tag--edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding-right: 0.125rem;
+  color: var(--cr-text);
+}
+
+.extras-tag__x {
+  display: inline-grid;
+  width: 1rem;
+  height: 1rem;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--cr-radius-full);
+  background: transparent;
+  color: var(--cr-text-secondary);
+}
+
+.extras-tag__x:hover {
+  background: var(--cr-hover);
+  color: var(--cr-text);
+}
+
+.extras-tag__x svg {
+  width: 0.625rem;
+  height: 0.625rem;
+}
+
+.extras-tag--offer {
+  border-style: dashed;
+  background: transparent;
+  font: inherit;
+  font-size: 0.6875rem;
+}
+
+.extras-tag--offer:hover {
+  border-color: var(--cr-primary);
+  color: var(--cr-text);
+}
+
+.extras-tag__x:focus-visible,
+.extras-tag--offer:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-ring);
+  outline-offset: 1px;
+}
+
+.extras-slots__new {
+  margin-left: auto;
+}
+
+.extras-band--new {
+  border-style: dashed;
+  border-color: var(--cr-primary);
+}
+
 @media (forced-colors: active) {
   .extras-slot {
     border-color: CanvasText;
@@ -3035,6 +3343,18 @@ time {
   .extras-row[data-playing] {
     outline: 2px solid Highlight;
     outline-offset: -2px;
+  }
+
+  .extras-band[data-drop],
+  .extras-slot[data-drop],
+  .extras-row[data-selected] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  .extras-ghost,
+  .extras-bulk {
+    border-color: CanvasText;
   }
 }
 
