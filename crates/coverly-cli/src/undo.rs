@@ -156,11 +156,13 @@ fn trashed_archives(data: &std::path::Path, ids: &[String]) -> BTreeSet<PathBuf>
 /// brought back from the Trash and the ones that could not be. A
 /// duplicates job (`kind` dedupe) reads the same, with its own name and
 /// its own words for the copies the Trash brought back or no longer holds;
-/// an Extras job (`kind` extras) reads the same with its own name.
+/// an Extras job (`kind` extras) reads like a duplicates job with its own
+/// name: what it sent to the Trash are the user's files, not archives
+/// whose extracted files stay.
 /// Every path prints on one line: a name holding a newline must not forge
 /// a second line of the report.
 fn organize_text(report: &UndoReport, trashed: &BTreeSet<PathBuf>, kind: JobKind) -> String {
-    let dedupe = kind == JobKind::Dedupe;
+    let trash_words = matches!(kind, JobKind::Dedupe | JobKind::Extras);
     let mut text = format!(
         "Undid {} job {}: moved back {}, removed {} copies, kept {} changed, {} folders removed",
         match kind {
@@ -199,7 +201,7 @@ fn organize_text(report: &UndoReport, trashed: &BTreeSet<PathBuf>, kind: JobKind
             table::one_line(&p.display().to_string())
         );
     }
-    if dedupe {
+    if trash_words {
         for p in report.restored.iter().filter(|p| trashed.contains(*p)) {
             let _ = write!(
                 text,
@@ -265,4 +267,38 @@ fn jobs_table(jobs: &[JobSummary]) -> String {
         ]);
     }
     table::render(&rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn report(restored: &[&str], lost: &[&str]) -> UndoReport {
+        let paths = |v: &[&str]| v.iter().map(PathBuf::from).collect::<Vec<_>>();
+        UndoReport {
+            job: "20261113T000000Z-0000-0000".into(),
+            removed: Vec::new(),
+            restored: paths(restored),
+            skipped_modified: Vec::new(),
+            skipped_occupied: Vec::new(),
+            dirs_removed: Vec::new(),
+            dirs_kept: Vec::new(),
+            archive_lost: paths(lost),
+        }
+    }
+
+    #[test]
+    fn an_extras_undo_speaks_of_files_back_from_the_trash_not_archives() {
+        // Extras files sent to the Trash are the user's own files, not
+        // archives whose extracted copies stay behind.
+        let back = "/L/Game/Extras/Soundtrack/01 Opening.flac";
+        let gone = "/L/Game/Extras/Soundtrack/02 Boss.flac";
+        let r = report(&[back], &[gone]);
+        let trashed = BTreeSet::from([PathBuf::from(back)]);
+        let text = organize_text(&r, &trashed, JobKind::Extras);
+        assert!(text.starts_with("Undid extras job "), "{text}");
+        assert!(text.contains("\n  back from the Trash: "), "{text}");
+        assert!(text.contains("\n  not found in the Trash: "), "{text}");
+        assert!(!text.contains("archive"), "{text}");
+    }
 }
