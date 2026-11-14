@@ -941,6 +941,9 @@ export interface SystemInfo {
   family: SystemFamily;
   /** No public emulator runs it (systems batch 3 D22). */
   no_emulator: boolean;
+  /** Runs only on PC hardware (Type X): the shelf says it does not run on
+   * ARM handhelds; no loader is named. */
+  pc_only?: boolean;
 }
 
 export interface ProfileInfo {

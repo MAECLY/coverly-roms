@@ -225,7 +225,8 @@ mod tests {
                 "id": "gba",
                 "name": "Game Boy Advance",
                 "family": "handheld",
-                "no_emulator": false
+                "no_emulator": false,
+                "pc_only": false
             })
         );
         let no_emulator: Vec<&str> = systems
@@ -239,6 +240,14 @@ mod tests {
         assert_eq!(family("zxspectrum"), "computer");
         assert_eq!(family("mame"), "arcade");
         assert_eq!(family("wasm4"), "engine");
+        let pc_only: Vec<&str> = systems
+            .iter()
+            .filter(|s| s.pc_only)
+            .map(|s| s.id.as_str())
+            .collect();
+        assert_eq!(pc_only, ["typex"]);
+        assert_eq!(family("typex"), "arcade");
+        assert_eq!(family("cave3rd"), "arcade");
     }
 
     #[test]

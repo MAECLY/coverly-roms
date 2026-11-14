@@ -2637,32 +2637,50 @@
       "id": "ps2",
       "name": "Sony PlayStation 2",
       "family": "console",
-      "no_emulator": false
+      "no_emulator": false,
+      "pc_only": false
     },
     {
       "id": "gba",
       "name": "Game Boy Advance",
       "family": "handheld",
-      "no_emulator": false
+      "no_emulator": false,
+      "pc_only": false
     },
     {
       "id": "zxspectrum",
       "name": "Sinclair ZX Spectrum",
       "family": "computer",
-      "no_emulator": false
+      "no_emulator": false,
+      "pc_only": false
     },
-    { "id": "mame", "name": "MAME", "family": "arcade", "no_emulator": false },
+    {
+      "id": "mame",
+      "name": "MAME",
+      "family": "arcade",
+      "no_emulator": false,
+      "pc_only": false
+    },
     {
       "id": "wasm4",
       "name": "WASM-4",
       "family": "engine",
-      "no_emulator": false
+      "no_emulator": false,
+      "pc_only": false
     },
     {
       "id": "xboxseries",
       "name": "Microsoft Xbox Series X|S",
       "family": "console",
-      "no_emulator": true
+      "no_emulator": true,
+      "pc_only": false
+    },
+    {
+      "id": "typex",
+      "name": "Taito Type X",
+      "family": "arcade",
+      "no_emulator": false,
+      "pc_only": true
     }
   ],
   "organize_folder_item": {

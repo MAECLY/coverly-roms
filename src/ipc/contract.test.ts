@@ -1464,11 +1464,16 @@ describe('duplicates contract', () => {
       'arcade',
       'engine',
       'console',
+      'arcade',
     ]);
     for (const s of systems) expect(s.family).toBeTruthy();
     // Systems batch 3 (spec D22): only Xbox Series has no emulator.
     expect(systems.filter((s) => s.no_emulator).map((s) => s.id)).toEqual([
       'xboxseries',
+    ]);
+    // PC arcade (spec P9): only Type X runs only on PC hardware.
+    expect(systems.filter((s) => s.pc_only).map((s) => s.id)).toEqual([
+      'typex',
     ]);
     const reason = sample.organize_folder_game_reason as LeftReason;
     expect(reason).toEqual({

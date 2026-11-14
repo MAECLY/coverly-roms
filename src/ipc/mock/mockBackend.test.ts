@@ -62,6 +62,7 @@ describe('mock backend', () => {
       name: 'Game Boy Advance',
       family: 'handheld',
       no_emulator: false,
+      pc_only: false,
     });
     // Systems only the organise piles have are listed too (Rust lists its
     // whole catalogue), so the UI never falls back to the id.
@@ -70,7 +71,26 @@ describe('mock backend', () => {
       name: 'Sega Saturn',
       family: 'console',
       no_emulator: false,
+      pc_only: false,
     });
+    // PC arcade (spec P1, P2, P9): Cave CV1000 and Type X, only Type X PC only.
+    expect(systems).toContainEqual({
+      id: 'cave3rd',
+      name: 'Cave CV1000',
+      family: 'arcade',
+      no_emulator: false,
+      pc_only: false,
+    });
+    expect(systems).toContainEqual({
+      id: 'typex',
+      name: 'Taito Type X',
+      family: 'arcade',
+      no_emulator: false,
+      pc_only: true,
+    });
+    expect(systems.filter((s) => s.pc_only).map((s) => s.id)).toEqual([
+      'typex',
+    ]);
     // Like `systems.toml` (spec D22): only Xbox Series has no emulator.
     expect(systems.filter((s) => s.no_emulator).map((s) => s.id)).toEqual([
       'xboxseries',

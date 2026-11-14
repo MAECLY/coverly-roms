@@ -1304,6 +1304,8 @@ export const ORGANIZE_SYSTEMS: readonly {
   family: SystemFamily;
   /** `systems.toml` `no_emulator` (systems batch 3 D22); absent = false. */
   no_emulator?: boolean;
+  /** `systems.toml` `pc_only` (PC arcade P9); absent = false. */
+  pc_only?: boolean;
 }[] = [
   { id: 'saturn', name: 'Sega Saturn', folder: 'SATURN', family: 'console' },
   // The adjustments disc sets (spec §9.4): a Sega CD set by name only.
@@ -1346,6 +1348,16 @@ export const ORGANIZE_SYSTEMS: readonly {
     name: 'Capcom Play System III',
     folder: 'CPS3',
     family: 'arcade',
+  },
+  // PC arcade (spec P1, P2): folders are the first alias; only Type X
+  // runs only on PC hardware (P9).
+  { id: 'cave3rd', name: 'Cave CV1000', folder: 'CAVE3RD', family: 'arcade' },
+  {
+    id: 'typex',
+    name: 'Taito Type X',
+    folder: 'TYPEX',
+    family: 'arcade',
+    pc_only: true,
   },
   { id: 'doom', name: 'Doom (PrBoom)', folder: 'PRBOOM', family: 'engine' },
   // The modern pile (systems batch 2; GameCube, PS3 and Switch are in the

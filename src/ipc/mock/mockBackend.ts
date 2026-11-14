@@ -870,6 +870,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
             name: s.name,
             family: s.family,
             no_emulator: 'no_emulator' in s && s.no_emulator === true,
+            pc_only: 'pc_only' in s && s.pc_only === true,
           }))
           .sort((a, b) =>
             a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }),
