@@ -159,7 +159,7 @@ Cartuchos, cintas y discos que ya entran en los lectores actuales.
   - [x] LowRes NX (`lowresnx`). Formato: `.nx`.
   - [x] Vircon32 (`vircon32`). Formato: `.v32`.
 - [x] Ports y motores: PrBoom/Doom (`.wad`), Quake (`.pak`), Cave Story (NXEngine), Wolfenstein 3D (ECWolf), Mr. Boom, Dinothawr, Lutro, Solarus, Flashback (REminiscence), Rick Dangerous (XRick). Necesitan reglas de «juego = carpeta» como ScummVM.
-- [ ] Arcade adicional: Model 2, Model 3, Naomi 2, Triforce, Sega System 16/18/24/32, Taito Type X, Konami, Cave, CHD de MAME por juego. Hecho en el PR #32: Model 2, Model 3, Naomi 2, Triforce y CHD de MAME por juego; System 16/18/24/32 y Konami siguen en `mame`/`fbneo`. Taito Type X y Cave (`cave3rd`) pasan a su propio punto, [2.2](#22-arcade-de-pc-taito-type-x-y-cave) (Miguel, 2026-11-09).
+- [x] Arcade adicional: Model 2, Model 3, Naomi 2, Triforce, Sega System 16/18/24/32, Taito Type X, Konami, Cave, CHD de MAME por juego. Hecho en el PR #32: Model 2, Model 3, Naomi 2, Triforce y CHD de MAME por juego; System 16/18/24/32 y Konami siguen en `mame`/`fbneo`. Taito Type X y Cave (`cave3rd`) pasan a su propio punto, [2.2](#22-arcade-de-pc-taito-type-x-y-cave) (Miguel, 2026-11-09). Cerrado el 2026-11-14: Type X y Cave se hicieron en el 2.2 (PR #53 y #54).
 
 ### Tanda 2: discos grandes y portátiles con formato propio
 
@@ -217,9 +217,9 @@ Tareas:
 
 ### Decisiones abiertas
 
-- [ ] Nombres de las carpetas por perfil (Anbernic stock, muOS, Knulli, Batocera, ES-DE, RetroArch) para cada sistema nuevo. Investigarlo antes de cada tanda.
+- [x] Nombres de las carpetas por perfil (Anbernic stock, muOS, Knulli, Batocera, ES-DE, RetroArch) para cada sistema nuevo. Investigarlo antes de cada tanda. Hecho: se investigó antes de cada tanda y del 2.2, y está en `systems.toml` y en los perfiles (cerrado el 2026-11-14).
 - [ ] Qué sistemas aparecen por defecto y cuáles solo si el perfil los usa.
-- [ ] Licencias de los iconos que no estén en RetroArch Assets.
+- [ ] Licencias de los iconos que no estén en RetroArch Assets. Tarea abierta el 2026-11-14: revisar de dónde sale cada icono de sistema, anotar su licencia en `THIRD-PARTY-NOTICES.md` y sustituir el que no se pueda redistribuir.
 
 ### Claves aportadas por el usuario (aparcado)
 
