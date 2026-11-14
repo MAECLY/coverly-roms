@@ -206,4 +206,44 @@ describe('ExtrasSection focus (extras spec §8.3, §8.4)', () => {
     });
     await waitFor(() => expect(menu).toHaveFocus());
   });
+  it('a removed own category leaves the focus on «Nueva categoría»', async () => {
+    const r = await shown('Tidewalker');
+    openMenu(r, 'Remixes');
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: 'Quitar categoría' }),
+    );
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Quitar categoría' }),
+    );
+    await waitFor(() =>
+      expect(within(r).queryByRole('group', { name: 'Remixes' })).toBeNull(),
+    );
+    await settle();
+    expect(
+      within(r).getByRole('button', { name: 'Nueva categoría' }),
+    ).toHaveFocus();
+  });
+
+  it('an empty own category removed from its menu also leaves the focus on «Nueva categoría»', async () => {
+    const r = await shown('Tidewalker');
+    fireEvent.click(within(r).getByRole('button', { name: 'Nueva categoría' }));
+    const input = within(r).getByRole('textbox', {
+      name: 'Nombre de la categoría',
+    });
+    fireEvent.change(input, { target: { value: 'Bocetos' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await within(r).findByRole('group', { name: 'Bocetos' });
+    openMenu(r, 'Bocetos');
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: 'Quitar categoría' }),
+    );
+    await waitFor(() =>
+      expect(within(r).queryByRole('group', { name: 'Bocetos' })).toBeNull(),
+    );
+    await settle();
+    expect(
+      within(r).getByRole('button', { name: 'Nueva categoría' }),
+    ).toHaveFocus();
+  });
 });

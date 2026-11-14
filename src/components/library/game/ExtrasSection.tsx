@@ -222,7 +222,9 @@ type FocusAfter =
   | { path: string; landed?: false }
   | { category: CategoryRef; name: string; landed: boolean }
   /** An own category just created or renamed: its menu button. */
-  | { band: string };
+  | { band: string }
+  /** An own category just removed: «Nueva categoría». */
+  | { newCategory: true };
 
 type Confirm =
   | { kind: 'trash'; files: number[]; name: string }
@@ -368,6 +370,15 @@ export function ExtrasSection({
   useEffect(() => {
     const want = focusAfter.current;
     if (!want || !listing) return;
+    if ('newCategory' in want) {
+      const button = sectionRef.current?.querySelector<HTMLElement>(
+        '[data-extras-new-category]',
+      );
+      if (!button) return;
+      focusAfter.current = null;
+      button.focus();
+      return;
+    }
     if ('band' in want) {
       const menu = [
         ...(sectionRef.current?.querySelectorAll<HTMLElement>(
@@ -599,6 +610,7 @@ export function ExtrasSection({
   }
 
   async function doRemove(name: string) {
+    focusAfter.current = { newCategory: true };
     await run(
       () => store().removeCategory(name),
       () => t('extras.categoryRemoved', { name }),
@@ -1256,6 +1268,7 @@ export function ExtrasSection({
                 variant="ghost"
                 size="sm"
                 disabled={!canWrite || newCategory}
+                data-extras-new-category=""
                 onClick={() => setNewCategory(true)}
               >
                 <Plus aria-hidden />
