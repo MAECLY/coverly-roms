@@ -186,12 +186,23 @@ export const usePlayerStore = create<PlayerState>()((set, get) => ({
       get().stop();
       return;
     }
-    const survived = byPath.has(current.path);
-    const newAt = nextAt >= 0 ? nextAt : kept.length - 1;
+    const still = byPath.get(current.path);
+    if (still && plays(still)) {
+      set({ queue: kept, at: nextAt });
+      return;
+    }
+    // Gone: the next surviving track plays; with none after it the
+    // queue ends, as it does after its last track.
     set(
-      survived
-        ? { queue: kept, at: newAt }
-        : { queue: kept, at: newAt, position: 0, duration: 0 },
+      nextAt >= 0
+        ? { queue: kept, at: nextAt, position: 0, duration: 0 }
+        : {
+            queue: kept,
+            at: kept.length - 1,
+            playing: false,
+            position: 0,
+            duration: 0,
+          },
     );
   },
 }));

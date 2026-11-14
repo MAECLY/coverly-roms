@@ -183,6 +183,9 @@ describe('playerStore', () => {
       ),
     );
     expect(currentTrack(store())?.name).toBe('02 Boss.wav');
+    // Nothing came after it: the queue ends, as at its last track.
+    expect(store().playing).toBe(false);
+    expect(store().position).toBe(0);
     store().syncListing(listing([], 3));
     expect(store().queue).toEqual([]);
     expect(store().playing).toBe(false);
@@ -202,6 +205,24 @@ describe('playerStore', () => {
       index: 11,
     });
     expect(store().position).toBe(42);
+  });
+
+  it('skips the current track when it no longer plays inline', () => {
+    store().playFrom(listing(TRACKS), 1, GAME);
+    store().progress(42, 120);
+    store().syncListing(
+      listing(
+        [
+          f(0, 'Soundtrack/01 Opening.flac'),
+          f(1, 'Soundtrack/02 Boss.wav', SOUNDTRACK, 'external'),
+          f(2, 'Soundtrack/03 Ending.flac'),
+        ],
+        2,
+      ),
+    );
+    expect(names()).toEqual(['01 Opening.flac', '03 Ending.flac']);
+    expect(currentTrack(store())?.name).toBe('03 Ending.flac');
+    expect(store().position).toBe(0);
   });
 
   it('ignores another game listing', () => {
