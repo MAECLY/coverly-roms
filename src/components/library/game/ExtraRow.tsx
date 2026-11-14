@@ -271,6 +271,16 @@ export function ExtraRow({
                   : file.name}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              {onOpen && (
+                // The row's primary action, also for those who never
+                // double-click or press Enter on it.
+                <DropdownMenuItem onSelect={() => onOpen(file.index)}>
+                  {file.kind === 'audio' && file.playable === 'inline'
+                    ? t('player.play')
+                    : t('extras.open')}
+                  <DropdownMenuShortcut aria-hidden>↵</DropdownMenuShortcut>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 disabled={!a.canWrite}
                 onSelect={() => a.startRename(file.index)}

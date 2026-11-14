@@ -531,6 +531,21 @@ describe('ExtrasSection (extras spec §8.1, §8.2, §8.4)', () => {
     await waitFor(() => expect(name).toHaveFocus());
   });
 
+  it('the row menu leads with Abrir, so a click-only or screen-reader user can open a file too', async () => {
+    show('Tidewalker');
+    const r = await listed('Tidewalker');
+    fireEvent.pointerDown(
+      within(r).getByRole('button', { name: 'Más acciones para Key Art.png' }),
+      { button: 0, ctrlKey: false },
+    );
+    const items = await screen.findAllByRole('menuitem');
+    expect(items[0]).toHaveAccessibleName(/^Abrir/);
+    expect(items[0]).toHaveTextContent('↵');
+    fireEvent.click(items[0]!);
+    await screen.findByRole('dialog', { name: 'Key Art.png' });
+    expect(useViewerStore.getState().open?.path).toBe('Artwork/Key Art.png');
+  });
+
   it('an open viewer closes with the panel', async () => {
     const { unmount } = show('Tidewalker');
     const r = await listed('Tidewalker');

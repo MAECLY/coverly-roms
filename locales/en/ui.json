@@ -2202,6 +2202,7 @@
     "addedOne": "Copied 1 file to {category}",
     "renamedDup": "A file with that name was already there; the copy is named “{name}”.",
     "rename": "Rename",
+    "open": "Open",
     "nameTaken": "There is already a file with that name in this category.",
     "moveTo": "Move to…",
     "moved": "Moved to {category}",
