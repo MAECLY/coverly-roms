@@ -1178,6 +1178,77 @@ mod apply {
         assert!(!fx.extras().exists());
     }
 
+    /// The rename of `z theme.pkg` fails as on a full disk: the job pauses.
+    #[cfg(unix)]
+    fn disk_full_on_z(
+        stage: coverly_core::write::CopyStage,
+        path: &Path,
+    ) -> Option<std::io::Error> {
+        (stage == coverly_core::write::CopyStage::Rename
+            && path.file_name().is_some_and(|n| n == "z theme.pkg"))
+        .then(|| std::io::Error::from_raw_os_error(28))
+    }
+
+    /// A paused apply records what it placed; the resume adds the rest to
+    /// the same index in the same journal, and one undo takes back both.
+    #[cfg(unix)]
+    #[test]
+    fn a_resumed_apply_records_every_extra_of_the_game() {
+        use coverly_core::organize::resume_organize;
+        use coverly_core::write::set_copy_fault;
+        let fx = Lib::new();
+        put(
+            &fx.pile,
+            "z theme.pkg",
+            &xt::pkg_with_type(1, 0x09, "UP9000-BCUS98107_00-THEME0000000002"),
+            4,
+        );
+        let plan = fx.plan();
+        assert!(item(&plan, "z theme.pkg").moves_in(), "{plan:#?}");
+        let env = ApplyEnv {
+            data_dir: fx.data.path(),
+            progress: &|_| {},
+            cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
+        };
+        set_copy_fault(Some(disk_full_on_z));
+        let paused = apply_organize(&plan, &env).unwrap();
+        set_copy_fault(None);
+        assert!(paused.paused.is_some(), "{paused:#?}");
+        let job = paused.job.clone().unwrap();
+        // What is placed already has its record.
+        let index = fx.index();
+        record(&index, "Themes/theme.pkg");
+        assert_eq!(index["files"].as_array().unwrap().len(), 1, "{index:#}");
+
+        let resumed = resume_organize(&job, &env).unwrap();
+        assert!(resumed.paused.is_none(), "{resumed:#?}");
+        assert!(resumed.extras_unwritten.is_empty(), "{resumed:#?}");
+        let index = fx.index();
+        assert_eq!(
+            record(&index, "Themes/theme.pkg")["origin"]["how"],
+            "organize"
+        );
+        let z = record(&index, "Themes/z theme.pkg");
+        assert_eq!(z["provenance"], "official");
+        assert_eq!(z["origin"]["from_name"], "z theme.pkg");
+        let ops = fx.ops(&job);
+        assert!(has(&ops, "created", "extras.json"), "{ops:?}");
+        assert!(has(&ops, "replaced", "extras.json"), "{ops:?}");
+
+        // A second resume has nothing left and writes nothing more.
+        let before = ops.len();
+        let _ = resume_organize(&job, &env);
+        assert_eq!(fx.ops(&job).len(), before);
+
+        let undo = undo_job(fx.data.path(), &job).unwrap();
+        assert!(undo.skipped_modified.is_empty(), "{undo:#?}");
+        assert!(fx.pile.join("theme.pkg").is_file());
+        assert!(fx.pile.join("z theme.pkg").is_file());
+        assert!(!fx.extras().exists(), "{undo:#?}");
+    }
+
     #[test]
     fn key_material_never_opened_on_apply_or_undo() {
         let fx = Lib::new();
