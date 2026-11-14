@@ -300,6 +300,8 @@ export function DetailDrawer({
       <FixedFoldersSection entry={game?.entry ?? entry} />
       {(game?.entry ?? entry).addons && (
         <ExtrasSection
+          // Open bands and the focused row belong to one game.
+          key={`${view.generation}:${(game?.entry ?? entry).id}`}
           generation={view.generation}
           entry={game?.entry ?? entry}
         />

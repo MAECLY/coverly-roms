@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronRight, Plus } from 'lucide-react';
-import { useId, useRef, useState } from 'react';
+import { useId, useRef } from 'react';
 
 import { Tip } from '@/components/library/Tip';
 import { useT } from '@/i18n/useT';
@@ -11,7 +11,7 @@ import { ExtraRow } from './ExtraRow';
 
 /** More files than this in one category: the band starts collapsed and
  * renders only the rows in view (extras spec §8.2). */
-const VIRTUALISE_AFTER = 200;
+export const VIRTUALISE_AFTER = 200;
 /** A one-line row's height, in px (the measured height wins). */
 const ROW_H = 34;
 /** The inner list's height the virtualiser starts from (22rem). */
@@ -27,6 +27,9 @@ export interface ExtrasCategoryProps {
   playingPath: string | null;
   /** The e-manual stays inside the game on this system (D16). */
   manualNote: boolean;
+  /** Its rows are shown (a band over 200 files starts closed). */
+  open: boolean;
+  onToggle(): void;
   onFocusRow(index: number): void;
   onAdd?: ((category: CategoryRef) => void) | undefined;
   onOpen?: ((index: number) => void) | undefined;
@@ -46,6 +49,8 @@ export function ExtrasCategory({
   tabStop,
   playingPath,
   manualNote,
+  open,
+  onToggle,
   onFocusRow,
   onAdd,
   onOpen,
@@ -57,7 +62,6 @@ export function ExtrasCategory({
   const dir = diskName(category);
   const official = files.some((f) => f.provenance === 'official');
   const large = files.length > VIRTUALISE_AFTER;
-  const [open, setOpen] = useState(!large);
 
   const row = (f: ExtraFileView) => ({
     file: f,
@@ -82,7 +86,7 @@ export function ExtrasCategory({
             className="extras-band__toggle"
             aria-expanded={open}
             aria-label={t('extras.showFiles', { category: label })}
-            onClick={() => setOpen((o) => !o)}
+            onClick={onToggle}
           >
             <ChevronRight aria-hidden />
           </button>

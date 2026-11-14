@@ -365,6 +365,64 @@ describe('ExtrasSection (extras spec §8.1, §8.2, §8.4)', () => {
     }
   });
 
+  it('keeps the tab stop on a row in view when a band is collapsed', async () => {
+    const listing = await b.extrasList(lib.generation, entry('Tidewalker').id);
+    const first = listing.files[0]!;
+    const big: ExtrasView = {
+      ...listing,
+      files: [
+        ...Array.from({ length: 201 }, (_, i) => ({
+          ...first,
+          index: 5000 + i,
+          category: { kind: 'fixed' as const, name: 'soundtrack' as const },
+          path: `Soundtrack/Track ${String(i).padStart(3, '0')}.flac`,
+          name: `Track ${String(i).padStart(3, '0')}.flac`,
+          tags: [],
+        })),
+        ...listing.files.filter(
+          (f) =>
+            !(f.category.kind === 'fixed' && f.category.name === 'soundtrack'),
+        ),
+      ],
+    };
+    setBackend({
+      extrasList: () => Promise.resolve(big),
+    } as unknown as Backend);
+    show('Tidewalker');
+    const r = await listed('Tidewalker');
+    const soundtrack = within(r).getByRole('group', { name: 'Banda sonora' });
+    expect(within(soundtrack).queryAllByRole('listitem')).toHaveLength(0);
+    // The collapsed band's rows are not on screen: the stop is on the
+    // first row that is.
+    const stops = [
+      ...r.querySelectorAll<HTMLElement>('[data-extras-primary]'),
+    ].filter((p) => p.tabIndex === 0);
+    expect(stops).toHaveLength(1);
+    expect(stops[0]!.closest('[role="group"]')).toBe(
+      within(r).getByRole('group', { name: 'Arte' }),
+    );
+    // Opened, the band's first row takes it back; a focused row inside it
+    // hands it on when the band closes again.
+    const undo = stubLayout(320, 352);
+    try {
+      const toggle = within(soundtrack).getByRole('button', {
+        name: 'Mostrar los archivos de Banda sonora',
+      });
+      fireEvent.click(toggle);
+      const row = soundtrack.querySelector<HTMLElement>(
+        '[data-extras-primary]',
+      )!;
+      act(() => row.focus());
+      fireEvent.click(toggle);
+      const after = [
+        ...r.querySelectorAll<HTMLElement>('[data-extras-primary]'),
+      ].filter((p) => p.tabIndex === 0);
+      expect(after).toHaveLength(1);
+    } finally {
+      undo();
+    }
+  });
+
   it('moves the focus between rows with a roving tabindex', async () => {
     show('Tidewalker');
     const r = await listed('Tidewalker');

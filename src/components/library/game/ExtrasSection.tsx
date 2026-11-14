@@ -30,7 +30,7 @@ import {
 import { useExtrasStore } from '@/stores/extrasStore';
 import { currentTrack, usePlayerStore } from '@/stores/playerStore';
 
-import { ExtrasCategory } from './ExtrasCategory';
+import { ExtrasCategory, VIRTUALISE_AFTER } from './ExtrasCategory';
 import { ExtrasMissing } from './ExtrasMissing';
 
 const REASON: Record<Exclude<Writability['kind'], 'yes'>, string> = {
@@ -120,6 +120,9 @@ export function ExtrasSection({
   const track = usePlayerStore(currentTrack);
   const [writeError, setWriteError] = useState<BackendError | null>(null);
   const [focused, setFocused] = useState<number | null>(null);
+  // Bands the user opened or closed, by category key; the rest follow the
+  // default (a band over 200 files starts closed, §8.2).
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     void open(generation, entry.id);
@@ -135,7 +138,12 @@ export function ExtrasSection({
     listing && listing.writable.kind !== 'yes'
       ? REASON[listing.writable.kind]
       : null;
-  const files = layout ? layout.bands.flatMap((b) => b.files) : [];
+  const isOpen = (b: Band) =>
+    toggled[categoryKey(b.category)] ?? b.files.length <= VIRTUALISE_AFTER;
+  // The tab stop goes only to a row on screen: never into a closed band.
+  const files = layout
+    ? layout.bands.filter(isOpen).flatMap((b) => b.files)
+    : [];
   const tabStop =
     focused !== null && files.some((f) => f.index === focused)
       ? focused
@@ -252,6 +260,13 @@ export function ExtrasSection({
             listing!.manual_inside &&
             b.category.kind === 'fixed' &&
             b.category.name === 'manuals'
+          }
+          open={isOpen(b)}
+          onToggle={() =>
+            setToggled((o) => ({
+              ...o,
+              [categoryKey(b.category)]: !isOpen(b),
+            }))
           }
           onFocusRow={setFocused}
           onAdd={onAdd}
