@@ -686,19 +686,48 @@ fn set_fixed_counts(
         };
         let mut counts = FixedFolderCounts::default();
         for (folder, path) in counted_dirs.get(game_dir).into_iter().flatten() {
-            let (n, capped) = count_fixed(path, *folder, opts);
-            counts.capped |= capped;
-            let slot = match folder {
-                FixedFolder::Mods => &mut counts.mods,
-                FixedFolder::Cheats => &mut counts.cheats,
-                FixedFolder::Extras => &mut counts.extras,
-                FixedFolder::Saves => &mut counts.saves,
-                FixedFolder::Updates | FixedFolder::Dlc => continue,
-            };
-            add_capped(slot, n, &mut counts.capped);
+            tally(&mut counts, *folder, path, opts);
         }
         roms[i].fixed_counts = Some(counts);
     }
+}
+
+/// The counts of game folder `game_dir`'s `Mods/`, `Cheats/`, `Extras/`
+/// and `Saves/` read again from disk, as a scan counts them (part C D9,
+/// extras D22): after a write in one of them, without scanning the
+/// library. Every spelling of a folder adds up; an unreadable game folder
+/// counts zero.
+pub fn recount_fixed(game_dir: &Path, opts: &ScanOptions) -> FixedFolderCounts {
+    let mut counts = FixedFolderCounts::default();
+    let mut dirs: Vec<(FixedFolder, PathBuf)> = list_dir(game_dir)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(name, _, is_file)| !is_file && !is_skipped_entry(name, opts))
+        .filter_map(|(name, path, _)| {
+            FixedFolder::from_dir_name(&name)
+                .filter(|f| f.child_role().is_none())
+                .map(|f| (f, path))
+        })
+        .collect();
+    dirs.sort();
+    for (folder, path) in dirs {
+        tally(&mut counts, folder, &path, opts);
+    }
+    counts
+}
+
+/// Counts one fixed folder into `counts`.
+fn tally(counts: &mut FixedFolderCounts, folder: FixedFolder, path: &Path, opts: &ScanOptions) {
+    let (n, capped) = count_fixed(path, folder, opts);
+    counts.capped |= capped;
+    let slot = match folder {
+        FixedFolder::Mods => &mut counts.mods,
+        FixedFolder::Cheats => &mut counts.cheats,
+        FixedFolder::Extras => &mut counts.extras,
+        FixedFolder::Saves => &mut counts.saves,
+        FixedFolder::Updates | FixedFolder::Dlc => return,
+    };
+    add_capped(slot, n, &mut counts.capped);
 }
 
 /// Adds `n` files to one fixed folder's count. Two spellings of one
@@ -1141,6 +1170,34 @@ mod tests {
         assert_eq!(
             count_fixed(&tmp.path().join("Mods"), FixedFolder::Mods, &opts),
             (1, false)
+        );
+    }
+
+    #[test]
+    fn a_recount_reads_every_counted_folder_of_a_game_folder() {
+        let tmp = TempDir::new().unwrap();
+        put(tmp.path(), "game.iso");
+        put(tmp.path(), "Mods/a.bps");
+        put(tmp.path(), "extras/Soundtrack/01.flac");
+        put(tmp.path(), "extras/readme.txt");
+        put(tmp.path(), "extras/extras.json");
+        put(tmp.path(), "Saves/s.sav");
+        put(tmp.path(), "Updates/u.nsp");
+        put(tmp.path(), "Notes/n.txt");
+        let counts = recount_fixed(tmp.path(), &ScanOptions::default());
+        assert_eq!(
+            counts,
+            FixedFolderCounts {
+                mods: 1,
+                cheats: 0,
+                extras: 2,
+                saves: 1,
+                capped: false,
+            }
+        );
+        assert_eq!(
+            recount_fixed(&tmp.path().join("missing"), &ScanOptions::default()),
+            FixedFolderCounts::default()
         );
     }
 
