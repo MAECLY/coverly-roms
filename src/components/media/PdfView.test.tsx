@@ -332,6 +332,14 @@ describe('PdfView (extras D18)', () => {
     expect(pdf.state.destroyed).toBe(1);
   });
 
+  it('destroys a document that starts loading after the viewer closed', async () => {
+    const { unmount } = showPdf();
+    // Closed before pdf.js handed back its loading task.
+    unmount();
+    await waitFor(() => expect(pdf.state.options).toHaveLength(1));
+    await waitFor(() => expect(pdf.state.destroyed).toBe(1));
+  });
+
   it('sizes pages by the zoom, in CSS pixels', async () => {
     showPdf({ zoom: 1 });
     await loaded();

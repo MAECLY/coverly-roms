@@ -99,7 +99,11 @@ export function PdfView({
     openPdf(url)
       .then(async ({ pdfjs, task: started }) => {
         task = started;
-        if (!live) return;
+        // Closed while pdf.js loaded: the cleanup had no task to destroy.
+        if (!live) {
+          void started.destroy();
+          return;
+        }
         const doc = await started.promise;
         const first = await doc.getPage(1);
         const v = first.getViewport({ scale: 1 });
