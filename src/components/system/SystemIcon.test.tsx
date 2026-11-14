@@ -44,6 +44,10 @@ describe('SystemIcon', () => {
     expect(
       container.querySelector('[data-system-icon="cave3rd"]'),
     ).toHaveTextContent('CV1K');
+    rerender(<SystemIcon systemId="typex" size={16} />);
+    expect(
+      container.querySelector('[data-system-icon="typex"]'),
+    ).toHaveTextContent('TX');
   });
   it('renders systems batch 3 silhouettes for ps4, xboxone and xboxseries', () => {
     for (const id of ['ps4', 'xboxone', 'xboxseries']) {

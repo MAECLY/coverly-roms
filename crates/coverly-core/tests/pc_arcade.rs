@@ -183,3 +183,52 @@ fn organize_keeps_cave3rd_and_sends_a_loose_set_to_fbneo() {
         .iter()
         .any(|(dir, id)| dir == Path::new("cave3rd") && id == "cave3rd"));
 }
+
+#[test]
+fn typex_entry_and_aliases() {
+    use coverly_core::organize::walk::{is_folder_per_game, FOLDER_PER_GAME_SYSTEMS};
+    let db = SystemDb::builtin();
+    let s = db.get("typex").expect("typex");
+    assert_eq!(s.name, "Taito Type X");
+    assert_eq!(s.family, Family::Arcade);
+    assert!(!s.arcade, "no short names: never the arcade-DAT path");
+    assert!(s.extensions.is_empty());
+    assert_eq!(
+        s.weak_extensions,
+        ["exe", "bat", "lnk", "sh", "desktop", "appimage"]
+    );
+    assert_eq!(s.libretro, None);
+    assert!(s.dats.is_empty());
+    assert_eq!(s.screenscraper, Some(112));
+    assert!(s.pc_only && !s.no_emulator);
+    for alias in ["typex", "TYPEX", "type-x", "Type-X"] {
+        assert_eq!(
+            db.resolve_folder(alias).map(|s| s.id.as_str()),
+            Some("typex"),
+            "{alias}"
+        );
+        for p in builtin_profiles() {
+            assert_eq!(
+                db.resolve_folder_in(Some(&p), alias).map(|s| s.id.as_str()),
+                Some("typex"),
+                "{alias} under {}",
+                p.id
+            );
+        }
+    }
+    // Location only: a weak extension is never evidence by itself.
+    assert!(db
+        .systems_for_extension("exe")
+        .iter()
+        .all(|s| s.id != "typex"));
+    assert_eq!(FOLDER_PER_GAME_SYSTEMS, ["typex"]);
+    assert!(is_folder_per_game("typex") && !is_folder_per_game("scummvm"));
+    // Only typex is PC only.
+    let pc: Vec<&str> = db
+        .all()
+        .iter()
+        .filter(|s| s.pc_only)
+        .map(|s| s.id.as_str())
+        .collect();
+    assert_eq!(pc, ["typex"]);
+}

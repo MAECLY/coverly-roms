@@ -101,6 +101,9 @@ pub struct System {
     /// No public emulator runs this system's games (systems batch 3 D22):
     /// the UI says so; nothing names or links an emulator.
     pub no_emulator: bool,
+    /// Runs only on PC hardware (Taito Type X): the library shelf says so;
+    /// no loader is named (spec 2026-10-26-pc-arcade P9).
+    pub pc_only: bool,
 }
 
 impl System {
@@ -181,6 +184,9 @@ struct RawSystem {
     /// Systems batch 3: a user file using it is rejected by an older
     /// Coverly (`deny_unknown_fields`), as spec §3 accepts.
     no_emulator: Option<bool>,
+    /// PC arcade: a user file using it is rejected by an older Coverly
+    /// (`deny_unknown_fields`), as spec 2026-10-26-pc-arcade accepts.
+    pc_only: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -208,7 +214,7 @@ impl SystemDb {
     ///
     /// Ids are trimmed and lowercased, aliases are trimmed (empty ones are
     /// dropped). An entry whose `id` already exists overrides it: `name`, `libretro`,
-    /// `arcade`, `multi_file`, `header`, `dats`, `screenscraper`, `embedded_first` and `no_emulator` replace the current values when given;
+    /// `arcade`, `multi_file`, `header`, `dats`, `screenscraper`, `embedded_first`, `no_emulator` and `pc_only` replace the current values when given;
     /// `aliases`, `extensions`, `weak_extensions`, `scoped_aliases` and
     /// `libretro_also` are added to the current lists (without repeats). An
     /// alias claimed by an override is removed from any other system (and from its scoped aliases), so the user file
@@ -319,6 +325,7 @@ impl SystemDb {
                     scoped_aliases: Vec::new(),
                     embedded_first: false,
                     no_emulator: false,
+                    pc_only: false,
                 });
                 self.systems.len() - 1
             }
@@ -350,6 +357,9 @@ impl SystemDb {
         }
         if let Some(no_emulator) = raw.no_emulator {
             system.no_emulator = no_emulator;
+        }
+        if let Some(pc_only) = raw.pc_only {
+            system.pc_only = pc_only;
         }
         // An unknown family is ignored silently (the crate has no logger):
         // the current value, or the default of a new system, is kept.
@@ -1323,6 +1333,25 @@ mod tests {
             .unwrap();
         assert!(db.get("snes").unwrap().embedded_first);
         assert!(!db.get("xboxseries").unwrap().no_emulator);
+    }
+
+    #[test]
+    fn pc_only_defaults_false_and_is_overridable() {
+        let db = SystemDb::builtin()
+            .with_overrides(
+                "[[system]]\nid = \"zz\"\nname = \"ZZ\"\n[[system]]\nid = \"yy\"\nname = \"YY\"\npc_only = true\n",
+            )
+            .unwrap();
+        assert!(!db.get("zz").unwrap().pc_only);
+        assert!(db.get("yy").unwrap().pc_only);
+        let db = SystemDb::builtin()
+            .with_overrides("[[system]]\nid = \"typex\"\naliases = [\"TAITOTYPEX\"]\n")
+            .unwrap();
+        assert!(db.get("typex").unwrap().pc_only, "kept without the key");
+        let db = SystemDb::builtin()
+            .with_overrides("[[system]]\nid = \"typex\"\npc_only = false\n")
+            .unwrap();
+        assert!(!db.get("typex").unwrap().pc_only);
     }
 
     #[test]

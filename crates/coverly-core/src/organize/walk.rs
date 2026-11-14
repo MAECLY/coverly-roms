@@ -48,6 +48,40 @@ pub const MAX_DEPTH: usize = 4;
 /// launcher) is left in place as one item.
 pub const FOLDER_GAME_SYSTEMS: [&str; 4] = ["doom", "solarus", "lutro", "scummvm"];
 
+/// Systems where every direct child folder of the system folder is one
+/// game (spec 2026-10-26-pc-arcade P4): recognised only by location,
+/// never listed below depth 1 except by the metadata tree summary, and
+/// never opened.
+pub const FOLDER_PER_GAME_SYSTEMS: [&str; 1] = ["typex"];
+
+/// Folder suffixes of a folder-per-game game (P8): the ES-DE launcher
+/// extensions plus RetroBat's `.parrot`, `.teknoparrot` and `.game`.
+pub const FOLDER_PER_GAME_SUFFIXES: [&str; 9] = [
+    "exe",
+    "bat",
+    "lnk",
+    "sh",
+    "desktop",
+    "appimage",
+    "parrot",
+    "teknoparrot",
+    "game",
+];
+
+/// Whether `id` is one of [`FOLDER_PER_GAME_SYSTEMS`].
+pub fn is_folder_per_game(id: &str) -> bool {
+    FOLDER_PER_GAME_SYSTEMS.contains(&id)
+}
+
+/// The suffix of a folder-per-game folder name (`Chaos Code.exe` →
+/// `exe`), lowercase; `None` when the last `.ext` is not one of
+/// [`FOLDER_PER_GAME_SUFFIXES`] or nothing precedes it.
+pub fn folder_per_game_suffix(name: &str) -> Option<String> {
+    let (stem, ext) = name.rsplit_once('.')?;
+    let ext = ext.to_ascii_lowercase();
+    (!stem.trim().is_empty() && FOLDER_PER_GAME_SUFFIXES.contains(&ext.as_str())).then_some(ext)
+}
+
 /// Tells whether a file is a cloud placeholder whose bytes are not local
 /// (reading it would trigger a download).
 pub trait MetaProbe: Sync {
@@ -1536,6 +1570,21 @@ pub(crate) fn is_reparse_point(meta: &fs::Metadata) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folder_per_game_suffix_reads_the_launcher_extension() {
+        assert_eq!(
+            folder_per_game_suffix("Chaos Code.exe").as_deref(),
+            Some("exe")
+        );
+        assert_eq!(
+            folder_per_game_suffix("Chaos Code.EXE").as_deref(),
+            Some("exe")
+        );
+        assert_eq!(folder_per_game_suffix("Raiden IV (Type X)"), None);
+        assert_eq!(folder_per_game_suffix(".exe"), None);
+        assert_eq!(folder_per_game_suffix("Game.v1.2"), None);
+    }
 
     #[test]
     fn companions_match_state_slots() {

@@ -197,6 +197,14 @@ expression: rows
   },
   {
     "accepting": [
+      "typex"
+    ],
+    "class": "Unknown",
+    "ext": "appimage",
+    "strong": []
+  },
+  {
+    "accepting": [
       "arduboy"
     ],
     "class": "Unique",
@@ -248,7 +256,8 @@ expression: rows
   },
   {
     "accepting": [
-      "dos"
+      "dos",
+      "typex"
     ],
     "class": "Unknown",
     "ext": "bat",
@@ -692,6 +701,14 @@ expression: rows
   },
   {
     "accepting": [
+      "typex"
+    ],
+    "class": "Unknown",
+    "ext": "desktop",
+    "strong": []
+  },
+  {
+    "accepting": [
       "atarist",
       "x68000"
     ],
@@ -805,7 +822,8 @@ expression: rows
   },
   {
     "accepting": [
-      "dos"
+      "dos",
+      "typex"
     ],
     "class": "Unknown",
     "ext": "exe",
@@ -1180,6 +1198,14 @@ expression: rows
     "strong": [
       "amiga"
     ]
+  },
+  {
+    "accepting": [
+      "typex"
+    ],
+    "class": "Unknown",
+    "ext": "lnk",
+    "strong": []
   },
   {
     "accepting": [
@@ -1826,6 +1852,14 @@ expression: rows
     "strong": [
       "supergrafx"
     ]
+  },
+  {
+    "accepting": [
+      "typex"
+    ],
+    "class": "Unknown",
+    "ext": "sh",
+    "strong": []
   },
   {
     "accepting": [

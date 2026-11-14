@@ -28,6 +28,7 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   naomi2: 'NAO2',
   triforce: 'TRI',
   cave3rd: 'CV1K',
+  typex: 'TX',
   // Systems batch 1: neutral set icon outside the 1:2 to 2.5:1 aspect range,
   // unreadable in a 1.5x row box.
   vectrex: 'VEC',

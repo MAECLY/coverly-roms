@@ -28,6 +28,11 @@
 #               count for the extension class)
 #   scoped_aliases  aliases (a subset of aliases) that resolve only under a
 #               profile that names them, never as a global folder name
+#   embedded_first  ask the embedded source (the game's own icon) first when
+#               filling covers (default false)
+#   no_emulator  no public emulator runs it: the UI says so (default false)
+#   pc_only     runs only on PC hardware: the UI says it does not run on
+#               ARM handhelds; names no loader (default false)
 #
 # Users can extend or override entries by id with a file in the same format.
 
@@ -1242,6 +1247,22 @@ libretro = "MAME"
 arcade = true
 dats = ["metadat/mame/MAME.dat"]
 screenscraper = 75
+
+# Taito Type X / X+ / X2 / X3 / X4 and NESiCAxLive (spec
+# 2026-10-26-pc-arcade P2): Windows PCs whose games are folders. One
+# game per child folder of a `typex` folder (organize::walk
+# FOLDER_PER_GAME_SYSTEMS), recognised only by location: no DAT, no
+# hash, nothing inside a game is ever opened. Weak extensions are the
+# ES-DE launchers at the system root (never evidence). ScreenScraper
+# has system 112 «Type X» (the batch 1 §13 note was wrong).
+[[system]]
+id = "typex"
+name = "Taito Type X"
+family = "arcade"
+aliases = ["TYPEX", "type-x"]
+weak_extensions = ["exe", "bat", "lnk", "sh", "desktop", "appimage"]
+screenscraper = 112
+pc_only = true
 
 # ---------------------------------------------------------------------
 # Systems batch 2 (spec 2026-10-26 batch 2, §7): big discs and handhelds
