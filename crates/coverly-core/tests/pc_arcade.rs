@@ -759,3 +759,316 @@ fn esde_typex_art_path() {
     assert_eq!(got.file_stem().unwrap(), "Chaos Code.exe");
     assert_eq!(got.extension().unwrap(), "png");
 }
+
+// --- The zero-read tripwire (spec §10, G2, P5) ---
+
+/// Makes every file under each game folder unreadable for the life of
+/// the guard (Unix: mode 0o000, folders stay 0o755; Windows: an
+/// exclusive handle per file). `None` when running as root on Unix,
+/// where permissions stop nothing: the test still runs its asserts.
+struct Locked {
+    #[cfg(windows)]
+    _handles: Vec<fs::File>,
+    #[cfg(unix)]
+    files: Vec<PathBuf>,
+}
+
+/// Every file below the game folders `games`.
+fn files_in(games: &[PathBuf]) -> Vec<PathBuf> {
+    games
+        .iter()
+        .flat_map(|g| walkdir::WalkDir::new(g).into_iter().filter_map(Result::ok))
+        .filter(|e| e.file_type().is_file())
+        .map(|e| e.into_path())
+        .collect()
+}
+
+fn lock_games(games: &[PathBuf]) -> Option<Locked> {
+    let files = files_in(games);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        if unsafe { libc::geteuid() } == 0 {
+            eprintln!("typex_reads_no_byte: running as root, permission lock skipped");
+            return None;
+        }
+        for f in &files {
+            fs::set_permissions(f, fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        let locked = Locked { files };
+        for f in &locked.files {
+            assert!(fs::File::open(f).is_err(), "{} still opens", f.display());
+        }
+        Some(locked)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        let handles: Vec<fs::File> = files
+            .iter()
+            .map(|f| {
+                fs::OpenOptions::new()
+                    .read(true)
+                    .share_mode(0)
+                    .open(f)
+                    .unwrap()
+            })
+            .collect();
+        for f in &files {
+            assert!(fs::File::open(f).is_err(), "{} still opens", f.display());
+        }
+        Some(Locked { _handles: handles })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Locked {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        for f in &self.files {
+            let _ = fs::set_permissions(f, fs::Permissions::from_mode(0o644));
+        }
+    }
+}
+
+/// Records every `file_len` question of the organize walk.
+#[derive(Default)]
+struct CountingProbe {
+    seen: std::sync::Mutex<Vec<PathBuf>>,
+}
+
+impl MetaProbe for CountingProbe {
+    fn cloud_only(&self, _: &Path, _: &fs::Metadata) -> bool {
+        false
+    }
+    fn file_len(&self, path: &Path, meta: &fs::Metadata) -> u64 {
+        self.seen.lock().unwrap().push(path.to_path_buf());
+        meta.len()
+    }
+}
+
+/// Every string in `v` (keys excluded), depth first.
+fn strings(v: &serde_json::Value, out: &mut Vec<String>) {
+    match v {
+        serde_json::Value::String(s) => out.push(s.clone()),
+        serde_json::Value::Array(a) => a.iter().for_each(|x| strings(x, out)),
+        serde_json::Value::Object(o) => o.values().for_each(|x| strings(x, out)),
+        _ => {}
+    }
+}
+
+/// Panics when any path in `value` (absolute, or relative to `base`) lies
+/// strictly inside one of `games`.
+fn names_nothing_inside(what: &str, value: &impl serde::Serialize, base: &Path, games: &[PathBuf]) {
+    let mut all = Vec::new();
+    strings(&serde_json::to_value(value).unwrap(), &mut all);
+    for s in all {
+        let p = Path::new(&s);
+        for candidate in [p.to_path_buf(), base.join(p)] {
+            for g in games {
+                assert!(
+                    !(candidate.starts_with(g) && candidate != *g),
+                    "{what} names {s} inside {}",
+                    g.display()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn typex_reads_no_byte() {
+    use coverly_core::audit::build_report;
+    use coverly_core::cache::mtime_ns;
+    use coverly_core::consoles::{start_open_log, take_open_log};
+    use coverly_core::dedupe::testing::CountingBytes;
+    use coverly_core::identify::dat::DatStore;
+    use coverly_core::identify::{Identifier, IdentifyOptions, MatchMethod};
+    use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
+    use coverly_core::profiles::Media;
+    use coverly_core::scan::{scan_library, ScanOptions};
+    use coverly_core::sources::embedded::EmbeddedSource;
+    use coverly_core::sources::{ArtQuery, ArtSource};
+
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path().join("SD");
+    let p = profile("esde");
+    let db = SystemDb::builtin();
+    let sys = typex_library(&root.join(&p.roms_root));
+    // A key-named file and a non-empty blob inside a game: neither is read.
+    let raiden = sys.join("Raiden IV (Type X)");
+    let invented: Vec<u8> = (0..=255u8).cycle().take(1000).collect();
+    fs::write(raiden.join("license.dat"), &invented[..16]).unwrap();
+    pin_mtime(&raiden.join("license.dat"), 10);
+    fs::write(raiden.join("data").join("blob.bin"), &invented).unwrap();
+    pin_mtime(&raiden.join("data").join("blob.bin"), 11);
+    let games: Vec<PathBuf> = [
+        "Raiden IV (Type X)",
+        "Chaos Code.exe",
+        "Akai Katana Shin for NesicaxLive",
+        "Empty Game",
+    ]
+    .iter()
+    .map(|g| sys.join(g))
+    .collect();
+    let inside = files_in(&games);
+    assert_eq!(inside.len(), 5, "{inside:?}");
+    let target = tmp.path().join("target");
+    fs::create_dir_all(&target).unwrap();
+
+    // Mtimes are pinned above, before the lock. Dropped before `tmp`.
+    let _lock = lock_games(&games);
+    start_open_log();
+
+    // Scan.
+    let scan = scan_library(&root, &p, &db, &ScanOptions::default());
+    for w in &scan.warnings {
+        assert!(
+            !games.iter().any(|g| w.path.starts_with(g) && w.path != *g),
+            "scan warning {w:?}"
+        );
+    }
+    let typex = scan
+        .systems
+        .iter()
+        .find(|s| s.system_id.as_deref() == Some("typex"))
+        .unwrap();
+    assert_eq!(typex.roms.iter().filter(|r| r.is_dir).count(), 4);
+    for r in &typex.roms {
+        assert!(!games.iter().any(|g| r.path.starts_with(g) && r.path != *g));
+        assert!(r.children.is_empty());
+        if r.is_dir {
+            let want: u64 = files_in(std::slice::from_ref(&r.path))
+                .iter()
+                .map(|f| fs::metadata(f).unwrap().len())
+                .sum();
+            assert_eq!(r.size, want, "{}", r.path.display());
+        }
+    }
+    let raiden_rom = typex.roms.iter().find(|r| r.path == raiden).unwrap();
+    assert_eq!(raiden_rom.size, 1016);
+
+    // Identify, in every mode.
+    let system = db.get("typex").unwrap();
+    let cache = Cache::in_memory().unwrap();
+    let net = NetConfig {
+        retries: 0,
+        ..NetConfig::default()
+    };
+    let http = PoliteHttp::new(UreqHttp::new(&net), &net);
+    let dats = DatStore::new(&http, &cache, "http://127.0.0.1:9");
+    for method in [
+        MatchMethod::NameOnly,
+        MatchMethod::HashThenName,
+        MatchMethod::HashOnly,
+    ] {
+        let id = Identifier::new(
+            &cache,
+            &dats,
+            IdentifyOptions {
+                method,
+                ..IdentifyOptions::default()
+            },
+        );
+        for r in &typex.roms {
+            let got = id.identify(r, system, false).unwrap();
+            assert!(got.hash.is_none(), "{method:?} {}", r.path.display());
+        }
+    }
+
+    // Fill's embedded source (the one that opens ROMs) offers nothing.
+    for r in typex.roms.iter().filter(|r| r.is_dir) {
+        let parsed = coverly_core::identify::names::parse_name(r.title_stem(), false);
+        let file_name = name(&r.path);
+        let got = EmbeddedSource
+            .candidates(&ArtQuery {
+                system,
+                media: Media::Cover,
+                canonical: None,
+                rom: &parsed,
+                stem: &r.stem,
+                by_name: true,
+                fuzzy: true,
+                min_score: 65,
+                max_candidates: 5,
+                hash: None,
+                size: r.size,
+                file_name: &file_name,
+                rom_path: Some(&r.path),
+            })
+            .unwrap_or_default();
+        assert!(got.is_empty(), "{}", r.path.display());
+    }
+
+    // Dedupe.
+    let counting = CountingBytes::new();
+    let dplan = dedupe_plan(&root, &p, &cache, &counting);
+    assert_eq!(counting.opens(), 0);
+    assert!(dplan.groups.is_empty());
+    names_nothing_inside("dedupe plan", &dplan, &root, &games);
+
+    // Organize, from the library root and from `type-x/` itself.
+    let probe = CountingProbe::default();
+    let profiles = builtin_profiles();
+    let env = OrganizeEnv {
+        db: &db,
+        profiles: &profiles,
+        cache: &cache,
+        dats: None,
+        probe: &probe,
+        online: None,
+        titles: None,
+        now: SystemTime::now(),
+    };
+    for source in [&root, &sys] {
+        let opts = OrganizeOptions {
+            layout: "esde".into(),
+            offline: true,
+            target: Some(target.clone()),
+            ..OrganizeOptions::default()
+        };
+        let plan = plan_organize(source, &opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap();
+        names_nothing_inside("organize plan", &plan, source, &games);
+    }
+    // A game is left whole as a row (P16): the walk does not even measure
+    // what is inside, so the counting probe never hears of those files.
+    // Sizes come from metadata in the scan, checked above under the lock.
+    let seen = probe.seen.lock().unwrap().clone();
+    for f in &seen {
+        assert!(
+            !games.iter().any(|g| f.starts_with(g)),
+            "the walk measured {}",
+            f.display()
+        );
+    }
+
+    // Audit (rescans, resolves art).
+    let report = build_report(&root, &p, &db, &ScanOptions::default(), &Media::ALL);
+    names_nothing_inside("audit report", &report, &root, &games);
+
+    // Nothing was opened through the console readers.
+    let opened = take_open_log();
+    for o in &opened {
+        assert!(
+            !games.iter().any(|g| o.starts_with(g)),
+            "opened {}",
+            o.display()
+        );
+    }
+
+    // No hash was ever attempted, no organize facts kept.
+    for f in &inside {
+        let meta = fs::metadata(f).unwrap();
+        let mtime = mtime_ns(meta.modified().unwrap());
+        assert!(cache.quick_id(f, meta.len(), mtime).unwrap().is_none());
+        assert!(cache
+            .organize_facts(f, meta.len(), mtime)
+            .unwrap()
+            .is_none());
+    }
+    for r in &typex.roms {
+        let mtime = mtime_ns(r.modified);
+        assert!(cache.quick_id(&r.path, r.size, mtime).unwrap().is_none());
+    }
+}
