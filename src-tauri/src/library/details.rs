@@ -199,6 +199,10 @@ mod tests {
     use super::*;
     use crate::library::{open_session, OpenRequest};
 
+    /// The console open log is one per process: the tests that read it
+    /// take turns, or one would reset or drain the other's log.
+    static OPEN_LOG: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// Answers `1.3.0` for every title.
     struct Knows;
     impl LatestVersions for Knows {
@@ -365,6 +369,7 @@ mod tests {
 
     #[test]
     fn game_details_reads_children_and_never_opens_a_key() {
+        let _serial = OPEN_LOG.lock().unwrap_or_else(|e| e.into_inner());
         let lib = TempDir::new().unwrap();
         let g = "ROMS/3DS/Lantern Harbor";
         let cia = |tid: u64| ct::cia(tid, false, false).head_bytes();
@@ -428,10 +433,12 @@ mod tests {
         assert_eq!(read_console(&session, &key, None), None);
         assert!(!take_open_log().iter().any(|p| p == &key));
     }
+
     /// A Type X game is one opaque folder (spec 2026-10-26-pc-arcade P5):
     /// the panel never reads a header inside it, whatever files it holds.
     #[test]
     fn game_details_never_opens_a_type_x_game() {
+        let _serial = OPEN_LOG.lock().unwrap_or_else(|e| e.into_inner());
         let lib = TempDir::new().unwrap();
         let sfo = ct::param_sfo(&[("CATEGORY", "DG"), ("TITLE_ID", "BLUS30001")]);
         let inside = put(
