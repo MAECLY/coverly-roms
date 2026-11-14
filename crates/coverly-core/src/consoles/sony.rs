@@ -23,7 +23,9 @@
 //! way.
 //!
 //! Only plaintext is read: `PARAM.SFO` (through [`super::psf`]), the
-//! ISO 9660 directories and the first 0x60 bytes of a PKG. A PKG body,
+//! ISO 9660 directories, the first 0x60 bytes of a PKG and, for the
+//! extras sniff only, its plaintext metadata table (at most
+//! [`PKG_MAX_METADATA`] entries in [`PKG_METADATA_WINDOW`] bytes). A PKG body,
 //! `.rap`/`.rif`/zRIF licences, `sce_sys/package/work.bin` and the
 //! encrypted regions of a disc are never read (D4).
 //!
@@ -458,6 +460,102 @@ fn pkg(b: &mut Budgeted) -> Option<ConsoleId> {
         .and_then(content_id)
         .and_then(|c| super::region_from_content_id(&c));
     Some(id)
+}
+
+/// The most metadata entries of a PKG walked for its content type.
+pub const PKG_MAX_METADATA: u32 = 64;
+/// The most bytes of a PKG metadata table read.
+pub const PKG_METADATA_WINDOW: usize = 4096;
+/// Metadata entry id of the content type.
+const PKG_META_CONTENT_TYPE: u32 = 0x02;
+
+/// A PKG's content type (psdevwiki «PKG files», «Content type» in the
+/// metadata table), as far as the extras spec D6 tells them apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PkgContentType {
+    /// `0x09`: a PS3 theme.
+    Theme,
+    /// `0x0D`: a PS3 (PSN) avatar.
+    Avatar,
+    /// `0x1F`: a Vita theme.
+    VitaTheme,
+    /// Any other value (game data `0x04`, game `0x05`, Vita game `0x15`…).
+    Other(u32),
+}
+
+impl PkgContentType {
+    pub fn from_raw(v: u32) -> Self {
+        match v {
+            0x09 => Self::Theme,
+            0x0D => Self::Avatar,
+            0x1F => Self::VitaTheme,
+            v => Self::Other(v),
+        }
+    }
+
+    pub fn raw(self) -> u32 {
+        match self {
+            Self::Theme => 0x09,
+            Self::Avatar => 0x0D,
+            Self::VitaTheme => 0x1F,
+            Self::Other(v) => v,
+        }
+    }
+}
+
+/// The package type (1 PS3, 2 PSP/Vita) and content type of a PS3/Vita
+/// PKG, from its plaintext metadata table (psdevwiki «PKG files»: the
+/// header's `metadata_offset` u32 BE at 0x08 and `metadata_count` u32 BE
+/// at 0x0C; each entry is `id` u32 BE, `size` u32 BE, `size` bytes; id
+/// `0x02` holds the content type as a u32 BE). At most
+/// [`PKG_MAX_METADATA`] entries in the first [`PKG_METADATA_WINDOW`]
+/// bytes of the table are walked; a count over the cap, an entry past
+/// the window or the file, or a content type entry not 4 bytes long is
+/// `None`. The body and every encrypted range are never read.
+pub fn pkg_content_type(b: &mut Budgeted) -> Option<(u16, PkgContentType)> {
+    let h = b.read(0, 0x10).ok()?;
+    if h[..4] != PKG_MAGIC {
+        return None;
+    }
+    let kind = u16::from_be_bytes([h[6], h[7]]);
+    let offset = u64::from(u32::from_be_bytes(h[8..12].try_into().ok()?));
+    let count = u32::from_be_bytes(h[12..16].try_into().ok()?);
+    if count == 0 || count > PKG_MAX_METADATA || offset < 0x10 {
+        return None;
+    }
+    let left = b.len().checked_sub(offset)?;
+    let n = usize::try_from(left).map_or(PKG_METADATA_WINDOW, |l| l.min(PKG_METADATA_WINDOW));
+    let table = b.read(offset, n).ok()?;
+    let mut at = 0usize;
+    for _ in 0..count {
+        let id = u32::from_be_bytes(table.get(at..at + 4)?.try_into().ok()?);
+        let size = usize::try_from(u32::from_be_bytes(
+            table.get(at + 4..at + 8)?.try_into().ok()?,
+        ))
+        .ok()?;
+        let start = at + 8;
+        let end = start.checked_add(size)?;
+        let data = table.get(start..end)?;
+        if id == PKG_META_CONTENT_TYPE {
+            let v = u32::from_be_bytes(data.try_into().ok()?);
+            return Some((kind, PkgContentType::from_raw(v)));
+        }
+        at = end;
+    }
+    None
+}
+
+/// The retail title id of a PKG's content id (`UP0001-BLUS30001_00-…` →
+/// `BLUS30001`), or `None` when it is not one.
+pub fn pkg_title_id(b: &mut Budgeted) -> Option<String> {
+    let h = b.read(0, PKG_CONTENT_ID + PKG_CONTENT_ID_LEN).ok()?;
+    if h[..4] != PKG_MAGIC {
+        return None;
+    }
+    std::str::from_utf8(h[PKG_CONTENT_ID..].get(7..16)?)
+        .ok()
+        .filter(|t| retail_id(t))
+        .map(str::to_ascii_uppercase)
 }
 
 /// 2048-byte sectors of a disc image through the item's budget.

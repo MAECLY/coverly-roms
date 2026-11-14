@@ -205,3 +205,104 @@ pub fn all_rips() -> Vec<(&'static str, Vec<u8>)> {
         ),
     ]
 }
+
+/// A PS3 theme `.p3t`: the `P3TF` magic, a version, then a plaintext
+/// theme XML whose `infotable` names the theme `name`.
+pub fn p3t(name: &str) -> Vec<u8> {
+    let mut b = b"P3TF".to_vec();
+    b.extend_from_slice(&0x0101_0000u32.to_be_bytes());
+    b.extend_from_slice(&[0u8; 0x38]);
+    b.extend_from_slice(
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><theme format-version=\"1.1\">\
+             <infotable><name>{name}</name><author>Test</author></infotable></theme>"
+        )
+        .as_bytes(),
+    );
+    b.extend_from_slice(&[0xE7; 0x100]);
+    b
+}
+
+/// The offset [`pkg_with_type`] puts its metadata table at (psdevwiki
+/// «PKG files»: retail packages put it right after the 0xC0 header).
+pub const PKG_METADATA_AT: usize = 0xC0;
+
+/// A PS3/Vita PKG (`7F PKG`, revision, `kind` at 0x06, metadata offset
+/// at 0x08, metadata count at 0x0C, content id at 0x30) with a plaintext
+/// metadata table of three entries: DRM type (id 1), content type (id 2,
+/// `ctype`) and package flags (id 3); then filler for the body.
+pub fn pkg_with_type(kind: u16, ctype: u32, content_id: &str) -> Vec<u8> {
+    pkg_with_entries(
+        kind,
+        content_id,
+        &[
+            (1, 3u32.to_be_bytes().to_vec()),
+            (2, ctype.to_be_bytes().to_vec()),
+            (3, 0x0E_u32.to_be_bytes().to_vec()),
+        ],
+    )
+}
+
+/// A [`pkg_with_type`] whose metadata table holds `entries` as given
+/// (`(id, data)`), for the bounds tests.
+pub fn pkg_with_entries(kind: u16, content_id: &str, entries: &[(u32, Vec<u8>)]) -> Vec<u8> {
+    let mut b = vec![0u8; PKG_METADATA_AT];
+    b[..4].copy_from_slice(&[0x7F, b'P', b'K', b'G']);
+    b[4..6].copy_from_slice(&0x8000u16.to_be_bytes());
+    b[6..8].copy_from_slice(&kind.to_be_bytes());
+    b[8..12].copy_from_slice(&u32::try_from(PKG_METADATA_AT).unwrap().to_be_bytes());
+    b[12..16].copy_from_slice(&u32::try_from(entries.len()).unwrap().to_be_bytes());
+    let n = content_id.len().min(0x24);
+    b[0x30..0x30 + n].copy_from_slice(&content_id.as_bytes()[..n]);
+    let mut table = Vec::new();
+    for (id, data) in entries {
+        table.extend_from_slice(&id.to_be_bytes());
+        table.extend_from_slice(&u32::try_from(data.len()).unwrap().to_be_bytes());
+        table.extend_from_slice(data);
+    }
+    b[0x10..0x14].copy_from_slice(&u32::try_from(table.len()).unwrap().to_be_bytes());
+    b.extend_from_slice(&table);
+    b.extend_from_slice(&[0xE7; 0x200]);
+    b
+}
+
+/// An Xbox 360 STFS `LIVE` package of content type `ctype` for title id
+/// `tid` (display name «Test Arcade Game»), no thumbnail.
+pub fn stfs_extra(ctype: u32, tid: u32) -> Vec<u8> {
+    crate::consoles::testing::stfs(b"LIVE", tid, ctype, &[])
+}
+
+/// A CIA (clear content 0) of title id `tid` whose meta section carries
+/// an SMDH titled `title`, or no meta section when `title` is `None`.
+pub fn cia_titled(tid: u64, title: Option<&str>) -> Vec<u8> {
+    let mut s = crate::consoles::testing::cia(tid, false, title.is_some());
+    if let Some(title) = title {
+        let at = s.len - crate::consoles::ctr::SMDH_LEN as u64;
+        s.put(at, &crate::consoles::testing::smdh(title));
+    }
+    s.bytes()
+}
+
+/// Every official extra fixture, named as the console stores it.
+pub fn all_official() -> Vec<(&'static str, Vec<u8>)> {
+    vec![
+        ("Theme.p3t", p3t("Tidewalker")),
+        (
+            "theme.pkg",
+            pkg_with_type(1, 0x09, "UP0001-BLUS30001_00-THEME0000000001"),
+        ),
+        (
+            "avatar.pkg",
+            pkg_with_type(1, 0x0D, "UP0001-BLUS30001_00-AVATAR000000001"),
+        ),
+        (
+            "vita.pkg",
+            pkg_with_type(2, 0x1F, "EP0001-PCSB00001_00-THEME0000000001"),
+        ),
+        ("Theme.PTF", vec![0x42; 0x80]),
+        (
+            "0123456789ABCDEF0123456789ABCDEF01234567",
+            stfs_extra(0x0003_0000, 0x4D53_0001),
+        ),
+    ]
+}

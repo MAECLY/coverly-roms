@@ -1266,3 +1266,54 @@ fn the_library_scan_lists_no_left_gdk_folder_as_a_game() {
         .collect();
     assert_eq!(games, ["Sample One"], "{:?}", system.roms);
 }
+
+/// Xbox 360 extras content types (extras spec D6) get their own detail
+/// and no kind, and the No-Intro rom-name prefix stays for the five game
+/// types only.
+#[test]
+fn x360_extras_content_types_keep_dat_name_prefix_for_games_only() {
+    use coverly_core::consoles::testing::stfs;
+    use coverly_core::consoles::xbox::dat_name_prefix;
+    use coverly_core::consoles::{Budgeted, TitleKind};
+    use coverly_core::identify::sniff::SliceAt;
+    let read = |ctype: u32| {
+        let bytes = stfs(b"LIVE", 0x4D53_0001, ctype, &[]);
+        let mut src = SliceAt(&bytes);
+        coverly_core::consoles::identify(
+            &mut Budgeted::new(&mut src, bytes.len() as u64),
+            "",
+            "0123456789ABCDEF",
+        )
+        .unwrap()
+    };
+    for (ctype, detail) in [
+        (0x0003_0000, "theme package"),
+        (0x0002_0000, "gamer picture package"),
+        (0x0000_9000, "avatar item package"),
+        (0x0009_0000, "video package"),
+        (0x000C_0000, "video package"),
+        (0x0010_0000, "video package"),
+        (0x0030_0000, "video package"),
+        (0x0040_0000, "video package"),
+        (0x000F_0000, "STFS package"),
+    ] {
+        let id = read(ctype);
+        assert_eq!(id.detail, detail, "{ctype:#010x}");
+        assert_eq!(id.kind, TitleKind::Unknown, "{ctype:#010x}");
+        assert_eq!(dat_name_prefix(&id), None, "{ctype:#010x}");
+    }
+    for ctype in [
+        0x0000_7000u32,
+        0x000D_0000,
+        0x000B_0000,
+        0x0000_0002,
+        0x0008_0000,
+    ] {
+        let id = read(ctype);
+        assert_eq!(
+            dat_name_prefix(&id),
+            Some(format!("4D530001{ctype:08X}")),
+            "{ctype:#010x}"
+        );
+    }
+}
