@@ -447,6 +447,8 @@ const ORGANIZE_REPORT_KEYS = [
   'paused',
   'pause_reason',
   'resumable_items',
+  'extras_saved',
+  'extras_unwritten',
 ] as const;
 const DEDUPE_PLAN_KEYS = [
   'plan_id',
@@ -862,6 +864,7 @@ const checks: [string, readonly string[], object][] = [
     {
       ...sample.organize_report_extracted,
       ...sample.organize_report_set_aside,
+      ...sample.organize_report_extras,
     },
   ],
   [
@@ -1207,7 +1210,13 @@ describe('organise contract', () => {
     const omitted = (keys: readonly string[], ...out: string[]) =>
       keys.filter((k) => !out.includes(k)).sort();
     expect(Object.keys(sample.organize_job.report).sort()).toEqual(
-      omitted(ORGANIZE_REPORT_KEYS, 'extracted', 'set_aside'),
+      omitted(
+        ORGANIZE_REPORT_KEYS,
+        'extracted',
+        'set_aside',
+        'extras_saved',
+        'extras_unwritten',
+      ),
     );
     expect(Object.keys(sample.organize_undo.report[0]!).sort()).toEqual(
       omitted(UNDO_REPORT_KEYS, 'archive_lost', 'dirs_kept'),

@@ -1772,6 +1772,12 @@ export interface OrganizeReport {
   pause_reason: ItemErrorKind | null;
   /** Items not attempted yet: what a resume does. */
   resumable_items: number[];
+  /** Unreadable `extras.json` files copied aside before a game's index
+   * was written (extras spec D5); absent when none. */
+  extras_saved?: string[];
+  /** `Extras/` folders whose placed extras got no record (the index could
+   * not be written); absent when none. */
+  extras_unwritten?: string[];
 }
 
 export type OrganizeJobState =

@@ -646,6 +646,8 @@ fn archive_and_disc_views_match_the_shared_sample() {
             paused: None,
             pause_reason: None,
             resumable_items: vec![],
+            extras_saved: vec![],
+            extras_unwritten: vec![],
         },
         "organize_undo_archive_lost": UndoReport {
             job: job.into(),
@@ -730,6 +732,8 @@ fn organise_views_match_the_shared_sample() {
                 paused: Some(PauseKind::Volume),
                 pause_reason: Some(ItemErrorKind::DiskFull),
                 resumable_items: vec![],
+                extras_saved: vec![],
+                extras_unwritten: vec![],
             }),
             target_root: "/Users/me/ROMs-Downloaded".into(),
             layout: "anbernic-stock".into(),
@@ -1218,6 +1222,16 @@ fn organise_set_aside_views_match_the_shared_sample() {
             in_library: 2,
             bytes: 32_768,
             ..Counts::default()
+        },
+        "organize_report_extras": OrganizeReport {
+            job: Some("20261114T120000Z-1bfb-0005".into()),
+            moved: 2,
+            extras_saved: vec![
+                "/Users/me/ROMs/PS3/Resistance (USA)/Extras/extras.broken-20261114-120000.json"
+                    .into(),
+            ],
+            extras_unwritten: vec!["/Users/me/ROMs/PS3/Tidewalker/Extras".into()],
+            ..OrganizeReport::default()
         },
         "organize_report_set_aside": OrganizeReport {
             job: Some("20261025T111500Z-1bfb-0004".into()),

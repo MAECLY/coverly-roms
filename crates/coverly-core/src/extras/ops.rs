@@ -256,24 +256,7 @@ impl<'a> ExtrasJob<'a> {
             }
             _ => None,
         };
-        let added_at = rfc3339_utc(ctx.now);
-        let mut file = fresh.base.clone().unwrap_or_else(ExtrasFile::empty);
-        file.version = ExtrasFile::VERSION;
-        file.files = fresh
-            .files
-            .iter()
-            .map(|f| {
-                let mut r = f.record.clone();
-                // Only an implicit record is new: a written `found` one
-                // keeps the `added_at` it got on its first write.
-                if f.matched == Match::Found {
-                    r.added_at.clone_from(&added_at);
-                }
-                r
-            })
-            .chain(fresh.missing.iter().cloned())
-            .chain(fresh.unreached.iter().cloned())
-            .collect();
+        let file = reconciled(&fresh, ctx.now);
         let w = Writer::begin_with(
             ctx.library_root,
             ctx.data_dir,
@@ -321,42 +304,17 @@ impl<'a> ExtrasJob<'a> {
     /// written with a backup of what it replaces.
     fn write_index(&mut self) -> Result<(), ExtrasError> {
         self.ensure_extras_dir()?;
-        if let Some(bad) = self.malformed.take() {
-            let name = self.save_malformed(&bad)?;
+        let malformed = self.malformed.take();
+        if let Some(name) = write_index_with(
+            &mut self.w,
+            &self.extras,
+            &self.file,
+            malformed.as_deref(),
+            self.ctx.now,
+        )? {
             self.notes.push(ExtrasNote::MalformedSaved { file: name });
         }
-        let target = self.confine(&self.extras.join(EXTRAS_JSON))?;
-        match self
-            .w
-            .write(&target, &serialize(&self.file), OverwritePolicy::Backup)?
-        {
-            WriteOutcome::Created { .. } | WriteOutcome::Replaced { .. } => Ok(()),
-            // A folder or symlink took its place meanwhile: never replaced.
-            WriteOutcome::SkippedExists { .. } => Err(ExtrasError::Changed),
-        }
-    }
-
-    /// Copies the unreadable index to a name nothing holds, journaled
-    /// `Created`; never overwrites (a numeric suffix on collision).
-    fn save_malformed(&mut self, bytes: &[u8]) -> Result<String, ExtrasError> {
-        let stamp = backup_stamp(self.ctx.now);
-        for n in 1..=1000u32 {
-            let name = if n == 1 {
-                format!("extras.broken-{stamp}.json")
-            } else {
-                format!("extras.broken-{stamp}-{n}.json")
-            };
-            let target = self.confine(&self.extras.join(&name))?;
-            if fs::symlink_metadata(&target).is_ok() {
-                continue;
-            }
-            match self.w.create_new_file(&target, bytes, None) {
-                Ok(()) => return Ok(name),
-                Err(WriteError::Io(e)) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(e) => return Err(e.into()),
-            }
-        }
-        Err(ExtrasError::Changed)
+        Ok(())
     }
 
     /// Writes the index, closes the journal and lists `Extras/` again.
@@ -385,6 +343,168 @@ impl<'a> ExtrasJob<'a> {
             let _ = self.w.discard();
         }
     }
+}
+
+/// The model the next write of `listing`'s `Extras/` starts from (D4):
+/// what was read (whole, salvaged or partial) with its records replaced
+/// by the reconciled ones, listed files first in listing order, then the
+/// missing records, then the unreached ones. An implicit `found` record
+/// gets `now` as its `added_at`; a written one keeps its own.
+pub(crate) fn reconciled(listing: &Listing, now: SystemTime) -> ExtrasFile {
+    let added_at = rfc3339_utc(now);
+    let mut file = listing.base.clone().unwrap_or_else(ExtrasFile::empty);
+    file.version = ExtrasFile::VERSION;
+    file.files = listing
+        .files
+        .iter()
+        .map(|f| {
+            let mut r = f.record.clone();
+            if f.matched == Match::Found {
+                r.added_at.clone_from(&added_at);
+            }
+            r
+        })
+        .chain(listing.missing.iter().cloned())
+        .chain(listing.unreached.iter().cloned())
+        .collect();
+    file
+}
+
+/// Writes `file` as `extras/extras.json` through `w`, in whatever job `w`
+/// holds (an Extras job, or the Organizar apply that placed extras: D3,
+/// D10; P-3). The bytes of an unreadable index (`malformed`) are first
+/// copied to a new `extras.broken-<YYYYMMDD-HHMMSS>[-n].json` (journaled
+/// `Created`, never over anything); then the index is written with a
+/// backup of what it replaces, so undo restores it byte for byte. Returns
+/// that backup's file name when one was made. Every target is confined to
+/// `extras`, which must already exist.
+pub(crate) fn write_index_with(
+    w: &mut Writer,
+    extras: &Path,
+    file: &ExtrasFile,
+    malformed: Option<&[u8]>,
+    now: SystemTime,
+) -> Result<Option<String>, ExtrasError> {
+    let saved = match malformed {
+        Some(bad) => Some(save_malformed(w, extras, bad, now)?),
+        None => None,
+    };
+    let target = confine(extras, &extras.join(EXTRAS_JSON))?;
+    match w.write(&target, &serialize(file), OverwritePolicy::Backup)? {
+        WriteOutcome::Created { .. } | WriteOutcome::Replaced { .. } => Ok(saved),
+        // A folder or symlink took its place meanwhile: never replaced.
+        WriteOutcome::SkippedExists { .. } => Err(ExtrasError::Changed),
+    }
+}
+
+/// Copies the unreadable index to a name nothing holds in `extras`,
+/// journaled `Created`; never overwrites (a numeric suffix on collision).
+fn save_malformed(
+    w: &mut Writer,
+    extras: &Path,
+    bytes: &[u8],
+    now: SystemTime,
+) -> Result<String, ExtrasError> {
+    let stamp = backup_stamp(now);
+    for n in 1..=1000u32 {
+        let name = if n == 1 {
+            format!("extras.broken-{stamp}.json")
+        } else {
+            format!("extras.broken-{stamp}-{n}.json")
+        };
+        let target = confine(extras, &extras.join(&name))?;
+        if fs::symlink_metadata(&target).is_ok() {
+            continue;
+        }
+        match w.create_new_file(&target, bytes, None) {
+            Ok(()) => return Ok(name),
+            Err(WriteError::Io(e)) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Err(ExtrasError::Changed)
+}
+
+/// An extra Organizar placed in a game's `Extras/` (extras spec D6, D15):
+/// what its `extras.json` record says.
+#[derive(Clone, Debug)]
+pub(crate) struct PlacedExtra {
+    /// Where it is now (absolute, inside the game's `Extras/`).
+    pub path: PathBuf,
+    pub provenance: Provenance,
+    pub format: super::ExtraFormat,
+    /// Its file name in the pile.
+    pub from_name: String,
+    pub rip: Option<RipTags>,
+}
+
+/// What [`write_organized`] did to one game's index.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum OrganizedIndex {
+    /// Written (created or replaced); `saved` names the copy of an
+    /// unreadable index kept first (D5).
+    Written { saved: Option<String> },
+    /// Already says all of it (a resumed job whose earlier run wrote it).
+    Unchanged,
+}
+
+/// Writes the index of the `Extras/` folder `extras` after Organizar
+/// placed `placed` in it, through the apply's own writer (one journal,
+/// one undo: D3, D10). The model is the reconciled listing (D4) with each
+/// placed file's record set to `organize` origin, its provenance and
+/// format; tags a record already carries are kept. Nothing is written
+/// when the bytes would not change. A newer index is never touched
+/// ([`ExtrasError::IndexNewer`]); one that cannot even be copied aside
+/// neither ([`ExtrasError::IndexUnreadable`]).
+pub(crate) fn write_organized(
+    w: &mut Writer,
+    extras: &Path,
+    placed: &[PlacedExtra],
+    now: SystemTime,
+) -> Result<OrganizedIndex, ExtrasError> {
+    if !fs::symlink_metadata(extras).is_ok_and(|m| m.is_dir()) {
+        return Err(ExtrasError::OutsideExtras(extras.to_path_buf()));
+    }
+    let listing = list(extras);
+    let malformed = match listing.index {
+        IndexState::Newer { .. } => return Err(ExtrasError::IndexNewer),
+        IndexState::Malformed {
+            unreadable: Some(_),
+            ..
+        } => return Err(ExtrasError::IndexUnreadable),
+        IndexState::Malformed { .. } => {
+            Some(read_index_bytes(extras).ok_or(ExtrasError::IndexUnreadable)?)
+        }
+        IndexState::Ok | IndexState::Absent => None,
+    };
+    let mut file = reconciled(&listing, now);
+    let mut any = false;
+    for p in placed {
+        let rel = rel_of(extras, &p.path)?;
+        let Some(at) = listing.files.iter().position(|f| f.path == rel) else {
+            // Gone again since it was placed: nothing to record.
+            continue;
+        };
+        let r = &mut file.files[at];
+        r.kind = type_of(ext_of(&listing.files[at].name));
+        r.provenance = p.provenance;
+        r.origin = Origin {
+            how: OriginHow::Organize,
+            format: Some(p.format),
+            from_name: Some(p.from_name.clone()),
+            rip: p.rip.clone(),
+            rest: std::mem::take(&mut r.origin.rest),
+        };
+        any = true;
+    }
+    if !any {
+        return Ok(OrganizedIndex::Unchanged);
+    }
+    if malformed.is_none() && read_index_bytes(extras).is_some_and(|b| b == serialize(&file)) {
+        return Ok(OrganizedIndex::Unchanged);
+    }
+    let saved = write_index_with(w, extras, &file, malformed.as_deref(), now)?;
+    Ok(OrganizedIndex::Written { saved })
 }
 
 /// `20261113-120000` (UTC) for a malformed-file backup name (D5).
@@ -1670,5 +1790,48 @@ mod tests {
         let t = UNIX_EPOCH + Duration::from_secs(1_794_571_200);
         assert_eq!(backup_stamp(t), "20261113-120000");
         assert_eq!(backup_stamp(UNIX_EPOCH), "19700101-000000");
+    }
+
+    /// A resumed Organizar job writes a game's index again only when it
+    /// does not say all of it yet (one write per game, no empty ops).
+    #[test]
+    fn an_organised_index_already_written_is_left_as_is() {
+        let lib = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let root = lib.path().canonicalize().unwrap();
+        let extras = root.join("Game").join("Extras");
+        fs::create_dir_all(extras.join("Themes")).unwrap();
+        let path = extras.join("Themes").join("t.p3t");
+        fs::write(&path, b"P3TF synthetic").unwrap();
+        let placed = [PlacedExtra {
+            path,
+            provenance: Provenance::Official,
+            format: super::super::ExtraFormat::Ps3P3t,
+            from_name: "t.p3t".into(),
+            rip: None,
+        }];
+        let now = UNIX_EPOCH + Duration::from_secs(1_794_571_200);
+        let mut w = Writer::begin(&root, data.path()).unwrap();
+        assert_eq!(
+            write_organized(&mut w, &extras, &placed, now).unwrap(),
+            OrganizedIndex::Written { saved: None }
+        );
+        let first = fs::read(extras.join(EXTRAS_JSON)).unwrap();
+        let later = now + Duration::from_secs(60);
+        assert_eq!(
+            write_organized(&mut w, &extras, &placed, later).unwrap(),
+            OrganizedIndex::Unchanged
+        );
+        assert_eq!(fs::read(extras.join(EXTRAS_JSON)).unwrap(), first);
+        // A placed file gone again is not recorded, and nothing is written.
+        let gone = [PlacedExtra {
+            path: extras.join("Themes").join("gone.p3t"),
+            ..placed[0].clone()
+        }];
+        assert_eq!(
+            write_organized(&mut w, &extras, &gone, later).unwrap(),
+            OrganizedIndex::Unchanged
+        );
+        w.finish().unwrap();
     }
 }

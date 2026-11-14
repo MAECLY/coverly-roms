@@ -817,3 +817,400 @@ fn a_pile_game_folders_own_extras_folder_stays_whole() {
         .iter()
         .all(|i| i.game.as_ref().map(|g| g.role) != Some(GameRole::Extra)));
 }
+
+// --- Apply writes `extras.json` in the organise journal (extras spec D3,
+// D5, D10) ---
+
+mod apply {
+    use super::*;
+
+    use coverly_core::extras::index::list;
+    use coverly_core::extras::ops::{set_tags, ExtrasCtx};
+    use coverly_core::organize::apply::user_available;
+    use coverly_core::organize::{apply_organize, ApplyEnv, OrganizeReport};
+    use coverly_core::write::trash::FakeTrash;
+    use coverly_core::write::{later_jobs, same_volume, undo_job, undo_jobs_in_order, JobKind};
+    use serde_json::Value;
+
+    /// Pile and library under one resolved temp folder (journal roots are
+    /// compared as paths, and macOS temp folders sit behind a link).
+    struct Lib {
+        _tmp: tempfile::TempDir,
+        data: tempfile::TempDir,
+        pile: PathBuf,
+        lib: PathBuf,
+        /// The game folder, relative to `lib`.
+        folder: PathBuf,
+    }
+
+    impl Lib {
+        fn new() -> Lib {
+            let tmp = tempfile::tempdir().unwrap();
+            let base = tmp.path().canonicalize().unwrap();
+            let (pile, lib) = (base.join("pile"), base.join("lib"));
+            let (_, folder) = ps3_library(&lib);
+            put(
+                &pile,
+                "theme.pkg",
+                &xt::pkg_with_type(1, 0x09, "UP9000-BCUS98107_00-THEME0000000001"),
+                3,
+            );
+            Lib {
+                _tmp: tmp,
+                data: tempfile::tempdir().unwrap(),
+                pile,
+                lib,
+                folder,
+            }
+        }
+
+        fn game(&self) -> PathBuf {
+            self.lib.join(&self.folder)
+        }
+
+        fn extras(&self) -> PathBuf {
+            self.game().join("Extras")
+        }
+
+        fn plan(&self) -> OrganizePlan {
+            plan_of(&self.pile, &options("coverly-library", &self.lib))
+        }
+
+        fn apply(&self) -> OrganizeReport {
+            let plan = self.plan();
+            assert!(item(&plan, "theme.pkg").moves_in(), "{plan:#?}");
+            apply_organize(
+                &plan,
+                &ApplyEnv {
+                    data_dir: self.data.path(),
+                    progress: &|_| {},
+                    cancel: &AtomicBool::new(false),
+                    trash: &FakeTrash::unavailable("no-trash"),
+                    tools: Some(&[]),
+                },
+            )
+            .unwrap()
+        }
+
+        fn index(&self) -> Value {
+            serde_json::from_slice(&fs::read(self.extras().join("extras.json")).unwrap()).unwrap()
+        }
+
+        /// `(op kind, target file name)` of every journal entry of `job`.
+        fn ops(&self, job: &str) -> Vec<(String, String)> {
+            let journal = self.data.path().join("jobs").join(format!("{job}.jsonl"));
+            fs::read_to_string(journal)
+                .unwrap()
+                .lines()
+                .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+                .filter_map(|l| {
+                    let kind = l["op"]["kind"].as_str()?.to_string();
+                    let target = PathBuf::from(l["target"].as_str()?);
+                    let name = target.file_name()?.to_string_lossy().into_owned();
+                    Some((kind, name))
+                })
+                .collect()
+        }
+    }
+
+    fn record<'a>(index: &'a Value, path: &str) -> &'a Value {
+        index["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["path"] == path)
+            .unwrap_or_else(|| panic!("no record {path}: {index:#}"))
+    }
+
+    fn has(ops: &[(String, String)], kind: &str, name: &str) -> bool {
+        ops.iter().any(|(k, n)| k == kind && n == name)
+    }
+
+    #[test]
+    fn apply_places_the_extra_and_writes_the_index_in_the_same_journal() {
+        let fx = Lib::new();
+        let report = fx.apply();
+        assert_eq!(report.moved, 1, "{report:#?}");
+        let placed = fx.extras().join("Themes").join("theme.pkg");
+        assert!(placed.is_file());
+        let job = report.job.clone().unwrap();
+        let ops = fx.ops(&job);
+        assert!(has(&ops, "dir-created", "Extras"), "{ops:?}");
+        assert!(has(&ops, "dir-created", "Themes"), "{ops:?}");
+        assert!(has(&ops, "moved", "theme.pkg"), "{ops:?}");
+        assert!(has(&ops, "created", "extras.json"), "{ops:?}");
+        // The index is the job's last write, and only one.
+        assert_eq!(
+            ops.last().map(|(k, n)| (k.as_str(), n.as_str())),
+            Some(("created", "extras.json"))
+        );
+        assert_eq!(ops.iter().filter(|(_, n)| n == "extras.json").count(), 1);
+        let index = fx.index();
+        assert_eq!(index["version"], 1);
+        let r = record(&index, "Themes/theme.pkg");
+        assert_eq!(r["provenance"], "official");
+        assert_eq!(r["type"], "other");
+        assert_eq!(r["origin"]["how"], "organize");
+        assert_eq!(r["origin"]["format"], "ps3-theme-pkg");
+        assert_eq!(r["origin"]["from_name"], "theme.pkg");
+        assert_eq!(r["tags"], serde_json::json!([]));
+        assert!(report.extras_saved.is_empty());
+        assert!(report.extras_unwritten.is_empty());
+        // The listing reads it back as the file's own record.
+        let listing = list(&fx.extras());
+        assert_eq!(listing.files.len(), 1);
+        assert_eq!(
+            listing.files[0].matched,
+            coverly_core::extras::index::Match::Path
+        );
+    }
+
+    #[test]
+    fn a_tagged_rip_is_recorded_as_the_users_with_its_tags() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().canonicalize().unwrap();
+        let (pile, lib) = (base.join("pile"), base.join("lib"));
+        let snes = snes_library(&lib);
+        put(
+            &pile,
+            "track01.spc",
+            &xt::spc("Boss", "Super Metroid", "Kenji Yamamoto", true),
+            2,
+        );
+        let data = tempfile::tempdir().unwrap();
+        let plan = plan_of(&pile, &options("coverly-library", &lib));
+        let report = apply_organize(
+            &plan,
+            &ApplyEnv {
+                data_dir: data.path(),
+                progress: &|_| {},
+                cancel: &AtomicBool::new(false),
+                trash: &FakeTrash::unavailable("no-trash"),
+                tools: Some(&[]),
+            },
+        )
+        .unwrap();
+        assert_eq!(report.moved, 1, "{report:#?}");
+        let extras = lib
+            .join(&snes)
+            .join("Super Metroid (Japan, USA)")
+            .join("Extras");
+        let index: Value =
+            serde_json::from_slice(&fs::read(extras.join("extras.json")).unwrap()).unwrap();
+        let r = record(&index, "Soundtrack/track01.spc");
+        assert_eq!(r["provenance"], "user");
+        assert_eq!(r["origin"]["how"], "organize");
+        assert_eq!(r["origin"]["format"], "spc");
+        assert_eq!(r["origin"]["rip"]["game"], "Super Metroid");
+        assert_eq!(r["origin"]["rip"]["artist"], "Kenji Yamamoto");
+        // A rip's tags are offered, never added without the user (D15).
+        assert_eq!(r["tags"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn apply_merges_into_an_existing_index_with_backup() {
+        let fx = Lib::new();
+        put(&fx.extras(), "Soundtrack/a.flac", b"fLaC synthetic", 4);
+        let before = serde_json::json!({
+            "version": 1,
+            "categories": {},
+            "files": [{
+                "path": "Soundtrack/a.flac",
+                "type": "audio",
+                "provenance": "user",
+                "origin": { "how": "added" },
+                "tags": ["tema del jefe final"],
+                "size": 14,
+                "mtime_ns": 0,
+                "added_at": "2026-11-01T10:00:00Z",
+                "kept": "from a newer build"
+            }],
+            "future": true
+        });
+        let before = serde_json::to_vec_pretty(&before).unwrap();
+        put(&fx.extras(), "extras.json", &before, 5);
+        let report = fx.apply();
+        let job = report.job.clone().unwrap();
+        let ops = fx.ops(&job);
+        assert!(has(&ops, "replaced", "extras.json"), "{ops:?}");
+        assert!(!has(&ops, "created", "extras.json"), "{ops:?}");
+        let index = fx.index();
+        assert_eq!(index["future"], true);
+        let a = record(&index, "Soundtrack/a.flac");
+        assert_eq!(a["tags"], serde_json::json!(["tema del jefe final"]));
+        assert_eq!(a["origin"]["how"], "added");
+        assert_eq!(a["kept"], "from a newer build");
+        assert_eq!(record(&index, "Themes/theme.pkg")["provenance"], "official");
+        // Undo brings the previous file back byte for byte.
+        undo_job(fx.data.path(), &job).unwrap();
+        assert_eq!(fs::read(fx.extras().join("extras.json")).unwrap(), before);
+        assert!(!fx.extras().join("Themes").exists());
+    }
+
+    #[test]
+    fn apply_backs_up_a_malformed_index_first() {
+        let fx = Lib::new();
+        put(&fx.extras(), "extras.json", b"{not json", 4);
+        let plan = fx.plan();
+        assert!(item(&plan, "theme.pkg")
+            .notes
+            .contains(&ItemNote::ExtrasBackupFirst));
+        let report = fx.apply();
+        assert_eq!(report.extras_saved.len(), 1, "{report:#?}");
+        let saved = report.extras_saved[0].clone();
+        assert_eq!(saved.parent(), Some(fx.extras().as_path()));
+        let name = saved.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(
+            name.starts_with("extras.broken-") && name.ends_with(".json"),
+            "{name}"
+        );
+        assert_eq!(fs::read(&saved).unwrap(), b"{not json");
+        let index = fx.index();
+        assert_eq!(record(&index, "Themes/theme.pkg")["provenance"], "official");
+        let job = report.job.clone().unwrap();
+        let ops = fx.ops(&job);
+        assert!(has(&ops, "created", &name), "{ops:?}");
+        assert!(has(&ops, "replaced", "extras.json"), "{ops:?}");
+        undo_job(fx.data.path(), &job).unwrap();
+        assert_eq!(
+            fs::read(fx.extras().join("extras.json")).unwrap(),
+            b"{not json"
+        );
+        assert!(!saved.exists());
+    }
+
+    #[test]
+    fn a_newer_index_at_apply_time_keeps_the_extra_in_the_pile() {
+        let fx = Lib::new();
+        let plan = fx.plan();
+        // Written by a newer build between the dry run and apply.
+        put(
+            &fx.extras(),
+            "extras.json",
+            br#"{"version": 2, "files": []}"#,
+            4,
+        );
+        let report = apply_organize(
+            &plan,
+            &ApplyEnv {
+                data_dir: fx.data.path(),
+                progress: &|_| {},
+                cancel: &AtomicBool::new(false),
+                trash: &FakeTrash::unavailable("no-trash"),
+                tools: Some(&[]),
+            },
+        )
+        .unwrap();
+        assert_eq!(report.moved, 0, "{report:#?}");
+        assert!(fx.pile.join("theme.pkg").is_file());
+        assert!(!fx.extras().join("Themes").exists());
+        assert_eq!(
+            fs::read(fx.extras().join("extras.json")).unwrap(),
+            br#"{"version": 2, "files": []}"#
+        );
+    }
+
+    #[test]
+    fn undo_removes_the_extra_the_index_and_empty_extras() {
+        let fx = Lib::new();
+        let report = fx.apply();
+        let job = report.job.clone().unwrap();
+        let undo = undo_job(fx.data.path(), &job).unwrap();
+        assert!(undo.skipped_modified.is_empty(), "{undo:#?}");
+        assert!(fx.pile.join("theme.pkg").is_file());
+        assert!(!fx.extras().exists(), "Extras/ stays: {undo:#?}");
+        assert!(fx.game().join("Resistance (USA).pkg").is_file());
+    }
+
+    fn tag_it(fx: &Lib) -> String {
+        let trash = FakeTrash::unavailable("no-trash");
+        let game = fx.game();
+        let ctx = ExtrasCtx {
+            library_root: &fx.lib,
+            game_dir: &game,
+            data_dir: fx.data.path(),
+            trash: &trash,
+            now: now(),
+            same_volume,
+            available: user_available,
+        };
+        let listing = list(&fx.extras());
+        let out = set_tags(&ctx, &listing, 0, &["tema del jefe final".to_string()]).unwrap();
+        out.job.unwrap()
+    }
+
+    #[test]
+    fn undo_keeps_an_index_a_later_extras_job_changed() {
+        let fx = Lib::new();
+        let organise = fx.apply().job.unwrap();
+        let tags = tag_it(&fx);
+        let later = later_jobs(fx.data.path(), &organise).unwrap();
+        assert_eq!(later.len(), 1, "{later:#?}");
+        assert_eq!(later[0].job, tags);
+        assert_eq!(later[0].kind, JobKind::Extras);
+        // Undone alone, the organise job keeps the json the user changed,
+        // and with it Extras/.
+        let undo = undo_job(fx.data.path(), &organise).unwrap();
+        let json = fx.extras().join("extras.json");
+        assert!(json.is_file());
+        assert!(undo.skipped_modified.contains(&json), "{undo:#?}");
+        assert!(fx.pile.join("theme.pkg").is_file());
+        assert!(!fx.extras().join("Themes").exists());
+        assert_eq!(
+            record(&fx.index(), "Themes/theme.pkg")["tags"],
+            serde_json::json!(["tema del jefe final"])
+        );
+    }
+
+    #[test]
+    fn undoing_the_later_extras_job_first_undoes_both_cleanly() {
+        let fx = Lib::new();
+        let organise = fx.apply().job.unwrap();
+        let tags = tag_it(&fx);
+        let reports =
+            undo_jobs_in_order(fx.data.path(), &[organise.clone(), tags.clone()]).unwrap();
+        assert_eq!(reports.len(), 2);
+        assert_eq!(reports[0].job, tags);
+        for r in &reports {
+            assert!(r.skipped_modified.is_empty(), "{r:#?}");
+        }
+        assert!(fx.pile.join("theme.pkg").is_file());
+        assert!(!fx.extras().exists());
+    }
+
+    #[test]
+    fn key_material_never_opened_on_apply_or_undo() {
+        let fx = Lib::new();
+        let keys = ["x.rap", "title.tik", "prod.keys", "kv.bin"];
+        for (n, name) in keys.iter().enumerate() {
+            put(&fx.pile, name, &[0x5Au8; 0x2000], 10 + n as u64);
+        }
+        // Key material already inside the game's Extras/ (listed, never read).
+        put(&fx.extras(), "Guides/act.dat", &[0x5Au8; 0x2000], 20);
+        let plan = fx.plan();
+        let _turn = log_turn();
+        start_open_log();
+        let report = apply_organize(
+            &plan,
+            &ApplyEnv {
+                data_dir: fx.data.path(),
+                progress: &|_| {},
+                cancel: &AtomicBool::new(false),
+                trash: &FakeTrash::unavailable("no-trash"),
+                tools: Some(&[]),
+            },
+        )
+        .unwrap();
+        undo_job(fx.data.path(), report.job.as_deref().unwrap()).unwrap();
+        let opened = take_open_log();
+        for name in keys.iter().chain(&["act.dat"]) {
+            assert!(
+                !opened
+                    .iter()
+                    .any(|p| p.file_name().is_some_and(|n| n == *name)),
+                "{name} opened: {opened:?}"
+            );
+        }
+        assert!(fx.extras().join("Guides").join("act.dat").is_file());
+    }
+}

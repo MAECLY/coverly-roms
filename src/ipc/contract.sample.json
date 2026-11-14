@@ -2537,6 +2537,21 @@
     "path": "ROMS/GB/Tetris (World) (Rev 1).gb",
     "relation": "version"
   },
+  "organize_report_extras": {
+    "copied": 0,
+    "extras_saved": [
+      "/Users/me/ROMs/PS3/Resistance (USA)/Extras/extras.broken-20261114-120000.json"
+    ],
+    "extras_unwritten": ["/Users/me/ROMs/PS3/Tidewalker/Extras"],
+    "failed": 0,
+    "items": [],
+    "job": "20261114T120000Z-1bfb-0005",
+    "moved": 2,
+    "pause_reason": null,
+    "paused": null,
+    "resumable_items": [],
+    "skipped": 0
+  },
   "organize_report_set_aside": {
     "copied": 0,
     "failed": 0,
