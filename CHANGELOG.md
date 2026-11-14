@@ -168,6 +168,10 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   under «Staying where they are».
 - Organise's «Choose a system…» selects have an id and a name, so the
   browser no longer reports them as unlabelled form fields.
+- A translation patch named after its ROM plus translation tags
+  (`Game (USA) [T-Es].ips`, `[T-En by …]`, `[T+Spa]`, `(Traducido)`) is
+  linked to `Game (USA)` when the rest of the name matches exactly and only
+  one game has that name; otherwise it stays where it is, as before.
 
 ## [0.4.0] - 2026-11-03
 
