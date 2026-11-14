@@ -28,9 +28,10 @@ use crate::game_folder::{classify_listing, ChildRole, DirShape, FixedFolder, Gam
 use crate::identify::names::{parse_tags, ReleaseClass};
 use crate::organize::target::strip_suffix_ignoring_case;
 use crate::organize::walk::{
-    list_dir, tree_summary_excluding, OsMetaProbe, WalkOptions, MAX_DEPTH, SHEET_EXTS, TRACK_EXTS,
+    folder_per_game_suffix, is_folder_per_game, list_dir, tree_summary_excluding, OsMetaProbe,
+    WalkOptions, MAX_DEPTH, SHEET_EXTS, TRACK_EXTS,
 };
-use crate::profiles::Profile;
+use crate::profiles::{builtin_art_dir_names, Profile};
 use crate::systems::{System, SystemDb};
 
 use classify::{extension, is_rom_extension, is_skipped_dir, is_skipped_entry};
@@ -399,6 +400,15 @@ fn scan_system(
         .folder_game_suffix
         .get(&system.id)
         .filter(|s| !s.is_empty());
+    // A folder-per-game system (spec 2026-10-26-pc-arcade P4) skips the
+    // art folders of every built-in profile, so art written under another
+    // layout is never a game.
+    let per_game = is_folder_per_game(&system.id);
+    let art_dirs: &[String] = if per_game {
+        builtin_art_dir_names()
+    } else {
+        &profile.art_dir_names
+    };
     let mut folder_games: Vec<FolderGame> = Vec::new();
     // Game folders found, by path, with their base.
     let mut game_dirs: HashMap<PathBuf, GameBase> = HashMap::new();
@@ -422,13 +432,26 @@ fn scan_system(
             if !e.file_type().is_dir() {
                 return true;
             }
-            if is_skipped_dir(&name, &profile.art_dir_names, opts) || is_quarantine(&name, opts) {
+            if is_skipped_dir(&name, art_dirs, opts) || is_quarantine(&name, opts) {
                 return false;
             }
             // The system folder itself is never a game (filter_entry also
             // sees entries below `min_depth`).
             if e.depth() == 0 {
                 return true;
+            }
+            if per_game {
+                // One game per child folder (P4), opaque (P5): nothing below
+                // is listed, probed or opened; its size is the metadata tree
+                // summary.
+                if e.depth() == 1 {
+                    folder_games.push(FolderGame {
+                        path: e.path().to_path_buf(),
+                        suffix: folder_per_game_suffix(&name),
+                        fixed: Vec::new(),
+                    });
+                }
+                return false;
             }
             if e.depth() >= 2 {
                 if let Some(fixed) = FixedFolder::from_dir_name(&name) {
@@ -465,7 +488,7 @@ fn scan_system(
             if folder_game {
                 folder_games.push(FolderGame {
                     path: e.path().to_path_buf(),
-                    suffix: suffixed,
+                    suffix: suffixed.map(|s| s.trim_start_matches('.').to_lowercase()),
                     fixed: fixed_dirs,
                 });
                 return false;
@@ -505,7 +528,7 @@ fn scan_system(
     roms.extend(
         folder_games
             .into_iter()
-            .map(|game| folder_entry(dir, game.path, game.suffix, &game.fixed, profile)),
+            .map(|game| folder_entry(dir, game.path, game.suffix.as_deref(), &game.fixed, profile)),
     );
     for rom in &mut roms {
         if let Some((_, role)) = orphan_dirs
@@ -538,9 +561,10 @@ fn scan_system(
 
 /// A folder game found by the walk, with the fixed folders its size leaves
 /// out (D5).
-struct FolderGame<'a> {
+struct FolderGame {
     path: PathBuf,
-    suffix: Option<&'a String>,
+    /// The folder-game suffix the name ends in, lowercase, without the dot.
+    suffix: Option<String>,
     fixed: Vec<PathBuf>,
 }
 
@@ -895,13 +919,13 @@ fn is_console_folder(dir: &Path, listed: &[(String, PathBuf, bool)]) -> bool {
 }
 
 /// The entry of a folder game (spec D26): measured from metadata only
-/// (the D27 tree summary), never opened. `suffix` is the layout's suffix
-/// the folder name ends in, if any; `fixed` the game folder's fixed
+/// (the D27 tree summary), never opened. `suffix` is the folder-game
+/// suffix the folder name ends in (`ps3`, `exe`), without the dot, if any; `fixed` the game folder's fixed
 /// folders, left out of the size (game folders spec D5).
 fn folder_entry(
     system_dir: &Path,
     path: PathBuf,
-    suffix: Option<&String>,
+    suffix: Option<&str>,
     fixed: &[PathBuf],
     profile: &Profile,
 ) -> RomEntry {
@@ -910,7 +934,8 @@ fn folder_entry(
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let (stem, ext) = match suffix.and_then(|s| strip_suffix_ignoring_case(&name, s)) {
+    let dotted = suffix.map(|s| format!(".{s}"));
+    let (stem, ext) = match dotted.and_then(|s| strip_suffix_ignoring_case(&name, &s)) {
         Some(stem) => {
             let ext = name[stem.len()..].trim_start_matches('.').to_lowercase();
             let stem = if profile.folder_stem_keeps_suffix {

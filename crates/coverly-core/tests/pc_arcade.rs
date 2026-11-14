@@ -6,7 +6,7 @@
 mod common;
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
@@ -283,6 +283,142 @@ fn typex_folders_per_profile_and_art_union() {
         assert!(
             !union[i + 1..].iter().any(|b| b.eq_ignore_ascii_case(a)),
             "{a} listed twice"
+        );
+    }
+}
+
+/// Creates the empty file `path` (and its parents) with a pinned mtime.
+fn touch(path: &Path, n: u64) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, b"").unwrap();
+    pin_mtime(path, n);
+}
+
+/// The last component of `path`.
+fn name(path: &Path) -> String {
+    path.file_name().unwrap().to_string_lossy().into_owned()
+}
+
+/// The §10 Type X games in `<parent>/type-x/`; returns that folder.
+fn typex_library(parent: &Path) -> PathBuf {
+    let sys = parent.join("type-x");
+    touch(&sys.join("Raiden IV (Type X)").join("game.exe"), 1);
+    fs::create_dir_all(sys.join("Raiden IV (Type X)").join("data")).unwrap();
+    touch(&sys.join("Chaos Code.exe").join("Chaos Code.exe"), 2);
+    touch(
+        &sys.join("Akai Katana Shin for NesicaxLive")
+            .join("Game.exe"),
+        3,
+    );
+    touch(&sys.join("Homura.lnk"), 4);
+    touch(&sys.join("images").join("Raiden IV (Type X).png"), 5);
+    touch(&sys.join("readme.txt"), 6);
+    touch(&sys.join(".git").join("HEAD"), 7);
+    fs::create_dir_all(sys.join("Empty Game")).unwrap();
+    sys
+}
+
+#[test]
+fn scan_typex_folder_games() {
+    use coverly_core::identify::names::parse_name;
+    use coverly_core::scan::{scan_library, ScanOptions};
+    for (layout, chaos_stem) in [("esde", "Chaos Code.exe"), ("batocera", "Chaos Code")] {
+        let p = profile(layout);
+        let tmp = TempDir::new().unwrap();
+        // ES-DE's folder is `type-x`; Batocera has none, the global alias resolves.
+        typex_library(&tmp.path().join(&p.roms_root));
+        let scan = scan_library(
+            tmp.path(),
+            &p,
+            &SystemDb::builtin(),
+            &ScanOptions::default(),
+        );
+        assert!(scan.warnings.is_empty(), "{layout}: {:?}", scan.warnings);
+        let sys = scan
+            .systems
+            .iter()
+            .find(|s| s.folder_name == "type-x")
+            .unwrap();
+        assert_eq!(sys.system_id.as_deref(), Some("typex"));
+        let mut rows: Vec<(String, bool, String)> = sys
+            .roms
+            .iter()
+            .map(|r| {
+                (
+                    name(&r.path),
+                    r.is_dir,
+                    parse_name(r.title_stem(), false).title,
+                )
+            })
+            .collect();
+        rows.sort();
+        assert_eq!(
+            rows,
+            [
+                (
+                    "Akai Katana Shin for NesicaxLive".into(),
+                    true,
+                    "Akai Katana Shin".into()
+                ),
+                ("Chaos Code.exe".into(), true, "Chaos Code".into()),
+                ("Empty Game".into(), true, "Empty Game".into()),
+                ("Homura.lnk".into(), false, "Homura".into()),
+                ("Raiden IV (Type X)".into(), true, "Raiden IV".into()),
+            ],
+            "{layout}"
+        );
+        let chaos = sys
+            .roms
+            .iter()
+            .find(|r| name(&r.path) == "Chaos Code.exe")
+            .unwrap();
+        assert_eq!(chaos.stem, chaos_stem, "{layout}");
+        assert_eq!(chaos.ext, "exe");
+        let raiden = sys
+            .roms
+            .iter()
+            .find(|r| name(&r.path) == "Raiden IV (Type X)")
+            .unwrap();
+        assert_eq!(raiden.ext, "", "{layout}: no suffix, no ext");
+        for r in sys.roms.iter().filter(|r| r.is_dir) {
+            assert!(r.children.is_empty() && r.fixed_counts.is_none() && r.role.is_none());
+            assert_eq!(r.size, 0);
+            // Exactly one level below the system folder, by component.
+            assert_eq!(r.path.parent().unwrap().file_name().unwrap(), "type-x");
+            assert!(r.rel_dir.as_os_str().is_empty());
+        }
+    }
+}
+
+#[test]
+fn scan_typex_uppercase_suffix() {
+    use coverly_core::identify::names::parse_name;
+    use coverly_core::scan::{scan_library, ScanOptions};
+    for layout in ["esde", "batocera"] {
+        let p = profile(layout);
+        let tmp = TempDir::new().unwrap();
+        let sys = tmp.path().join(&p.roms_root).join("type-x");
+        touch(&sys.join("Chaos Code.EXE").join("Chaos Code.exe"), 1);
+        let scan = scan_library(
+            tmp.path(),
+            &p,
+            &SystemDb::builtin(),
+            &ScanOptions::default(),
+        );
+        let sys = scan
+            .systems
+            .iter()
+            .find(|s| s.folder_name == "type-x")
+            .unwrap();
+        assert_eq!(sys.roms.len(), 1, "{layout}");
+        let r = &sys.roms[0];
+        assert!(r.is_dir);
+        assert_eq!(name(&r.path), "Chaos Code.EXE");
+        assert_eq!(r.ext, "exe", "{layout}");
+        assert_eq!(
+            parse_name(r.title_stem(), false).title,
+            "Chaos Code",
+            "{layout}"
         );
     }
 }
