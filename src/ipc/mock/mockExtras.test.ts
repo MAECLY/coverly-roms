@@ -15,6 +15,7 @@ import { FIXTURE_NOW } from './fixture';
 import { sineWav } from './media/tone';
 import {
   createMockBackend,
+  MOCK_LIBRARIES,
   type MockBackend,
   type MockOptions,
 } from './mockBackend';
@@ -755,6 +756,68 @@ describe('mock extras library (?mockPick=extras)', () => {
       ...Array.from({ length: 40 }, (_, i) => view.getInt16(44 + i * 2, true)),
     );
     expect(peak).toBeGreaterThan(10_000);
+  });
+
+  it('undoes an Extras job from the jobs history without touching another open library', async () => {
+    const { b, gen, id, list } = await open();
+    const v = await list('Tidewalker');
+    const w = await b.extrasTrash(gen, id('Tidewalker'), v.rev, [0]);
+    const other = await b.openLibrary(MOCK_LIBRARIES[1].path);
+    const seen: EntriesUpdated[] = [];
+    await b.onEntriesUpdated((u) => seen.push(u));
+    const undone = await b.organizeUndo(w.job!, false);
+    expect(undone.report[0]!.restored).toHaveLength(1);
+    // The other library's entry with Tidewalker's id keeps its cells.
+    expect(seen).toEqual([]);
+    const again = await b.openLibrary(MOCK_LIBRARIES[1].path);
+    expect(again.entries[id('Tidewalker')]!.addons).toEqual(
+      other.entries[id('Tidewalker')]!.addons,
+    );
+    // Back in the Extras library the file is there again.
+    const lib = await b.openLibrary(MOCK_EXTRAS);
+    const e = lib.entries.find((x) => x.name === 'Tidewalker')!;
+    expect(e.addons?.extras).toBe(v.files.length);
+  });
+
+  it('a later write keeps a repaired index when an earlier job is undone', async () => {
+    const { b, gen, id, list } = await open();
+    const game = id('Lantern Harbor');
+    const v = await list('Lantern Harbor');
+    const first = await b.extrasSetTags(gen, game, v.rev, 0, ['mapa']);
+    const second = await b.extrasSetTags(gen, game, first.listing.rev, 1, [
+      'notas',
+    ]);
+    // extras.json was written again after the first job: undoing it
+    // leaves the index the second job wrote (Rust keeps a file changed
+    // since), so it does not read as malformed again.
+    const u = await b.extrasUndo(gen, game, first.job!);
+    expect(u.listing.index).toEqual({ state: 'ok' });
+    const u2 = await b.extrasUndo(gen, game, second.job!);
+    expect(u2.listing.index).toEqual({ state: 'ok' });
+  });
+
+  it('a commit that does not fit is refused with the bytes needed and free, and the plan is kept', async () => {
+    const { b, gen, id, list } = await open({ extrasPick: 'no-space' });
+    const game = id('Tidewalker');
+    const v = await list('Tidewalker');
+    const plan = (await b.extrasAddPick(gen, game))!;
+    const choices = plan.files.map((f) => ({
+      index: f.index,
+      category: SOUNDTRACK,
+    }));
+    const e = await rejection(
+      b.extrasAddCommit(gen, game, v.rev, plan.plan, choices),
+    );
+    expect(e.code).toBe('no-space');
+    expect(e.detail).toMatch(/^\d+\/\d+$/);
+    const [needed, free] = e.detail!.split('/').map(Number);
+    expect(needed).toBe(plan.total);
+    expect(free).toBeLessThan(needed!);
+    // Still there to retry, not spent.
+    const retry = await rejection(
+      b.extrasAddCommit(gen, game, v.rev, plan.plan, choices),
+    );
+    expect(retry.code).toBe('no-space');
   });
 
   it('keeps the edits when the library is opened again', async () => {

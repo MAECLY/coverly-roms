@@ -976,6 +976,7 @@ export function createMockExtras(
         .replace(/:/gu, '')}.json`;
       job.notes.push({ kind: 'malformed-saved', file });
     }
+    // A new object per write: undo tells a later write's index by identity.
     g.index = { state: 'ok' };
     const id = job.id();
     journals.push({
@@ -1155,7 +1156,9 @@ export function createMockExtras(
           break;
       }
     }
-    if (sameJson(g.index, j.indexAfter)) g.index = j.indexBefore;
+    // Like a file the undo finds changed since: an index another job wrote
+    // after this one stays (each write makes a new state object).
+    if (g.index === j.indexAfter) g.index = j.indexBefore;
     return out;
   }
 
@@ -1625,8 +1628,12 @@ export function createMockExtras(
       if (busy) throw new BackendError('job-running');
       const undid = undoOps(j.game, j);
       j.undone = true;
-      const gen = host.current()?.generation;
-      if (gen !== undefined) recount(j.game, gen, j.entryId);
+      // Only the Extras library's cells: another open library's entry
+      // with the same id is not this game.
+      const open = host.current();
+      if (open?.root === MOCK_EXTRAS) {
+        recount(j.game, open.generation, j.entryId);
+      }
       return {
         report: [
           {
