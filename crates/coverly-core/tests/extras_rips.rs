@@ -257,3 +257,48 @@ fn read_rip_reads_files_and_never_opens_key_material() {
     assert!(!opened.contains(&key), "{opened:?}");
     assert!(!opened.contains(&other), "{opened:?}");
 }
+
+#[test]
+fn nsfe_auth_after_a_large_data_chunk_is_read() {
+    // Tools write INFO, DATA, then `auth`: a DATA chunk past 64 KiB is
+    // skipped by its length, never read, so the tags still come through.
+    let mut b = b"NSFE".to_vec();
+    let mut push = |id: &[u8], data: &[u8]| {
+        b.extend_from_slice(&u32::try_from(data.len()).unwrap().to_le_bytes());
+        b.extend_from_slice(id);
+        b.extend_from_slice(data);
+    };
+    push(b"INFO", &[0u8; 10]);
+    push(b"DATA", &vec![0xEAu8; 200 * 1024]);
+    push(b"auth", b"Kirby's Adventure\0Hirokazu Ando\0\0\0");
+    push(b"NEND", &[]);
+    let t = tags("a.nsfe", &b);
+    assert_eq!(t.game.as_deref(), Some("Kirby's Adventure"));
+    assert_eq!(t.artist.as_deref(), Some("Hirokazu Ando"));
+    // An `auth` chunk itself past 64 KiB is never read.
+    let mut b = b"NSFE".to_vec();
+    let mut auth = b"Game\0".to_vec();
+    auth.resize(64 * 1024 + 1, b'x');
+    b.extend_from_slice(&u32::try_from(auth.len()).unwrap().to_le_bytes());
+    b.extend_from_slice(b"auth");
+    b.extend_from_slice(&auth);
+    assert_eq!(read_rip_bytes("a.nsfe", &b), None);
+}
+
+#[test]
+fn vgz_compressed_input_is_capped_too() {
+    // 18 MiB of empty stored deflate blocks before the real data: no
+    // output for all that input, so the input is capped as well.
+    let small = gzip(&vgm("t", "Sonic", "Genesis", "a"));
+    assert!(read_rip_bytes("a.vgz", &small).is_some());
+    let mut padded = small[..10].to_vec();
+    for _ in 0..(18 * 1024 * 1024 / 5) {
+        padded.extend_from_slice(&[0x00, 0x00, 0x00, 0xFF, 0xFF]);
+    }
+    padded.extend_from_slice(&small[10..]);
+    assert_eq!(read_rip_bytes("a.vgz", &padded), None);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("padded.vgz");
+    std::fs::write(&path, &padded).unwrap();
+    assert_eq!(read_rip(&path), None);
+}

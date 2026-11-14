@@ -2,7 +2,7 @@
 //! GBS, VGM and VGZ GD3, and the PSF family `[TAG]` block.
 //!
 //! Every read is bounded (fixed offsets for SPC, NSF and GBS; at most 64
-//! NSFe chunks and 64 KiB; a GD3 block of at most 64 KiB; a VGZ gunzipped
+//! NSFe chunks, an `auth` chunk of at most 64 KiB; a GD3 block of at most 64 KiB; a VGZ gunzipped
 //! to at most [`VGZ_MAX_OUTPUT`]; a PSF tag block of at most
 //! [`PSF_TAG_MAX`] bytes), and only files with a rip extension are ever
 //! opened, through the logged opener that refuses key material by name.
@@ -15,13 +15,20 @@ use crate::identify::sniff::{is_music_ext, FileAt, ReadAt, SliceAt};
 
 /// The most a `.vgz` is gunzipped to; past it the tags are skipped.
 pub const VGZ_MAX_OUTPUT: u64 = 16 * 1024 * 1024;
+/// The most compressed bytes of a `.vgz` read: a gzip of at most
+/// [`VGZ_MAX_OUTPUT`] never needs more than that plus 1 MiB (stored
+/// blocks cost 5 bytes per 64 KiB), so padding that yields no output
+/// cannot keep the decoder reading a huge file.
+const VGZ_MAX_INPUT: u64 = VGZ_MAX_OUTPUT + 1024 * 1024;
 /// The most bytes of a PSF `[TAG]` block read after the marker.
 pub const PSF_TAG_MAX: usize = 50_000;
 /// The most bytes of a VGM GD3 block read.
 const GD3_MAX: usize = 64 * 1024;
-/// The most chunks and bytes of an NSFe walked looking for `auth`.
+/// The most chunks of an NSFe walked looking for `auth`, and the most
+/// bytes of `auth` read; other chunks (a large `DATA`) are skipped by
+/// their length, never read.
 const NSFE_MAX_CHUNKS: usize = 64;
-const NSFE_MAX_BYTES: u64 = 64 * 1024;
+const NSFE_MAX_AUTH: u64 = 64 * 1024;
 
 const SPC_MAGIC: &[u8] = b"SNES-SPC700 Sound File Data";
 const NSF_MAGIC: &[u8] = b"NESM\x1A";
@@ -162,7 +169,8 @@ fn nsf_or_nsfe(src: &mut dyn ReadAt) -> Option<RipTags> {
 }
 
 /// NSFe: the `auth` chunk (game, artist, copyright, ripper as
-/// NUL-terminated strings), within the first 64 chunks and 64 KiB.
+/// NUL-terminated strings), within the first 64 chunks and at most
+/// 64 KiB itself.
 fn nsfe(src: &mut dyn ReadAt) -> Option<RipTags> {
     let mut at = 4u64;
     for _ in 0..NSFE_MAX_CHUNKS {
@@ -171,10 +179,13 @@ fn nsfe(src: &mut dyn ReadAt) -> Option<RipTags> {
         let id = &head[4..8];
         let body = at + 8;
         let end = body.checked_add(len)?;
-        if id == b"NEND" || end > NSFE_MAX_BYTES {
+        if id == b"NEND" {
             return None;
         }
         if id == b"auth" {
+            if len > NSFE_MAX_AUTH {
+                return None;
+            }
             let data = read_exact(src, body, usize::try_from(len).ok()?)?;
             let mut parts = data.split(|&c| c == 0).map(fixed_text);
             return Some(RipTags {
@@ -251,7 +262,7 @@ fn vgm(src: &mut dyn ReadAt) -> Option<RipTags> {
 /// is skipped whole.
 fn vgz(input: impl Read) -> Option<(ExtraFormat, RipTags)> {
     let mut out = Vec::new();
-    flate2::read::GzDecoder::new(input)
+    flate2::read::GzDecoder::new(input.take(VGZ_MAX_INPUT))
         .take(VGZ_MAX_OUTPUT + 1)
         .read_to_end(&mut out)
         .ok()?;
