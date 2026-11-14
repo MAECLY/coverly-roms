@@ -1126,6 +1126,7 @@ export function ExtrasSection({
                 type="search"
                 size="sm"
                 className="extras-filter__text"
+                name="extras-filter"
                 aria-label={t('extras.filterText')}
                 placeholder={t('extras.filterText')}
                 value={filterText}
@@ -1424,6 +1425,7 @@ function BulkTag({
         <Input
           size="sm"
           type="text"
+          name="extras-bulk-tag"
           // eslint-disable-next-line jsx-a11y/no-autofocus -- the popover opened to type a tag
           autoFocus
           maxLength={64}
@@ -1464,6 +1466,7 @@ function NewCategory({
           <input
             type="text"
             className="extras-rename__input"
+            name="extras-new-category"
             // eslint-disable-next-line jsx-a11y/no-autofocus -- the user asked for a new category
             autoFocus
             value={value}
