@@ -22,6 +22,7 @@ use coverly_core::consoles::ctr_region::{ctr_region, Certainty};
 use coverly_core::consoles::{base_title_id, is_key_material, ConsoleId, TitleKind};
 use coverly_core::identify::names::Region;
 use coverly_core::organize::plan::memoised_console;
+use coverly_core::organize::walk::is_folder_per_game;
 use coverly_core::sources::embedded::console_on_disk;
 use serde::Serialize;
 
@@ -100,7 +101,13 @@ pub fn game_details(
         request,
         ..GameDetailsView::default()
     };
-    if let Some(console) = read_console(session, &entry.rom.path, cache) {
+    // A Type X game folder is opaque (spec 2026-10-26-pc-arcade P5): no
+    // header inside it is ever read, whatever it holds.
+    let opaque = entry.rom.is_dir && is_folder_per_game(&entry.system_id);
+    let console = (!opaque)
+        .then(|| read_console(session, &entry.rom.path, cache))
+        .flatten();
+    if let Some(console) = console {
         view.title_id = console.title_id.clone();
         view.product_code = console.serial.clone();
         if console.system == "3ds" {
@@ -420,5 +427,33 @@ mod tests {
         // A key named as the base is never opened either.
         assert_eq!(read_console(&session, &key, None), None);
         assert!(!take_open_log().iter().any(|p| p == &key));
+    }
+    /// A Type X game is one opaque folder (spec 2026-10-26-pc-arcade P5):
+    /// the panel never reads a header inside it, whatever files it holds.
+    #[test]
+    fn game_details_never_opens_a_type_x_game() {
+        let lib = TempDir::new().unwrap();
+        let sfo = ct::param_sfo(&[("CATEGORY", "DG"), ("TITLE_ID", "BLUS30001")]);
+        let inside = put(
+            lib.path(),
+            "ROMS/type-x/Raiden IV (Type X)/PS3_GAME/PARAM.SFO",
+            &sfo,
+        );
+        put(lib.path(), "ROMS/type-x/Raiden IV (Type X)/game.exe", b"");
+        let session = open(lib.path());
+        let id = session
+            .entries
+            .iter()
+            .position(|e| e.system_id == "typex" && e.rom.is_dir)
+            .expect("a typex folder entry") as u32;
+
+        start_open_log();
+        let view = game_details(&session, id, 1, &Knows, None).unwrap();
+        let opened = take_open_log();
+        assert_eq!(view.title_id, None);
+        assert_eq!(view.product_code, None);
+        assert_eq!(view.latest, None);
+        let game = inside.parent().unwrap().parent().unwrap();
+        assert!(!opened.iter().any(|p| p.starts_with(game)), "{opened:?}");
     }
 }
