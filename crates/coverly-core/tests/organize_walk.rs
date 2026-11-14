@@ -1373,3 +1373,36 @@ fn organize_never_walks_coverly_trash() {
     let seen = format!("{w:?}");
     assert!(!seen.contains(".coverly-trash"), "{seen}");
 }
+
+#[test]
+fn music_rips_are_left_as_music_never_other_files() {
+    use coverly_core::extras::testing as rips;
+    use coverly_core::identify::sniff::NotARom;
+    let tmp = tempfile::tempdir().unwrap();
+    let mut names = Vec::new();
+    for (name, bytes) in rips::all_rips() {
+        put(tmp.path(), name, &bytes);
+        names.push(name);
+    }
+    put(tmp.path(), "a.QSF", b"PSF\x41");
+    names.push("a.QSF");
+    put(tmp.path(), "a.rsn", b"Rar!\x1a\x07\x00");
+    let w = run(tmp.path(), &NoCloud);
+    for name in names {
+        assert_eq!(
+            reason_of(&w, name),
+            Some(LeftReason::NotARom {
+                what: NotARom::Music
+            }),
+            "{name}"
+        );
+        assert!(!w.other_files.iter().any(|p| p.ends_with(name)), "{name}");
+    }
+    // An `.rsn` (a RAR of SPCs) is not music: it goes on as an archive.
+    assert_ne!(
+        reason_of(&w, "a.rsn"),
+        Some(LeftReason::NotARom {
+            what: NotARom::Music
+        })
+    );
+}

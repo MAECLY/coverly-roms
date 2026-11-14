@@ -3487,7 +3487,9 @@ fn identify_one(
 /// 11: addon verdicts (mods spec D10).
 /// 12: 3DS bases and demos take their region from the verified letter
 /// table and flag unknown letters (part C D12, P-1).
-pub(crate) const FACTS_VERSION: u32 = 12;
+/// 13: music rips are `NotARom::Music`, never an unknown file (extras
+/// spec D15).
+pub(crate) const FACTS_VERSION: u32 = 13;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -5503,7 +5505,7 @@ mod tests {
             facts: f,
         })
         .unwrap();
-        assert_eq!(FACTS_VERSION, 12);
+        assert_eq!(FACTS_VERSION, 13);
         old["v"] = 11.into();
         cache
             .put_organize_facts(&c.path, c.size, c.mtime_ns, &old.to_string())

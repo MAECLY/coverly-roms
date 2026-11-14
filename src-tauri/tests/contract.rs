@@ -1669,6 +1669,7 @@ fn game_folder_values_match_the_shared_sample() {
             },
             LeftReason::NotARom { what: NotARom::EmulatorCache },
             LeftReason::NotARom { what: NotARom::EmulatorConfig },
+            LeftReason::NotARom { what: NotARom::Music },
             LeftReason::LicenceOf {
                 of: "Resistance.pkg".into(),
             },

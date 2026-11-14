@@ -976,6 +976,21 @@
       "required": false
     },
     {
+      "id": "encoding-rs",
+      "group": "libraries",
+      "name": "encoding_rs",
+      "url": "https://github.com/hsivonen/encoding_rs",
+      "use": {
+        "es": "Leer en Shift-JIS las etiquetas de los rips de música.",
+        "en": "Reads music rip tags written in Shift-JIS."
+      },
+      "license": {
+        "spdx": "(Apache-2.0 OR MIT) AND BSD-3-Clause",
+        "name": "(Apache-2.0 OR MIT) AND BSD-3-Clause"
+      },
+      "required": false
+    },
+    {
       "id": "retroarch-assets",
       "group": "fonts-icons",
       "name": "RetroArch Assets",

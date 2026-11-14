@@ -951,6 +951,7 @@ Coverly builds on the work of these projects. Here is what it uses from each, it
 - [zip](https://github.com/zip-rs/zip2). Reads and extracts zip archives. Licence: [MIT](https://spdx.org/licenses/MIT.html).
 - [sevenz-rust2](https://github.com/hasenbanck/sevenz-rust2). Reads and extracts 7z archives. Licence: [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html).
 - [image](https://github.com/image-rs/image). Decodes and resizes images. Licence: MIT OR Apache-2.0.
+- [encoding_rs](https://github.com/hsivonen/encoding_rs). Reads music rip tags written in Shift-JIS. Licence: (Apache-2.0 OR MIT) AND BSD-3-Clause.
 
 ### Fonts and icons
 

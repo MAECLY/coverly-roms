@@ -737,6 +737,14 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 size: meta.len(),
                 mtime_ns: mtime_ns(mtime),
             });
+        } else if crate::identify::sniff::is_music_ext(&ext) {
+            // A music rip, by its extension, never read (extras spec D15).
+            out.left.push((
+                path.to_path_buf(),
+                LeftReason::NotARom {
+                    what: crate::identify::sniff::NotARom::Music,
+                },
+            ));
         } else if may_be_addon_file(&name) && !opts.probe.cloud_only(path, &meta) {
             maybe_addons.push((path.to_path_buf(), meta));
         } else {

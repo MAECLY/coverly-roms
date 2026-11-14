@@ -145,6 +145,11 @@ because they are the larger parts of the app.
   (https://github.com/dropbox/rust-brotli,
   https://github.com/dropbox/rust-brotli-decompressor), used by Tauri to
   compress the web assets embedded in the app. BSD-3-Clause AND MIT.
+- **encoding_rs** 0.8.44 (Henri Sivonen and contributors,
+  https://github.com/hsivonen/encoding_rs), used to read music rip tags
+  written in Shift-JIS. (Apache-2.0 OR MIT) AND BSD-3-Clause; its index data
+  comes from the WHATWG Encoding Standard, whose BSD-3-Clause notice is
+  included in the generated file.
 - **option-ext** 0.2.0, used through `directories` for the user folders.
   MPL-2.0. Its source code, unmodified, is available at
   https://github.com/soc/option-ext.

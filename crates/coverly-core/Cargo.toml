@@ -33,6 +33,7 @@ directories.workspace = true
 serde_json.workspace = true
 ureq.workspace = true
 percent-encoding.workspace = true
+encoding_rs.workspace = true
 image.workspace = true
 quick-xml.workspace = true
 semver.workspace = true

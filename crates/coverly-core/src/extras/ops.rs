@@ -1326,7 +1326,7 @@ pub fn plan_add(paths: &[PathBuf]) -> Vec<AddSuggestion> {
                 category: suggested_category(&name),
                 kind: type_of(ext_of(&name)),
                 size,
-                rip: rips::read_rip(&path),
+                rip: rips::read_rip(&path).map(|(_, tags)| tags),
                 name,
                 path,
             }

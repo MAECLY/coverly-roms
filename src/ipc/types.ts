@@ -1035,7 +1035,9 @@ export type NotARom =
   /** An emulator's shader or pipeline cache, recognised by name. */
   | 'emulator-cache'
   /** An emulator's per-game settings file, recognised by name. */
-  | 'emulator-config';
+  | 'emulator-config'
+  /** A music rip (SPC, NSF, GBS, VGM, the PSF family), by its extension. */
+  | 'music';
 
 /** Why a file stays where it is. */
 export type LeftReason =

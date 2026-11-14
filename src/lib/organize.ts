@@ -916,6 +916,7 @@ const NOT_A_ROM: Record<NotARom, string> = {
   'emulator-config': 'emulatorConfig',
   installer: 'installer',
   model3d: 'model3d',
+  music: 'music',
 };
 
 /** A left reason as text, nested fragments translated first. */

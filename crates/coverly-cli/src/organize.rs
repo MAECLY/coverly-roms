@@ -1321,6 +1321,7 @@ fn left_reason_text(reason: &LeftReason, system: Option<&str>) -> String {
             NotARom::ConsoleSystem => "not a ROM (console system file)".into(),
             NotARom::EmulatorCache => "not a ROM (emulator cache)".into(),
             NotARom::EmulatorConfig => "not a ROM (emulator settings)".into(),
+            NotARom::Music => "not a ROM (music)".into(),
         },
         LeftReason::Bios => "BIOS or firmware".into(),
         LeftReason::DamagedArchive => "damaged archive".into(),

@@ -44,6 +44,8 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 directories = "6"
 ureq = "3.4"
 flate2 = "1"
+# Shift-JIS PSF tags (extras spec D15, Q12).
+encoding_rs = "0.8.44"
 percent-encoding = "2.3"
 quick-xml = "0.38"
 keyring = "4"

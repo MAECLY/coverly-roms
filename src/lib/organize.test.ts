@@ -1757,6 +1757,11 @@ describe('game folders (spec §9.1, §10)', () => {
       'No es una ROM (caché de un emulador)',
       'Not a ROM (emulator settings)',
     ]);
+    const music: LeftReason = { kind: 'not-a-rom', what: 'music' };
+    expect([leftReasonText(t, music), leftReasonText(tEn, music)]).toEqual([
+      'No es una ROM (música)',
+      'Not a ROM (music)',
+    ]);
   });
 
   it('a licence goes with its base, or stays when the core left it', () => {

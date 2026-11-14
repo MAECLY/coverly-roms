@@ -1238,3 +1238,26 @@ fn xvc_header_hits_both_xbox_systems() {
     assert!(s.hits.is_empty(), "{:?}", s.hits);
     assert_eq!(s.not_a_rom, Some(NotARom::ConsoleSystem));
 }
+
+#[test]
+fn rip_extensions_are_music_not_unknown() {
+    use coverly_core::extras::testing as rips;
+    for (name, bytes) in rips::all_rips() {
+        let ext = name.rsplit('.').next().unwrap();
+        assert_eq!(run(&bytes, ext).not_a_rom, Some(NotARom::Music), "{name}");
+    }
+    for ext in [
+        "spc", "nsf", "nsfe", "gbs", "vgm", "vgz", "psf", "minipsf", "psf2", "gsf", "minigsf",
+        "usf", "miniusf", "2sf", "mini2sf", "ssf", "dsf", "qsf", "SPC",
+    ] {
+        let s = run(&[0u8; 64], ext);
+        assert_eq!(s.not_a_rom, Some(NotARom::Music), "{ext}");
+        assert!(s.hits.is_empty() && s.container.is_none(), "{ext}");
+    }
+    // An `.rsn` (a RAR of SPCs) stays an archive.
+    let rar = b"Rar!\x1a\x07\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    let s = run(rar, "rsn");
+    assert_eq!(s.container, Some(ContainerMagic::Rar4));
+    assert_eq!(s.not_a_rom, None);
+    assert_eq!(serde_json::to_string(&NotARom::Music).unwrap(), "\"music\"");
+}

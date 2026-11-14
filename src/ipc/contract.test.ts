@@ -1562,6 +1562,7 @@ describe('game folders contract', () => {
       { kind: 'game-folder-content', folder: 'mods', of: 'Pokemon Y' },
       { kind: 'not-a-rom', what: 'emulator-cache' },
       { kind: 'not-a-rom', what: 'emulator-config' },
+      { kind: 'not-a-rom', what: 'music' },
       { kind: 'licence-of', of: 'Resistance.pkg' },
     ]);
     const notes = sample.game_folder_notes as ItemNote[];
