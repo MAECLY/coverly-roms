@@ -1234,7 +1234,7 @@ fn expand(paths: &[PathBuf], cap: usize) -> Expanded {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        // The portable name too: `prod.keys.` is copied as `prod.keys`.
+        // The portable name too: a trailing dot or space is dropped from it.
         let safe = safe_file_name(&name).unwrap_or_default();
         if is_key_material(&name) || is_key_material(&safe) {
             out.keys += 1;
