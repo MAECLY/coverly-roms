@@ -101,6 +101,23 @@ pub fn read_index(extras_dir: &Path) -> IndexRead {
     parse_index(&bytes)
 }
 
+/// The raw bytes of `extras_dir/extras.json`, read like [`read_index`]
+/// (never through a symlink, never more than [`MAX_INDEX_BYTES`]): what a
+/// malformed-file backup copies (D5). `None` when it cannot be read so.
+pub(crate) fn read_index_bytes(extras_dir: &Path) -> Option<Vec<u8>> {
+    let path = extras_dir.join(EXTRAS_JSON);
+    let meta = std::fs::symlink_metadata(&path).ok()?;
+    if unreadable_kind(&meta).is_some() {
+        return None;
+    }
+    let file = open_index(&path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(MAX_INDEX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= MAX_INDEX_BYTES).then_some(bytes)
+}
+
 /// Opens `path` for reading without following a final symlink (`O_NOFOLLOW`
 /// on Unix, the reparse point itself on Windows) and without blocking on a
 /// FIFO (`O_NONBLOCK`), then checks the open handle again: the path may have
