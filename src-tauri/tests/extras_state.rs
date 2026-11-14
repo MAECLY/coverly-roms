@@ -861,6 +861,40 @@ fn writes_are_refused_on_a_read_only_volume() {
     assert!(!extra(lib.path(), "Remezclas").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn undo_is_refused_on_a_read_only_volume() {
+    use std::os::unix::fs::PermissionsExt;
+    if running_as_root() {
+        return;
+    }
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let o = opened(state(&config), &lib);
+    let listed = o.list();
+    let done = o
+        .write(
+            listed.rev,
+            ExtrasAction::CategoryCreate {
+                name: "Remezclas".into(),
+            },
+        )
+        .unwrap();
+    let job = done.view.job.unwrap();
+    let extras = game(lib.path()).join("Extras");
+    fs::set_permissions(&extras, fs::Permissions::from_mode(0o555)).unwrap();
+    let refused = o.undo(&job);
+    fs::set_permissions(&extras, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        matches!(refused, Err(IpcError::WriteDenied(_))),
+        "{refused:?}"
+    );
+    assert!(extra(lib.path(), "Remezclas").is_dir());
+    // Still undoable once the folder can be written again.
+    o.undo(&job).unwrap();
+    assert!(!extra(lib.path(), "Remezclas").exists());
+}
+
 #[test]
 fn writes_are_refused_with_a_newer_index() {
     let config = TempDir::new().unwrap();
