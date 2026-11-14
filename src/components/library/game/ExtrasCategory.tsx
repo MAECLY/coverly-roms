@@ -204,6 +204,7 @@ function CategoryRename({ name, onDone }: { name: string; onDone(): void }) {
       <input
         type="text"
         className="extras-rename__input"
+        name="extras-category-name"
         // eslint-disable-next-line jsx-a11y/no-autofocus -- the user asked to rename this category
         autoFocus
         value={value}

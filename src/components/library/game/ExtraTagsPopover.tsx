@@ -172,6 +172,7 @@ function TagsEditor({
       <Input
         size="sm"
         type="text"
+        name="extras-tag"
         // eslint-disable-next-line jsx-a11y/no-autofocus -- the popover opened to type a tag
         autoFocus
         value={text}

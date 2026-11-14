@@ -385,6 +385,7 @@ function RenameInput({ file }: { file: ExtraFileView }) {
         <input
           type="text"
           className="extras-rename__input"
+          name="extras-file-name"
           // eslint-disable-next-line jsx-a11y/no-autofocus -- the user asked to rename this row
           autoFocus
           value={value}
