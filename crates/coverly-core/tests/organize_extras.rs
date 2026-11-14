@@ -721,3 +721,99 @@ fn facts_cache_from_an_earlier_run_still_finds_the_extra() {
         );
     }
 }
+
+#[test]
+fn a_library_organised_in_place_never_moves_what_its_game_folders_hold() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = tmp.path().join("lib");
+    let (ps3, _) = ps3_library(&lib);
+    put(
+        &lib,
+        &format!("{ps3}/Resistance (USA)/DLC/old theme.pkg"),
+        &xt::pkg_with_type(1, 0x09, "UP9000-BCUS98107_00-THEME0000000001"),
+        2,
+    );
+    put(
+        &lib,
+        &format!("{ps3}/Resistance (USA)/Extras/Themes/placed.p3t"),
+        &xt::p3t("Resistance"),
+        3,
+    );
+    let plan = plan_of(&lib, &options("coverly-library", &lib));
+    for name in ["old theme.pkg", "placed.p3t"] {
+        for it in plan
+            .items
+            .iter()
+            .filter(|i| i.sources[0].file_name().is_some_and(|n| n == name))
+        {
+            assert!(!it.moves_in(), "{name}: {it:#?}");
+        }
+    }
+}
+
+#[test]
+fn a_rip_beside_another_game_links_only_by_its_tag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    let snes = snes_library(&lib);
+    // The rip's tag names a game of the library; beside it sits another
+    // game's file of the same stem (where it sits must not win over the
+    // tag: rips link by their tag only, D15).
+    put(&pile, "Chrono Trigger (USA).sfc", &vec![0x33u8; 1 << 16], 4);
+    put(
+        &pile,
+        "Chrono Trigger (USA).spc",
+        &xt::spc("Boss", "Super Metroid", "Kenji Yamamoto", true),
+        5,
+    );
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    let rip = item(&plan, "Chrono Trigger (USA).spc");
+    let link = rip.game.as_ref().and_then(|g| g.extra.as_ref());
+    assert!(rip.moves_in(), "{rip:#?}");
+    assert_eq!(link.map(|l| l.via), Some(LinkVia::Name), "{rip:#?}");
+    assert_eq!(
+        target_parts(rip),
+        p(&[
+            &snes,
+            "Super Metroid (Japan, USA)",
+            "Extras",
+            "Soundtrack",
+            "Chrono Trigger (USA).spc"
+        ])
+    );
+}
+
+/// D7 (1) names a pile game folder's `Extras/`, but part A leaves that
+/// folder whole as game folder content: an official extra in it is never
+/// split from the user's own files there (the safe default; owner note).
+#[test]
+fn a_pile_game_folders_own_extras_folder_stays_whole() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(
+        &pile,
+        "Pokemon Y/Pokemon Y.cia",
+        &ct::cia_with_code(0x0004_0000_0005_5D00, "CTR-P-EK2A", false, false).head_bytes(),
+        1,
+    );
+    put(
+        &pile,
+        "Pokemon Y/Extras/Soundtrack/Kalos Soundtrack.cia",
+        &xt::cia_titled(0x0004_0000_0009_9900, None),
+        2,
+    );
+    put(&pile, "Pokemon Y/Extras/Manuals/notes.pdf", b"%PDF-1.4", 3);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = plan_of(&pile, &options("coverly-library", &lib));
+    assert!(item(&plan, "Pokemon Y.cia").moves_in());
+    let extras = item(&plan, "Extras");
+    assert_eq!(parts(&extras.sources[0]), p(&["Pokemon Y", "Extras"]));
+    assert!(
+        matches!(left(extras), Some(LeftReason::GameFolderContent { .. })),
+        "{extras:#?}"
+    );
+    assert!(plan
+        .items
+        .iter()
+        .all(|i| i.game.as_ref().map(|g| g.role) != Some(GameRole::Extra)));
+}
