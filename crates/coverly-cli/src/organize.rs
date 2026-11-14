@@ -1839,6 +1839,12 @@ fn note_text(n: &ItemNote) -> Option<String> {
             format,
             content_type,
         } => match content_type {
+            // A PKG type is a byte, an Xbox 360 one a 32-bit word.
+            Some(ct) if *ct > 0xFF => format!(
+                "{} for {of} ({}, content type 0x{ct:08X})",
+                category.dir_name(),
+                extra_format_text(*format)
+            ),
             Some(ct) => format!(
                 "{} for {of} ({}, content type 0x{ct:02X})",
                 category.dir_name(),
@@ -3027,6 +3033,56 @@ mod tests {
             }),
             "12.0 GB will be written to the target; you will be asked to confirm"
         );
+    }
+
+    #[test]
+    fn extra_notes_show_the_content_type_at_its_format_width() {
+        use coverly_core::extras::{ExtraFormat, ExtrasCategory};
+        let cases = [
+            (
+                ItemNote::ExtraOf {
+                    category: ExtrasCategory::Themes,
+                    of: "Tidewalker".into(),
+                    format: ExtraFormat::Ps3ThemePkg,
+                    content_type: Some(0x09),
+                },
+                "Themes for Tidewalker (PS3 theme, content type 0x09)",
+            ),
+            (
+                ItemNote::ExtraOf {
+                    category: ExtrasCategory::Videos,
+                    of: "Halo 3".into(),
+                    format: ExtraFormat::X360Video,
+                    content_type: Some(0x0009_0000),
+                },
+                "Videos for Halo 3 (Xbox 360 video, content type 0x00090000)",
+            ),
+            (
+                ItemNote::ExtraOf {
+                    category: ExtrasCategory::Themes,
+                    of: "Tidewalker".into(),
+                    format: ExtraFormat::Ps3P3t,
+                    content_type: None,
+                },
+                "Themes for Tidewalker (PS3 theme)",
+            ),
+            (
+                ItemNote::ExtraRip {
+                    of: "Super Metroid (Japan, USA)".into(),
+                    format: ExtraFormat::Spc,
+                    tag: "Super Metroid".into(),
+                },
+                "Soundtrack for Super Metroid (Japan, USA) (SPC tag \u{201c}Super Metroid\u{201d}), your own",
+            ),
+        ];
+        for (note, text) in cases {
+            assert_eq!(note_text(&note).as_deref(), Some(text));
+        }
+        assert!(left_text(&LeftReason::ExtraWithoutGame {
+            category: ExtrasCategory::Themes
+        })
+        .contains("Theme without a game"));
+        assert!(left_text(&LeftReason::ExtrasIndexNewer).contains("newer Coverly"));
     }
 
     fn test_item(id: usize, name: &str) -> OrganizeItem {
