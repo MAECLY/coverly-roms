@@ -367,6 +367,10 @@ describe('MediaViewer (extras D17, D23, §8.1)', () => {
     expect(video.autoplay).toBe(false);
     expect(video).toHaveAttribute('src', 'blob:media-4-4');
     expect(usePlayerStore.getState().playing).toBe(false);
+    // Fitted to the stage (globals.css), not shown at its own small size.
+    expect(video.closest('.media-viewer__stage')).toHaveClass(
+      'media-viewer__stage--video',
+    );
   });
 
   it('a media error falls back to the unplayable view', async () => {
