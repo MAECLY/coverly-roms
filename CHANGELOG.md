@@ -88,6 +88,43 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   the letter names one, is added to the name only when the name has no
   region yet. A letter the table does not know is flagged in the plan and
   in `coverly organize`, and nothing is guessed.
+- Extras in the game panel: a game's `Extras/` folder is listed by
+  category («Banda sonora», «Manuales», «Arte», «Vídeos», «Temas y
+  avatares», «Guías» and your own), each file with its kind, whether it is
+  official and its tags. Add files with «Añadir archivos» or by dropping
+  them on a category; they are copied with a check, the originals stay where
+  they are, key files and hidden files are left out, and a large copy runs in
+  the background with progress and a way to cancel. Rename, move between
+  categories, tag («tema del jefe final»), create, rename and remove your own
+  categories, filter by text or tag and select several files at once. Every
+  change can be undone; a removed file goes to the Trash, or on a drive
+  without one is set aside inside the library, and is never deleted.
+  Categories live inside `Extras/` (on disk in English: `Soundtrack/`,
+  `Manuals/`, `Artwork/`, `Videos/`, `Themes/`, `Guides/`); no folder is
+  ever made next to the game's own.
+- `extras.json` inside `Extras/` keeps each file's kind (audio, video,
+  image, document), whether it is official or yours, where it came from and
+  its tags. Files moved or renamed outside the app are matched back on the
+  next scan and keep their tags; one that has gone is shown with «Olvidar»
+  instead of being dropped. A file Coverly cannot read is left untouched, a
+  copy is saved beside it and the panel says so; one written by a newer
+  Coverly is shown read-only.
+- Official extras are recognised and, with the «Coverly» layout, placed by
+  Organise in the game's `Extras/`, in the plan, applied and undone like any
+  other move: PS3 `.p3t` themes and theme and avatar packages, Vita theme
+  packages, PSP `.ptf` themes, Xbox 360 themes, gamer pictures, avatar items
+  and videos (by their content type, without any key) and 3DS soundtrack
+  `.cia` files. Manuals that live inside the game on 3DS, Wii U, Switch and
+  Vita stay there, and the panel says so. Retro systems have no official
+  extras; a music rip (SPC, NSF and NSFe, GBS, VGM and VGZ, PSF) whose tags
+  name a game in the library is suggested for its «Banda sonora». `coverly
+organize` lists the extras under their game and says what it wrote to
+  `extras.json`.
+- An in-app player and viewer for extras: audio plays in a mini player that
+  keeps going while you browse other games, and video, images (with zoom and
+  pan), PDF manuals and text files such as `.nfo` open in a viewer. All of it
+  works from the keyboard and follows the reduced-motion setting. PDFs are
+  shown without running any script they contain.
 
 ### Changed
 
@@ -110,6 +147,12 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   «not a game» and left where they are.
 - Duplicates never removes a game whose folder holds updates or DLC; it only
   reports it.
+- The app's content security policy now lets it play and show files only
+  through grants it hands out for one extras file at a time, inside the
+  library; key and licence files and hidden files are never served, and
+  plugins, frames and other sources stay blocked.
+- `Extras/` is not copied to devices; each category keeps a setting for it,
+  off by default, for when device sync arrives.
 
 ### Fixed
 
