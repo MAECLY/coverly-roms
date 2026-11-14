@@ -46,6 +46,7 @@ import { useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
 import { useSelectionStore } from '@/stores/selectionStore';
+import { useViewerStore } from '@/stores/viewerStore';
 import { useVisibleEntries } from '@/stores/useVisibleEntries';
 import { useViewStore } from '@/stores/viewStore';
 
@@ -177,6 +178,8 @@ export function LibraryScreen() {
       // (alert dialog, tooltip) that already handled Escape marks it
       // defaultPrevented: the drawer stays open.
       if (overlay !== 'none' || ev.defaultPrevented) return;
+      // The Extras media viewer owns `/` and Escape while open (D23).
+      if (useViewerStore.getState().open !== null) return;
       const find = ev.key === 'f' && (ev.metaKey || ev.ctrlKey);
       if (find || (ev.key === '/' && !isTyping(ev.target))) {
         ev.preventDefault();

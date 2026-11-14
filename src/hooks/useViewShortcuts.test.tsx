@@ -1,8 +1,9 @@
-import { fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_PREFS, type ViewId, type ViewPrefs } from '@/lib/viewPrefs';
+import { useViewerStore } from '@/stores/viewerStore';
 
 import { useViewShortcuts } from './useViewShortcuts';
 
@@ -137,6 +138,24 @@ describe('useViewShortcuts', () => {
     expect(press(window, '+')).toBe(false);
     dialog.remove();
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('stands down while the media viewer is open (extras D23)', () => {
+    const spy = vi.fn();
+    render(<Harness spy={spy} />);
+    act(() =>
+      useViewerStore
+        .getState()
+        .show({ generation: 1, entryId: 2, path: 'Artwork/a.png' }),
+    );
+    expect(press(window, '+')).toBe(false);
+    expect(press(window, '0')).toBe(false);
+    expect(wheel(window, -300)).toBe(false);
+    expect(press(window, 'i')).toBe(false);
+    act(() => useViewerStore.getState().close());
+    expect(spy).not.toHaveBeenCalled();
+    expect(press(window, '+')).toBe(true);
+    expect(spy).toHaveBeenCalledWith({ coverSize: 'l' });
   });
 
   it('ctrl+wheel moves one stop per 100px of accumulated delta', () => {
