@@ -1753,6 +1753,7 @@
       "engine": "Engines and fantasy consoles"
     },
     "noEmulator": "No emulator",
+    "pcOnly": "PC only; doesn't run on ARM handhelds",
     "unknown": "Folder with no known system"
   },
   "progress": {
