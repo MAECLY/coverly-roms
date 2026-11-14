@@ -412,3 +412,58 @@ fn job_history_names_extras_jobs() {
     let wire = serde_json::to_value(item).unwrap();
     assert_eq!(wire["game"], "Lantern Harbor (USA)");
 }
+
+/// Writability asks the OS whether the app may write, not the mode bits:
+/// an `Extras/` its owner cannot write is view only even when others may.
+#[cfg(unix)]
+#[test]
+fn an_extras_folder_the_app_cannot_write_is_read_only() {
+    use std::os::unix::fs::PermissionsExt;
+    if running_as_root() {
+        return;
+    }
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let lib = TempDir::new().unwrap();
+    library(lib.path());
+    let view = open(&st, lib.path());
+    let id = id_of(&view, "Lantern Harbor (USA)");
+    let extras = GAME
+        .split('/')
+        .fold(lib.path().to_path_buf(), |p, c| p.join(c))
+        .join("Extras");
+    fs::set_permissions(&extras, fs::Permissions::from_mode(0o577)).unwrap();
+    let listed = st.extras_list(view.generation, id);
+    fs::set_permissions(&extras, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(listed.unwrap().writable, Writability::ReadOnly);
+}
+
+#[cfg(unix)]
+fn running_as_root() -> bool {
+    std::env::var("USER").is_ok_and(|u| u == "root")
+}
+
+/// Windows ignores the read-only attribute on folders (Explorer sets it on
+/// customised ones), so it never makes the extras view only.
+#[cfg(windows)]
+#[test]
+fn a_folder_with_the_read_only_attribute_stays_writable_on_windows() {
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let lib = TempDir::new().unwrap();
+    library(lib.path());
+    let view = open(&st, lib.path());
+    let id = id_of(&view, "Lantern Harbor (USA)");
+    let extras = GAME
+        .split('/')
+        .fold(lib.path().to_path_buf(), |p, c| p.join(c))
+        .join("Extras");
+    let mut perms = fs::metadata(&extras).unwrap().permissions();
+    perms.set_readonly(true);
+    fs::set_permissions(&extras, perms.clone()).unwrap();
+    let listed = st.extras_list(view.generation, id);
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    fs::set_permissions(&extras, perms).unwrap();
+    assert_eq!(listed.unwrap().writable, Writability::Yes);
+}

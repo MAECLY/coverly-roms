@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -16,6 +15,7 @@ use coverly_core::extras::{
     CategoryRef, ExtraFormat, ExtraRecord, ExtraType, ExtrasCategory, Provenance,
 };
 use coverly_core::game_folder::FixedFolder;
+use coverly_core::organize::plan::dir_writable;
 use serde::Serialize;
 
 use super::art::inside_root;
@@ -177,7 +177,8 @@ pub struct ExtrasCache {
 }
 
 impl ExtrasCache {
-    /// Keeps `listing` as entry `entry`'s newest, under a new revision.
+    /// Keeps `listing` as entry `entry`'s newest, under a new revision
+    /// (generations only grow: an older one is answered but not kept).
     pub fn store(
         &mut self,
         generation: u64,
@@ -185,7 +186,7 @@ impl ExtrasCache {
         game_dir: Option<PathBuf>,
         listing: Listing,
     ) -> Arc<ListedExtras> {
-        if generation != self.generation {
+        if generation > self.generation {
             self.by_entry.clear();
             self.generation = generation;
         }
@@ -195,7 +196,11 @@ impl ExtrasCache {
             game_dir,
             listing,
         });
-        self.by_entry.insert(entry, Arc::clone(&listed));
+        // A read of a library closed meanwhile lands late: answered, never
+        // kept, so it cannot evict the open library's listings.
+        if generation == self.generation {
+            self.by_entry.insert(entry, Arc::clone(&listed));
+        }
         listed
     }
 
@@ -259,7 +264,9 @@ fn empty_listing() -> Listing {
 }
 
 /// Whether the app cannot write `game_dir`'s extras: the deepest existing
-/// of `Extras/` and the game folder is read-only, or unreadable.
+/// of `Extras/` and the game folder is not writable for this process (a
+/// read-only mount included), or unreadable. Mode bits alone would miss
+/// both, and Windows ignores the read-only attribute on folders.
 fn read_only(game_dir: &Path) -> bool {
     let extras = extras_dir(game_dir);
     let probe = if extras.is_dir() {
@@ -267,7 +274,7 @@ fn read_only(game_dir: &Path) -> bool {
     } else {
         game_dir.to_path_buf()
     };
-    fs::metadata(probe).map_or(true, |m| m.permissions().readonly())
+    !probe.is_dir() || !dir_writable(&probe)
 }
 
 fn count(n: usize) -> u32 {
@@ -490,6 +497,23 @@ mod tests {
         assert_eq!(
             category_of_path("Remixes/deep/a.mp3"),
             CategoryRef::User("Remixes".into())
+        );
+    }
+
+    #[test]
+    fn a_listing_of_a_closed_library_never_evicts_the_open_one() {
+        let mut cache = ExtrasCache::default();
+        let new = cache.store(3, 0, None, empty_listing());
+        // A read that started before the library was reopened lands late.
+        let late = cache.store(2, 0, None, empty_listing());
+        assert!(late.rev > new.rev);
+        assert!(
+            cache.get(3, 0, new.rev).is_ok(),
+            "the open library keeps its listing"
+        );
+        assert_eq!(
+            cache.get(2, 0, late.rev).unwrap_err(),
+            IpcError::ExtrasChanged
         );
     }
 

@@ -5273,8 +5273,10 @@ fn same_volume(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// Whether files in `dir` can be moved away (the folder is writable).
-fn dir_writable(dir: &Path) -> bool {
+/// Whether files in `dir` can be moved away (the folder is writable): the
+/// OS answers for this process (`access(W_OK)`, which also sees read-only
+/// mounts) on Unix; Windows folders always say yes.
+pub fn dir_writable(dir: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::ffi::CString;
