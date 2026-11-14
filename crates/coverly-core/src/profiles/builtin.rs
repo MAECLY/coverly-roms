@@ -455,6 +455,12 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
         "triforce",
         [Some("triforce"), Some("triforce"), None, None, None],
     ),
+    // PC arcade (spec 2026-10-26-pc-arcade P14): Batocera/Knulli
+    // `es_systems.yml` `cave3rd`; no other frontend has the folder.
+    ("cave3rd", [None, Some("cave3rd"), None, None, None]),
+    // ES-DE `es_systems.xml` `type-x`; Batocera, Knulli and the handheld
+    // OSes have none (research §4).
+    ("typex", [Some("type-x"), None, None, None, None]),
     // Systems batch 2 (spec §6).
     ("gamecube", [Some("gc"), Some("gamecube"), None, None, None]),
     ("wii", [Some("wii"), Some("wii"), None, None, None]),
@@ -540,6 +546,25 @@ fn hosts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 
 fn strings(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
+}
+
+/// Every art folder name of every built-in profile, deduplicated
+/// case-insensitively (spec 2026-10-26-pc-arcade P4): inside a
+/// folder-per-game system, art Coverly wrote under another profile is
+/// never a game.
+pub fn builtin_art_dir_names() -> &'static [String] {
+    static NAMES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        let mut out: Vec<String> = Vec::new();
+        for p in builtin_profiles() {
+            for d in p.art_dir_names {
+                if !out.iter().any(|o| o.eq_ignore_ascii_case(&d)) {
+                    out.push(d);
+                }
+            }
+        }
+        out
+    })
 }
 
 /// The built-in profiles, in detection tie-break order.

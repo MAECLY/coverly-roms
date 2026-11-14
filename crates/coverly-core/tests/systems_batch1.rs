@@ -944,7 +944,8 @@ fn extra_arcade_catalogues() {
     use coverly_core::systems::ExtClass;
     assert_eq!(db.extension_class("iso"), ExtClass::Generic);
     assert!(db.get("triforce").unwrap().accepts_extension("iso"));
-    // No new system for System 16/18/24/32, Konami or Cave (D16).
+    // No new system for System 16/18/24/32 or Konami (D16), and no generic
+    // `cave`: Cave CV1000 is `cave3rd` (spec 2026-10-26-pc-arcade P12, P17).
     for id in [
         "system16", "system18", "system24", "system32", "konami", "cave",
     ] {

@@ -28,6 +28,7 @@ import {
   MOCK_REVISIONS_KEY,
 } from './addonViewsFixture';
 import { extrasLibrary, MOCK_EXTRAS } from './extrasFixture';
+import { MOCK_PCARCADE, pcArcadeLibrary } from './pcArcadeFixture';
 import { FIXTURE_SYSTEMS, generateLibrary } from './fixture';
 import { createMockDedupe, type MockDedupeScenario } from './mockDedupe';
 import {
@@ -66,6 +67,7 @@ export type { MockExport } from './mockJobs';
 export type { MockDedupeScenario } from './mockDedupe';
 export type { MockExtrasPick } from './mockExtras';
 export { MOCK_EXTRAS } from './extrasFixture';
+export { MOCK_PCARCADE, MOCK_PCARCADE_PILE } from './pcArcadeFixture';
 export {
   MOCK_ADDONS,
   MOCK_ADDONS_HUGE,
@@ -403,6 +405,8 @@ const ESDE_FOLDERS = {
   quake: 'quake',
   solarus: 'solarus',
   ...EXTRA_ARCADE,
+  // PC arcade (spec 2026-10-26-pc-arcade P14): ES-DE only.
+  typex: 'type-x',
   // Systems batch 2 (spec §6).
   gamecube: 'gc',
   wii: 'wii',
@@ -458,6 +462,8 @@ const BATOCERA_FOLDERS = {
   wolf3d: 'ecwolf',
   xrick: 'xrick',
   ...EXTRA_ARCADE,
+  // PC arcade (spec 2026-10-26-pc-arcade P14): Batocera/Knulli only.
+  cave3rd: 'cave3rd',
   // Systems batch 2 (spec §6).
   gamecube: 'gamecube',
   wii: 'wii',
@@ -701,6 +707,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       sortedLayout: MOCK_BUILTIN_PROFILES.find(
         (p) => p.profile.id === 'anbernic-stock',
       ),
+      layouts: MOCK_BUILTIN_PROFILES,
     },
   );
   const dedupe = createMockDedupe(
@@ -866,6 +873,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
             name: s.name,
             family: s.family,
             no_emulator: 'no_emulator' in s && s.no_emulator === true,
+            pc_only: 'pc_only' in s && s.pc_only === true,
           }))
           .sort((a, b) =>
             a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }),
@@ -896,7 +904,9 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
             ? addonViewsHuge(gen, now)
             : path === MOCK_EXTRAS
               ? extrasLibrary(gen, now, extras.extrasCount)
-              : organize.library(path, gen);
+              : path === MOCK_PCARCADE
+                ? pcArcadeLibrary(gen, now)
+                : organize.library(path, gen);
       if (!scanned) throw new BackendError('not-found', path);
       // Like Rust: the revision defaults saved for this root.
       const chosen = revisionChoices.get(scanned.root);

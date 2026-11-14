@@ -105,6 +105,9 @@ pub struct SystemInfo {
     /// No public emulator runs it (systems batch 3 D22): the UI shows
     /// «Sin emulador» and names no emulator.
     pub no_emulator: bool,
+    /// Runs only on PC hardware (Type X): the shelf says it does not run
+    /// on ARM handhelds; no loader is named.
+    pub pc_only: bool,
 }
 
 /// The built-in systems, by display name (case-insensitive).
@@ -118,6 +121,7 @@ pub fn list_systems() -> Vec<SystemInfo> {
             name: s.name.clone(),
             family: s.family.as_str().into(),
             no_emulator: s.no_emulator,
+            pc_only: s.pc_only,
         })
         .collect();
     systems.sort_by_cached_key(|s| (s.name.to_lowercase(), s.id.clone()));

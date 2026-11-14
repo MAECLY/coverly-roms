@@ -31,13 +31,13 @@ use crate::game_folder::{
 use crate::identify::sniff::is_doom_wad;
 use crate::organize::inspect::names_an_archive;
 use crate::profiles::naming::system_folder;
-use crate::profiles::Profile;
+use crate::profiles::{builtin_art_dir_names, Profile};
 use crate::scan::classify::{
     extension, is_appledouble, is_bios_name, is_hidden, is_junk_file, is_partial_download,
     is_set_aside_dir, is_zone_identifier, COMPANION_EXTS, PARTIAL_DOWNLOAD_EXTS,
 };
 use crate::scan::ScanOptions;
-use crate::systems::SystemDb;
+use crate::systems::{System, SystemDb};
 
 /// Default walk depth below the source (spec §7.1).
 pub const MAX_DEPTH: usize = 4;
@@ -47,6 +47,40 @@ pub const MAX_DEPTH: usize = 4;
 /// or `.lutro` package, `main.lua` beside `conf.lua`, a `.scummvm`/`.svm`
 /// launcher) is left in place as one item.
 pub const FOLDER_GAME_SYSTEMS: [&str; 4] = ["doom", "solarus", "lutro", "scummvm"];
+
+/// Systems where every direct child folder of the system folder is one
+/// game (spec 2026-10-26-pc-arcade P4): recognised only by location,
+/// never listed below depth 1 except by the metadata tree summary, and
+/// never opened.
+pub const FOLDER_PER_GAME_SYSTEMS: [&str; 1] = ["typex"];
+
+/// Folder suffixes of a folder-per-game game (P8): the ES-DE launcher
+/// extensions plus RetroBat's `.parrot`, `.teknoparrot` and `.game`.
+pub const FOLDER_PER_GAME_SUFFIXES: [&str; 9] = [
+    "exe",
+    "bat",
+    "lnk",
+    "sh",
+    "desktop",
+    "appimage",
+    "parrot",
+    "teknoparrot",
+    "game",
+];
+
+/// Whether `id` is one of [`FOLDER_PER_GAME_SYSTEMS`].
+pub fn is_folder_per_game(id: &str) -> bool {
+    FOLDER_PER_GAME_SYSTEMS.contains(&id)
+}
+
+/// The suffix of a folder-per-game folder name (`Chaos Code.exe` →
+/// `exe`), lowercase; `None` when the last `.ext` is not one of
+/// [`FOLDER_PER_GAME_SUFFIXES`] or nothing precedes it.
+pub fn folder_per_game_suffix(name: &str) -> Option<String> {
+    let (stem, ext) = name.rsplit_once('.')?;
+    let ext = ext.to_ascii_lowercase();
+    (!stem.trim().is_empty() && FOLDER_PER_GAME_SUFFIXES.contains(&ext.as_str())).then_some(ext)
+}
 
 /// Tells whether a file is a cloud placeholder whose bytes are not local
 /// (reading it would trigger a download).
@@ -446,6 +480,13 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
         });
         note_fixed_folders(source, &listed, is_system, db, &mut fixed_seen);
     }
+    // A pile picked at a folder-per-game system folder (P16): its child
+    // folders are games, left in place whole; nothing inside is listed.
+    let source_per_game = source
+        .file_name()
+        .and_then(|n| db.resolve_folder_in(opts.profile, &n.to_string_lossy()))
+        .filter(|s| is_folder_per_game(&s.id))
+        .map(|s| (s.id.clone(), folder_of(s, db, opts)));
     let skip_keys: Vec<String> = opts.skip_dirs.iter().map(|p| dir_key(p)).collect();
     let roms_root_key = opts.roms_root.as_deref().map(dir_key);
     let mut partial_dirs: Vec<PathBuf> = Vec::new();
@@ -455,6 +496,16 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
         .chain(opts.art_dirs)
         .map(|d| d.to_lowercase())
         .collect();
+    // Art folders of any layout inside a folder-per-game source are art,
+    // never a game (as the scan treats them, P4).
+    let per_game_art: Vec<String> = if source_per_game.is_some() {
+        builtin_art_dir_names()
+            .iter()
+            .map(|d| d.to_lowercase())
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let walker = WalkDir::new(source)
         .follow_links(false)
@@ -477,6 +528,26 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 return false;
             }
             if is_hidden(&name) {
+                return false;
+            }
+            if let Some((system, folder)) = &source_per_game {
+                let key = name.to_lowercase();
+                // The existing skips run first (P4): a partial download is
+                // reported as one, the quarantine and target never listed.
+                if entry.depth() != 1 || ignored.contains(&key) || per_game_art.contains(&key) {
+                    return false;
+                }
+                if is_partial_download(&name) {
+                    partial_dirs.push(entry.path().to_path_buf());
+                } else if !skip_keys.contains(&dir_key(entry.path())) {
+                    folder_games.push((
+                        entry.path().to_path_buf(),
+                        LeftReason::FolderGame {
+                            system: system.clone(),
+                            folder: folder.clone(),
+                        },
+                    ));
+                }
                 return false;
             }
             // A game folder's `Mods/`, `Cheats/`, `Extras/` and `Saves/`
@@ -1186,18 +1257,23 @@ fn folder_game_in(
         });
     let proven = proven.or_else(|| (has("main.lua") && has("conf.lua")).then_some("lutro"))?;
     let system = db.get(proven)?;
-    let folder = match opts.profile {
+    Some(LeftReason::FolderGame {
+        system: system.id.clone(),
+        folder: folder_of(system, db, opts),
+    })
+}
+
+/// The folder `system` files into under the walk's layout (its first alias
+/// without one); the survey swaps in the user's folder names.
+fn folder_of(system: &System, db: &SystemDb, opts: &WalkOptions) -> String {
+    match opts.profile {
         Some(profile) => system_folder(profile, system, db, &BTreeMap::new()).folder,
         None => system
             .aliases
             .first()
             .cloned()
             .unwrap_or_else(|| system.id.clone()),
-    };
-    Some(LeftReason::FolderGame {
-        system: system.id.clone(),
-        folder,
-    })
+    }
 }
 
 /// Names of the folders that hold an emulator's own installed data
@@ -1536,6 +1612,33 @@ pub(crate) fn is_reparse_point(meta: &fs::Metadata) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folder_per_game_suffix_reads_the_launcher_extension() {
+        assert_eq!(
+            folder_per_game_suffix("Chaos Code.exe").as_deref(),
+            Some("exe")
+        );
+        assert_eq!(
+            folder_per_game_suffix("Chaos Code.EXE").as_deref(),
+            Some("exe")
+        );
+        // RetroBat folder suffixes and a mixed-case launcher (spec P8).
+        for (name, ext) in [
+            ("Homura.parrot", "parrot"),
+            ("Homura.TeknoParrot", "teknoparrot"),
+            ("Homura.game", "game"),
+            ("Homura.AppImage", "appimage"),
+            ("Homura.Desktop", "desktop"),
+        ] {
+            assert_eq!(folder_per_game_suffix(name).as_deref(), Some(ext), "{name}");
+        }
+        assert_eq!(folder_per_game_suffix("Homura.zip"), None);
+        assert_eq!(folder_per_game_suffix("Raiden IV (Type X)"), None);
+        assert_eq!(folder_per_game_suffix(".exe"), None);
+        assert_eq!(folder_per_game_suffix("  .exe"), None);
+        assert_eq!(folder_per_game_suffix("Game.v1.2"), None);
+    }
 
     #[test]
     fn companions_match_state_slots() {

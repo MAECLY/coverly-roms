@@ -58,4 +58,22 @@ describe('locales', () => {
     for (const v of [p.slot, p.template, p.max_width, p.max_height])
       expect(v.startsWith('{media}')).toBe(true);
   });
+
+  it('never names a PC arcade loader in copy (the app recommends none)', () => {
+    const value = (catalog: object, key: string): string =>
+      key
+        .split('.')
+        .reduce<unknown>(
+          (node, part) => (node as Record<string, unknown>)[part],
+          catalog,
+        ) as string;
+    for (const [name, catalog] of [
+      ['en', en],
+      ['es', es],
+    ] as const)
+      for (const key of flatten(catalog))
+        expect(value(catalog, key), `${name}: ${key}`).not.toMatch(
+          /teknoparrot|jconfig/i,
+        );
+  });
 });

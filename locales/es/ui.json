@@ -1753,6 +1753,7 @@
       "engine": "Motores y consolas de fantasía"
     },
     "noEmulator": "Sin emulador",
+    "pcOnly": "Solo en PC; no funciona en portátiles ARM",
     "unknown": "Carpeta sin sistema reconocido"
   },
   "progress": {

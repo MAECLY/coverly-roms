@@ -10,6 +10,10 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ### Added
 
+- Two arcade systems: Cave CV1000 (`cave3rd`), whose sets stay in Batocera's
+  `cave3rd/` folder, and Taito Type X (`typex`), where each folder inside
+  `type-x/` is one game. Coverly never opens anything inside a Type X game; its
+  shelf says it runs only on PC.
 - One folder per game for modern consoles: Organise moves a game, its
   updates and its DLC together into `<System>/<Game>/`, with the updates in
   `Updates/` and the DLC in `DLC/`. Only the folders that get content are

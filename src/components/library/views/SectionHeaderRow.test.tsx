@@ -2,6 +2,7 @@ import { act, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { setNoEmulatorIds } from '@/hooks/useNoEmulator';
+import { setSystemNotes } from '@/hooks/useSystemNote';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
 import { createMockBackend } from '@/ipc/mock/mockBackend';
@@ -70,6 +71,26 @@ describe('SectionHeaderRow (systems batch 3 §9.1)', () => {
       /^Microsoft Xbox Series X\|S · Sin emulador$/,
     );
   });
+
+  it.each([
+    ['es', 'Solo en PC; no funciona en portátiles ARM', '12 juegos'],
+    ['en', "PC only; doesn't run on ARM handhelds", '12 games'],
+  ] as const)(
+    'says the Type X shelf runs only on PC, in its name (%s)',
+    (locale, note, games) => {
+      setSystemNotes({ noEmulator: [], pcOnly: ['typex'] });
+      renderRow(locale, shelf('typex', 'Taito Type X', 12));
+      const header = screen.getByRole('rowheader', {
+        name: `Taito Type X ${note}, ${games}`,
+      });
+      const label = screen.getByText(note);
+      expect(header).toContainElement(label);
+      expect(label).toHaveClass('section-row__note');
+      const dot = label.previousElementSibling!;
+      expect(dot).toHaveTextContent('·');
+      expect(dot).toHaveAttribute('aria-hidden', 'true');
+    },
+  );
 
   it('says nothing on a shelf whose system has an emulator', () => {
     setNoEmulatorIds(['xboxseries']);

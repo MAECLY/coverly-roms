@@ -165,6 +165,7 @@ pub const RETROARCH_SYSTEMS: &[&str] = &[
     "model2",
     "model3",
     "naomi2",
+    "cave3rd",
 ];
 
 /// An emulator a translator knows (D14). The wire spelling is its product

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { FAMILY_ORDER, systemOptionGroups } from './systems';
+import {
+  FAMILY_ORDER,
+  FOLDER_PER_GAME_SYSTEMS,
+  systemOptionGroups,
+} from './systems';
 
 const t = (k: string) =>
   ({
@@ -29,6 +33,29 @@ describe('systemOptionGroups', () => {
     expect(g.map((x) => x.family)).toEqual(['console', 'computer', 'engine']);
     expect(g[0]!.systems.map((s) => s.name)).toEqual(['Ámbar', 'Bravo']);
     expect(g[0]!.label).toBe('Consolas');
+  });
+
+  it('never offers a folder-per-game system as a manual target', () => {
+    const g = systemOptionGroups(
+      [
+        {
+          id: 'typex',
+          name: 'Taito Type X',
+          family: 'arcade',
+          no_emulator: false,
+          pc_only: true,
+        },
+        { id: 'mame', name: 'MAME', family: 'arcade', no_emulator: false },
+      ],
+      t,
+      'en',
+    );
+    expect(g.flatMap((x) => x.systems.map((s) => s.id))).toEqual(['mame']);
+  });
+
+  it('mirrors the core list of folder-per-game systems', () => {
+    // organize::walk::FOLDER_PER_GAME_SYSTEMS
+    expect(FOLDER_PER_GAME_SYSTEMS).toEqual(['typex']);
   });
 
   it('lists the five families a collector thinks in, in that order', () => {

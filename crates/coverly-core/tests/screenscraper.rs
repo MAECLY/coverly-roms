@@ -847,3 +847,68 @@ fn media_without_a_region_or_with_an_unknown_region_are_region_agnostic() {
         }
     }
 }
+
+#[test]
+fn screenscraper_media_type_asks_flyers_for_the_arcade_family() {
+    use coverly_core::systems::Family;
+    // Spec 2026-10-26-pc-arcade P11: arcade covers, and those of the
+    // arcade family (Type X has `arcade = false`), are flyers.
+    let db = SystemDb::builtin();
+    let arcade_like = |id: &str| {
+        let s = db.get(id).unwrap();
+        s.arcade || s.family == Family::Arcade
+    };
+    assert_eq!(media_type(Media::Cover, arcade_like("typex")), "flyer");
+    assert_eq!(media_type(Media::Cover, arcade_like("mame")), "flyer");
+    assert_eq!(media_type(Media::Cover, arcade_like("snes")), "box-2D");
+}
+
+#[test]
+fn a_typex_cover_is_the_flyer() {
+    let w = w();
+    let db = SystemDb::builtin();
+    let typex = db.get("typex").unwrap();
+    let sid = typex.screenscraper.unwrap();
+    let path = format!(
+        "/ss/jeuRecherche.php?{}&systemeid={sid}&recherche={}",
+        creds(),
+        enc("Raiden IV")
+    );
+    let body = r#"{"response":{"jeux":[{
+        "id": "7",
+        "noms": [{ "region": "wor", "text": "Raiden IV" }],
+        "medias": [
+            { "type": "box-2D", "parent": "jeu", "region": "jp" },
+            { "type": "flyer", "parent": "jeu", "region": "jp" }
+        ]
+    }]}}"#;
+    w.server.serve_json(&path, body);
+    let src = ScreenScraperSource::new(&w.http, &w.cache, dev(), Some(user()), w.cfg.clone());
+    let rom = parse_name("Raiden IV (Type X)", false);
+    let c = src
+        .candidates(&ArtQuery {
+            system: typex,
+            media: Media::Cover,
+            canonical: None,
+            rom: &rom,
+            stem: "Raiden IV (Type X)",
+            by_name: true,
+            fuzzy: true,
+            min_score: 65,
+            max_candidates: 5,
+            hash: None,
+            size: 0,
+            file_name: "Raiden IV (Type X)",
+            rom_path: None,
+        })
+        .unwrap();
+    assert_eq!(c.len(), 1, "{c:?}");
+    assert_eq!(
+        c[0].url,
+        format!(
+            "{}/mediaJeu.php?systemeid={sid}&jeuid=7&media={}",
+            w.cfg.base,
+            enc("flyer(jp)")
+        )
+    );
+}

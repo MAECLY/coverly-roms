@@ -6,7 +6,7 @@ import {
 } from 'react';
 
 import { SystemIcon } from '@/components/system/SystemIcon';
-import { useNoEmulator } from '@/hooks/useNoEmulator';
+import { useSystemNote } from '@/hooks/useSystemNote';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { sectionLabel, type Section } from '@/lib/grouping';
@@ -48,9 +48,10 @@ export function SectionHeaderRow({
   // Spoken and shown the same way ("1,204", "1.204").
   const count = section.count.toLocaleString(locale);
   // Once per shelf, after the name, as part of its name (systems batch 3
-  // §9.1): a fact about the world, so no box and no warning colour.
-  const noEmulator = useNoEmulator(section.systemId);
-  const note = noEmulator ? t('systems.noEmulator') : null;
+  // §9.1): «Sin emulador» or «Solo en PC; no funciona en portátiles ARM»,
+  // a fact about the world, so no box and no warning colour.
+  const kind = useSystemNote(section.systemId);
+  const note = kind ? t(`systems.${kind}`) : null;
   return (
     <div
       role="row"
@@ -74,7 +75,7 @@ export function SectionHeaderRow({
           <SystemIcon systemId={section.systemId} size={20} />
         )}
         {/* The note rides in the name's ellipsis run: a narrow shelf cuts
-            «· Sin emulador» first, never the name down to nothing. */}
+            the note («· Sin emulador», «· Solo en PC…») first, never the name down to nothing. */}
         <span className="section-row__name">
           {group}
           {note && (

@@ -22,7 +22,7 @@ use crate::settings::OrganizeSettings;
 use crate::systems::System;
 use crate::translate::EmulatorId;
 
-pub use builtin::{builtin_profiles, LIBRARY_PROFILE_ID};
+pub use builtin::{builtin_art_dir_names, builtin_profiles, LIBRARY_PROFILE_ID};
 pub use detect::{detect, detect_with_fallback, Detection};
 pub use fit::fit_to_root;
 pub use template::{render, TemplateVars};

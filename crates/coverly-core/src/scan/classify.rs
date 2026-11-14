@@ -266,6 +266,7 @@ mod tests {
             libretro_also: Vec::new(),
             embedded_first: false,
             no_emulator: false,
+            pc_only: false,
         }
     }
 

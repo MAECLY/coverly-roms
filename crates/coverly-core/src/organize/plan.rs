@@ -3881,6 +3881,11 @@ pub fn plan_from_survey(
                 if env.db.get(system).is_none() {
                     return Err(OrganizeError::UnknownSystem(system.clone()));
                 }
+                // Never a manual target (P19): moving a lone launcher would
+                // split a Type X game from its data.
+                if crate::organize::walk::is_folder_per_game(system) {
+                    continue;
+                }
                 if !decidable(item) {
                     continue;
                 }

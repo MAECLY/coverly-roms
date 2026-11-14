@@ -24,7 +24,7 @@ use crate::identify::sniff::{
 };
 use crate::organize::evidence::Facts;
 use crate::organize::inspect::{ArchiveIssue, Container};
-use crate::organize::walk::FOLDER_GAME_SYSTEMS;
+use crate::organize::walk::{FOLDER_GAME_SYSTEMS, FOLDER_PER_GAME_SYSTEMS};
 use crate::profiles::Profile;
 use crate::scan::classify::{extension, is_bios_name, is_partial_download, is_skipped_entry};
 use crate::scan::{ChildEntry, LibraryScan, RomEntry, ScanOptions};
@@ -601,11 +601,14 @@ fn common_checks(path: &Path, opts: Option<&UnitOptions>) -> Result<(), Option<E
 }
 
 /// Whether a scanned system folder holds folder games (spec D15): it
-/// belongs to one of [`FOLDER_GAME_SYSTEMS`], or its name is one of their
-/// aliases. Like `ports`, nothing in it is a unit.
+/// belongs to one of [`FOLDER_GAME_SYSTEMS`] or [`FOLDER_PER_GAME_SYSTEMS`]
+/// (Type X, spec 2026-10-26-pc-arcade P15), or its name is one of their
+/// aliases. Like `ports`, nothing in it is a unit, so nothing inside is
+/// hashed or compared.
 fn is_folder_game_dir(db: &SystemDb, sys: &crate::scan::SystemScan) -> bool {
     FOLDER_GAME_SYSTEMS
         .iter()
+        .chain(FOLDER_PER_GAME_SYSTEMS.iter())
         .filter_map(|id| db.get(id))
         .any(|s| {
             sys.system_id.as_deref() == Some(s.id.as_str())

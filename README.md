@@ -25,7 +25,7 @@
   <a href="https://github.com/MAECLY/coverly-roms/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/MAECLY/coverly-roms?style=flat-square&color=0E5E6F&labelColor=1B1E1B"></a>
   <a href="https://github.com/MAECLY/coverly-roms/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/MAECLY/coverly-roms/ci.yml?branch=main&style=flat-square&label=CI&labelColor=1B1E1B"></a>
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
-  <a href="#supported-systems"><img alt="131 systems" src="https://img.shields.io/badge/systems-131-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
+  <a href="#supported-systems"><img alt="133 systems" src="https://img.shields.io/badge/systems-133-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
   <a href="#install"><img alt="macOS, Windows and Linux" src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-desktop%20%2B%20CLI-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
   <a href="README.es.md"><img alt="English and Spanish" src="https://img.shields.io/badge/English%20%C2%B7%20Espa%C3%B1ol-UI-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
   <a href="#privacy-and-safety"><img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
@@ -110,7 +110,7 @@ pages saved as `.zip` and damaged or multi-game archives stay where they are.
 Nothing is clobbered, copies across drives are verified, and an interrupted job
 can be resumed or undone.
 
-**131 systems, from cartridges to current consoles.** From the Atari 2600 to
+**133 systems, from cartridges to current consoles.** From the Atari 2600 to
 the PlayStation 5, each under the folder names the layouts use. Disc images and
 archives are identified from what is inside them. GameCube, Wii, Wii U, 3DS,
 Switch, PS Vita, PS3, PS4, PS5, Xbox, Xbox 360 and Xbox One games are recognised
@@ -247,7 +247,7 @@ override the detection, and build a custom profile for any other firmware.
 
 ## Supported systems
 
-131 systems, each under the folder names the layouts use (`GBA`, `gba` and
+133 systems, each under the folder names the layouts use (`GBA`, `gba` and
 `gameboyadvance` are the same system). Among them: Game Boy, Game Boy Color,
 Game Boy Advance, NES/Famicom, Super Nintendo, Mega Drive, Master System, Game
 Gear, PlayStation 1 to 5, PSP, PS Vita, Nintendo 64, GameCube, Wii, Wii U,
@@ -255,7 +255,7 @@ Nintendo DS, 3DS, Switch, Dreamcast, Saturn, Xbox, Xbox 360, Xbox One, Neo Geo,
 CPS1–3, MAME, FinalBurn Neo, ZX Spectrum, Amstrad CPC, PICO-8, ScummVM and DOS.
 
 <details>
-<summary>All 131 systems and their folder aliases (<code>coverly systems</code>)</summary>
+<summary>All 133 systems and their folder aliases (<code>coverly systems</code>)</summary>
 
 | ID                | Name                          | Folder aliases                                           |
 | ----------------- | ----------------------------- | -------------------------------------------------------- |
@@ -377,6 +377,8 @@ CPS1–3, MAME, FinalBurn Neo, ZX Spectrum, Amstrad CPC, PICO-8, ScummVM and DOS
 | `model3`          | Sega Model 3                  | `MODEL3`                                                 |
 | `naomi2`          | Sega NAOMI 2                  | `NAOMI2`                                                 |
 | `triforce`        | Namco Sega Nintendo Triforce  | `TRIFORCE`                                               |
+| `cave3rd`         | Cave CV1000                   | `CAVE3RD`                                                |
+| `typex`           | Taito Type X                  | `TYPEX`, `type-x`                                        |
 | `gamecube`        | Nintendo GameCube             | `GAMECUBE`, `gc`, `ngc`, `gcn`                           |
 | `wii`             | Nintendo Wii                  | `WII`                                                    |
 | `3ds`             | Nintendo 3DS                  | `3DS`, `n3ds`, `nintendo3ds`                             |

@@ -125,6 +125,13 @@ import {
 } from './adjustFixture';
 import { MOCK_ADDONS, MOCK_ADDONS_HUGE } from './addonViewsFixture';
 import { MOCK_EXTRAS } from './extrasFixture';
+import {
+  MOCK_PCARCADE,
+  MOCK_PCARCADE_PILE,
+  PCARCADE_PILE_OTHER,
+  PCARCADE_PILE_SETS,
+  PCARCADE_PILE_SORTED,
+} from './pcArcadeFixture';
 import { MOCK_DISC_ARCHIVES, type MockArchiveEntry } from './discFixture';
 import {
   GAME_FOLDER_FILES,
@@ -156,7 +163,7 @@ export const MOCK_PICK_KEY = 'coverly.mock.pick';
 /**
  * What "Open folder…" picks in the browser mock, so the organise offer is
  * reachable from the start screen:
- * `?mockPick=downloads|loose|mixed|retro|modern|current|huge|switch|odd|discs|dupes-title|gamefolders|mods|addons|addons-huge|extras|<absolute path>` (or
+ * `?mockPick=downloads|loose|mixed|retro|modern|current|huge|switch|odd|discs|dupes-title|gamefolders|mods|addons|addons-huge|extras|pcarcade|pcarcade-pile|<absolute path>` (or
  * localStorage `coverly.mock.pick`). `downloads` is the owner's pile as it
  * is now (`MOCK_SAMPLE`), `loose` the same pile before any of it was sorted
  * (`MOCK_DOWNLOADS`), `retro` the systems batch 1 pile (`MOCK_RETRO`),
@@ -174,7 +181,12 @@ export const MOCK_PICK_KEY = 'coverly.mock.pick';
  * (`MOCK_ADDONS_HUGE`, 50 000 updates and DLC, the D1 performance check),
  * and `extras` the Extras library of part D (`MOCK_EXTRAS`,
  * `extrasFixture.ts`: game folders showing every state of the Extras
- * section, with media the viewer plays).
+ * section, with media the viewer plays), and `pcarcade` the PC arcade
+ * library (`MOCK_PCARCADE`, `pcArcadeFixture.ts`: an ES-DE library with
+ * `type-x/` and `cave3rd/` shelves) and `pcarcade-pile` its pile
+ * (`MOCK_PCARCADE_PILE`, organised with the Batocera layout: a loose Cave
+ * set goes to `fbneo/`, the one in `cave3rd/` stays, Type X launchers are
+ * left as other files).
  * Null: the first fixture library, as before.
  */
 export function readMockPick(): string | null {
@@ -195,6 +207,8 @@ export function readMockPick(): string | null {
     if (v === 'addons') return MOCK_ADDONS;
     if (v === 'addons-huge') return MOCK_ADDONS_HUGE;
     if (v === 'extras') return MOCK_EXTRAS;
+    if (v === 'pcarcade') return MOCK_PCARCADE;
+    if (v === 'pcarcade-pile') return MOCK_PCARCADE_PILE;
     return v && v.startsWith('/') ? v : null;
   };
   try {
@@ -348,6 +362,9 @@ interface PileDef {
   junk: string[];
   /** System folders already sorted there (opens as a library). */
   sorted?: readonly MockSortedFolder[];
+  /** The layout of `sorted` when not `MockOrganizeOptions.sortedLayout`
+   * (a profile id of `MockOrganizeOptions.layouts`). */
+  sortedLayout?: string;
   /** Files no rule claims, listed but never moved (`other_files`). */
   otherFiles?: string[];
 }
@@ -1283,6 +1300,23 @@ const PILES: readonly PileDef[] = [
     files: MODS_FILES.map(modsPile),
     junk: [],
   },
+  {
+    // PC arcade (spec §9, §10; plan D-3), as the core plans it on Batocera
+    // (`pc_arcade.rs`): `MAME.dat` and the FBNeo DAT both name the set, a
+    // loose one goes to `fbneo`, the one in `cave3rd/` stays; launchers are
+    // other files, never `typex` (recognised by location only).
+    path: MOCK_PCARCADE_PILE,
+    junk: [],
+    sorted: PCARCADE_PILE_SORTED,
+    sortedLayout: 'batocera',
+    otherFiles: [...PCARCADE_PILE_OTHER],
+    files: PCARCADE_PILE_SETS.map(([name, size]) => ({
+      name,
+      size,
+      ...hash('fbneo', name.replace(/\.zip$/, ''), ''),
+      detail: name.replace(/\.zip$/, ''),
+    })),
+  },
 ];
 
 const ARCHIVE_EXTS = ['.zip', '.7z', '.rar', '.gz', '.tgz'];
@@ -1304,6 +1338,8 @@ export const ORGANIZE_SYSTEMS: readonly {
   family: SystemFamily;
   /** `systems.toml` `no_emulator` (systems batch 3 D22); absent = false. */
   no_emulator?: boolean;
+  /** `systems.toml` `pc_only` (PC arcade P9); absent = false. */
+  pc_only?: boolean;
 }[] = [
   { id: 'saturn', name: 'Sega Saturn', folder: 'SATURN', family: 'console' },
   // The adjustments disc sets (spec §9.4): a Sega CD set by name only.
@@ -1346,6 +1382,18 @@ export const ORGANIZE_SYSTEMS: readonly {
     name: 'Capcom Play System III',
     folder: 'CPS3',
     family: 'arcade',
+  },
+  // PC arcade (spec P1, P2): folders are the first alias; only Type X
+  // runs only on PC hardware (P9).
+  { id: 'cave3rd', name: 'Cave CV1000', folder: 'CAVE3RD', family: 'arcade' },
+  // Where a loose Cave set goes (the PC arcade pile).
+  { id: 'fbneo', name: 'FinalBurn Neo', folder: 'FBNEO', family: 'arcade' },
+  {
+    id: 'typex',
+    name: 'Taito Type X',
+    folder: 'TYPEX',
+    family: 'arcade',
+    pc_only: true,
   },
   { id: 'doom', name: 'Doom (PrBoom)', folder: 'PRBOOM', family: 'engine' },
   // The modern pile (systems batch 2; GameCube, PS3 and Switch are in the
@@ -1665,6 +1713,8 @@ export interface MockOrganizeOptions {
   /** The layout of the folders a pile already has sorted (`PileDef.sorted`);
    * absent: those piles open as loose piles. */
   sortedLayout?: ProfileInfo | undefined;
+  /** The built-in layouts, for a pile naming its own `sortedLayout`. */
+  layouts?: readonly ProfileInfo[] | undefined;
   /** How fast extraction runs (default `'fast'`). */
   extractRate?: MockExtractRate | undefined;
 }
@@ -1793,7 +1843,9 @@ export function createMockOrganize(
   const targets = new Map<string, Target>();
   // What a pile already has sorted: no job wrote it, so no undo touches it.
   for (const p of PILES) {
-    const layout = opts.sortedLayout;
+    const layout = p.sortedLayout
+      ? opts.layouts?.find((l) => l.profile.id === p.sortedLayout)
+      : opts.sortedLayout;
     if (!p.sorted || !layout) continue;
     targets.set(p.path, {
       root: p.path,
