@@ -544,6 +544,14 @@ type MockWindow = Window & {
   mockRevealedPaths?: () => string[];
   /** `dedupeArt` calls as `plan:group:member|g:media` (a copy). */
   mockDedupeArtCalls?: () => string[];
+  /** A simulated OS drop over the Extras section (part D); its token. */
+  mockExtrasDrop?: (drop: {
+    names: string[];
+    position: { x: number; y: number };
+  }) => number;
+  /** Extras paths revealed and handed to another app (copies). */
+  mockExtrasRevealed?: () => string[];
+  mockExtrasOpened?: () => string[];
 };
 
 let current: Backend | null = null;
@@ -564,12 +572,17 @@ async function createBackend(): Promise<Backend> {
   // `mockDedupeScenario({ empty: true })`, `({ failPlan: 'volume-gone' })`,
   // `({ trashAvailable: false })`, `({ pauseAfter: 10 })`.
   // What the E2E checks: `mockRevealedPaths()`, `mockDedupeArtCalls()`.
+  // An OS drop on the Extras section (CSS pixels):
+  // `mockExtrasDrop({ names: ['Manual.pdf'], position: { x: 900, y: 400 } })`.
   if (typeof window !== 'undefined') {
     const w = window as MockWindow;
     w.mockOrganizeTouch = mock.organizeTouch;
     w.mockDedupeScenario = mock.dedupeScenario;
     w.mockRevealedPaths = () => [...mock.revealedPaths];
     w.mockDedupeArtCalls = () => [...mock.artCalls];
+    w.mockExtrasDrop = mock.emitDrop;
+    w.mockExtrasRevealed = () => [...mock.extrasRevealed];
+    w.mockExtrasOpened = () => [...mock.extrasOpened];
   }
   return mock;
 }

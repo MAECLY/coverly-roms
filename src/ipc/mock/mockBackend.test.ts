@@ -96,7 +96,10 @@ describe('mock backend', () => {
     await expect(
       b.extrasTrash(lib.generation, 0, view.rev, [0]),
     ).rejects.toMatchObject({ code: 'write-denied' });
-    await expect(b.extrasAddPick(lib.generation, 0)).resolves.toBeNull();
+    // As Rust: no game folder, nothing to add to.
+    await expect(b.extrasAddPick(lib.generation, 0)).rejects.toMatchObject({
+      code: 'write-denied',
+    });
     await expect(b.extrasList(lib.generation + 1, 0)).rejects.toBeInstanceOf(
       BackendError,
     );

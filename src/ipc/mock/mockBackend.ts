@@ -10,6 +10,7 @@ import type {
   ChildMedia,
   ChildView,
   EmulatorId,
+  EntriesUpdated,
   EntryView,
   FoundTool,
   LibraryView,
@@ -26,8 +27,14 @@ import {
   MOCK_ADDONS_HUGE,
   MOCK_REVISIONS_KEY,
 } from './addonViewsFixture';
+import { extrasLibrary, MOCK_EXTRAS } from './extrasFixture';
 import { FIXTURE_SYSTEMS, generateLibrary } from './fixture';
 import { createMockDedupe, type MockDedupeScenario } from './mockDedupe';
+import {
+  createMockExtras,
+  readMockExtrasPick,
+  type MockExtrasPick,
+} from './mockExtras';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
 import {
   createMockOrganize,
@@ -57,6 +64,8 @@ export { escapeXml } from './svg';
 export { readMockExtract } from './mockOrganize';
 export type { MockExport } from './mockJobs';
 export type { MockDedupeScenario } from './mockDedupe';
+export type { MockExtrasPick } from './mockExtras';
+export { MOCK_EXTRAS } from './extrasFixture';
 export {
   MOCK_ADDONS,
   MOCK_ADDONS_HUGE,
@@ -116,6 +125,9 @@ export interface MockOptions {
   /** The first duplicates apply of each job pauses (disk full) after this
    * many extras; null = never (default). */
   dedupePauseAfter?: number | null;
+  /** What the Extras «Añadir archivos» picker answers (default:
+   * `?mockExtrasPick=`, else two audio files). */
+  extrasPick?: MockExtrasPick;
 }
 
 export interface MockBackend extends Backend {
@@ -136,6 +148,16 @@ export interface MockBackend extends Backend {
   readonly artCalls: string[];
   /** What the next duplicates plans and applies do (dev, tests). */
   dedupeScenario(patch: Partial<MockDedupeScenario>): void;
+  /** Simulates an OS drop over the window (`extras://drop`, part D);
+   * answers its token. `position` is in CSS pixels. */
+  emitDrop(drop: {
+    names: string[];
+    position: { x: number; y: number };
+  }): number;
+  /** Extras paths revealed in the file manager, for tests. */
+  readonly extrasRevealed: string[];
+  /** Extras paths handed to another app, for tests. */
+  readonly extrasOpened: string[];
 }
 
 export function mockArtSvg(e: EntryView, media: Media): string {
@@ -606,11 +628,6 @@ function defaultStorage(): Storage | null {
 
 const DAY = 86_400;
 
-/** An Extras call on a listing the mock does not have (part D). */
-function extrasReadOnly(): Promise<never> {
-  return Promise.reject(new BackendError('write-denied'));
-}
-
 export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const delayMs = opts.delayMs ?? 30;
   const now = opts.now ?? Math.floor(Date.now() / 1000);
@@ -773,6 +790,39 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     return e;
   };
 
+  /** Listeners of `library-entries-updated` the Extras writes notify (the
+   * fill jobs notify theirs). */
+  const extrasUpdated = new Set<(e: EntriesUpdated) => void>();
+  const extras = createMockExtras(
+    {
+      current: () => current,
+      entryOf,
+      tick: () => new Promise<void>((r) => setTimeout(r, delayMs)),
+      now,
+      counted(gen, id, n) {
+        if (!current || current.generation !== gen) return;
+        const e = current.entries[id];
+        if (!e) return;
+        const addons = {
+          ...(e.addons ?? { mods: 0, cheats: 0, extras: 0, saves: 0 }),
+          extras: n,
+        };
+        current = {
+          ...current,
+          entries: current.entries.map((x) =>
+            x.id === id ? { ...x, addons } : x,
+          ),
+        };
+        const update: EntriesUpdated = {
+          generation: gen,
+          entries: [{ id, art: e.art, addons }],
+        };
+        extrasUpdated.forEach((cb) => cb(update));
+      },
+    },
+    { pick: opts.extrasPick ?? readMockExtrasPick() },
+  );
+
   return {
     ...jobs,
     ...settings,
@@ -786,14 +836,25 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
         ...(await jobs.jobHistory()),
         ...organize.history(),
         ...dedupe.dedupeHistory(),
+        ...extras.extrasHistory(),
       ];
       return all.sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
     // Like Rust, `organize_undo` undoes duplicates journals too.
     organizeUndo: (job, includeLater) =>
-      dedupe.ownsDedupeJob(job)
-        ? dedupe.dedupeUndo(job, includeLater)
-        : organize.organizeUndo(job, includeLater),
+      extras.ownsExtrasJob(job)
+        ? Promise.resolve().then(() => extras.undoExtrasJob(job))
+        : dedupe.ownsDedupeJob(job)
+          ? dedupe.dedupeUndo(job, includeLater)
+          : organize.organizeUndo(job, includeLater),
+    async onEntriesUpdated(cb) {
+      const off = await jobs.onEntriesUpdated(cb);
+      extrasUpdated.add(cb);
+      return () => {
+        off();
+        extrasUpdated.delete(cb);
+      };
+    },
     listSystems: () =>
       Promise.resolve(
         // Like Rust, the whole catalogue: the organise piles' systems too.
@@ -831,7 +892,9 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
           ? addonViewsLibrary(gen, now)
           : path === MOCK_ADDONS_HUGE
             ? addonViewsHuge(gen, now)
-            : organize.library(path, gen);
+            : path === MOCK_EXTRAS
+              ? extrasLibrary(gen, now, extras.extrasCount)
+              : organize.library(path, gen);
       if (!scanned) throw new BackendError('not-found', path);
       // Like Rust: the revision defaults saved for this root.
       const chosen = revisionChoices.get(scanned.root);
@@ -1107,46 +1170,32 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
         mime: 'image/svg+xml',
       };
     },
-    // Part D: until the extras mock library lands, every entry answers an
-    // empty, read-only Extras/ and every write is refused.
-    async extrasList(gen, id) {
-      const e = entryOf(gen, id);
-      const system = current?.systems[e.system]?.system_id ?? '';
-      return {
-        entry_id: id,
-        rev: 0,
-        game_folder: false,
-        index: { state: 'absent' },
-        writable: { kind: 'read-only' },
-        categories: [],
-        files: [],
-        missing: [],
-        capped: false,
-        system,
-        manual_inside: ['3ds', 'wiiu', 'switch', 'psvita'].includes(system),
-      };
-    },
-    extrasRename: () => extrasReadOnly(),
-    extrasMove: () => extrasReadOnly(),
-    extrasTrash: () => extrasReadOnly(),
-    extrasSetTags: () => extrasReadOnly(),
-    extrasForget: () => extrasReadOnly(),
-    extrasCategoryCreate: () => extrasReadOnly(),
-    extrasCategoryRename: () => extrasReadOnly(),
-    extrasCategoryRemove: () => extrasReadOnly(),
-    extrasUndo: () => Promise.reject(new BackendError('nothing-to-undo')),
-    extrasAddPick: () => Promise.resolve(null),
-    extrasAddPlan: () => extrasReadOnly(),
-    extrasAddCommit: () => extrasReadOnly(),
-    extrasAddDropped: () => extrasReadOnly(),
-    extrasAddCancel: () => Promise.resolve(false),
-    extrasMedia: () => extrasReadOnly(),
-    extrasReadText: () => extrasReadOnly(),
-    extrasReveal: () => extrasReadOnly(),
-    extrasOpenExternal: () => extrasReadOnly(),
-    onExtrasDrop: () => Promise.resolve(() => {}),
-    onExtrasProgress: () => Promise.resolve(() => {}),
-    onExtrasAdded: () => Promise.resolve(() => {}),
+    // Part D: a game's Extras/ (`?mockPick=extras`, `mockExtras.ts`).
+    extrasList: extras.extrasList,
+    extrasRename: extras.extrasRename,
+    extrasMove: extras.extrasMove,
+    extrasTrash: extras.extrasTrash,
+    extrasSetTags: extras.extrasSetTags,
+    extrasForget: extras.extrasForget,
+    extrasCategoryCreate: extras.extrasCategoryCreate,
+    extrasCategoryRename: extras.extrasCategoryRename,
+    extrasCategoryRemove: extras.extrasCategoryRemove,
+    extrasUndo: extras.extrasUndo,
+    extrasAddPick: extras.extrasAddPick,
+    extrasAddPlan: extras.extrasAddPlan,
+    extrasAddCommit: extras.extrasAddCommit,
+    extrasAddDropped: extras.extrasAddDropped,
+    extrasAddCancel: extras.extrasAddCancel,
+    extrasMedia: extras.extrasMedia,
+    extrasReadText: extras.extrasReadText,
+    extrasReveal: extras.extrasReveal,
+    extrasOpenExternal: extras.extrasOpenExternal,
+    onExtrasDrop: extras.onExtrasDrop,
+    onExtrasProgress: extras.onExtrasProgress,
+    onExtrasAdded: extras.onExtrasAdded,
+    emitDrop: extras.emitDrop,
+    extrasRevealed: extras.extrasRevealed,
+    extrasOpened: extras.extrasOpened,
     pickFolder: () =>
       Promise.resolve(opts.folder ?? readMockPick() ?? MOCK_LIBRARIES[0].path),
     onFolderDrop(cb) {
