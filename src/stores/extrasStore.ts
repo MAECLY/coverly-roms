@@ -66,6 +66,10 @@ interface ExtrasState {
   applyWrite(write: ExtrasWriteView): void;
   /** Undoes the open game's last Extras job; null when there is none. */
   undo(): Promise<ExtrasUndone | null>;
+  /** Undoes Extras job `job` of game `entryId` (a toast's «Deshacer»,
+   * which may outlive the game on screen); its listing is shown only when
+   * that game is still the open one. */
+  undoJob(entryId: number, job: string): Promise<ExtrasUndone>;
   select(index: number, mode: SelectMode): void;
   clearSelection(): void;
   reset(): void;
@@ -244,12 +248,19 @@ export const useExtrasStore = create<ExtrasState>()((set, get) => {
     },
 
     async undo() {
-      const { generation, entryId, lastJob } = get();
-      if (generation === null || entryId === null) return null;
+      const { entryId, lastJob } = get();
+      if (entryId === null) return null;
       const job = lastJob[entryId];
       if (job === undefined) return null;
+      return get().undoJob(entryId, job);
+    },
+
+    async undoJob(entryId, job) {
+      const { generation } = get();
+      if (generation === null) throw new Error('no extras library open');
       const req = ++seq;
-      set({ pending: 'undo' });
+      const open = entryId === get().entryId;
+      if (open) set({ pending: 'undo' });
       try {
         const backend = await getBackend();
         const u = await backend.extrasUndo(generation, entryId, job);
@@ -261,7 +272,7 @@ export const useExtrasStore = create<ExtrasState>()((set, get) => {
         if (show(req, u.listing)) set({ selection: EMPTY, anchor: null });
         return u;
       } finally {
-        if (get().pending === 'undo') set({ pending: null });
+        if (open && get().pending === 'undo') set({ pending: null });
       }
     },
 

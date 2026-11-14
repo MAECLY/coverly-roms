@@ -47,6 +47,7 @@ function listing(files: ExtraFileView[], rev = 1, entry_id = 7): ExtrasView {
     capped: false,
     system: 'ps3',
     manual_inside: false,
+    trash: true,
   };
 }
 

@@ -19,12 +19,15 @@ import {
   extOf,
   filterFiles,
   gameTags,
+  moveTargets,
   MAX_TAGS,
   normalizeTags,
   officialWhatKey,
   sameCategory,
   sortCategories,
+  splitExt,
   splitMiddle,
+  stepCategory,
   suggestedCategory,
   typeOf,
   typeOfName,
@@ -325,5 +328,42 @@ describe('diskName and splitMiddle (§8.1)', () => {
     expect(tail.endsWith('.flac')).toBe(true);
     expect(tail.length).toBeGreaterThanOrEqual(8);
     expect(head.length).toBeGreaterThan(0);
+  });
+});
+
+describe('splitExt, moveTargets and stepCategory (§8.3)', () => {
+  it('keeps the extension as spelt on disk and a dot file whole', () => {
+    expect(splitExt('03 Leviathan.FLAC')).toEqual(['03 Leviathan', '.FLAC']);
+    expect(splitExt('a.b.pdf')).toEqual(['a.b', '.pdf']);
+    expect(splitExt('README')).toEqual(['README', '']);
+    expect(splitExt('.hidden')).toEqual(['.hidden', '']);
+  });
+
+  it('lists every fixed category, the user ones A→Z, then loose', () => {
+    const targets = moveTargets([
+      { category: { kind: 'user', name: 'Remixes' } },
+      { category: { kind: 'fixed', name: 'videos' } },
+      { category: { kind: 'user', name: 'Bocetos' } },
+      { category: { kind: 'root' } },
+    ]);
+    expect(targets.map(categoryKey)).toEqual([
+      'fixed:soundtrack',
+      'fixed:manuals',
+      'fixed:artwork',
+      'fixed:videos',
+      'fixed:themes',
+      'fixed:guides',
+      'user:Bocetos',
+      'user:Remixes',
+      'root',
+    ]);
+    expect(stepCategory(targets, { kind: 'fixed', name: 'guides' }, 1)).toEqual(
+      { kind: 'user', name: 'Bocetos' },
+    );
+    expect(
+      stepCategory(targets, { kind: 'fixed', name: 'soundtrack' }, -1),
+    ).toBeNull();
+    expect(stepCategory(targets, { kind: 'root' }, 1)).toBeNull();
+    expect(stepCategory(targets, { kind: 'user', name: 'Gone' }, 1)).toBeNull();
   });
 });

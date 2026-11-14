@@ -89,6 +89,7 @@ function view(
     capped: false,
     system: 'ps3',
     manual_inside: false,
+    trash: true,
   };
 }
 
@@ -218,6 +219,21 @@ describe('extrasStore', () => {
     expect(await store().undo()).toBeNull();
     await store().open(lib.generation, tide);
     expect((await store().undo())?.job).toBe(a.job);
+  });
+
+  it('undoes a job of a game that is no longer open without showing it', async () => {
+    const tide = id('Tidewalker');
+    const star = id('Star Courier (USA)');
+    await store().open(lib.generation, tide);
+    const a = await store().setTags(fileIndex('02 Coral Depths.wav'), ['jefe']);
+    await store().open(lib.generation, star);
+    const shown = store().listing;
+    const u = await store().undoJob(tide, a.job!);
+    expect(u.job).toBe(a.job);
+    expect(store().lastJob[tide]).toBeUndefined();
+    // The open game's listing stays on screen.
+    expect(store().listing).toBe(shown);
+    expect(store().pending).toBeNull();
   });
 
   it('refreshes on extras-changed and rethrows', async () => {

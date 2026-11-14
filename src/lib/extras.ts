@@ -285,3 +285,40 @@ export function splitMiddle(name: string): [string, string] {
   const keep = Math.min(name.length - 4, Math.max(8, ext.length + 6));
   return [name.slice(0, name.length - keep), name.slice(name.length - keep)];
 }
+
+/** A file name split for inline rename (D14): the stem the user edits and
+ * the extension (with its dot, as spelt on disk) that stays. */
+export function splitExt(name: string): [string, string] {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+}
+
+/** Every place a file can go, in the section's order: the fixed categories
+ * (whether their folder exists yet or not), the user's A→Z, then loose in
+ * `Extras/` («Mover a…», `Alt+↑/↓`, the drop targets). */
+export function moveTargets(
+  categories: readonly { category: CategoryRef }[],
+): CategoryRef[] {
+  const user = categories
+    .map((c) => c.category)
+    .filter((c) => c.kind === 'user');
+  return sortCategories([
+    ...EXTRAS_CATEGORIES.map((name) => ({
+      category: { kind: 'fixed', name } as CategoryRef,
+    })),
+    ...user.map((category) => ({ category })),
+    { category: { kind: 'root' } as CategoryRef },
+  ]).map((c) => c.category);
+}
+
+/** The category `delta` places from `from` in `targets` (`Alt+↑/↓`);
+ * null past either end. */
+export function stepCategory(
+  targets: readonly CategoryRef[],
+  from: CategoryRef,
+  delta: number,
+): CategoryRef | null {
+  const at = targets.findIndex((c) => sameCategory(c, from));
+  if (at < 0) return null;
+  return targets[at + delta] ?? null;
+}
