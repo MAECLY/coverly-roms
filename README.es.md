@@ -25,7 +25,7 @@
   <a href="https://github.com/MAECLY/coverly-roms/commits/main"><img alt="Último commit" src="https://img.shields.io/github/last-commit/MAECLY/coverly-roms?style=flat-square&color=0E5E6F&labelColor=1B1E1B&label=último%20commit"></a>
   <a href="https://github.com/MAECLY/coverly-roms/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/MAECLY/coverly-roms/ci.yml?branch=main&style=flat-square&label=CI&labelColor=1B1E1B"></a>
   <a href="LICENSE"><img alt="Licencia: AGPL-3.0" src="https://img.shields.io/badge/licencia-AGPL--3.0-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
-  <a href="#sistemas-compatibles"><img alt="131 sistemas" src="https://img.shields.io/badge/sistemas-131-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
+  <a href="#sistemas-compatibles"><img alt="133 sistemas" src="https://img.shields.io/badge/sistemas-133-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
   <a href="#instalar"><img alt="macOS, Windows y Linux" src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-escritorio%20%2B%20CLI-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
   <a href="README.md"><img alt="Inglés y español" src="https://img.shields.io/badge/English%20%C2%B7%20Espa%C3%B1ol-interfaz-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
   <a href="#privacidad-y-seguridad"><img alt="Sin telemetría" src="https://img.shields.io/badge/telemetr%C3%ADa-ninguna-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
@@ -114,7 +114,7 @@ nombre o formato, se aparta en vez de copiarse otra vez. No pisa ningún
 archivo, las copias entre discos se verifican y un trabajo interrumpido se
 puede reanudar o deshacer.
 
-**131 sistemas, de los cartuchos a las consolas actuales.** De la Atari 2600 a
+**133 sistemas, de los cartuchos a las consolas actuales.** De la Atari 2600 a
 la PlayStation 5, cada uno con los nombres de carpeta que usan los formatos.
 Las imágenes de disco y los comprimidos se identifican por lo que llevan
 dentro. Los juegos de GameCube, Wii, Wii U, 3DS, Switch, PS Vita, PS3, PS4,
@@ -263,7 +263,7 @@ firmware.
 
 ## Sistemas compatibles
 
-131 sistemas, cada uno con los nombres de carpeta que usan los formatos
+133 sistemas, cada uno con los nombres de carpeta que usan los formatos
 (`GBA`, `gba` y `gameboyadvance` son el mismo sistema). Entre ellos: Game Boy,
 Game Boy Color, Game Boy Advance, NES/Famicom, Super Nintendo, Mega Drive,
 Master System, Game Gear, PlayStation de la 1 a la 5, PSP, PS Vita, Nintendo
@@ -272,7 +272,7 @@ Xbox 360, Xbox One, Neo Geo, CPS1–3, MAME, FinalBurn Neo, ZX Spectrum, Amstrad
 CPC, PICO-8, ScummVM y DOS.
 
 <details>
-<summary>Los 131 sistemas y sus nombres de carpeta (<code>coverly systems</code>)</summary>
+<summary>Los 133 sistemas y sus nombres de carpeta (<code>coverly systems</code>)</summary>
 
 | ID                | Nombre                        | Nombres de carpeta                                       |
 | ----------------- | ----------------------------- | -------------------------------------------------------- |
@@ -394,6 +394,8 @@ CPC, PICO-8, ScummVM y DOS.
 | `model3`          | Sega Model 3                  | `MODEL3`                                                 |
 | `naomi2`          | Sega NAOMI 2                  | `NAOMI2`                                                 |
 | `triforce`        | Namco Sega Nintendo Triforce  | `TRIFORCE`                                               |
+| `cave3rd`         | Cave CV1000                   | `CAVE3RD`                                                |
+| `typex`           | Taito Type X                  | `TYPEX`, `type-x`                                        |
 | `gamecube`        | Nintendo GameCube             | `GAMECUBE`, `gc`, `ngc`, `gcn`                           |
 | `wii`             | Nintendo Wii                  | `WII`                                                    |
 | `3ds`             | Nintendo 3DS                  | `3DS`, `n3ds`, `nintendo3ds`                             |
