@@ -177,4 +177,33 @@ describe('ExtrasSection focus (extras spec §8.3, §8.4)', () => {
     await waitFor(() => expect(row(r, 'Key Art.png')).toBeInTheDocument());
     expect(toast.dismiss).toHaveBeenCalledWith('toast-1');
   });
+  it('a renamed own category keeps the focus on its menu button', async () => {
+    const r = await shown('Tidewalker');
+    openMenu(r, 'Remixes');
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Renombrar' }));
+    await settle();
+    const input = within(r).getByRole('textbox', {
+      name: 'Nombre de la categoría',
+    });
+    fireEvent.change(input, { target: { value: 'Versiones' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    const menu = await within(r).findByRole('button', {
+      name: 'Más acciones para Versiones',
+    });
+    await waitFor(() => expect(menu).toHaveFocus());
+  });
+
+  it('a new own category takes the focus on its menu button', async () => {
+    const r = await shown('Tidewalker');
+    fireEvent.click(within(r).getByRole('button', { name: 'Nueva categoría' }));
+    const input = within(r).getByRole('textbox', {
+      name: 'Nombre de la categoría',
+    });
+    fireEvent.change(input, { target: { value: 'Bocetos' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    const menu = await within(r).findByRole('button', {
+      name: 'Más acciones para Bocetos',
+    });
+    await waitFor(() => expect(menu).toHaveFocus());
+  });
 });

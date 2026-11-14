@@ -220,7 +220,9 @@ function noteTexts(notes: readonly ExtrasNote[], t: TFunction): string[] {
 /** Where focus goes after a write: a file by path, or by its new place. */
 type FocusAfter =
   | { path: string; landed?: false }
-  | { category: CategoryRef; name: string; landed: boolean };
+  | { category: CategoryRef; name: string; landed: boolean }
+  /** An own category just created or renamed: its menu button. */
+  | { band: string };
 
 type Confirm =
   | { kind: 'trash'; files: number[]; name: string }
@@ -366,6 +368,19 @@ export function ExtrasSection({
   useEffect(() => {
     const want = focusAfter.current;
     if (!want || !listing) return;
+    if ('band' in want) {
+      const menu = [
+        ...(sectionRef.current?.querySelectorAll<HTMLElement>(
+          '[data-extras-band]',
+        ) ?? []),
+      ]
+        .find((b) => b.dataset.extrasBand === want.band)
+        ?.querySelector<HTMLElement>('[data-extras-band-menu]');
+      if (!menu) return;
+      focusAfter.current = null;
+      menu.focus();
+      return;
+    }
     const file =
       'path' in want
         ? listing.files.find((f) => f.path === want.path)
@@ -869,10 +884,15 @@ export function ExtrasSection({
     async renameCategory(from, to) {
       setWriteError(null);
       try {
+        // Set before the write: the listing it answers runs the effect.
+        focusAfter.current = {
+          band: categoryKey({ kind: 'user', name: to.trim() }),
+        };
         const w = await store().renameCategory(from, to);
         done([w], t('extras.categoryRenamed', { name: to.trim() }));
         return null;
       } catch (e) {
+        focusAfter.current = null;
         const err = toBackendError(e);
         const why = refusalText(err, t, 'category');
         if (why) return why;
@@ -1191,11 +1211,15 @@ export function ExtrasSection({
             onCreate={async (name) => {
               setWriteError(null);
               try {
+                focusAfter.current = {
+                  band: categoryKey({ kind: 'user', name: name.trim() }),
+                };
                 const w = await store().createCategory(name);
                 setNewCategory(false);
                 done([w], t('extras.categoryCreated', { name: name.trim() }));
                 return null;
               } catch (e) {
+                focusAfter.current = null;
                 const err = toBackendError(e);
                 const why = refusalText(err, t, 'category');
                 if (why) return why;

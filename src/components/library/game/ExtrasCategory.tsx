@@ -144,6 +144,7 @@ export function ExtrasCategory({
                 type="button"
                 className="extras-band__add"
                 aria-label={t('extras.categoryMenu', { category: label })}
+                data-extras-band-menu=""
                 disabled={!a.canWrite}
               >
                 <MoreHorizontal aria-hidden />
