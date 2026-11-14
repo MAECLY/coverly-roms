@@ -33,7 +33,7 @@ use crate::profiles::naming::system_folder;
 use crate::profiles::Profile;
 use crate::scan::classify::{
     extension, is_appledouble, is_bios_name, is_hidden, is_junk_file, is_partial_download,
-    is_zone_identifier, COMPANION_EXTS, PARTIAL_DOWNLOAD_EXTS,
+    is_set_aside_dir, is_zone_identifier, COMPANION_EXTS, PARTIAL_DOWNLOAD_EXTS,
 };
 use crate::scan::ScanOptions;
 use crate::systems::SystemDb;
@@ -461,11 +461,16 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             if !entry.file_type().is_dir() {
                 return true;
             }
+            let name = entry.file_name().to_string_lossy();
+            // What an Extras job set aside (extras D8) is never walked,
+            // nor reported, at any depth.
+            if is_set_aside_dir(&name) {
+                return false;
+            }
             if entry.metadata().is_ok_and(|m| is_reparse_point(&m)) {
                 refused_links.push(entry.path().to_path_buf());
                 return false;
             }
-            let name = entry.file_name().to_string_lossy();
             if is_hidden(&name) {
                 return false;
             }

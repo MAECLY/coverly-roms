@@ -22,6 +22,8 @@ use serde::Serialize;
 use walkdir::WalkDir;
 
 use crate::consoles::{identify_dir_on_disk, is_key_material};
+use crate::extras::index::is_index_name;
+use crate::extras::ops::SET_ASIDE_DIR;
 use crate::game_folder::{classify_listing, ChildRole, DirShape, FixedFolder, GameBase};
 use crate::identify::names::{parse_tags, ReleaseClass};
 use crate::organize::target::strip_suffix_ignoring_case;
@@ -217,8 +219,9 @@ pub struct ScanOptions {
 }
 
 /// The quarantine folder names every scan skips by default: the two names
-/// the app picks from its language.
-pub const QUARANTINE_NAMES: [&str; 2] = ["_Duplicados", "_Duplicates"];
+/// the app picks from its language, and the folder where Extras jobs set
+/// files aside on a drive with no Trash (extras D8).
+pub const QUARANTINE_NAMES: [&str; 3] = ["_Duplicados", "_Duplicates", SET_ASIDE_DIR];
 
 impl Default for ScanOptions {
     fn default() -> Self {
@@ -683,7 +686,7 @@ fn set_fixed_counts(
         };
         let mut counts = FixedFolderCounts::default();
         for (folder, path) in counted_dirs.get(game_dir).into_iter().flatten() {
-            let (n, capped) = count_fixed(path, opts);
+            let (n, capped) = count_fixed(path, *folder, opts);
             counts.capped |= capped;
             let slot = match folder {
                 FixedFolder::Mods => &mut counts.mods,
@@ -713,16 +716,22 @@ fn add_capped(slot: &mut u32, n: u32, capped: &mut bool) {
 /// Counts the regular files below one fixed folder (part C D9): metadata
 /// only, at most [`FIXED_COUNT_DEPTH`] levels deep, symlinks never
 /// followed whatever the options say (a symlink is not counted), entries
-/// [`is_skipped_entry`] leaves out not counted and not entered. Stops at
-/// [`FIXED_CAP`]; the flag says whether it did.
-fn count_fixed(dir: &Path, opts: &ScanOptions) -> (u32, bool) {
+/// [`is_skipped_entry`] leaves out not counted and not entered. In
+/// `Extras/`, the index and its malformed-file backups at its root are
+/// not extras (extras D9); a json filed in a category still counts. Stops
+/// at [`FIXED_CAP`]; the flag says whether it did.
+fn count_fixed(dir: &Path, folder: FixedFolder, opts: &ScanOptions) -> (u32, bool) {
     let mut count: u32 = 0;
     let walker = WalkDir::new(dir)
         .min_depth(1)
         .max_depth(FIXED_COUNT_DEPTH)
         .follow_links(false)
         .into_iter()
-        .filter_entry(|e| !is_skipped_entry(&e.file_name().to_string_lossy(), opts));
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            !is_skipped_entry(&name, opts)
+                && !(folder == FixedFolder::Extras && e.depth() == 1 && is_index_name(&name))
+        });
     for entry in walker.flatten() {
         if !entry.file_type().is_file() {
             continue;
@@ -1076,7 +1085,11 @@ mod tests {
             put(tmp.path(), &format!("Mods/m{i}.bps"));
         }
         assert_eq!(
-            count_fixed(&tmp.path().join("Mods"), &ScanOptions::default()),
+            count_fixed(
+                &tmp.path().join("Mods"),
+                FixedFolder::Mods,
+                &ScanOptions::default()
+            ),
             (FIXED_CAP, true)
         );
         let exact = TempDir::new().unwrap();
@@ -1084,7 +1097,11 @@ mod tests {
             put(exact.path(), &format!("Mods/m{i}.bps"));
         }
         assert_eq!(
-            count_fixed(&exact.path().join("Mods"), &ScanOptions::default()),
+            count_fixed(
+                &exact.path().join("Mods"),
+                FixedFolder::Mods,
+                &ScanOptions::default()
+            ),
             (FIXED_CAP, false)
         );
     }
@@ -1121,7 +1138,10 @@ mod tests {
             std::os::unix::fs::symlink(tmp.path().join("Elsewhere"), tmp.path().join("Mods/link"))
                 .unwrap();
         }
-        assert_eq!(count_fixed(&tmp.path().join("Mods"), &opts), (1, false));
+        assert_eq!(
+            count_fixed(&tmp.path().join("Mods"), FixedFolder::Mods, &opts),
+            (1, false)
+        );
     }
 
     #[test]
@@ -1131,11 +1151,14 @@ mod tests {
         put(tmp.path(), "Cheats/._twin.cht");
         put(tmp.path(), "Cheats/c.cht");
         let dir = tmp.path().join("Cheats");
-        assert_eq!(count_fixed(&dir, &ScanOptions::default()), (1, false));
+        assert_eq!(
+            count_fixed(&dir, FixedFolder::Cheats, &ScanOptions::default()),
+            (1, false)
+        );
         let hidden = ScanOptions {
             include_hidden: true,
             ..ScanOptions::default()
         };
-        assert_eq!(count_fixed(&dir, &hidden), (2, false));
+        assert_eq!(count_fixed(&dir, FixedFolder::Cheats, &hidden), (2, false));
     }
 }

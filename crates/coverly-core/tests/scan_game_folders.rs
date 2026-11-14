@@ -550,3 +550,86 @@ fn demos_and_orphans_link_to_their_game_in_the_same_system() {
     assert!(!full.is_demo);
     assert_eq!((full.demo_of, full.orphan_of), (None, None));
 }
+
+/// Extras D9: `Extras/extras.json` and its malformed-file backups are the
+/// index, not extras: left out of the count at the root of `Extras/`
+/// only. A json filed in a category is the user's and still counts.
+#[test]
+fn extras_count_leaves_out_the_index_and_its_backups_at_the_root_only() {
+    let lib = TempDir::new().unwrap();
+    let g = "ROMS/3DS/Lantern Harbor (Europe)";
+    put(
+        lib.path(),
+        &format!("{g}/Lantern Harbor (Europe).cia"),
+        &ct::cia(BASE, true, false).head_bytes(),
+    );
+    put(lib.path(), &format!("{g}/Extras/extras.json"), b"{}");
+    put(
+        lib.path(),
+        &format!("{g}/Extras/extras.broken-20261113-120000.json"),
+        b"{",
+    );
+    put(
+        lib.path(),
+        &format!("{g}/Extras/Guides/extras-notes.json"),
+        b"{}",
+    );
+    put(
+        lib.path(),
+        &format!("{g}/Extras/Soundtrack/a.flac"),
+        &[3u8; 8],
+    );
+    let s = scan(lib.path(), "coverly-library");
+    let ds = system(&s, "3DS");
+    assert_eq!(names(&ds.roms), ["Lantern Harbor (Europe).cia"]);
+    let counts = ds.roms[0].fixed_counts.expect("a game folder base");
+    assert_eq!(counts.extras, 2, "{counts:?}");
+    assert!(!counts.capped);
+}
+
+/// Extras D8: what an Extras job set aside in `<library>/.coverly-trash/`
+/// is never a game again, whatever the hidden-entries option says and
+/// wherever the folder sits (library root or inside a system folder).
+#[test]
+fn coverly_trash_is_never_scanned_even_with_include_hidden() {
+    let lib = TempDir::new().unwrap();
+    let root = lib.path();
+    put(root, "GB/Kept (Europe).gb", &[1u8; 64]);
+    put(
+        root,
+        ".coverly-trash/job-1/GB/Set Aside (Europe).gb",
+        &[2u8; 64],
+    );
+    put(
+        root,
+        "GB/.coverly-trash/job-2/Inner (Europe).gb",
+        &[3u8; 64],
+    );
+    let flat = Profile {
+        roms_root: String::new(),
+        ..profile("coverly-library")
+    };
+    let opts = ScanOptions {
+        include_hidden: true,
+        ..ScanOptions::default()
+    };
+    let s = scan_library(root, &flat, &SystemDb::builtin(), &opts);
+    assert!(
+        s.systems
+            .iter()
+            .all(|sys| !sys.folder_name.eq_ignore_ascii_case(".coverly-trash")),
+        "{:?}",
+        s.systems
+    );
+    let all: Vec<&RomEntry> = s.systems.iter().flat_map(|sys| &sys.roms).collect();
+    for rom in &all {
+        assert!(
+            !rom.path
+                .components()
+                .any(|c| c.as_os_str() == ".coverly-trash"),
+            "{:?} was scanned",
+            rom.path
+        );
+    }
+    assert_eq!(names(&system(&s, "GB").roms), ["Kept (Europe).gb"]);
+}

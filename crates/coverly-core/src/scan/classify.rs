@@ -178,6 +178,12 @@ pub(crate) fn is_appledouble(name: &str) -> bool {
     name.starts_with("._")
 }
 
+/// The folder Extras jobs set files aside in on a drive with no Trash
+/// (extras D8), by exact name: never scanned, organised or grouped.
+pub(crate) fn is_set_aside_dir(name: &str) -> bool {
+    name == crate::extras::ops::SET_ASIDE_DIR
+}
+
 /// Dot-prefixed entry (`.hidden`, `.media`).
 pub(crate) fn is_hidden(name: &str) -> bool {
     name.starts_with('.')
@@ -186,8 +192,11 @@ pub(crate) fn is_hidden(name: &str) -> bool {
 /// Whether an entry named `name` is skipped before looking at its type:
 /// AppleDouble twins, OS metadata, partial downloads and copied
 /// `Zone.Identifier` streams always, hidden entries unless `include_hidden`.
+/// The folder Extras jobs set files aside in (`.coverly-trash`, extras D8)
+/// is never entered, whatever the options say.
 pub(crate) fn is_skipped_entry(name: &str, opts: &ScanOptions) -> bool {
-    is_appledouble(name)
+    is_set_aside_dir(name)
+        || is_appledouble(name)
         || is_junk_file(name)
         || is_partial_download(name)
         || is_zone_identifier(name)
@@ -278,6 +287,11 @@ mod tests {
             is_skipped_entry("._Game.zip", &hidden),
             "AppleDouble always"
         );
+        assert!(
+            is_skipped_entry(".coverly-trash", &hidden),
+            "set-aside folder always"
+        );
+        assert!(!is_skipped_entry("coverly-trash", &hidden));
     }
 
     #[test]

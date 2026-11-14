@@ -1353,3 +1353,23 @@ fn a_pile_that_is_a_system_folder_keeps_its_fixed_folders_as_today() {
     names.sort();
     assert_eq!(names, vec!["Game.cia", "d.cia", "m.cia"]);
 }
+
+/// Extras D8: what an Extras job set aside in `.coverly-trash/` is never
+/// a candidate, a left file, a companion or anything else Organizar
+/// would move, at the pile's root or deeper.
+#[test]
+fn organize_never_walks_coverly_trash() {
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "Tetris.gb", b"\0\x01\x02\x03");
+    put(
+        tmp.path(),
+        ".coverly-trash/job-1/GB/Set Aside.gb",
+        b"\0\x04",
+    );
+    put(tmp.path(), "pile/.coverly-trash/job-2/Inner.gb", b"\0\x05");
+    put(tmp.path(), ".coverly-trash/job-1/notes.txt", b"x");
+    let w = run(tmp.path(), &NoCloud);
+    assert_eq!(w.candidates.len(), 1, "{:?}", w.candidates);
+    let seen = format!("{w:?}");
+    assert!(!seen.contains(".coverly-trash"), "{seen}");
+}

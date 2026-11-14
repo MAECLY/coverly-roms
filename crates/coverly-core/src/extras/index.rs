@@ -442,7 +442,7 @@ pub(crate) fn skipped_name(name: &str) -> bool {
 /// The index and its malformed-file backups (D4, D9), ignoring ASCII case:
 /// on the case-insensitive disks of macOS and Windows `EXTRAS.JSON` is the
 /// index itself, never a file to show, rename or trash.
-fn is_index_name(name: &str) -> bool {
+pub(crate) fn is_index_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     name == EXTRAS_JSON || (name.starts_with("extras.broken-") && name.ends_with(".json"))
 }
