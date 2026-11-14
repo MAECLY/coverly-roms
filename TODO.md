@@ -411,7 +411,7 @@ Hecha el 2026-11-01 (4 investigadores y un verificador crítico por grupo, que a
 
 Pedido por Miguel el 2026-11-09 (salió como «pendiente de decisión» de la Tanda 1). No son ROMs de MAME: son juegos arcade que corren sobre hardware de PC, con ejecutables y datos sueltos.
 
-- [ ] Investigar cómo se distribuyen y se reconocen sin claves: Taito Type X / X² / X³ (carpetas de juego con su ejecutable y datos; se juegan con cargadores como TeknoParrot o JConfig) y Cave CV1000 (`cave3rd`, que en MAME sí son ROMs) frente a sus versiones de PC. Qué carpeta o archivo identifica el juego y su título sin abrir nada protegido.
+- [x] Investigar cómo se distribuyen y se reconocen sin claves: Taito Type X / X² / X³ (carpetas de juego con su ejecutable y datos; se juegan con cargadores como TeknoParrot o JConfig) y Cave CV1000 (`cave3rd`, que en MAME sí son ROMs) frente a sus versiones de PC. Qué carpeta o archivo identifica el juego y su título sin abrir nada protegido. Hecho el 2026-11-14: [`pc-arcade-taito-type-x-cave.md`](docs/02-research/pc-arcade-taito-type-x-cave.md). CV1000 ya funciona en `mame`/`fbneo` (DAT y arte de libretro); Type X se reconoce solo por el nombre de su carpeta, sin abrir nada; recomendación: opción A (`typex` como «juego = carpeta» y `cave3rd` como `model2`).
 - [ ] Decidir con Miguel si entran como sistema propio, como «juego = carpeta» (igual que ScummVM y los ports) o se quedan en `mame`/`fbneo`.
 - [ ] Implementarlo: sistema, detección, nombres, portadas y perfiles de dispositivo que los acepten, con datos de prueba sintéticos.
 
