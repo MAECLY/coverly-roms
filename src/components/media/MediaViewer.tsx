@@ -58,6 +58,11 @@ const ZOOM_KEYS: Record<string, 1 | -1 | 0> = {
   '0': 0,
 };
 
+/** Whether `el` has content past its sides to scroll to. */
+function scrollsSideways(el: HTMLElement | null): boolean {
+  return el !== null && el.scrollWidth > el.clientWidth;
+}
+
 /**
  * The Extras viewer (extras D17, D19, D23, §8.1): video, images, text and
  * an honest «doesn't play here» for the rest, in a Dialog at up to
@@ -222,7 +227,12 @@ export function MediaViewer({
       e.preventDefault();
       e.stopPropagation();
     };
-    if (!e.metaKey && !e.ctrlKey && !media) {
+    // A stage that overflows sideways (a zoomed image, a wide .nfo) keeps
+    // ←/→ for panning when the focus is inside it.
+    const pans =
+      el instanceof Element &&
+      scrollsSideways(el.closest<HTMLElement>('.media-viewer__stage'));
+    if (!e.metaKey && !e.ctrlKey && !media && !pans) {
       const dir = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
       if (dir !== 0) {
         own();

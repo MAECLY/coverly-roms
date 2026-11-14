@@ -316,6 +316,44 @@ describe('MediaViewer (extras D17, D23, §8.1)', () => {
     expect(screen.getByTestId('cover')).toHaveTextContent('m');
   });
 
+  it('a zoomed image takes the focus and its arrows pan, not step', async () => {
+    fakeBackend();
+    show();
+    openAt('Artwork/Box Front.png');
+    const img = await screen.findByRole('img', { name: 'Box Front.png' });
+    Object.defineProperty(img, 'naturalWidth', { value: 400 });
+    Object.defineProperty(img, 'naturalHeight', { value: 300 });
+    fireEvent.load(img);
+    const stage = img.closest<HTMLElement>('.media-viewer__stage')!;
+    // Fitted: nothing to pan, so the stage is not a tab stop.
+    expect(stage).not.toHaveAttribute('tabindex');
+    fireEvent.keyDown(dialog(), { key: '+' });
+    expect(stage).toHaveAttribute('tabindex', '0');
+    expect(stage).toHaveAccessibleName('Box Front.png');
+    Object.defineProperty(stage, 'scrollWidth', { value: 1200 });
+    Object.defineProperty(stage, 'clientWidth', { value: 600 });
+    stage.focus();
+    const right = fireEvent.keyDown(stage, { key: 'ArrowRight' });
+    // Left to the browser, which scrolls the stage.
+    expect(right).toBe(true);
+    expect(useViewerStore.getState().open?.path).toBe('Artwork/Box Front.png');
+    // From the dialog itself the arrows still step through the category.
+    fireEvent.keyDown(dialog(), { key: 'ArrowRight' });
+    expect(useViewerStore.getState().open?.path).toBe('Artwork/Box Back.png');
+  });
+
+  it('a wide .nfo scrolls sideways with the arrows from its text', async () => {
+    fakeBackend();
+    show();
+    openAt('Readme.nfo');
+    const pre = await screen.findByText(/TIDEWALKER/, { selector: 'pre' });
+    const stage = pre.closest<HTMLElement>('.media-viewer__stage')!;
+    Object.defineProperty(stage, 'scrollWidth', { value: 900 });
+    Object.defineProperty(stage, 'clientWidth', { value: 500 });
+    expect(fireEvent.keyDown(pre, { key: 'ArrowLeft' })).toBe(true);
+    expect(useViewerStore.getState().open?.path).toBe('Readme.nfo');
+  });
+
   it('plays video only with its own controls and pauses the mini player', async () => {
     fakeBackend();
     show();

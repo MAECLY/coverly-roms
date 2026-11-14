@@ -54,10 +54,14 @@ export function ImageView({
       : undefined;
 
   return (
+    // Zoomed, the stage scrolls: a tab stop so the keyboard pans it.
     <div
       ref={stage}
       className="media-viewer__stage"
       data-zoomed={zoom !== null || undefined}
+      role={zoom !== null ? 'group' : undefined}
+      aria-label={zoom !== null ? name : undefined}
+      tabIndex={zoom !== null ? 0 : undefined}
     >
       <div className="media-viewer__canvas">
         <img

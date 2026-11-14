@@ -4893,6 +4893,12 @@ time {
   overscroll-behavior: contain;
 }
 
+/* A zoomed image's stage is a tab stop (the keyboard pans it). */
+.media-viewer__stage:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-ring);
+  outline-offset: calc(-1 * var(--cr-border-width-focus));
+}
+
 /* Grows past the stage when zoomed, so the stage scrolls from the left
  * and top edges instead of clipping a centred overflow. */
 .media-viewer__canvas {
