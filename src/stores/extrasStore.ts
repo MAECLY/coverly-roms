@@ -21,7 +21,7 @@ import type {
   ExtrasView,
   ExtrasWriteView,
 } from '@/ipc/types';
-import { sameCategory } from '@/lib/extras';
+import { normalizeTags, sameCategory } from '@/lib/extras';
 
 import { usePlayerStore } from './playerStore';
 
@@ -51,6 +51,28 @@ export interface AddRun {
   /** «Cancelar» was pressed: it stops after the current file. */
   cancelling: boolean;
 }
+
+/** Tags chosen in the add dialog for one copy, named by its source name
+ * and category (a copy renamed on a collision keeps none: its note says
+ * so). */
+export interface AddTagWant {
+  name: string;
+  category: CategoryRef;
+  tags: string[];
+}
+
+/** The tag writes an add's chosen tags made after its copy, and the error
+ * that stopped them. */
+export interface AddTagged {
+  writes: ExtrasWriteView[];
+  error: BackendError | null;
+}
+
+/** How an add started (D13); a short one answers its copy and the tags
+ * set on it. */
+export type AddLaunched =
+  | { kind: 'done'; write: ExtrasWriteView; tagged: AddTagged }
+  | Extract<AddStarted, { kind: 'background' }>;
 
 /** How a click changes the selection: only this file, toggle it, or the
  * range from the last clicked file within its category. */
@@ -85,9 +107,13 @@ interface ExtrasState {
   /** Copies the chosen files of add plan `plan` (D13). A short add answers
    * its write at once; a long one runs in the background (`addRun`) and
    * ends through `onAddEnd`. */
-  addCommit(plan: number, choices: AddChoice[]): Promise<AddStarted>;
+  addCommit(
+    plan: number,
+    choices: AddChoice[],
+    tags?: readonly AddTagWant[],
+  ): Promise<AddLaunched>;
   /** Copies what OS drop `token` recorded into `category` (D11). */
-  addDropped(token: number, category: CategoryRef): Promise<AddStarted>;
+  addDropped(token: number, category: CategoryRef): Promise<AddLaunched>;
   /** «Cancelar» on the background add: stops after the current file. */
   cancelAdd(): Promise<void>;
   /** Takes a write done elsewhere (an add): its listing and its job. */
@@ -118,12 +144,14 @@ const INITIAL = {
   addRun: null,
 } satisfies Partial<ExtrasState>;
 
-/** Who hears that a background add ended (the section's toast). */
-const addEndListeners = new Set<(e: AddFinishedEvent) => void>();
+type AddEndListener = (e: AddFinishedEvent, tagged: AddTagged) => void;
 
-/** Hears every background add that ends, whatever game is open; answers
- * the function that stops it. */
-export function onAddEnd(cb: (e: AddFinishedEvent) => void): () => void {
+/** Who hears that a background add ended (the section's toast). */
+const addEndListeners = new Set<AddEndListener>();
+
+/** Hears every background add that ends, whatever game is open, once the
+ * tags chosen for it are set; answers the function that stops it. */
+export function onAddEnd(cb: AddEndListener): () => void {
   addEndListeners.add(cb);
   return () => {
     addEndListeners.delete(cb);
@@ -133,7 +161,16 @@ export function onAddEnd(cb: (e: AddFinishedEvent) => void): () => void {
 /** The backend whose add events the store hears (subscribed once each). */
 let heard: Backend | null = null;
 /** Background adds that ended before their start was answered. */
-const endedEarly = new Set<number>();
+const endedEarly = new Map<number, AddFinishedEvent>();
+/** Background adds whose start was answered and that have not ended. */
+const launched = new Set<number>();
+/** The tags chosen for each background add in flight, set once it ends
+ * whatever game is open then (never dropped with the section). */
+const addTags = new Map<
+  number,
+  { generation: number; tags: readonly AddTagWant[] }
+>();
+const NO_TAGS: AddTagged = { writes: [], error: null };
 
 /** Numbers every request that answers a listing. */
 let seq = 0;
@@ -254,11 +291,62 @@ export const useExtrasStore = create<ExtrasState>()((set, get) => {
     });
     await backend.onExtrasAdded((e) => {
       const run = get().addRun;
+      const known = launched.delete(e.add);
       if (run && run.add === e.add) set({ addRun: null });
-      else endedEarly.add(e.add);
       if (e.end.kind === 'done') get().applyWrite(e.end.write);
-      addEndListeners.forEach((cb) => cb(e));
+      // Its start is not answered yet: it lands once it is.
+      if (!known) endedEarly.set(e.add, e);
+      else void landed(backend, e);
     });
+  }
+
+  /** Sets a background add's chosen tags, then tells who listens. */
+  async function landed(backend: Backend, e: AddFinishedEvent) {
+    const want = addTags.get(e.add);
+    addTags.delete(e.add);
+    const tagged =
+      want && e.end.kind === 'done'
+        ? await tagCopies(backend, want.generation, e.end.write, want.tags)
+        : NO_TAGS;
+    addEndListeners.forEach((cb) => cb(e, tagged));
+  }
+
+  /** Sets the tags chosen in the add dialog on the copies `write` listed,
+   * one journaled job each, on that game whether or not it is still open. */
+  async function tagCopies(
+    backend: Backend,
+    generation: number,
+    write: ExtrasWriteView,
+    wants: readonly AddTagWant[],
+  ): Promise<AddTagged> {
+    const writes: ExtrasWriteView[] = [];
+    let listing = write.listing;
+    try {
+      for (const want of wants) {
+        if (want.tags.length === 0) continue;
+        const f = listing.files.find(
+          (x) =>
+            sameCategory(x.category, want.category) && x.name === want.name,
+        );
+        if (!f) continue;
+        const next = normalizeTags([...f.tags, ...want.tags]);
+        if (!next.ok || next.tags.length === f.tags.length) continue;
+        const w = await backend.extrasSetTags(
+          generation,
+          listing.entry_id,
+          listing.rev,
+          f.index,
+          next.tags,
+        );
+        remember(listing.entry_id, w.job);
+        if (show(++seq, w.listing)) set({ selection: EMPTY, anchor: null });
+        listing = w.listing;
+        writes.push(w);
+      }
+      return { writes, error: null };
+    } catch (e) {
+      return { writes, error: toBackendError(e) };
+    }
   }
 
   /** Starts an add on the listing on screen (D13). */
@@ -269,7 +357,8 @@ export const useExtrasStore = create<ExtrasState>()((set, get) => {
       entryId: number,
       rev: number,
     ) => Promise<AddStarted>,
-  ): Promise<AddStarted> {
+    tags: readonly AddTagWant[] = [],
+  ): Promise<AddLaunched> {
     const { generation, entryId, listing } = get();
     if (generation === null || entryId === null || listing === null)
       throw new Error('no extras listing open');
@@ -283,7 +372,22 @@ export const useExtrasStore = create<ExtrasState>()((set, get) => {
         remember(entryId, started.write.job);
         if (show(req, started.write.listing))
           set({ selection: EMPTY, anchor: null });
-      } else if (!endedEarly.delete(started.add)) {
+        const tagged = await tagCopies(
+          backend,
+          generation,
+          started.write,
+          tags,
+        );
+        return { ...started, tagged };
+      }
+      if (tags.some((w) => w.tags.length > 0))
+        addTags.set(started.add, { generation, tags });
+      const early = endedEarly.get(started.add);
+      if (early) {
+        endedEarly.delete(started.add);
+        void landed(backend, early);
+      } else {
+        launched.add(started.add);
         set({
           addRun: {
             entryId,
@@ -310,8 +414,11 @@ export const useExtrasStore = create<ExtrasState>()((set, get) => {
   return {
     ...INITIAL,
 
-    addCommit: (plan, choices) =>
-      startAdd((b, g, e, rev) => b.extrasAddCommit(g, e, rev, plan, choices)),
+    addCommit: (plan, choices, tags) =>
+      startAdd(
+        (b, g, e, rev) => b.extrasAddCommit(g, e, rev, plan, choices),
+        tags,
+      ),
     addDropped: (token, category) =>
       startAdd((b, g, e, rev) =>
         b.extrasAddDropped(g, e, rev, token, category),

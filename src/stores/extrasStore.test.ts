@@ -480,6 +480,53 @@ describe('extrasStore', () => {
       expect(added).toBeLessThan(60);
     });
 
+    it('a short add sets the tags chosen for its copies and answers their writes', async () => {
+      const plan = await withPick('two');
+      const first = plan.files[0]!;
+      const started = await store().addCommit(
+        plan.plan,
+        plan.files.map((f) => ({ index: f.index, category: SOUNDTRACK })),
+        [{ name: first.name, category: SOUNDTRACK, tags: ['Jefe final'] }],
+      );
+      if (started.kind !== 'done') throw new Error('expected done');
+      expect(started.tagged.error).toBeNull();
+      expect(started.tagged.writes).toHaveLength(1);
+      expect(
+        store().listing!.files.find((f) => f.name === first.name)?.tags,
+      ).toEqual(['Jefe final']);
+    });
+
+    it('a background add sets its chosen tags even after another game opened', async () => {
+      const plan = await withPick('many');
+      const tide = id('Tidewalker');
+      const ends: { writes: number }[] = [];
+      const off = onAddEnd((_e, tagged) =>
+        ends.push({ writes: tagged.writes.length }),
+      );
+      const first = plan.files[0]!;
+      const started = await store().addCommit(
+        plan.plan,
+        plan.files.map((f) => ({ index: f.index, category: VIDEOS })),
+        [{ name: first.name, category: VIDEOS, tags: ['Jefe final'] }],
+      );
+      expect(started.kind).toBe('background');
+      await store().open(lib.generation, id('Moss Garden'));
+      await vi.waitFor(() => expect(ends).toHaveLength(1));
+      off();
+      expect(ends[0]!.writes).toBe(1);
+      const after = await b.extrasList(lib.generation, tide);
+      expect(
+        after.files.find(
+          (f) =>
+            f.name === first.name &&
+            f.category.kind === 'fixed' &&
+            f.category.name === 'videos',
+        )?.tags,
+      ).toEqual(['Jefe final']);
+      // The open game's listing stays its own.
+      expect(store().listing!.entry_id).toBe(id('Moss Garden'));
+    });
+
     it('adds an OS drop by token into one category', async () => {
       await withPick('two');
       const token = b.emitDrop({
