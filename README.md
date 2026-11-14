@@ -53,7 +53,7 @@
 </p>
 
 > [!NOTE]
-> **Early days, said plainly.** v0.4.0 is the current release. Coverly ROMs has
+> **Early days, said plainly.** v0.5.0 is the current release. Coverly ROMs has
 > not been tested on real handhelds yet. The builds are not signed with an
 > Apple or Microsoft certificate yet, so the first launch shows a warning (see
 > [Install](#install)). If you try it on a handheld, an
@@ -125,7 +125,37 @@ is never split, also from inside a zip or 7z, where it is recognised from the
 listing without extracting. Loose multi-disc games are grouped into one set
 with an `.m3u`, with a note when a disc is missing. Each item that writes 10 GB
 or more asks first ("Yes / Yes to all / No"), with its size and the free space
-left on the target.
+left on the target. Arcade includes Cave CV1000 and Taito Type X, where each
+folder is one game; Coverly never opens anything inside a Type X game.
+
+**One folder per game, with its updates and DLC.** On 3DS, Switch, Wii U, Wii,
+PS3, PS4, PS5, Vita, PSP, Xbox 360, Xbox One and Series, updates, DLC, demos
+and system titles are recognised, and Organise can move a game together with
+them into `<System>/<Game>/`, updates in `Updates/` and DLC in `DLC/` (on with
+the "Coverly" layout, a switch in Settings → Library for the others). Updates
+are named with the version read from the file, and the region read from the
+title or product code is added to the game's name. Retro revisions such as
+`(Rev 1)` are grouped as versions of one game. Anything unclear stays where it
+is, and the whole run can be undone.
+
+**Mods, translation patches and cheats.** Patches (`.ips`, `.bps`, `.ups`,
+`.xdelta`, `.ppf`) are linked to their game by the CRC32 of the ROM they were
+made for, their name or their readme; cheats by the game's name, serial or
+title ID; texture packs and other mod folders by their folder. With the
+"Coverly" layout they go into the game's `Mods/` or `Cheats/` folder. Organise
+can also lay a system out the way its emulator expects it (shadPS4, RPCS3,
+Azahar, Cemu, Vita3K, Ryujinx and yuzu, RetroArch, DuckStation, PCSX2,
+Dolphin, PPSSPP, Xenia, Flycast, Mesen) or for frontends such as ES-DE.
+Nothing is ever extracted, decrypted or installed, and nothing is deleted.
+
+**Extras.** A game's `Extras/` folder holds its soundtrack, manuals, artwork,
+videos, themes and guides, in categories you can add to, rename and tag. Files
+are copied in with a check, and every change can be undone. Official extras
+(PS3, Vita and PSP themes, Xbox 360 themes and gamer pictures, 3DS soundtracks)
+are recognised and, with the "Coverly" layout, placed by
+Organise. Audio plays in a mini player that keeps
+going while you browse; video, images, PDF manuals and text files open in a
+viewer inside the app.
 
 **Find duplicates.** Coverly finds the same game stored more than once in a
 system by its content, never by its name: the exact same data whatever the
@@ -151,6 +181,9 @@ preview), **Gallery** (one game's art large, with a filmstrip), **Art slots**
 (one row per system). Switch with ⌘/Ctrl+1–6, resize covers with ⌘/Ctrl +/−,
 group by system, folder, region, art status or first letter, type a name to
 jump to it and press Space for a Quick look. Each library remembers its view.
+Updates, DLC, demos and revisions show inside their game in every view, and
+the game panel lists them with the version installed, the DLC art, and how
+many mods, cheats, extras and saves the game's folders hold.
 
 **System icons.** Every system name in the app has its icon beside it: a plain
 silhouette of the hardware (from RetroArch's Monochrome theme, CC BY 4.0), or
