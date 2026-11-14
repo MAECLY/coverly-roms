@@ -1326,6 +1326,55 @@ fn remove_category_with_litter_left_refuses_the_folder_removal_but_keeps_files_t
 }
 
 #[test]
+fn a_kept_category_folder_keeps_its_settings_in_the_index() {
+    let fx = Fx::new();
+    fx.put("Remixes/boss.flac", b"boss", 3);
+    fx.put("Remixes/.DS_Store", b"litter", 4);
+    tag_boss_and_record_remixes(&fx);
+    let mut file = fx.index();
+    file["categories"] = json!({ "Remixes": { "sync": true } });
+    std::fs::write(fx.index_path(), serde_json::to_vec_pretty(&file).unwrap()).unwrap();
+    let l = fx.listing();
+    let out = remove_category(&fx.ctx(), &l, "Remixes").unwrap();
+    assert!(out.notes.contains(&ExtrasNote::FolderKept {
+        folder: "Remixes".into()
+    }));
+    // The folder is still there and still listed: its settings stay too.
+    assert!(out
+        .listing
+        .categories
+        .iter()
+        .any(|c| c.category == user("Remixes")));
+    assert_eq!(fx.index()["categories"]["Remixes"], json!({ "sync": true }));
+}
+
+/// On Windows a set-aside path past the path limit is refused before
+/// anything is written, never failed half-way through the job.
+#[cfg(windows)]
+#[test]
+fn a_set_aside_path_too_long_for_windows_is_refused_before_writing() {
+    let fx = Fx::with_trash(FakeTrash::unavailable);
+    // The file itself fits (255 units); `.coverly-trash\<job>\` pushes
+    // its set-aside path past the limit.
+    let dir_units = fx.extras().join("Remixes").as_os_str().len();
+    let stem = "b".repeat(255 - dir_units - 1 - ".flac".len());
+    let rel = format!("Remixes/{stem}.flac");
+    fx.put(&rel, b"boss", 3);
+    let l = fx.listing();
+    let i = file_index(&l, &rel);
+    assert!(matches!(
+        trash(&fx.ctx(), &l, &[i]).unwrap_err(),
+        ExtrasError::NoTrash
+    ));
+    assert_eq!(fx.jobs(), 0);
+    assert!(fx
+        .extras()
+        .join("Remixes")
+        .join(format!("{stem}.flac"))
+        .is_file());
+}
+
+#[test]
 fn trash_and_category_ops_then_undo_restore_tree_and_json() {
     type Op = fn(&Fx) -> ExtrasOutcome;
     let ops: [(&str, Op); 5] = [

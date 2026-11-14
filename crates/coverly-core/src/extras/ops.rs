@@ -763,13 +763,35 @@ fn check_set_aside(ctx: &ExtrasCtx, paths: &[PathBuf]) -> Result<(), ExtrasError
 /// Whether `path` can be set aside: `.coverly-trash` is absent or a real
 /// folder (a symlink would lead the file out of the library, maybe onto
 /// another drive by a copy), and the library root is on its volume.
+///
+/// On Windows its set-aside path (`.coverly-trash\<job>\` longer) must
+/// also fit the path limit, so a long one is refused before the job
+/// rather than failing half-way through it.
 fn set_aside_ok(ctx: &ExtrasCtx, path: &Path) -> bool {
     let top = ctx.library_root.join(SET_ASIDE_DIR);
     let top_ok = match fs::symlink_metadata(&top) {
         Ok(m) => m.is_dir(),
         Err(e) => e.kind() == std::io::ErrorKind::NotFound,
     };
-    top_ok && (ctx.same_volume)(path, ctx.library_root)
+    top_ok
+        && (ctx.same_volume)(path, ctx.library_root)
+        && !(cfg!(windows) && aside_too_long(ctx, path))
+}
+
+/// Whether `path` set aside would pass the Windows path limit, with room
+/// for the longest job id the writer makes (`20261016T030000Z-1a2b-`
+/// and a counter of up to 8 hex digits).
+fn aside_too_long(ctx: &ExtrasCtx, path: &Path) -> bool {
+    const JOB_ID_UNITS: usize = 30;
+    let Ok(rel) = path.strip_prefix(ctx.library_root) else {
+        return true;
+    };
+    let target = ctx
+        .library_root
+        .join(SET_ASIDE_DIR)
+        .join("j".repeat(JOB_ID_UNITS))
+        .join(rel);
+    too_long_for_windows(&target)
 }
 
 /// The folder name of an existing user category, refused for a fixed
@@ -959,14 +981,21 @@ pub fn remove_category(
         }
     }
     job.forget_listed(gone);
+    let mut kept = false;
     for spelling in &listed.spellings {
-        if let Err(e) = job.remove_tree(&extras.join(spelling), spelling) {
-            job.abandon();
-            return Err(e);
+        match job.remove_tree(&extras.join(spelling), spelling) {
+            Ok(removed) => kept |= !removed,
+            Err(e) => {
+                job.abandon();
+                return Err(e);
+            }
         }
     }
-    let key = name_key(name);
-    job.file.categories.retain(|k, _| name_key(k) != key);
+    // A kept folder is still listed as the category: its settings stay.
+    if !kept {
+        let key = name_key(name);
+        job.file.categories.retain(|k, _| name_key(k) != key);
+    }
     job.finish()
 }
 
@@ -1083,8 +1112,8 @@ impl ExtrasJob<'_> {
     /// Removes the folder `dir` and its emptied sub-folders, deepest first,
     /// each journaled `DirRemoved`. A folder that is not empty stays; when
     /// `dir` itself stays, [`ExtrasNote::FolderKept`] says so. Symlinks
-    /// are never entered.
-    fn remove_tree(&mut self, dir: &Path, shown: &str) -> Result<(), ExtrasError> {
+    /// are never entered. `Ok(false)`: `dir` stayed.
+    fn remove_tree(&mut self, dir: &Path, shown: &str) -> Result<bool, ExtrasError> {
         let dir = self.confine(dir)?;
         let mut dirs: Vec<PathBuf> = walkdir::WalkDir::new(&dir)
             .follow_links(false)
@@ -1094,10 +1123,11 @@ impl ExtrasJob<'_> {
             .map(walkdir::DirEntry::into_path)
             .collect();
         dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+        let mut removed = false;
         for d in dirs {
             let d = self.confine(&d)?;
             match self.w.remove_empty_dir(&d) {
-                Ok(()) => {}
+                Ok(()) => removed |= d == dir,
                 Err(WriteError::NotEmpty(_)) => {
                     if d == dir {
                         self.notes.push(ExtrasNote::FolderKept {
@@ -1108,7 +1138,7 @@ impl ExtrasJob<'_> {
                 Err(e) => return Err(e.into()),
             }
         }
-        Ok(())
+        Ok(removed)
     }
 }
 
