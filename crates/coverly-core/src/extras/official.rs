@@ -93,7 +93,7 @@ pub fn sniff_official(name: &str, b: &mut Budgeted) -> Option<OfficialExtra> {
         return (ext == "p3t").then(|| p3t(name, b)).flatten();
     }
     if head == PKG_MAGIC {
-        return pkg(b);
+        return pkg(name, b);
     }
     if matches!(&head[..], b"CON " | b"LIVE" | b"PIRS") {
         return stfs(b);
@@ -146,8 +146,9 @@ fn xml_name(bytes: &[u8]) -> Option<String> {
 }
 
 /// A PS3 theme or avatar PKG, or a Vita theme PKG, by its metadata
-/// content type.
-fn pkg(b: &mut Budgeted) -> Option<OfficialExtra> {
+/// content type. Its name sits in the encrypted body, so the display
+/// name is the file stem.
+fn pkg(name: &str, b: &mut Budgeted) -> Option<OfficialExtra> {
     let (kind, ctype) = sony::pkg_content_type(b)?;
     let format = match (kind, ctype) {
         (1, PkgContentType::Theme) => ExtraFormat::Ps3ThemePkg,
@@ -158,6 +159,7 @@ fn pkg(b: &mut Budgeted) -> Option<OfficialExtra> {
     let mut x = theme(format);
     x.title_id = sony::pkg_title_id(b);
     x.content_type = Some(ctype.raw());
+    x.display_name = stem(name);
     Some(x)
 }
 

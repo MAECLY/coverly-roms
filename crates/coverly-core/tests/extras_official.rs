@@ -43,6 +43,8 @@ fn ps3_pkg_theme_and_avatar_by_metadata_content_type() {
     assert_eq!(x.category, ExtrasCategory::Themes);
     assert_eq!(x.title_id.as_deref(), Some("BLUS30001"));
     assert_eq!(x.content_type, Some(0x09));
+    // A PKG has no plaintext name field: the display name is the stem.
+    assert_eq!(x.display_name.as_deref(), Some("theme"));
     let avatar = pkg_with_type(1, 0x0D, "UP0001-BLUS30001_00-AVATAR000000001");
     let x = sniff("avatar.pkg", &avatar).unwrap();
     assert_eq!(x.format, ExtraFormat::Ps3AvatarPkg);
@@ -176,6 +178,8 @@ fn n3ds_soundtrack_cia_only_with_a_whole_word() {
     assert!(sniff("Mario Sound Track.cia", &plain).is_some());
     assert!(sniff("Zelda banda SONORA.cia", &plain).is_some());
     assert!(sniff("ゼルダの伝説サウンドトラック.cia", &plain).is_some());
+    // A macOS (NFD) file name splits «ド» into «ト» and a combining mark.
+    assert!(sniff("ゼルダの伝説サウント\u{3099}トラック.cia", &plain).is_some());
     // No whole word: a game.
     for name in [
         "Hostage.cia",
