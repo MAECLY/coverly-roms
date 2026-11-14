@@ -15,13 +15,19 @@ use std::time::SystemTime;
 
 use serde::Serialize;
 
-use super::index::{list, read_index_bytes, serialize, IndexState, Listing, Match};
-use super::{normalize_tags, ExtrasFile, NameRefusal, TagRefusal, EXTRAS_JSON};
+use super::index::{
+    list, read_index_bytes, rel_components, serialize, IndexState, ListedFile, Listing, Match,
+};
+use super::{
+    normalize_tags, validate_file_stem, CategoryRef, ExtrasFile, NameRefusal, TagRefusal,
+    EXTRAS_JSON,
+};
 use crate::game_folder::FixedFolder;
 use crate::time::rfc3339_utc;
 use crate::write::trash::TrashBackend;
 use crate::write::{
-    ensure_within, JobKind, JobMeta, OverwritePolicy, WriteError, WriteOutcome, Writer,
+    ensure_within, name_key, Collision, JobKind, JobMeta, MoveOutcome, OverwritePolicy, WriteError,
+    WriteOutcome, Writer,
 };
 
 /// The folder below the library root where files are set aside when a
@@ -400,6 +406,251 @@ pub fn forget(
     let at = job.listed + missing;
     job.file.files.remove(at);
     job.finish()
+}
+
+/// The absolute path of listed file `f`.
+fn path_of(extras: &Path, f: &ListedFile) -> Result<PathBuf, ExtrasError> {
+    let parts = rel_components(&f.path).ok_or(ExtrasError::Changed)?;
+    Ok(parts.iter().fold(extras.to_path_buf(), |p, c| p.join(c)))
+}
+
+/// `path` relative to `Extras/`, `/`-joined as `extras.json` stores it.
+fn rel_of(extras: &Path, path: &Path) -> Result<String, ExtrasError> {
+    let rel = path
+        .strip_prefix(extras)
+        .map_err(|_| ExtrasError::OutsideExtras(path.to_path_buf()))?;
+    let parts: Vec<String> = rel
+        .components()
+        .map(|c| match c {
+            Component::Normal(n) => Ok(n.to_string_lossy().into_owned()),
+            _ => Err(ExtrasError::OutsideExtras(path.to_path_buf())),
+        })
+        .collect::<Result<_, _>>()?;
+    if parts.is_empty() {
+        return Err(ExtrasError::OutsideExtras(path.to_path_buf()));
+    }
+    Ok(parts.join("/"))
+}
+
+/// Listed file `file`, refused when the index is stale (D22) or the file
+/// is a symlink (never moved or renamed: it would move the link, and a
+/// listing never follows one).
+fn listed_file(listing: &Listing, file: usize) -> Result<&ListedFile, ExtrasError> {
+    let f = listing.files.get(file).ok_or(ExtrasError::Changed)?;
+    if f.link {
+        return Err(ExtrasError::Link(PathBuf::from(&f.path)));
+    }
+    Ok(f)
+}
+
+/// Whether another entry of `dir` than `own` takes `name`, ignoring case
+/// and Unicode normalization (FAT, exFAT, APFS and NTFS would see it as
+/// taken).
+fn name_taken(dir: &Path, name: &str, own: &str) -> Result<bool, ExtrasError> {
+    let key = name_key(name);
+    let rd = match fs::read_dir(dir) {
+        Ok(rd) => rd,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(WriteError::Io(e).into()),
+    };
+    for entry in rd {
+        let entry = entry.map_err(WriteError::Io)?;
+        let other = entry.file_name();
+        let other = other.to_string_lossy();
+        if other != own && name_key(&other) == key {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Renames listed file `file` to the typed `stem`, keeping its extension
+/// (D14). Refused, never rewritten or suffixed, when the name breaks the
+/// rules of D1/D14 or another file holds it; a change of case (or of
+/// Unicode normalization) only goes through a temporary name, as the
+/// no-clobber rename sees the target as taken on case-insensitive disks.
+/// The file's record follows it; the same name is no job at all.
+pub fn rename(
+    ctx: &ExtrasCtx,
+    listing: &Listing,
+    file: usize,
+    stem: &str,
+) -> Result<ExtrasOutcome, ExtrasError> {
+    check_game_dir(ctx)?;
+    let f = listed_file(listing, file)?;
+    let extras = extras_dir(ctx.game_dir);
+    let from = path_of(&extras, f)?;
+    let dir = from.parent().ok_or(ExtrasError::Changed)?.to_path_buf();
+    let ext = Path::new(&f.name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    let name = validate_file_stem(&dir, stem, ext).map_err(ExtrasError::Name)?;
+    if name == f.name {
+        return Ok(ExtrasOutcome {
+            job: None,
+            notes: Vec::new(),
+            listing: listing.clone(),
+        });
+    }
+    if name_taken(&dir, &name, &f.name)? {
+        return Err(ExtrasError::Name(NameRefusal::Taken));
+    }
+    let mut job = ExtrasJob::begin(ctx, listing)?;
+    let result = job.rename_file(&from, &dir.join(&name), file);
+    match result {
+        Ok(()) => job.finish(),
+        Err(e) => {
+            job.abandon();
+            Err(e)
+        }
+    }
+}
+
+/// Moves listed files `files` into `to` (D1): the category's folder in
+/// its exact spelling when it exists, else its first spelling on disk,
+/// else (a fixed category) its English name, created then; the root is
+/// `Extras/` itself. A user category must exist (creating one is its own
+/// action). Files already in `to` stay; a taken name gets the next free
+/// `" (n)"` and a [`ExtrasNote::RenamedDup`], since nobody typed it.
+/// One job for all of them; their records follow.
+pub fn move_to(
+    ctx: &ExtrasCtx,
+    listing: &Listing,
+    files: &[usize],
+    to: &CategoryRef,
+) -> Result<ExtrasOutcome, ExtrasError> {
+    check_game_dir(ctx)?;
+    let mut picked: Vec<usize> = Vec::new();
+    for &i in files {
+        let f = listed_file(listing, i)?;
+        if !same_category(&f.category, to) && !picked.contains(&i) {
+            picked.push(i);
+        }
+    }
+    let extras = extras_dir(ctx.game_dir);
+    let target_dir = category_dir(&extras, listing, to)?;
+    if picked.is_empty() {
+        return Ok(ExtrasOutcome {
+            job: None,
+            notes: Vec::new(),
+            listing: listing.clone(),
+        });
+    }
+    let mut job = ExtrasJob::begin(ctx, listing)?;
+    for i in picked {
+        let from = path_of(&extras, &listing.files[i])?;
+        let name = listing.files[i].name.clone();
+        if let Err(e) = job.move_file(&from, &target_dir.join(&name), i) {
+            job.abandon();
+            return Err(e);
+        }
+    }
+    job.finish()
+}
+
+/// Whether two category refs are one category, whatever the spelling (D1).
+fn same_category(a: &CategoryRef, b: &CategoryRef) -> bool {
+    match (a, b) {
+        (CategoryRef::Fixed(x), CategoryRef::Fixed(y)) => x == y,
+        (CategoryRef::User(x), CategoryRef::User(y)) => name_key(x) == name_key(y),
+        (CategoryRef::Root, CategoryRef::Root) => true,
+        _ => false,
+    }
+}
+
+/// The folder files of `cat` go to (D1). A symlinked category is never
+/// written through; a user category that is not listed is refused.
+fn category_dir(
+    extras: &Path,
+    listing: &Listing,
+    cat: &CategoryRef,
+) -> Result<PathBuf, ExtrasError> {
+    let wanted = match cat {
+        CategoryRef::Root => return Ok(extras.to_path_buf()),
+        CategoryRef::Fixed(c) => c.dir_name(),
+        CategoryRef::User(n) => n.as_str(),
+    };
+    let listed = listing
+        .categories
+        .iter()
+        .find(|c| same_category(&c.category, cat));
+    let Some(listed) = listed else {
+        return match cat {
+            CategoryRef::Fixed(_) => Ok(extras.join(wanted)),
+            _ => Err(ExtrasError::Changed),
+        };
+    };
+    if listed.link {
+        return Err(ExtrasError::Link(extras.join(wanted)));
+    }
+    let spelling = listed
+        .spellings
+        .iter()
+        .find(|s| s.as_str() == wanted)
+        .or_else(|| listed.spellings.first())
+        .map_or(wanted, String::as_str);
+    Ok(extras.join(spelling))
+}
+
+impl ExtrasJob<'_> {
+    /// The record of listed file `file` now lives at `path`.
+    fn follow(&mut self, file: usize, path: &Path) -> Result<(), ExtrasError> {
+        let rel = rel_of(&self.extras, path)?;
+        self.file.files[file].path = rel;
+        Ok(())
+    }
+
+    /// Renames in one folder to a name checked free; a case-only change
+    /// goes through `.coverly-<job>-rename` (two journaled moves).
+    fn rename_file(&mut self, from: &Path, to: &Path, file: usize) -> Result<(), ExtrasError> {
+        let from = self.confine(from)?;
+        let to = self.confine(to)?;
+        let same_key = match (from.file_name(), to.file_name()) {
+            (Some(a), Some(b)) => name_key(&a.to_string_lossy()) == name_key(&b.to_string_lossy()),
+            _ => false,
+        };
+        let from = if same_key {
+            let temp = from.with_file_name(format!(".coverly-{}-rename", self.w.job_id()));
+            let temp = self.confine(&temp)?;
+            match self.w.move_file(&from, &temp, Collision::Rename, None)? {
+                MoveOutcome::Moved { to, .. } => to,
+                _ => return Err(ExtrasError::Changed),
+            }
+        } else {
+            from
+        };
+        match self.w.move_file(&from, &to, Collision::Skip, None)? {
+            MoveOutcome::Moved { to: done, .. } if done == to => self.follow(file, &to),
+            // Taken since the check: never suffixed (the user typed it).
+            MoveOutcome::SkippedExists { .. } => Err(ExtrasError::Name(NameRefusal::Taken)),
+            _ => Err(ExtrasError::Changed),
+        }
+    }
+
+    /// Moves to another folder of `Extras/`, creating a missing category
+    /// folder (journaled); a taken name gets the next free number.
+    fn move_file(&mut self, from: &Path, to: &Path, file: usize) -> Result<(), ExtrasError> {
+        let from = self.confine(from)?;
+        let to = self.confine(to)?;
+        if let Some(parent) = to.parent().filter(|p| *p != self.extras) {
+            self.ensure_extras_dir()?;
+            self.w.ensure_dir(parent)?;
+        }
+        match self.w.move_file(&from, &to, Collision::Rename, None)? {
+            MoveOutcome::Moved { to, renamed } => {
+                if renamed {
+                    let name = to
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    self.notes.push(ExtrasNote::RenamedDup { name });
+                }
+                self.follow(file, &to)
+            }
+            _ => Err(ExtrasError::Changed),
+        }
+    }
 }
 
 #[cfg(test)]

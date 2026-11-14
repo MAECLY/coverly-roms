@@ -1,4 +1,7 @@
-//! Journaled writes inside a game's `Extras/` (extras spec D3, D5, D10, D20).
+//! Journaled writes inside a game's `Extras/` (extras spec D1, D3, D5, D10,
+//! D14, D20, D22).
+
+mod common;
 
 use std::path::{Component, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -6,11 +9,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use coverly_core::dedupe::testing::pin_mtime;
 use coverly_core::extras::index::{list, read_index, IndexRead, Listing};
 use coverly_core::extras::ops::{
-    confine, forget, set_tags, ExtrasCtx, ExtrasError, ExtrasNote, ExtrasOutcome,
+    confine, forget, move_to, rename, set_tags, ExtrasCtx, ExtrasError, ExtrasNote, ExtrasOutcome,
 };
-use coverly_core::extras::TagRefusal;
+use coverly_core::extras::{CategoryRef, ExtrasCategory, NameRefusal, TagRefusal};
 use coverly_core::write::trash::FakeTrash;
-use coverly_core::write::{list_jobs, undo_job, JobKind};
+use coverly_core::write::{job_transfers, list_jobs, undo_job, JobKind};
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -495,4 +498,357 @@ fn confine_refuses_an_extras_folder_that_is_a_symlink() {
         confine(&extras, &extras.join("extras.json")),
         Err(ExtrasError::OutsideExtras(_))
     ));
+}
+
+// ---- Rename and move (D1, D14, D22) ----
+
+/// The names in `Extras/<rel>` as the disk spells them.
+fn names_in(fx: &Fx, rel: &str) -> Vec<String> {
+    let dir = rel.split('/').fold(fx.extras(), |p, c| p.join(c));
+    let mut out: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    out.sort();
+    out
+}
+
+fn opening(fx: &Fx) -> (Listing, usize) {
+    let l = fx.listing();
+    let i = file_index(&l, "Soundtrack/01 Opening.flac");
+    (l, i)
+}
+
+#[test]
+fn rename_edits_the_stem_keeps_extension_and_tags() {
+    let fx = Fx::new();
+    tag_first(&fx, &["apertura"]);
+    let (l, i) = opening(&fx);
+    let out = rename(&fx.ctx(), &l, i, "  Opening theme ").unwrap();
+    assert_eq!(names_in(&fx, "Soundtrack"), ["Opening theme.flac"]);
+    let moved = fx.extras().join("Soundtrack").join("Opening theme.flac");
+    assert_eq!(std::fs::read(&moved).unwrap(), TRACK);
+    let idx = fx.index();
+    assert_eq!(idx["files"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        record(&idx, "Soundtrack/Opening theme.flac")["tags"],
+        json!(["apertura"])
+    );
+    let j = file_index(&out.listing, "Soundtrack/Opening theme.flac");
+    assert_eq!(out.listing.files[j].record.tags, ["apertura"]);
+    assert!(out.listing.missing.is_empty());
+
+    undo_job(fx.data.path(), &out.job.unwrap()).unwrap();
+    assert_eq!(names_in(&fx, "Soundtrack"), ["01 Opening.flac"]);
+    assert_eq!(
+        record(&fx.index(), "Soundtrack/01 Opening.flac")["tags"],
+        json!(["apertura"])
+    );
+}
+
+#[test]
+fn rename_to_a_taken_name_is_refused_never_suffixed() {
+    let fx = Fx::new();
+    fx.put("Soundtrack/02 Boss.flac", b"boss", 3);
+    let (l, i) = opening(&fx);
+    for typed in ["02 Boss", "02 BOSS"] {
+        let err = rename(&fx.ctx(), &l, i, typed).unwrap_err();
+        assert!(
+            matches!(err, ExtrasError::Name(NameRefusal::Taken)),
+            "{typed}: {err:?}"
+        );
+    }
+    assert_eq!(fx.jobs(), 0);
+    assert_eq!(
+        names_in(&fx, "Soundtrack"),
+        ["01 Opening.flac", "02 Boss.flac"]
+    );
+    assert!(!fx.index_path().exists());
+}
+
+#[test]
+fn case_only_rename_goes_through_a_temporary_name() {
+    let fx = Fx::new();
+    fx.put("Soundtrack/boss.flac", b"boss", 3);
+    let l = fx.listing();
+    let i = file_index(&l, "Soundtrack/boss.flac");
+    let out = rename(&fx.ctx(), &l, i, "Boss").unwrap();
+    let job = out.job.unwrap();
+    assert_eq!(
+        names_in(&fx, "Soundtrack"),
+        ["01 Opening.flac", "Boss.flac"]
+    );
+    let moves = job_transfers(fx.data.path(), &job).unwrap();
+    assert_eq!(moves.len(), 2, "{moves:?}");
+    let temp = moves[0].target.file_name().unwrap().to_string_lossy();
+    assert!(temp.starts_with(".coverly-"), "{temp}");
+    assert_eq!(moves[1].from, moves[0].target);
+    record(&fx.index(), "Soundtrack/Boss.flac");
+
+    undo_job(fx.data.path(), &job).unwrap();
+    assert_eq!(
+        names_in(&fx, "Soundtrack"),
+        ["01 Opening.flac", "boss.flac"]
+    );
+}
+
+#[test]
+fn renaming_to_the_same_name_changes_nothing() {
+    let fx = Fx::new();
+    let (l, i) = opening(&fx);
+    let out = rename(&fx.ctx(), &l, i, "01 Opening").unwrap();
+    assert!(out.job.is_none());
+    assert_eq!(fx.jobs(), 0);
+    assert!(!fx.index_path().exists());
+}
+
+#[test]
+fn rename_refuses_names_that_are_not_portable_or_paths_too_long() {
+    let fx = Fx::new();
+    let (l, i) = opening(&fx);
+    let long = "x".repeat(250);
+    for (typed, why) in [
+        ("", NameRefusal::Empty),
+        ("   ", NameRefusal::Empty),
+        ("a:b", NameRefusal::NotPortable),
+        ("a/b", NameRefusal::NotPortable),
+        ("a?b", NameRefusal::NotPortable),
+        ("CON", NameRefusal::NotPortable),
+        ("tab\there", NameRefusal::NotPortable),
+        (".hidden", NameRefusal::Dot),
+        (long.as_str(), NameRefusal::PathTooLong),
+    ] {
+        let err = rename(&fx.ctx(), &l, i, typed).unwrap_err();
+        assert!(
+            matches!(err, ExtrasError::Name(w) if w == why),
+            "{typed:?}: {err:?}"
+        );
+    }
+    assert_eq!(fx.jobs(), 0);
+    assert_eq!(names_in(&fx, "Soundtrack"), ["01 Opening.flac"]);
+}
+
+#[test]
+fn rename_of_a_stale_listing_is_refused() {
+    let fx = Fx::new();
+    let (l, i) = opening(&fx);
+    pin_mtime(&fx.extras().join("Soundtrack").join("01 Opening.flac"), 9);
+    let err = rename(&fx.ctx(), &l, i, "New").unwrap_err();
+    assert!(matches!(err, ExtrasError::Changed), "{err:?}");
+    assert!(matches!(
+        rename(&fx.ctx(), &l, 9, "New").unwrap_err(),
+        ExtrasError::Changed
+    ));
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
+fn move_to_another_category_creates_it_and_carries_the_record() {
+    let fx = Fx::new();
+    tag_first(&fx, &["jefe"]);
+    let (l, i) = opening(&fx);
+    let out = move_to(
+        &fx.ctx(),
+        &l,
+        &[i],
+        &CategoryRef::Fixed(ExtrasCategory::Videos),
+    )
+    .unwrap();
+    assert_eq!(names_in(&fx, "Videos"), ["01 Opening.flac"]);
+    assert!(names_in(&fx, "Soundtrack").is_empty());
+    let idx = fx.index();
+    assert_eq!(idx["files"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        record(&idx, "Videos/01 Opening.flac")["tags"],
+        json!(["jefe"])
+    );
+    let j = file_index(&out.listing, "Videos/01 Opening.flac");
+    assert_eq!(
+        out.listing.files[j].category,
+        CategoryRef::Fixed(ExtrasCategory::Videos)
+    );
+
+    undo_job(fx.data.path(), &out.job.unwrap()).unwrap();
+    assert!(!fx.extras().join("Videos").exists());
+    assert_eq!(names_in(&fx, "Soundtrack"), ["01 Opening.flac"]);
+    record(&fx.index(), "Soundtrack/01 Opening.flac");
+}
+
+#[test]
+fn move_several_files_is_one_job() {
+    let fx = Fx::new();
+    fx.put("Soundtrack/02 Boss.flac", b"boss", 3);
+    fx.put("Artwork/front.png", b"png", 4);
+    let l = fx.listing();
+    let a = file_index(&l, "Soundtrack/01 Opening.flac");
+    let b = file_index(&l, "Soundtrack/02 Boss.flac");
+    let c = file_index(&l, "Artwork/front.png");
+    let to = CategoryRef::User("Remixes".into());
+    std::fs::create_dir_all(fx.extras().join("Remixes")).unwrap();
+    let l = fx.listing();
+    let out = move_to(&fx.ctx(), &l, &[a, b, c, a], &to).unwrap();
+    assert_eq!(fx.jobs(), 1);
+    assert_eq!(
+        names_in(&fx, "Remixes"),
+        ["01 Opening.flac", "02 Boss.flac", "front.png"]
+    );
+    undo_job(fx.data.path(), &out.job.unwrap()).unwrap();
+    assert_eq!(
+        names_in(&fx, "Soundtrack"),
+        ["01 Opening.flac", "02 Boss.flac"]
+    );
+    assert_eq!(names_in(&fx, "Artwork"), ["front.png"]);
+    // An existing category is kept by the undo.
+    assert!(fx.extras().join("Remixes").is_dir());
+}
+
+#[test]
+fn move_to_a_user_category_that_does_not_exist_is_refused() {
+    let fx = Fx::new();
+    let (l, i) = opening(&fx);
+    let err = move_to(&fx.ctx(), &l, &[i], &CategoryRef::User("Nope".into())).unwrap_err();
+    assert!(matches!(err, ExtrasError::Changed), "{err:?}");
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
+fn move_into_a_taken_name_suffixes_and_says_so() {
+    let fx = Fx::new();
+    fx.put("Videos/01 Opening.flac", b"another one", 5);
+    let (l, i) = opening(&fx);
+    let out = move_to(
+        &fx.ctx(),
+        &l,
+        &[i],
+        &CategoryRef::Fixed(ExtrasCategory::Videos),
+    )
+    .unwrap();
+    assert_eq!(
+        names_in(&fx, "Videos"),
+        ["01 Opening (2).flac", "01 Opening.flac"]
+    );
+    assert_eq!(
+        std::fs::read(fx.extras().join("Videos").join("01 Opening (2).flac")).unwrap(),
+        TRACK
+    );
+    assert!(out.notes.contains(&ExtrasNote::RenamedDup {
+        name: "01 Opening (2).flac".into()
+    }));
+    record(&fx.index(), "Videos/01 Opening (2).flac");
+}
+
+#[test]
+fn move_to_root_category_puts_the_file_directly_in_extras() {
+    let fx = Fx::new();
+    let (l, i) = opening(&fx);
+    let out = move_to(&fx.ctx(), &l, &[i], &CategoryRef::Root).unwrap();
+    assert!(fx.extras().join("01 Opening.flac").is_file());
+    record(&fx.index(), "01 Opening.flac");
+    let j = file_index(&out.listing, "01 Opening.flac");
+    assert_eq!(out.listing.files[j].category, CategoryRef::Root);
+}
+
+#[test]
+fn moving_within_its_own_category_changes_nothing() {
+    let fx = Fx::new();
+    let (l, i) = opening(&fx);
+    let out = move_to(
+        &fx.ctx(),
+        &l,
+        &[i],
+        &CategoryRef::Fixed(ExtrasCategory::Soundtrack),
+    )
+    .unwrap();
+    assert!(out.job.is_none());
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_file_cannot_be_moved_or_renamed() {
+    let fx = Fx::new();
+    let outside = fx.data.path().join("outside.flac");
+    std::fs::write(&outside, b"outside").unwrap();
+    std::os::unix::fs::symlink(&outside, fx.extras().join("Soundtrack").join("link.flac")).unwrap();
+    let l = fx.listing();
+    let i = file_index(&l, "Soundtrack/link.flac");
+    assert!(l.files[i].link);
+    let err = rename(&fx.ctx(), &l, i, "other").unwrap_err();
+    assert!(matches!(err, ExtrasError::Link(_)), "{err:?}");
+    let err = move_to(&fx.ctx(), &l, &[i], &CategoryRef::Root).unwrap_err();
+    assert!(matches!(err, ExtrasError::Link(_)), "{err:?}");
+    assert_eq!(fx.jobs(), 0);
+    assert_eq!(std::fs::read(&outside).unwrap(), b"outside");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_category_is_never_a_move_target() {
+    let fx = Fx::new();
+    let outside = fx.data.path().join("elsewhere");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, fx.extras().join("Linked")).unwrap();
+    let (l, i) = opening(&fx);
+    let err = move_to(&fx.ctx(), &l, &[i], &CategoryRef::User("Linked".into())).unwrap_err();
+    assert!(matches!(err, ExtrasError::Link(_)), "{err:?}");
+    assert_eq!(fx.jobs(), 0);
+    assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
+}
+
+/// The game folder's tree; the index is compared by bytes only (undo
+/// restores it byte for byte by writing it again).
+fn snapshot(fx: &Fx) -> std::collections::BTreeMap<Vec<String>, (Vec<u8>, i64)> {
+    let mut t = common::tree(&fx.game());
+    for (k, v) in &mut t {
+        if k.last().is_some_and(|n| n == "extras.json") {
+            v.1 = 0;
+        }
+    }
+    t
+}
+
+#[test]
+fn every_op_then_undo_restores_tree_and_json() {
+    type Op = fn(&Fx) -> ExtrasOutcome;
+    let ops: [(&str, Op); 5] = [
+        ("tag", |fx| tag_first(fx, &["jefe"])),
+        ("rename", |fx| {
+            let (l, i) = opening(fx);
+            rename(&fx.ctx(), &l, i, "Opening").unwrap()
+        }),
+        ("case-only rename", |fx| {
+            let (l, i) = opening(fx);
+            rename(&fx.ctx(), &l, i, "01 OPENING").unwrap()
+        }),
+        ("move", |fx| {
+            let (l, i) = opening(fx);
+            move_to(
+                &fx.ctx(),
+                &l,
+                &[i],
+                &CategoryRef::Fixed(ExtrasCategory::Guides),
+            )
+            .unwrap()
+        }),
+        ("move to root", |fx| {
+            let (l, i) = opening(fx);
+            move_to(&fx.ctx(), &l, &[i], &CategoryRef::Root).unwrap()
+        }),
+    ];
+    for (what, op) in ops {
+        for with_index in [false, true] {
+            let fx = Fx::new();
+            fx.put("Artwork/front.png", b"png", 4);
+            if with_index {
+                let l = fx.listing();
+                let i = file_index(&l, "Artwork/front.png");
+                set_tags(&fx.ctx(), &l, i, &tags(&["portada"])).unwrap();
+            }
+            let before = snapshot(&fx);
+            let out = op(&fx);
+            assert_ne!(snapshot(&fx), before, "{what}");
+            undo_job(fx.data.path(), &out.job.unwrap()).unwrap();
+            assert_eq!(snapshot(&fx), before, "{what} (index {with_index})");
+        }
+    }
 }
