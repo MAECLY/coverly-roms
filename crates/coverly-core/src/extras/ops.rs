@@ -63,8 +63,10 @@ pub enum ExtrasError {
     NoTrash,
     #[error("too many files or bytes for one action")]
     TooMany,
-    #[error("not enough space: {short} bytes short")]
-    NoSpace { short: u64 },
+    /// Bytes the copies take (whole clusters) and bytes free, as
+    /// Organizar reports them.
+    #[error("not enough space: {needed} bytes needed, {free} free")]
+    NoSpace { needed: u64, free: u64 },
     #[error("a symlink is not followed: {0}")]
     Link(PathBuf),
     #[error("cancelled")]
@@ -1567,9 +1569,7 @@ pub fn add_files(
             .map(|c| c.size.div_ceil(cluster).saturating_mul(cluster))
             .fold(0u64, u64::saturating_add);
         if free < needed {
-            return Err(ExtrasError::NoSpace {
-                short: needed - free,
-            });
+            return Err(ExtrasError::NoSpace { needed, free });
         }
     }
     let n = planned.len();

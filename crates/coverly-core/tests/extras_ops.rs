@@ -1822,7 +1822,13 @@ fn free_space_counts_whole_clusters() {
     .unwrap_err();
     coverly_core::organize::apply::set_cluster_size_override(None);
     assert!(
-        matches!(err, ExtrasError::NoSpace { short: 4096 }),
+        matches!(
+            err,
+            ExtrasError::NoSpace {
+                needed: 12288,
+                free: 8192
+            }
+        ),
         "{err:?}"
     );
     assert!(!fx.extras().exists());
@@ -1846,7 +1852,16 @@ fn not_enough_space_copies_nothing() {
         &mut |_| std::ops::ControlFlow::Continue(()),
     )
     .unwrap_err();
-    assert!(matches!(err, ExtrasError::NoSpace { short: 11 }), "{err:?}");
+    assert!(
+        matches!(
+            err,
+            ExtrasError::NoSpace {
+                needed: 12,
+                free: 1
+            }
+        ),
+        "{err:?}"
+    );
     assert!(!fx.extras().exists());
     assert_eq!(fx.jobs(), 0);
     // Space that cannot be told does not block.

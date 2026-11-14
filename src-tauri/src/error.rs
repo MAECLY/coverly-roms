@@ -183,7 +183,7 @@ impl From<coverly_core::extras::ops::ExtrasError> for IpcError {
             },
             E::NoTrash => refused("no-trash"),
             E::TooMany => refused("too-many"),
-            E::NoSpace { short } => IpcError::NoSpace(format!("{short}/0")),
+            E::NoSpace { needed, free } => IpcError::NoSpace(format!("{needed}/{free}")),
             E::Link(_) => refused("link"),
             E::OutsideExtras(p) => IpcError::OutsideLibrary(p.display().to_string()),
             E::Cancelled => IpcError::Cancelled,
@@ -297,8 +297,11 @@ mod tests {
             assert_eq!(IpcError::from(E::Changed), IpcError::ExtrasChanged);
             assert_eq!(IpcError::from(E::IndexNewer), IpcError::ExtrasNewer);
             assert_eq!(
-                IpcError::from(E::NoSpace { short: 5 }),
-                IpcError::NoSpace("5/0".into())
+                IpcError::from(E::NoSpace {
+                    needed: 8192,
+                    free: 4096
+                }),
+                IpcError::NoSpace("8192/4096".into())
             );
         }
         let json = serde_json::to_value(IpcError::JobRunning).unwrap();
