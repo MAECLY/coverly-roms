@@ -146,3 +146,21 @@ fn the_deny_globs_win_over_a_grant() {
         assert!(!scope.is_allowed(&p), "{name} must stay denied");
     }
 }
+
+#[test]
+fn a_grant_is_literal_even_with_glob_characters_in_the_name() {
+    let dir = tempfile::Builder::new()
+        .prefix("coverly-scope-")
+        .tempdir()
+        .unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let (_app, scope) = shipped_scope();
+    // Dump names carry brackets: `[Remix]` must not act as a glob class.
+    let granted = base.join("Boss [Remix] (v1.1).flac");
+    let sibling = base.join("Boss R (v1.1).flac");
+    std::fs::write(&granted, b"fLaC").unwrap();
+    std::fs::write(&sibling, b"fLaC").unwrap();
+    scope.allow_file(&granted).unwrap();
+    assert!(scope.is_allowed(&granted));
+    assert!(!scope.is_allowed(&sibling), "a bracket is not a glob class");
+}

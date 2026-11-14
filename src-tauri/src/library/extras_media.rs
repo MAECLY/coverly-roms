@@ -197,21 +197,25 @@ pub fn media_target(
     Ok((
         canon.clone(),
         MediaView {
-            src_path: url_path(&canon),
+            src_path: plain_path(&canon),
             mime: mime.to_string(),
             kind,
         },
     ))
 }
 
-/// The path the webview turns into an asset URL: on Windows without the
-/// `\\?\` prefix `canonicalize` adds (the scope holds both spellings).
-fn url_path(canon: &Path) -> String {
-    let s = canon.to_string_lossy();
-    match s.strip_prefix(r"\\?\") {
-        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => rest.to_string(),
-        _ => s.into_owned(),
+/// The path the webview turns into an asset URL, or the shell opens: on
+/// Windows without the `\\?\C:` prefix `canonicalize` adds (the scope holds
+/// both spellings, and many Windows apps fail on a verbatim path).
+fn plain(canon: PathBuf) -> PathBuf {
+    match canon.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => canon,
     }
+}
+
+fn plain_path(canon: &Path) -> String {
+    plain(canon.to_path_buf()).to_string_lossy().into_owned()
 }
 
 /// A text extra (txt, md, nfo), at most [`TEXT_MAX`] bytes of it.
@@ -272,7 +276,7 @@ pub fn open_target(handle: &ExtrasHandle, root_canon: &Path) -> Result<PathBuf, 
     if playable_of(&handle.file.name, handle.file.link) == Playable::RevealOnly {
         return Err(refused("reveal-only"));
     }
-    checked_file(handle, root_canon)
+    checked_file(handle, root_canon).map(plain)
 }
 
 /// The listed path to show in the file manager (any file, a link
@@ -346,11 +350,11 @@ mod tests {
 
     #[test]
     fn a_verbatim_windows_path_loses_its_prefix_for_the_url() {
-        assert_eq!(url_path(Path::new(r"\\?\C:\Lib\a.png")), r"C:\Lib\a.png");
+        assert_eq!(plain_path(Path::new(r"\\?\C:\Lib\a.png")), r"C:\Lib\a.png");
         assert_eq!(
-            url_path(Path::new(r"\\?\UNC\srv\a.png")),
+            plain_path(Path::new(r"\\?\UNC\srv\a.png")),
             r"\\?\UNC\srv\a.png"
         );
-        assert_eq!(url_path(Path::new("/lib/a.png")), "/lib/a.png");
+        assert_eq!(plain_path(Path::new("/lib/a.png")), "/lib/a.png");
     }
 }

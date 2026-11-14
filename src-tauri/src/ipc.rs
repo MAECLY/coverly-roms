@@ -518,9 +518,8 @@ pub async fn extras_open_external(
         let path = app
             .state::<AppState>()
             .extras_open_target(generation, entry_id, rev, index)?;
-        app.opener()
-            .open_path(path.to_string_lossy(), None::<&str>)
-            .map_err(|e| IpcError::Io(e.to_string()))
+        // The path itself, not a lossy string of it.
+        tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| IpcError::Io(e.to_string()))
     })
     .await
 }

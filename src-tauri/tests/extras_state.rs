@@ -1718,7 +1718,13 @@ mod media {
             .unwrap();
         assert_eq!(media.kind, MediaKind::Audio);
         assert_eq!(media.mime, "audio/flac");
-        assert_eq!(Path::new(&media.src_path), canon(&flac));
+        // The path the webview turns into a URL: the same file, allowed
+        // by the scope as the protocol will request it, and on Windows
+        // without the `\\?\` prefix `canonicalize` adds.
+        assert_eq!(canon(Path::new(&media.src_path)), canon(&flac));
+        assert!(scope.is_allowed(Path::new(&media.src_path)));
+        #[cfg(windows)]
+        assert!(!media.src_path.starts_with(r"\\?\"), "{}", media.src_path);
         assert!(scope.is_allowed(&flac));
         assert!(scope.is_allowed(canon(&flac)));
         assert!(!scope.is_allowed(&png), "its sibling in Extras/");
@@ -2110,7 +2116,11 @@ mod media {
             let path =
                 o.st.extras_open_target(o.generation, o.id, listed.rev, index_of(&listed, rel))
                     .unwrap();
-            assert_eq!(path, canon(&extra(lib.path(), rel)), "{rel}");
+            assert_eq!(canon(&path), canon(&extra(lib.path(), rel)), "{rel}");
+            // Handed to the shell as a plain path: Windows apps often fail
+            // on a verbatim `\\?\C:\` one.
+            #[cfg(windows)]
+            assert!(!path.to_string_lossy().starts_with(r"\\?\"), "{path:?}");
         }
         assert_eq!(
             o.st.extras_open_target(o.generation, o.id, listed.rev + 99, 0)
