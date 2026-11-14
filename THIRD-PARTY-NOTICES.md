@@ -19,7 +19,7 @@ than keeping that text.
 
 The application (`src/assets/fonts/`, bundled into every build) self-hosts
 three typefaces, each licensed under the SIL Open Font License 1.1 (the
-website, in [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing), ships the same fonts with
+website, in MAECLY/coverly-roms-landing, ships the same fonts with
 its own notices):
 
 - **Archivo**, Copyright 2020 The Archivo Project Authors

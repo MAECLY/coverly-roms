@@ -846,7 +846,7 @@ Also: `make build` (an unsigned release bundle), `make cli ARGS="systems"`
 (`make example-apply`, `make example-undo`, `make example-clean`).
 
 The landing page at [coverly-roms.maecly.com](https://coverly-roms.maecly.com)
-lives in its own repository, [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing),
+lives in its own private repository, MAECLY/coverly-roms-landing,
 which explains how to preview, check and publish it.
 
 **Docs.** [docs/README.md](docs/README.md) is the index. Architecture in

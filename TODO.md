@@ -2,7 +2,7 @@
 
 ## Landing
 
-La landing (https://coverly-roms.maecly.com) vive en su propio repositorio, https://github.com/MAECLY/coverly-roms-landing, y sus tareas pendientes están en su [TODO.md](https://github.com/MAECLY/coverly-roms-landing/blob/main/TODO.md).
+La landing (https://coverly-roms.maecly.com) vive en su propio repositorio, MAECLY/coverly-roms-landing (privado), y sus tareas pendientes están en su TODO.md.
 
 ## Release y pruebas que dependen de Miguel
 

@@ -885,7 +885,7 @@ Además: `make build` (un paquete de la app sin firmar), `make cli ARGS="systems
 `target/example` (`make example-apply`, `make example-undo`, `make example-clean`).
 
 La página web de [coverly-roms.maecly.com](https://coverly-roms.maecly.com)
-vive en su propio repositorio, [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing),
+vive en su propio repositorio privado, MAECLY/coverly-roms-landing,
 que explica cómo verla en local, comprobarla y publicarla (en inglés).
 
 **Documentación** (en inglés). [docs/README.md](docs/README.md) es el índice.
