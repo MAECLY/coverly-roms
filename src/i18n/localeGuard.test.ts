@@ -97,4 +97,11 @@ describe('locale copy guard', () => {
       expect(keys).toContain('organize.why.contentId');
     }
   });
+
+  it('English contractions and possessives use the straight apostrophe, as the rest of the copy', () => {
+    for (const [key, value] of leaves(en))
+      expect(/\p{L}\u2019\p{L}/u.test(value), `en:${key}: ${value}`).toBe(
+        false,
+      );
+  });
 });
