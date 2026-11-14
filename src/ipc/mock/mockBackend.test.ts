@@ -165,6 +165,28 @@ describe('mock backend', () => {
     expect(dropped).toEqual([SMALL]);
   });
 
+  it('never opens a library from a drop over the extras section', async () => {
+    const b = backend();
+    const dropped: string[] = [];
+    const off = await b.onFolderDrop((p) => dropped.push(p));
+    const section = document.createElement('section');
+    section.setAttribute('data-extras-drop-root', '');
+    section.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100);
+    document.body.append(section);
+    const ev = new MouseEvent('drop', {
+      cancelable: true,
+      clientX: 50,
+      clientY: 50,
+    });
+    Object.defineProperty(ev, 'dataTransfer', {
+      value: { files: [], getData: () => 'Small library' },
+    });
+    window.dispatchEvent(ev);
+    section.remove();
+    off();
+    expect(dropped).toEqual([]);
+  });
+
   it('keeps and normalises library settings', async () => {
     const b = backend();
     const saved = await b.setLibrarySettings({

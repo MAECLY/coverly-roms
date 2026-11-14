@@ -3,6 +3,7 @@
  * deterministic fixture libraries, fake progress, SVG art, fake identity.
  */
 import type { Backend } from '../backend';
+import { dropIsNotALibrary } from '../dropTarget';
 import { BackendError } from '../errors';
 import type {
   CandidateView,
@@ -1107,9 +1108,12 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       const over = (ev: Event) => ev.preventDefault();
       const drop = (ev: Event) => {
         ev.preventDefault();
-        const dt = (ev as DragEvent).dataTransfer;
+        const drag = ev as DragEvent;
+        const point = { x: drag.clientX ?? 0, y: drag.clientY ?? 0 };
+        if (dropIsNotALibrary(point)) return;
+        const dt = drag.dataTransfer;
         const name = dt?.files[0]?.name || dt?.getData('text/plain') || '';
-        if (name) cb(name.startsWith('/') ? name : `/mock/${name}`);
+        if (name) cb(name.startsWith('/') ? name : `/mock/${name}`, point);
       };
       window.addEventListener('dragover', over);
       window.addEventListener('drop', drop);

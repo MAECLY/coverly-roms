@@ -3,6 +3,7 @@
  * browser (`pnpm dev`) — the deterministic mock.
  */
 import { hasTauriIpc, type AppInfo } from './appInfo';
+import type { DropPoint } from './dropTarget';
 import type {
   ArtImage,
   CandidateView,
@@ -131,7 +132,14 @@ export interface Backend {
     slot: ChildMedia,
   ): Promise<ArtImage>;
   pickFolder(): Promise<string | null>;
-  onFolderDrop(cb: (path: string) => void): Promise<() => void>;
+  /**
+   * A folder dropped from the OS, to open as a library, with where it
+   * landed (CSS pixels). Drops over the Extras section or while a dialog
+   * or the viewer is open are not reported (part D D11).
+   */
+  onFolderDrop(
+    cb: (path: string, point: DropPoint) => void,
+  ): Promise<() => void>;
   startFill(generation: number, request: FillRequest): Promise<JobView>;
   fillJob(): Promise<JobView | null>;
   fillJobItems(job: number, filter: ItemFilter): Promise<JobItemView[]>;

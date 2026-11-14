@@ -5,6 +5,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 
 import type { AppInfo } from './appInfo';
 import type { Backend } from './backend';
+import { dropIsNotALibrary, toCssPoint } from './dropTarget';
 import { BackendError, toBackendError } from './errors';
 import {
   normalizeDedupeJob,
@@ -170,8 +171,12 @@ export function createTauriBackend(): Backend {
     onFolderDrop: (cb) =>
       getCurrentWebview().onDragDropEvent((event) => {
         if (event.payload.type !== 'drop') return;
+        // A drop for the Extras section (or under a dialog) never opens a
+        // library; the section adds it by the token Rust recorded (D11).
+        const point = toCssPoint(event.payload.position);
+        if (dropIsNotALibrary(point)) return;
         const first = event.payload.paths[0];
-        if (first) cb(first);
+        if (first) cb(first, point);
       }),
     startFill: (generation, request) =>
       call<JobView>('start_fill', { generation, request }),

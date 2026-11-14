@@ -1,4 +1,5 @@
-import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
+import { invoke } from '@tauri-apps/api/core';
+import { clearMocks, mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import requests from './contract.requests.json';
@@ -195,6 +196,82 @@ describe('Tauri backend', () => {
     });
     dialog.open.mockResolvedValueOnce(null);
     await expect(createTauriBackend().pickFolder()).resolves.toBeNull();
+  });
+
+  describe('onFolderDrop (part D D11)', () => {
+    // The webview's drag-drop listeners go through the event plugin, which
+    // the IPC mock emulates (the `listen` mock above is not on that path).
+    const emit = (event: string, payload: unknown) =>
+      invoke('plugin:event|emit', { event, payload });
+    const drop = (x: number, y: number, paths = ['/Volumes/SD']) =>
+      emit('tauri://drag-drop', { paths, position: { x, y } });
+    const listening = async () => {
+      mockWindows('main');
+      mockIPC(() => null, { shouldMockEvents: true });
+      const cb = vi.fn();
+      const off = await createTauriBackend().onFolderDrop(cb);
+      return { cb, off };
+    };
+    /** An Extras section at logical (100, 50)–(300, 250). */
+    const section = () => {
+      const el = document.createElement('section');
+      el.setAttribute('data-extras-drop-root', '');
+      el.getBoundingClientRect = () => new DOMRect(100, 50, 200, 200);
+      document.body.append(el);
+      return el;
+    };
+
+    afterEach(() => {
+      document.body.replaceChildren();
+      vi.unstubAllGlobals();
+    });
+
+    it('passes the position divided by devicePixelRatio', async () => {
+      vi.stubGlobal('devicePixelRatio', 2);
+      const { cb, off } = await listening();
+      await drop(800, 600);
+      expect(cb).toHaveBeenCalledWith('/Volumes/SD', { x: 400, y: 300 });
+      await off();
+    });
+
+    it('ignores a drop over the extras section', async () => {
+      vi.stubGlobal('devicePixelRatio', 2);
+      section();
+      const { cb, off } = await listening();
+      // (400, 200) physical is (200, 100) logical: inside the section.
+      await drop(400, 200, ['/Users/me/Music/boss.mp3']);
+      expect(cb).not.toHaveBeenCalled();
+      // (700, 200) physical is (350, 100): beside it, a library drop.
+      await drop(700, 200);
+      expect(cb).toHaveBeenCalledWith('/Volumes/SD', { x: 350, y: 100 });
+      await off();
+    });
+
+    it('ignores a drop while a dialog or the viewer is open', async () => {
+      const { cb, off } = await listening();
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      document.body.append(dialog);
+      await drop(10, 10);
+      dialog.remove();
+      const viewer = document.createElement('div');
+      viewer.setAttribute('data-media-viewer', '');
+      document.body.append(viewer);
+      await drop(10, 10);
+      expect(cb).not.toHaveBeenCalled();
+      viewer.remove();
+      await drop(10, 10);
+      expect(cb).toHaveBeenCalledTimes(1);
+      await off();
+    });
+
+    it('ignores drags that are not drops and drops with no path', async () => {
+      const { cb, off } = await listening();
+      await emit('tauri://drag-over', { position: { x: 1, y: 1 } });
+      await drop(1, 1, []);
+      expect(cb).not.toHaveBeenCalled();
+      await off();
+    });
   });
 
   it('starts a fill with the request object and forwards job events', async () => {
