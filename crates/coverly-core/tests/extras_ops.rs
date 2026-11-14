@@ -4,6 +4,7 @@
 mod common;
 
 use std::path::{Component, PathBuf};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use coverly_core::dedupe::testing::pin_mtime;
@@ -1455,6 +1456,13 @@ fn a_set_aside_folder_that_is_a_symlink_is_never_used() {
 // ---- Adds by verified copy (D11, D13) ----
 
 /// A folder outside the library holding the files to add, mtimes pinned.
+/// The open log is one per process: the tests that read it take turns.
+static OPEN_LOG: Mutex<()> = Mutex::new(());
+
+fn log_turn() -> MutexGuard<'static, ()> {
+    OPEN_LOG.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 fn sources(files: &[(&str, &[u8])]) -> (TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     // Temp folders are hidden (`.tmpXXXX`); a dropped folder never is.
@@ -1574,6 +1582,25 @@ fn add_suffixes_collisions_and_reports_the_new_name() {
 }
 
 #[test]
+fn a_numbered_name_past_the_windows_limit_is_refused_before_the_copy() {
+    let fx = Fx::new();
+    // The name fits exactly; its ` (2)` twin would not (D13, D14).
+    let base = fx.extras().to_string_lossy().encode_utf16().count();
+    let stem = "x".repeat(259 - base - 1 - ".flac".len());
+    let name = format!("{stem}.flac");
+    fx.put(&name, b"long", 3);
+    let (_d, src) = sources(&[(name.as_str(), b"another")]);
+    let before = names_in(&fx, "");
+    let err = add(&fx, &to(CategoryRef::Root, &[src.join(&name)])).unwrap_err();
+    assert!(
+        matches!(err, ExtrasError::Name(NameRefusal::PathTooLong)),
+        "{err:?}"
+    );
+    assert_eq!(names_in(&fx, ""), before);
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
 fn two_sources_with_one_name_are_both_kept() {
     let fx = bare();
     let (_d, src) = sources(&[("a/theme.mp3", b"one"), ("b/theme.mp3", b"two")]);
@@ -1624,6 +1651,7 @@ fn key_material_and_hidden_files_are_skipped_never_opened() {
         .iter()
         .map(|n| src.join(n))
         .collect();
+    let _turn = log_turn();
     coverly_core::consoles::start_open_log();
     let suggested = plan_add(&paths);
     let out = add(&fx, &to(soundtrack(), &paths)).unwrap();
@@ -1649,6 +1677,7 @@ fn key_names_hidden_behind_a_trailing_dot_or_space_are_skipped() {
     let files: Vec<(&str, &[u8])> = names.iter().map(|n| (*n, &b"bytes"[..])).collect();
     let (_d, src) = sources(&files);
     let paths: Vec<PathBuf> = names.iter().map(|n| src.join(n)).collect();
+    let _turn = log_turn();
     coverly_core::consoles::start_open_log();
     let suggested = plan_add(&paths);
     let out = add(&fx, &to(soundtrack(), &paths)).unwrap();

@@ -1582,14 +1582,20 @@ impl ExtrasJob<'_> {
             next += 1;
         }
         let target = self.confine(&dir.join(&name))?;
+        // A numbered name past the Windows limit: refused before it is
+        // written (D14).
+        if too_long_for_windows(&target) {
+            return Err(ExtrasError::Name(NameRefusal::PathTooLong));
+        }
         #[cfg(feature = "test-util")]
         crate::consoles::record_open(&copy.from);
         let to = match self.w.copy_in(&copy.from, &target, Collision::Rename)? {
             MoveOutcome::Copied { to, .. } => to,
             _ => return Err(ExtrasError::Changed),
         };
-        // A name numbered past the Windows limit: stopped here; the closed
-        // journal undoes this copy and the ones before it.
+        // Numbered again by a file that appeared meanwhile, past the Windows
+        // limit: stopped here; the closed journal undoes this copy and the
+        // ones before it.
         if too_long_for_windows(&to) {
             return Err(ExtrasError::Name(NameRefusal::PathTooLong));
         }
