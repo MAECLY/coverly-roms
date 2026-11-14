@@ -219,7 +219,7 @@ describe('ExtrasSection (extras spec §8.1, §8.2, §8.4)', () => {
     ]);
     expect(
       within(r).getByText(
-        'Arrastra aquí la banda sonora, los manuales o el arte de este juego, o usa Añadir.',
+        'Arrastra aquí la banda sonora, los manuales o el arte de este juego, o usa «Añadir archivos».',
       ),
     ).toBeInTheDocument();
     expect(

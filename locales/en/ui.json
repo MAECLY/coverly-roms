@@ -2191,7 +2191,7 @@
       "guides": "Guides",
       "root": "No category"
     },
-    "empty": "Drop this game's soundtrack, manuals or artwork here, or use Add.",
+    "empty": "Drop this game's soundtrack, manuals or artwork here, or use “Add files”.",
     "add": "Add files",
     "addTo": "Add to {category}",
     "addConfirm": "Copy {n} files",

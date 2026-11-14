@@ -2191,7 +2191,7 @@
       "guides": "Guías",
       "root": "Sin categoría"
     },
-    "empty": "Arrastra aquí la banda sonora, los manuales o el arte de este juego, o usa Añadir.",
+    "empty": "Arrastra aquí la banda sonora, los manuales o el arte de este juego, o usa «Añadir archivos».",
     "add": "Añadir archivos",
     "addTo": "Añadir a {category}",
     "addConfirm": "Copiar {n} archivos",
