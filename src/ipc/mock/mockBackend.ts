@@ -606,6 +606,11 @@ function defaultStorage(): Storage | null {
 
 const DAY = 86_400;
 
+/** An Extras call on a listing the mock does not have (part D). */
+function extrasReadOnly(): Promise<never> {
+  return Promise.reject(new BackendError('write-denied'));
+}
+
 export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const delayMs = opts.delayMs ?? 30;
   const now = opts.now ?? Math.floor(Date.now() / 1000);
@@ -1102,6 +1107,46 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
         mime: 'image/svg+xml',
       };
     },
+    // Part D: until the extras mock library lands, every entry answers an
+    // empty, read-only Extras/ and every write is refused.
+    async extrasList(gen, id) {
+      const e = entryOf(gen, id);
+      const system = current?.systems[e.system]?.system_id ?? '';
+      return {
+        entry_id: id,
+        rev: 0,
+        game_folder: false,
+        index: { state: 'absent' },
+        writable: { kind: 'read-only' },
+        categories: [],
+        files: [],
+        missing: [],
+        capped: false,
+        system,
+        manual_inside: ['3ds', 'wiiu', 'switch', 'psvita'].includes(system),
+      };
+    },
+    extrasRename: () => extrasReadOnly(),
+    extrasMove: () => extrasReadOnly(),
+    extrasTrash: () => extrasReadOnly(),
+    extrasSetTags: () => extrasReadOnly(),
+    extrasForget: () => extrasReadOnly(),
+    extrasCategoryCreate: () => extrasReadOnly(),
+    extrasCategoryRename: () => extrasReadOnly(),
+    extrasCategoryRemove: () => extrasReadOnly(),
+    extrasUndo: () => Promise.reject(new BackendError('nothing-to-undo')),
+    extrasAddPick: () => Promise.resolve(null),
+    extrasAddPlan: () => extrasReadOnly(),
+    extrasAddCommit: () => extrasReadOnly(),
+    extrasAddDropped: () => extrasReadOnly(),
+    extrasAddCancel: () => Promise.resolve(false),
+    extrasMedia: () => extrasReadOnly(),
+    extrasReadText: () => extrasReadOnly(),
+    extrasReveal: () => extrasReadOnly(),
+    extrasOpenExternal: () => extrasReadOnly(),
+    onExtrasDrop: () => Promise.resolve(() => {}),
+    onExtrasProgress: () => Promise.resolve(() => {}),
+    onExtrasAdded: () => Promise.resolve(() => {}),
     pickFolder: () =>
       Promise.resolve(opts.folder ?? readMockPick() ?? MOCK_LIBRARIES[0].path),
     onFolderDrop(cb) {

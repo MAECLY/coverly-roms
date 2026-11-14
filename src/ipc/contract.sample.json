@@ -3133,7 +3133,15 @@
     "extras",
     "saves"
   ],
-  "game_folder_roles": ["base", "update", "dlc", "demo", "mod", "cheat"],
+  "game_folder_roles": [
+    "base",
+    "update",
+    "dlc",
+    "demo",
+    "mod",
+    "cheat",
+    "extra"
+  ],
   "addon_item": {
     "action": "auto",
     "alternatives": [],
@@ -4194,5 +4202,124 @@
       "y": 430.5
     },
     "token": 9
-  }
+  },
+  "extra_item": {
+    "action": "auto",
+    "alternatives": [],
+    "catalogue_name": null,
+    "companions": [],
+    "confidence": 0.95,
+    "disc": null,
+    "folder": "PS3",
+    "fps": [
+      {
+        "size": 2097152,
+        "mtime_ns": 1700000000000000000
+      }
+    ],
+    "game": {
+      "role": "extra",
+      "of": 0,
+      "folder": "PS3/Tidewalker (USA)",
+      "extra": {
+        "category": "themes",
+        "format": "ps3-p3t",
+        "provenance": "official",
+        "via": "key"
+      }
+    },
+    "id": 1,
+    "kind": "file",
+    "method": "header",
+    "notes": [
+      {
+        "kind": "extra-of",
+        "category": "themes",
+        "of": "Tidewalker",
+        "format": "ps3-p3t"
+      }
+    ],
+    "rename": null,
+    "set_targets": [],
+    "size": 2097152,
+    "sources": ["Tidewalker Theme.p3t"],
+    "system_id": "ps3",
+    "target": "PS3/Tidewalker (USA)/Extras/Themes/Tidewalker Theme.p3t",
+    "transfer": {
+      "kind": "as-is"
+    },
+    "why": [
+      {
+        "detail": "BCUS98174",
+        "kind": "header",
+        "system": "ps3",
+        "weight": 0.95
+      }
+    ]
+  },
+  "extra_reasons": [
+    {
+      "kind": "extra-without-game",
+      "category": "soundtrack"
+    },
+    {
+      "kind": "extras-index-newer"
+    }
+  ],
+  "extra_notes": [
+    {
+      "kind": "extra-of",
+      "category": "themes",
+      "of": "Tidewalker",
+      "format": "ps3-theme-pkg",
+      "content_type": 9
+    },
+    {
+      "kind": "extra-rip",
+      "of": "Super Metroid",
+      "format": "spc",
+      "tag": "Super Metroid"
+    },
+    {
+      "kind": "extras-backup-first"
+    }
+  ],
+  "extras_categories": [
+    "soundtrack",
+    "manuals",
+    "artwork",
+    "videos",
+    "themes",
+    "guides"
+  ],
+  "extra_types": ["audio", "video", "image", "document", "other"],
+  "extra_formats": [
+    "ps3-p3t",
+    "ps3-theme-pkg",
+    "ps3-avatar-pkg",
+    "vita-theme-pkg",
+    "psp-ptf",
+    "x360-theme",
+    "x360-gamerpic",
+    "x360-avatar",
+    "x360-video",
+    "3ds-soundtrack-cia",
+    "spc",
+    "nsf",
+    "gbs",
+    "vgm",
+    "psf"
+  ],
+  "extras_media": {
+    "src_path": "/Volumes/SD/PS3/Tidewalker (USA)/Extras/Soundtrack/01 Opening.flac",
+    "mime": "audio/flac",
+    "kind": "audio"
+  },
+  "extras_media_kinds": ["audio", "video", "image", "pdf"],
+  "extras_text": {
+    "text": "Tidewalker\n",
+    "truncated": false,
+    "encoding": "cp437"
+  },
+  "extras_text_encodings": ["utf-8", "cp437", "latin-1"]
 }

@@ -83,6 +83,25 @@ describe('mock backend', () => {
     );
   });
 
+  it('answers an empty read-only Extras/ and refuses extras writes', async () => {
+    const b = backend();
+    const lib = await b.openLibrary(SMALL);
+    const view = await b.extrasList(lib.generation, 0);
+    expect(view).toMatchObject({
+      entry_id: 0,
+      game_folder: false,
+      writable: { kind: 'read-only' },
+      files: [],
+    });
+    await expect(
+      b.extrasTrash(lib.generation, 0, view.rev, [0]),
+    ).rejects.toMatchObject({ code: 'write-denied' });
+    await expect(b.extrasAddPick(lib.generation, 0)).resolves.toBeNull();
+    await expect(b.extrasList(lib.generation + 1, 0)).rejects.toBeInstanceOf(
+      BackendError,
+    );
+  });
+
   it('rejects unknown folders as not-found', async () => {
     await expect(backend().openLibrary('/mock/Broken')).rejects.toMatchObject({
       code: 'not-found',

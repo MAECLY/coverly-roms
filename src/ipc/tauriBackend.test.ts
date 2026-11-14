@@ -1,11 +1,22 @@
 import { invoke } from '@tauri-apps/api/core';
-import { clearMocks, mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import {
+  clearMocks,
+  mockConvertFileSrc,
+  mockIPC,
+  mockWindows,
+} from '@tauri-apps/api/mocks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import requests from './contract.requests.json';
 import sample from './contract.sample.json';
 import { BackendError } from './errors';
-import type { DedupeRequest, OrganizeDecision, OrganizeRequest } from './types';
+import type {
+  AddChoice,
+  CategoryRef,
+  DedupeRequest,
+  OrganizeDecision,
+  OrganizeRequest,
+} from './types';
 
 const dialog = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => dialog);
@@ -27,6 +38,9 @@ import {
   DEDUPE_CHANGED_EVENT,
   DEDUPE_PROGRESS_EVENT,
   ENTRIES_UPDATED_EVENT,
+  EXTRAS_ADDED_EVENT,
+  EXTRAS_DROP_EVENT,
+  EXTRAS_PROGRESS_EVENT,
   JOB_CHANGED_EVENT,
   ORGANIZE_CHANGED_EVENT,
   ORGANIZE_PROGRESS_EVENT,
@@ -775,5 +789,209 @@ describe('Tauri backend', () => {
     await expect(
       createTauriBackend().dedupeSetKeeper(9, 1, 0),
     ).rejects.toMatchObject({ code: 'no-dedupe-plan' });
+  });
+});
+
+describe('Tauri backend: extras (part D)', () => {
+  afterEach(() => {
+    clearMocks();
+    vi.unstubAllGlobals();
+  });
+
+  /** Records every command and answers by name. */
+  const recording = (answers: Record<string, unknown> = {}) => {
+    const calls: [string, unknown][] = [];
+    mockIPC((cmd, args) => {
+      calls.push([cmd, args]);
+      return cmd in answers ? answers[cmd] : null;
+    });
+    return calls;
+  };
+
+  it('names files by revision and index and categories as Rust spells them', async () => {
+    const write = sample.extras_write;
+    const calls = recording({ extras_list: sample.extras_view });
+    const b = createTauriBackend();
+    const to = requests.extras_category_refs[1] as CategoryRef;
+    expect(await b.extrasList(3, 7)).toEqual(sample.extras_view);
+    mockIPC((cmd, args) => {
+      calls.push([cmd, args]);
+      return write;
+    });
+    expect(await b.extrasRename(3, 7, 12, 0, 'Opening')).toEqual(write);
+    await b.extrasMove(3, 7, 12, [0, 2], to);
+    await b.extrasTrash(3, 7, 12, [1]);
+    await b.extrasSetTags(3, 7, 12, 0, ['tema del jefe final']);
+    await b.extrasForget(3, 7, 12, 0);
+    await b.extrasCategoryCreate(3, 7, 12, 'Remixes');
+    await b.extrasCategoryRename(3, 7, 12, 'Remixes', 'Versiones');
+    await b.extrasCategoryRemove(3, 7, 12, 'Versiones');
+    const base = { generation: 3, entryId: 7, rev: 12 };
+    expect(calls).toEqual([
+      ['extras_list', { generation: 3, entryId: 7 }],
+      ['extras_rename', { ...base, index: 0, stem: 'Opening' }],
+      ['extras_move', { ...base, files: [0, 2], to }],
+      ['extras_trash', { ...base, files: [1] }],
+      ['extras_set_tags', { ...base, index: 0, tags: ['tema del jefe final'] }],
+      ['extras_forget', { ...base, missing: 0 }],
+      ['extras_category_create', { ...base, name: 'Remixes' }],
+      ['extras_category_rename', { ...base, from: 'Remixes', to: 'Versiones' }],
+      ['extras_category_remove', { ...base, name: 'Versiones' }],
+    ]);
+    // Every argument is an id, a name or a category: never a path.
+    expect(JSON.stringify(calls)).not.toMatch(/\/(Users|Volumes)\//);
+  });
+
+  it('undoes a job of the game and answers its listing', async () => {
+    const calls = recording({ extras_undo: sample.extras_undone });
+    const undone = await createTauriBackend().extrasUndo(
+      3,
+      7,
+      '20261114T120000Z-1bfb-0001',
+    );
+    expect(undone.restored).toBe(2);
+    expect(undone.listing.rev).toBe(14);
+    expect(calls).toEqual([
+      [
+        'extras_undo',
+        { generation: 3, entryId: 7, job: '20261114T120000Z-1bfb-0001' },
+      ],
+    ]);
+  });
+
+  it('adds from the Rust picker or a drop token, by plan and choices', async () => {
+    const calls = recording({
+      extras_add_pick: sample.extras_add_plan,
+      extras_add_plan: sample.extras_add_plan,
+      extras_add_commit: sample.extras_add_started_background,
+      extras_add_dropped: sample.extras_add_started_done,
+      extras_add_cancel: true,
+    });
+    const b = createTauriBackend();
+    const choices = requests.extras_add_choices as AddChoice[];
+    const root = requests.extras_category_refs[2] as CategoryRef;
+    expect((await b.extrasAddPick(3, 7))!.plan).toBe(3);
+    expect((await b.extrasAddPlan(3, 7, 9)).files).toHaveLength(2);
+    expect(await b.extrasAddCommit(3, 7, 12, 3, choices)).toEqual({
+      kind: 'background',
+      add: 3,
+      n: 12,
+      total: 4_000_000_000,
+    });
+    const done = await b.extrasAddDropped(3, 7, 12, 9, root);
+    expect(done.kind).toBe('done');
+    expect(await b.extrasAddCancel(3)).toBe(true);
+    expect(calls).toEqual([
+      ['extras_add_pick', { generation: 3, entryId: 7 }],
+      ['extras_add_plan', { generation: 3, entryId: 7, token: 9 }],
+      [
+        'extras_add_commit',
+        { generation: 3, entryId: 7, rev: 12, plan: 3, choices },
+      ],
+      [
+        'extras_add_dropped',
+        { generation: 3, entryId: 7, rev: 12, token: 9, category: root },
+      ],
+      ['extras_add_cancel', { add: 3 }],
+    ]);
+  });
+
+  it('answers a cancelled picker with null', async () => {
+    recording({ extras_add_pick: null });
+    await expect(createTauriBackend().extrasAddPick(3, 7)).resolves.toBeNull();
+  });
+
+  it('turns a granted media path into an asset URL, never a path', async () => {
+    mockConvertFileSrc('macos');
+    const calls = recording({ extras_media: sample.extras_media });
+    const media = await createTauriBackend().extrasMedia(3, 7, 12, 0);
+    expect(media).toEqual({
+      url: `asset://localhost/${encodeURIComponent(sample.extras_media.src_path)}`,
+      mime: 'audio/flac',
+      kind: 'audio',
+    });
+    expect('src_path' in media).toBe(false);
+    expect(calls).toEqual([
+      ['extras_media', { generation: 3, entryId: 7, rev: 12, index: 0 }],
+    ]);
+  });
+
+  it('reads text, reveals and opens with another app by id', async () => {
+    const calls = recording({ extras_read_text: sample.extras_text });
+    const b = createTauriBackend();
+    expect(await b.extrasReadText(3, 7, 12, 4)).toEqual(sample.extras_text);
+    await b.extrasReveal(3, 7, 12, 1);
+    await b.extrasOpenExternal(3, 7, 12, 2);
+    const at = (index: number) => ({
+      generation: 3,
+      entryId: 7,
+      rev: 12,
+      index,
+    });
+    expect(calls).toEqual([
+      ['extras_read_text', at(4)],
+      ['extras_reveal', at(1)],
+      ['extras_open_external', at(2)],
+    ]);
+  });
+
+  it('maps the extras refusals to their codes and reasons', async () => {
+    mockIPC(() => Promise.reject(sample.extras_errors[0]));
+    const b = createTauriBackend();
+    await expect(b.extrasTrash(3, 7, 11, [0])).rejects.toMatchObject({
+      code: 'extras-changed',
+    });
+    mockIPC(() => Promise.reject(sample.extras_refusals[5]));
+    await expect(b.extrasRename(3, 7, 12, 0, 'boss')).rejects.toMatchObject({
+      code: 'extras-refused',
+      detail: 'taken',
+    });
+  });
+
+  it('forwards drops with the position in CSS pixels, progress and the end of an add', async () => {
+    // The names Rust emits (src-tauri/src/ipc.rs).
+    expect([
+      EXTRAS_DROP_EVENT,
+      EXTRAS_PROGRESS_EVENT,
+      EXTRAS_ADDED_EVENT,
+    ]).toEqual(['extras://drop', 'extras://progress', 'extras://added']);
+    vi.stubGlobal('devicePixelRatio', 2);
+    const b = createTauriBackend();
+    const drops = vi.fn();
+    const progress = vi.fn();
+    const added = vi.fn();
+    const offDrop = await b.onExtrasDrop(drops);
+    const offProgress = await b.onExtrasProgress(progress);
+    const offAdded = await b.onExtrasAdded(added);
+    events.handlers.get(EXTRAS_DROP_EVENT)!({ payload: sample.extras_drop });
+    expect(drops).toHaveBeenCalledWith({
+      ...sample.extras_drop,
+      position: { x: 406, y: 215.25 },
+    });
+    events.handlers.get(EXTRAS_PROGRESS_EVENT)!({
+      payload: sample.extras_add_progress,
+    });
+    expect(progress).toHaveBeenCalledWith(sample.extras_add_progress);
+    events.handlers.get(EXTRAS_ADDED_EVENT)!({
+      payload: sample.extras_added_done,
+    });
+    expect(added).toHaveBeenLastCalledWith(sample.extras_added_done);
+    // A failed add carries a BackendError, as a rejected call would.
+    events.handlers.get(EXTRAS_ADDED_EVENT)!({
+      payload: sample.extras_added_failed,
+    });
+    const failed = added.mock.lastCall![0];
+    expect(failed.end.kind).toBe('failed');
+    expect(failed.end.error).toBeInstanceOf(BackendError);
+    expect(failed.end.error).toMatchObject({
+      code: 'extras-refused',
+      detail: 'too-many',
+    });
+    offDrop();
+    offProgress();
+    offAdded();
+    expect(events.handlers.has(EXTRAS_DROP_EVENT)).toBe(false);
+    expect(events.handlers.has(EXTRAS_PROGRESS_EVENT)).toBe(false);
+    expect(events.handlers.has(EXTRAS_ADDED_EVENT)).toBe(false);
   });
 });

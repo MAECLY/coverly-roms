@@ -9,7 +9,32 @@ import { normalizeOrganizePlanView } from './organizeWire';
 import sample from './contract.sample.json';
 import {
   CREDENTIAL_KEYS,
+  EXTRAS_CATEGORIES,
   KEY_CHECKS,
+  type AddFinishedEventWire,
+  type AddPlanView,
+  type AddProgressEvent,
+  type AddStarted,
+  type CategoryRef,
+  type CategoryView,
+  type ExtraFileView,
+  type ExtraFormat,
+  type ExtraLink,
+  type ExtrasDropEvent,
+  type ExtrasMediaKind,
+  type ExtrasMediaWire,
+  type ExtrasNote,
+  type ExtrasRefusal,
+  type ExtrasTextView,
+  type ExtrasUndone,
+  type ExtrasView,
+  type ExtrasWriteView,
+  type ExtraType,
+  type IndexState,
+  type MissingView,
+  type Playable,
+  type TextEncoding,
+  type Writability,
   type CatalogStatus,
   type CreditLink,
   type LargeConfirm,
@@ -312,6 +337,7 @@ const HISTORY_KEYS = [
   'undone',
   'kind',
   'undoable',
+  'game',
 ] as const;
 const UPDATE_OFFER_KEYS = ['version', 'notes', 'date'] as const;
 const UPDATE_PROGRESS_KEYS = ['downloaded', 'total'] as const;
@@ -711,7 +737,8 @@ const checks: [string, readonly string[], object][] = [
   [
     'JobHistoryItem',
     HISTORY_KEYS satisfies AllKeys<JobHistoryItem, typeof HISTORY_KEYS>,
-    sample.history_item,
+    // An Extras job names its game; other jobs leave `game` out.
+    sample.history_item_extras,
   ],
   [
     'UpdateOffer',
@@ -1841,6 +1868,7 @@ const GAME_ROLES = [
   'demo',
   'mod',
   'cheat',
+  'extra',
 ] as const satisfies readonly GameRole[];
 /** Every addon kind, format, link, header fit, emulator and why, in
  * Rust's order (mods spec D10, D16). */
@@ -2134,5 +2162,406 @@ describe('integrations contract', () => {
     await expect(m.openIntegrationHelp('steamgriddb')).resolves.toBeUndefined();
     const link: LinkId = 'roadmap';
     await expect(m.openLink(link)).resolves.toBeUndefined();
+  });
+});
+
+/* Part D: a game's Extras/, Organizar's extra rows and the viewer. */
+const EXTRAS_VIEW_KEYS = [
+  'entry_id',
+  'rev',
+  'game_folder',
+  'index',
+  'writable',
+  'categories',
+  'files',
+  'missing',
+  'capped',
+  'system',
+  'manual_inside',
+] as const;
+const CATEGORY_VIEW_KEYS = [
+  'category',
+  'present',
+  'count',
+  'link',
+  'sync',
+] as const;
+const EXTRA_FILE_KEYS = [
+  'index',
+  'category',
+  'path',
+  'name',
+  'kind',
+  'provenance',
+  'format',
+  'tags',
+  'size',
+  'link',
+  'playable',
+] as const;
+const MISSING_KEYS = [
+  'index',
+  'category',
+  'path',
+  'name',
+  'kind',
+  'provenance',
+  'tags',
+  'size',
+] as const;
+const ADD_PLAN_KEYS = [
+  'plan',
+  'entry_id',
+  'files',
+  'total',
+  'keys',
+  'hidden',
+  'too_many',
+] as const;
+const EXTRA_TYPES = [
+  'audio',
+  'video',
+  'image',
+  'document',
+  'other',
+] as const satisfies readonly ExtraType[];
+const EXTRA_FORMATS = [
+  'ps3-p3t',
+  'ps3-theme-pkg',
+  'ps3-avatar-pkg',
+  'vita-theme-pkg',
+  'psp-ptf',
+  'x360-theme',
+  'x360-gamerpic',
+  'x360-avatar',
+  'x360-video',
+  '3ds-soundtrack-cia',
+  'spc',
+  'nsf',
+  'gbs',
+  'vgm',
+  'psf',
+] as const satisfies readonly ExtraFormat[];
+const EXTRAS_MEDIA_KINDS = [
+  'audio',
+  'video',
+  'image',
+  'pdf',
+] as const satisfies readonly ExtrasMediaKind[];
+const TEXT_ENCODINGS = [
+  'utf-8',
+  'cp437',
+  'latin-1',
+] as const satisfies readonly TextEncoding[];
+const PLAYABLES = [
+  'inline',
+  'external',
+  'reveal-only',
+] as const satisfies readonly Playable[];
+const WRITABILITY_KINDS = [
+  'yes',
+  'read-only',
+  'busy',
+  'newer',
+] as const satisfies readonly Writability['kind'][];
+const INDEX_STATES = [
+  'ok',
+  'absent',
+  'malformed',
+  'newer',
+] as const satisfies readonly IndexState['state'][];
+const EXTRAS_REFUSALS = [
+  'empty',
+  'too-long',
+  'not-portable',
+  'dot',
+  'reserved',
+  'taken',
+  'path-too-long',
+  'tags-empty',
+  'tags-too-long',
+  'tags-too-many',
+  'index-unreadable',
+  'no-trash',
+  'too-many',
+  'link',
+] as const satisfies readonly ExtrasRefusal[];
+const EXTRAS_NOTE_KINDS = [
+  'malformed-saved',
+  'set-aside',
+  'stays-no-trash',
+  'trash-failed',
+  'folder-kept',
+  'renamed-dup',
+  'sanitised',
+  'keys-skipped',
+  'hidden-skipped',
+  'cancelled',
+] as const satisfies readonly ExtrasNote['kind'][];
+const _allExtraTypes: AllMembers<ExtraType, typeof EXTRA_TYPES> = EXTRA_TYPES;
+const _allExtraFormats: AllMembers<ExtraFormat, typeof EXTRA_FORMATS> =
+  EXTRA_FORMATS;
+const _allMediaKinds: AllMembers<ExtrasMediaKind, typeof EXTRAS_MEDIA_KINDS> =
+  EXTRAS_MEDIA_KINDS;
+const _allEncodings: AllMembers<TextEncoding, typeof TEXT_ENCODINGS> =
+  TEXT_ENCODINGS;
+const _allPlayables: AllMembers<Playable, typeof PLAYABLES> = PLAYABLES;
+const _allWritabilities: AllMembers<
+  Writability['kind'],
+  typeof WRITABILITY_KINDS
+> = WRITABILITY_KINDS;
+const _allIndexStates: AllMembers<IndexState['state'], typeof INDEX_STATES> =
+  INDEX_STATES;
+const _allRefusals: AllMembers<ExtrasRefusal, typeof EXTRAS_REFUSALS> =
+  EXTRAS_REFUSALS;
+const _allNoteKinds: AllMembers<ExtrasNote['kind'], typeof EXTRAS_NOTE_KINDS> =
+  EXTRAS_NOTE_KINDS;
+void [
+  _allExtraTypes,
+  _allExtraFormats,
+  _allMediaKinds,
+  _allEncodings,
+  _allPlayables,
+  _allWritabilities,
+  _allIndexStates,
+  _allRefusals,
+  _allNoteKinds,
+];
+
+describe('extras contract (part D)', () => {
+  it('a listing names files by index and keeps paths relative to Extras/', () => {
+    // extras_views_match_the_shared_sample
+    const view = sample.extras_view as ExtrasView;
+    expect(Object.keys(view).sort()).toEqual(
+      [
+        ...(EXTRAS_VIEW_KEYS satisfies AllKeys<
+          ExtrasView,
+          typeof EXTRAS_VIEW_KEYS
+        >),
+      ].sort(),
+    );
+    for (const c of view.categories)
+      expect(Object.keys(c).sort()).toEqual(
+        [
+          ...(CATEGORY_VIEW_KEYS satisfies AllKeys<
+            CategoryView,
+            typeof CATEGORY_VIEW_KEYS
+          >),
+        ].sort(),
+      );
+    for (const f of view.files)
+      expect(Object.keys(f).sort()).toEqual(
+        [
+          ...(EXTRA_FILE_KEYS satisfies AllKeys<
+            ExtraFileView,
+            typeof EXTRA_FILE_KEYS
+          >),
+        ].sort(),
+      );
+    for (const m of view.missing)
+      expect(Object.keys(m).sort()).toEqual(
+        [
+          ...(MISSING_KEYS satisfies AllKeys<MissingView, typeof MISSING_KEYS>),
+        ].sort(),
+      );
+    // Fixed slots in Rust's order, then the user's, then the root.
+    const expected: CategoryRef[] = [
+      ...EXTRAS_CATEGORIES.map((name) => ({ kind: 'fixed' as const, name })),
+      { kind: 'user', name: 'Remixes' },
+      { kind: 'root' },
+    ];
+    expect(view.categories.map((c) => c.category)).toEqual(expected);
+    // The sync flag is three-state: true, false or inherit (null).
+    expect(view.categories.map((c) => c.sync).slice(0, 2)).toEqual([
+      false,
+      null,
+    ]);
+    expect(view.files.map((f) => f.index)).toEqual([0, 1, 2]);
+    expect(view.files.map((f) => [f.format, f.playable])).toEqual([
+      [null, 'inline'],
+      ['ps3-p3t', 'reveal-only'],
+      ['spc', 'external'],
+    ]);
+    // Never an absolute path: shown relative to Extras/.
+    for (const f of [...view.files, ...view.missing]) {
+      expect(f.path).not.toMatch(/^([/\\]|[A-Za-z]:)/);
+      expect(f.path.split('/').at(-1)).toBe(f.name);
+    }
+    const bare = sample.extras_view_bare as ExtrasView;
+    expect([bare.game_folder, bare.writable, bare.manual_inside]).toEqual([
+      false,
+      { kind: 'read-only' },
+      true,
+    ]);
+  });
+
+  it('index states, writability, playables and categories use the Rust spellings', () => {
+    const states = sample.extras_index_states as IndexState[];
+    expect(states.map((s) => s.state)).toEqual(INDEX_STATES);
+    expect(states[2]).toEqual({
+      state: 'malformed',
+      bad_records: 2,
+      unreadable: null,
+    });
+    expect(states[3]).toEqual({ state: 'newer', version: 2 });
+    expect(
+      (sample.extras_writabilities as Writability[]).map((w) => w.kind),
+    ).toEqual(WRITABILITY_KINDS);
+    expect(sample.extras_playables).toEqual(PLAYABLES);
+    expect(sample.extras_categories).toEqual(EXTRAS_CATEGORIES);
+    expect(sample.extra_types).toEqual(EXTRA_TYPES);
+    expect(sample.extra_formats).toEqual(EXTRA_FORMATS);
+    expect(requests.extras_category_refs as CategoryRef[]).toEqual([
+      { kind: 'fixed', name: 'soundtrack' },
+      { kind: 'user', name: 'Remixes' },
+      { kind: 'root' },
+    ]);
+  });
+
+  it('writes answer the job, the next listing and the notes', () => {
+    // extras_write_views_match_the_shared_sample
+    const write = sample.extras_write as ExtrasWriteView;
+    expect(write.job).toBe('20261114T120000Z-1bfb-0001');
+    expect(write.listing.rev).toBe(14);
+    const notes = [
+      ...write.notes,
+      ...(sample.extras_add_started_done as AddStarted & { kind: 'done' }).write
+        .notes,
+    ];
+    expect(notes.map((n) => n.kind)).toEqual(EXTRAS_NOTE_KINDS);
+    expect(notes).toContainEqual({ kind: 'cancelled', copied: 3 });
+    expect(notes).toContainEqual({ kind: 'keys-skipped', n: 2 });
+    const nothing = sample.extras_write_nothing as ExtrasWriteView;
+    expect([nothing.job, nothing.notes]).toEqual([null, []]);
+    const undone = sample.extras_undone as ExtrasUndone;
+    expect(Object.keys(undone).sort()).toEqual(
+      ['job', 'removed', 'restored', 'kept', 'listing'].sort(),
+    );
+    // The counts Rust emits for the entry ride the usual update event.
+    const updated = sample.entries_updated_addons as EntriesUpdated;
+    expect(updated.entries[0]!.addons!.extras).toBe(4);
+    const history = sample.history_item_extras as JobHistoryItem;
+    expect([history.kind, history.game]).toEqual([
+      'extras',
+      'Resistance (USA)',
+    ]);
+    expect('game' in (sample.history_item as object)).toBe(false);
+  });
+
+  it('refusals and conflicts are error codes, with a kebab reason for refusals', () => {
+    const errors = (sample.extras_errors as unknown[]).map(toBackendError);
+    expect(errors.map((e) => [e.code, e.detail])).toEqual([
+      ['extras-changed', undefined],
+      ['extras-newer', undefined],
+      ['extras-refused', 'taken'],
+    ]);
+    const refusals = (sample.extras_refusals as unknown[]).map(toBackendError);
+    expect(refusals.every((e) => e.code === 'extras-refused')).toBe(true);
+    expect(refusals.map((e) => e.detail)).toEqual(EXTRAS_REFUSALS);
+    for (const code of ['extras-changed', 'extras-newer', 'extras-refused'])
+      expect(ERROR_CODES).toContain(code);
+  });
+
+  it('adds go by plan, drop token and add id, never by path', () => {
+    // extras_add_views_match_the_shared_sample
+    const plan = sample.extras_add_plan as AddPlanView;
+    expect(Object.keys(plan).sort()).toEqual(
+      [
+        ...(ADD_PLAN_KEYS satisfies AllKeys<AddPlanView, typeof ADD_PLAN_KEYS>),
+      ].sort(),
+    );
+    expect(plan.files.map((f) => [f.index, f.category, f.rip])).toEqual([
+      [0, 'soundtrack', { game: 'Super Metroid', title: 'Opening' }],
+      [1, 'manuals', null],
+    ]);
+    const background = sample.extras_add_started_background as AddStarted;
+    expect(background).toEqual({
+      kind: 'background',
+      add: 3,
+      n: 12,
+      total: 4_000_000_000,
+    });
+    const progress = sample.extras_add_progress as AddProgressEvent;
+    expect(Object.keys(progress).sort()).toEqual(
+      ['add', 'done', 'entry_id', 'i', 'n', 'total'].sort(),
+    );
+    const failed = sample.extras_added_failed as AddFinishedEventWire;
+    expect(failed.end).toEqual({
+      kind: 'failed',
+      error: { code: 'extras-refused', detail: { why: 'too-many' } },
+    });
+    expect((sample.extras_added_done as AddFinishedEventWire).end.kind).toBe(
+      'done',
+    );
+    const drop = sample.extras_drop as ExtrasDropEvent;
+    expect(drop.token).toBe(9);
+    expect(drop.items.map((i) => i.name)).toEqual(['01 Opening.flac', 'Scans']);
+    for (const i of drop.items) expect(i.name).not.toMatch(/[/\\]/);
+    expect(requests.extras_add_choices).toEqual([
+      { index: 0, category: { kind: 'fixed', name: 'soundtrack' } },
+      { index: 1, category: { kind: 'user', name: 'Escaneos' } },
+    ]);
+  });
+
+  it('a granted media file and a text view use the Rust spellings', () => {
+    const media = sample.extras_media as ExtrasMediaWire;
+    expect(Object.keys(media).sort()).toEqual(['kind', 'mime', 'src_path']);
+    expect(sample.extras_media_kinds).toEqual(EXTRAS_MEDIA_KINDS);
+    const text = sample.extras_text as ExtrasTextView;
+    expect(text).toEqual({
+      text: 'Tidewalker\n',
+      truncated: false,
+      encoding: 'cp437',
+    });
+    expect(sample.extras_text_encodings).toEqual(TEXT_ENCODINGS);
+  });
+
+  it('an extra row, its reasons and notes use the Rust spellings', () => {
+    // extras_organize_and_media_values_match_the_shared_sample
+    const item = sample.extra_item as OrganizeItem;
+    expect(item.game!.role).toBe('extra');
+    expect(item.game!.extra).toEqual({
+      category: 'themes',
+      format: 'ps3-p3t',
+      provenance: 'official',
+      via: 'key',
+    } satisfies ExtraLink);
+    // `content_type` and `rip` are left out when absent.
+    expect('content_type' in item.game!.extra!).toBe(false);
+    expect('addon' in item.game!).toBe(false);
+    expect(JSON.parse(JSON.stringify(item))).toEqual(sample.extra_item);
+    expect(sample.extra_reasons as LeftReason[]).toEqual([
+      { kind: 'extra-without-game', category: 'soundtrack' },
+      { kind: 'extras-index-newer' },
+    ]);
+    expect(sample.extra_notes as ItemNote[]).toEqual([
+      {
+        kind: 'extra-of',
+        category: 'themes',
+        of: 'Tidewalker',
+        format: 'ps3-theme-pkg',
+        content_type: 9,
+      },
+      {
+        kind: 'extra-rip',
+        of: 'Super Metroid',
+        format: 'spc',
+        tag: 'Super Metroid',
+      },
+      { kind: 'extras-backup-first' },
+    ]);
+  });
+
+  it('the shared tag table is well formed (Rust checks it against its rule)', () => {
+    const cases = requests.extras_tag_cases as {
+      input: string[];
+      tags?: string[];
+      refused?: 'empty' | 'too-long' | 'too-many';
+    }[];
+    expect(cases.length).toBeGreaterThanOrEqual(5);
+    for (const c of cases) expect('tags' in c !== 'refused' in c).toBe(true);
+    expect(new Set(cases.flatMap((c) => c.refused ?? []))).toEqual(
+      new Set(['empty', 'too-long', 'too-many']),
+    );
   });
 });

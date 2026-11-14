@@ -5,7 +5,13 @@
 import { hasTauriIpc, type AppInfo } from './appInfo';
 import type { DropPoint } from './dropTarget';
 import type {
+  AddChoice,
+  AddFinishedEvent,
+  AddPlanView,
+  AddProgressEvent,
+  AddStarted,
   ArtImage,
+  CategoryRef,
   CandidateView,
   ChildArtReadView,
   ChildMedia,
@@ -22,6 +28,12 @@ import type {
   EntriesUpdated,
   EntryArtUpdate,
   ExportFormat,
+  ExtrasDropEvent,
+  ExtrasMedia,
+  ExtrasTextView,
+  ExtrasUndone,
+  ExtrasView,
+  ExtrasWriteView,
   FillRequest,
   FolderProbe,
   GameDetailsView,
@@ -140,6 +152,133 @@ export interface Backend {
   onFolderDrop(
     cb: (path: string, point: DropPoint) => void,
   ): Promise<() => void>;
+  /* A game's Extras/ (part D). Files by `(rev, index)` of the last
+   * listing, drops by token, adds by plan: never a path (D22). A write
+   * answers the next listing; a stale `rev` is `extras-changed`. */
+  extrasList(generation: number, entryId: number): Promise<ExtrasView>;
+  /** Renames file `index` to the typed `stem`; its extension stays. */
+  extrasRename(
+    generation: number,
+    entryId: number,
+    rev: number,
+    index: number,
+    stem: string,
+  ): Promise<ExtrasWriteView>;
+  extrasMove(
+    generation: number,
+    entryId: number,
+    rev: number,
+    files: number[],
+    to: CategoryRef,
+  ): Promise<ExtrasWriteView>;
+  /** To the Trash, or set aside where the drive has none; never deleted. */
+  extrasTrash(
+    generation: number,
+    entryId: number,
+    rev: number,
+    files: number[],
+  ): Promise<ExtrasWriteView>;
+  extrasSetTags(
+    generation: number,
+    entryId: number,
+    rev: number,
+    index: number,
+    tags: string[],
+  ): Promise<ExtrasWriteView>;
+  /** «Olvidar» record `missing` of «No encontrados». */
+  extrasForget(
+    generation: number,
+    entryId: number,
+    rev: number,
+    missing: number,
+  ): Promise<ExtrasWriteView>;
+  extrasCategoryCreate(
+    generation: number,
+    entryId: number,
+    rev: number,
+    name: string,
+  ): Promise<ExtrasWriteView>;
+  extrasCategoryRename(
+    generation: number,
+    entryId: number,
+    rev: number,
+    from: string,
+    to: string,
+  ): Promise<ExtrasWriteView>;
+  /** Its files to the Trash, then its emptied folder. */
+  extrasCategoryRemove(
+    generation: number,
+    entryId: number,
+    rev: number,
+    name: string,
+  ): Promise<ExtrasWriteView>;
+  /** Undoes Extras job `job` of this game; answers its listing after. */
+  extrasUndo(
+    generation: number,
+    entryId: number,
+    job: string,
+  ): Promise<ExtrasUndone>;
+  /** «Añadir archivos»: the native picker (opened by Rust), then the plan
+   * the add dialog shows; `null` when cancelled. */
+  extrasAddPick(
+    generation: number,
+    entryId: number,
+  ): Promise<AddPlanView | null>;
+  /** The plan of OS drop `token` (a drop on no category). */
+  extrasAddPlan(
+    generation: number,
+    entryId: number,
+    token: number,
+  ): Promise<AddPlanView>;
+  /** Copies the chosen files of `plan`, each to its category. */
+  extrasAddCommit(
+    generation: number,
+    entryId: number,
+    rev: number,
+    plan: number,
+    choices: AddChoice[],
+  ): Promise<AddStarted>;
+  /** Copies what OS drop `token` recorded into `category`. */
+  extrasAddDropped(
+    generation: number,
+    entryId: number,
+    rev: number,
+    token: number,
+    category: CategoryRef,
+  ): Promise<AddStarted>;
+  /** «Cancelar» on background add `add`: stops after the current file. */
+  extrasAddCancel(add: number): Promise<boolean>;
+  /** Grants file `index` to the viewer and answers its URL. */
+  extrasMedia(
+    generation: number,
+    entryId: number,
+    rev: number,
+    index: number,
+  ): Promise<ExtrasMedia>;
+  extrasReadText(
+    generation: number,
+    entryId: number,
+    rev: number,
+    index: number,
+  ): Promise<ExtrasTextView>;
+  extrasReveal(
+    generation: number,
+    entryId: number,
+    rev: number,
+    index: number,
+  ): Promise<void>;
+  /** Allow-listed types only; anything else is refused (reveal-only). */
+  extrasOpenExternal(
+    generation: number,
+    entryId: number,
+    rev: number,
+    index: number,
+  ): Promise<void>;
+  /** OS drops Rust recorded by token, `position` in CSS pixels (D11). */
+  onExtrasDrop(cb: (e: ExtrasDropEvent) => void): Promise<() => void>;
+  onExtrasProgress(cb: (e: AddProgressEvent) => void): Promise<() => void>;
+  /** A background add ended. */
+  onExtrasAdded(cb: (e: AddFinishedEvent) => void): Promise<() => void>;
   startFill(generation: number, request: FillRequest): Promise<JobView>;
   fillJob(): Promise<JobView | null>;
   fillJobItems(job: number, filter: ItemFilter): Promise<JobItemView[]>;

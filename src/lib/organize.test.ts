@@ -1936,6 +1936,17 @@ describe('mods and cheats (mods spec §9, §10)', () => {
       '0004000000055D00',
       '0004000000055D00.txt',
     ]);
+    // An extra row (part D) goes last, after the cheats.
+    const theme = ds(6, 'theme.cia', {
+      target: `${DIR}/Extras/Themes/theme.cia`,
+      game: { role: 'extra', of: 0 },
+    });
+    expect(names(updatesUnderBases([theme, cheat, base, update]))).toEqual([
+      'Pokemon Y.cia',
+      'upd.cia',
+      '0004000000055D00.txt',
+      'theme.cia',
+    ]);
     // An addon linked to a library base (no `of`) keeps its place.
     const loose = ds(5, 'loose.ips', {
       game: { role: 'mod', addon: azaharMod },

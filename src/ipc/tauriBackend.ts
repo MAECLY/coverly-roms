@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -16,6 +16,11 @@ import {
 } from './organizeWire';
 import { sniffImageMime } from './sniff';
 import type {
+  AddFinishedEvent,
+  AddFinishedEventWire,
+  AddPlanView,
+  AddProgressEvent,
+  AddStarted,
   ArtImage,
   CandidateView,
   ChildArtReadView,
@@ -27,6 +32,12 @@ import type {
   DedupeProgressEvent,
   EntriesUpdated,
   EntryArtUpdate,
+  ExtrasDropEvent,
+  ExtrasMediaWire,
+  ExtrasTextView,
+  ExtrasUndone,
+  ExtrasView,
+  ExtrasWriteView,
   FolderProbe,
   GameDetailsView,
   IdentityView,
@@ -71,6 +82,40 @@ export const ORGANIZE_CHANGED_EVENT = 'organize-changed';
 export const DEDUPE_PROGRESS_EVENT = 'dedupe-progress';
 export const DEDUPE_CHANGED_EVENT = 'dedupe-changed';
 export const CATALOG_PROGRESS_EVENT = 'catalog-progress';
+/** An OS drop Rust recorded under a token (part D D11). */
+export const EXTRAS_DROP_EVENT = 'extras://drop';
+/** Where a background Extras add is (part D D13). */
+export const EXTRAS_PROGRESS_EVENT = 'extras://progress';
+/** A background Extras add ended. */
+export const EXTRAS_ADDED_EVENT = 'extras://added';
+
+/** One Extras write of the listing `rev` names (part D D22). */
+function extrasWrite(
+  cmd: string,
+  generation: number,
+  entryId: number,
+  rev: number,
+  args: Record<string, unknown>,
+) {
+  return call<ExtrasWriteView>(cmd, { generation, entryId, rev, ...args });
+}
+
+/** A file of the listing `rev` names, by its index. */
+function extrasFile(
+  generation: number,
+  entryId: number,
+  rev: number,
+  index: number,
+) {
+  return { generation, entryId, rev, index };
+}
+
+/** A failed background add carries the error a call would have thrown. */
+function toAddFinished(e: AddFinishedEventWire): AddFinishedEvent {
+  return e.end.kind === 'failed'
+    ? { ...e, end: { kind: 'failed', error: toBackendError(e.end.error) } }
+    : { ...e, end: e.end };
+}
 
 async function dedupePlanCall(cmd: string, args: Record<string, unknown>) {
   return normalizeDedupePlanView(await call<DedupePlanViewWire>(cmd, args));
@@ -178,6 +223,92 @@ export function createTauriBackend(): Backend {
         const first = event.payload.paths[0];
         if (first) cb(first, point);
       }),
+    extrasList: (generation, entryId) =>
+      call<ExtrasView>('extras_list', { generation, entryId }),
+    extrasRename: (generation, entryId, rev, index, stem) =>
+      extrasWrite('extras_rename', generation, entryId, rev, { index, stem }),
+    extrasMove: (generation, entryId, rev, files, to) =>
+      extrasWrite('extras_move', generation, entryId, rev, { files, to }),
+    extrasTrash: (generation, entryId, rev, files) =>
+      extrasWrite('extras_trash', generation, entryId, rev, { files }),
+    extrasSetTags: (generation, entryId, rev, index, tags) =>
+      extrasWrite('extras_set_tags', generation, entryId, rev, {
+        index,
+        tags,
+      }),
+    extrasForget: (generation, entryId, rev, missing) =>
+      extrasWrite('extras_forget', generation, entryId, rev, { missing }),
+    extrasCategoryCreate: (generation, entryId, rev, name) =>
+      extrasWrite('extras_category_create', generation, entryId, rev, {
+        name,
+      }),
+    extrasCategoryRename: (generation, entryId, rev, from, to) =>
+      extrasWrite('extras_category_rename', generation, entryId, rev, {
+        from,
+        to,
+      }),
+    extrasCategoryRemove: (generation, entryId, rev, name) =>
+      extrasWrite('extras_category_remove', generation, entryId, rev, {
+        name,
+      }),
+    extrasUndo: (generation, entryId, job) =>
+      call<ExtrasUndone>('extras_undo', { generation, entryId, job }),
+    extrasAddPick: (generation, entryId) =>
+      call<AddPlanView | null>('extras_add_pick', { generation, entryId }),
+    extrasAddPlan: (generation, entryId, token) =>
+      call<AddPlanView>('extras_add_plan', { generation, entryId, token }),
+    extrasAddCommit: (generation, entryId, rev, plan, choices) =>
+      call<AddStarted>('extras_add_commit', {
+        generation,
+        entryId,
+        rev,
+        plan,
+        choices,
+      }),
+    extrasAddDropped: (generation, entryId, rev, token, category) =>
+      call<AddStarted>('extras_add_dropped', {
+        generation,
+        entryId,
+        rev,
+        token,
+        category,
+      }),
+    extrasAddCancel: (add) => call<boolean>('extras_add_cancel', { add }),
+    async extrasMedia(generation, entryId, rev, index) {
+      const granted = await call<ExtrasMediaWire>(
+        'extras_media',
+        extrasFile(generation, entryId, rev, index),
+      );
+      // Components get a URL of the asset protocol, never the path.
+      return {
+        url: convertFileSrc(granted.src_path),
+        mime: granted.mime,
+        kind: granted.kind,
+      };
+    },
+    extrasReadText: (generation, entryId, rev, index) =>
+      call<ExtrasTextView>(
+        'extras_read_text',
+        extrasFile(generation, entryId, rev, index),
+      ),
+    extrasReveal: (generation, entryId, rev, index) =>
+      call<void>('extras_reveal', extrasFile(generation, entryId, rev, index)),
+    extrasOpenExternal: (generation, entryId, rev, index) =>
+      call<void>(
+        'extras_open_external',
+        extrasFile(generation, entryId, rev, index),
+      ),
+    onExtrasDrop: (cb) =>
+      listen<ExtrasDropEvent>(EXTRAS_DROP_EVENT, (e) =>
+        // Rust reports physical pixels; the section hit-tests in CSS ones.
+        cb({ ...e.payload, position: toCssPoint(e.payload.position) }),
+      ),
+    onExtrasProgress: (cb) =>
+      listen<AddProgressEvent>(EXTRAS_PROGRESS_EVENT, (e) => cb(e.payload)),
+    onExtrasAdded: (cb) =>
+      listen<AddFinishedEventWire>(EXTRAS_ADDED_EVENT, (e) =>
+        cb(toAddFinished(e.payload)),
+      ),
     startFill: (generation, request) =>
       call<JobView>('start_fill', { generation, request }),
     fillJob: () => call<JobView | null>('fill_job'),

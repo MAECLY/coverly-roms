@@ -1710,6 +1710,7 @@ fn game_folder_values_match_the_shared_sample() {
             GameRole::Demo,
             GameRole::Mod,
             GameRole::Cheat,
+            GameRole::Extra,
         ],
     });
     let expected: Value =
@@ -2937,4 +2938,159 @@ fn extras_add_views_match_the_shared_sample() {
             },
         ]
     );
+}
+
+/// Part D in Organizar and the viewer: an extra row, its reasons and
+/// notes, the extras vocabularies, a granted media file and a text view.
+#[test]
+fn extras_organize_and_media_values_match_the_shared_sample() {
+    use coverly_core::addons::LinkVia;
+    use coverly_core::extras::{ExtraFormat, ExtraType, ExtrasCategory, Provenance};
+    use coverly_core::identify::evidence::{Evidence, IdLevel};
+    use coverly_core::organize::plan::ExtraLink;
+    use coverly_core::organize::{
+        GameLink, GameRole, ItemKind, ItemNote, LeftReason, OrganizeAction, OrganizeItem, SourceFp,
+        Transfer,
+    };
+    use coverly_roms_lib::library::extras_media::{MediaKind, MediaView, TextEncoding, TextView};
+
+    let mut link = GameLink::new(GameRole::Extra);
+    link.of = Some(0);
+    link.folder = Some("PS3/Tidewalker (USA)".into());
+    link.extra = Some(ExtraLink {
+        category: ExtrasCategory::Themes,
+        format: ExtraFormat::Ps3P3t,
+        provenance: Provenance::Official,
+        via: LinkVia::Key,
+        content_type: None,
+        rip: None,
+    });
+    let extra = OrganizeItem {
+        id: 1,
+        sources: vec!["Tidewalker Theme.p3t".into()],
+        kind: ItemKind::File,
+        size: 2_097_152,
+        fps: vec![SourceFp {
+            size: 2_097_152,
+            mtime_ns: 1_700_000_000_000_000_000,
+        }],
+        target: Some("PS3/Tidewalker (USA)/Extras/Themes/Tidewalker Theme.p3t".into()),
+        set_targets: vec![],
+        system_id: Some("ps3".into()),
+        folder: Some("PS3".into()),
+        confidence: 0.95,
+        method: Some(IdLevel::Header),
+        why: vec![Evidence::new(IdLevel::Header, "ps3", 0.95, "BCUS98174")],
+        alternatives: vec![],
+        rename: None,
+        notes: vec![ItemNote::ExtraOf {
+            category: ExtrasCategory::Themes,
+            of: "Tidewalker".into(),
+            format: ExtraFormat::Ps3P3t,
+            content_type: None,
+        }],
+        companions: vec![],
+        catalogue_name: None,
+        transfer: Transfer::AsIs,
+        disc: None,
+        title_id: None,
+        content_id: None,
+        playlist: None,
+        title_source: None,
+        game: Some(link),
+        action: OrganizeAction::Auto,
+    };
+    let extra: Value = serde_json::from_str(&serde_json::to_string(&extra).unwrap()).unwrap();
+    let actual = json!({
+        "extra_item": extra,
+        "extra_reasons": [
+            LeftReason::ExtraWithoutGame {
+                category: ExtrasCategory::Soundtrack,
+            },
+            LeftReason::ExtrasIndexNewer,
+        ],
+        "extra_notes": [
+            ItemNote::ExtraOf {
+                category: ExtrasCategory::Themes,
+                of: "Tidewalker".into(),
+                format: ExtraFormat::Ps3ThemePkg,
+                content_type: Some(9),
+            },
+            ItemNote::ExtraRip {
+                of: "Super Metroid".into(),
+                format: ExtraFormat::Spc,
+                tag: "Super Metroid".into(),
+            },
+            ItemNote::ExtrasBackupFirst,
+        ],
+        "extras_categories": ExtrasCategory::ALL,
+        "extra_types": [
+            ExtraType::Audio,
+            ExtraType::Video,
+            ExtraType::Image,
+            ExtraType::Document,
+            ExtraType::Other,
+        ],
+        "extra_formats": [
+            ExtraFormat::Ps3P3t,
+            ExtraFormat::Ps3ThemePkg,
+            ExtraFormat::Ps3AvatarPkg,
+            ExtraFormat::VitaThemePkg,
+            ExtraFormat::PspPtf,
+            ExtraFormat::X360Theme,
+            ExtraFormat::X360Gamerpic,
+            ExtraFormat::X360Avatar,
+            ExtraFormat::X360Video,
+            ExtraFormat::N3dsSoundtrackCia,
+            ExtraFormat::Spc,
+            ExtraFormat::Nsf,
+            ExtraFormat::Gbs,
+            ExtraFormat::Vgm,
+            ExtraFormat::Psf,
+        ],
+        "extras_media": MediaView {
+            src_path: "/Volumes/SD/PS3/Tidewalker (USA)/Extras/Soundtrack/01 Opening.flac".into(),
+            mime: "audio/flac".into(),
+            kind: MediaKind::Audio,
+        },
+        "extras_media_kinds": [MediaKind::Audio, MediaKind::Video, MediaKind::Image, MediaKind::Pdf],
+        "extras_text": TextView {
+            text: "Tidewalker\n".into(),
+            truncated: false,
+            encoding: TextEncoding::Cp437,
+        },
+        "extras_text_encodings": [TextEncoding::Utf8, TextEncoding::Cp437, TextEncoding::Latin1],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+/// The tag rule the webview mirrors (D20): every case of the shared table
+/// gives the same tags, or the same refusal, in Rust.
+#[test]
+fn extras_tag_cases_match_rust() {
+    use coverly_core::extras::normalize_tags;
+
+    let req: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.requests.json")).unwrap();
+    let cases = req["extras_tag_cases"].as_array().unwrap();
+    assert!(cases.len() >= 5);
+    for case in cases {
+        let input: Vec<String> = serde_json::from_value(case["input"].clone()).unwrap();
+        let got = match normalize_tags(&input) {
+            Ok(tags) => json!({ "tags": tags }),
+            Err(why) => json!({ "refused": why }),
+        };
+        let mut want = case.clone();
+        want.as_object_mut().unwrap().remove("input");
+        assert_eq!(got, want, "tags {input:?}");
+    }
 }
