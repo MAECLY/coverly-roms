@@ -445,6 +445,8 @@ const KEY_NAMES: &[&str] = &[
     "otp.bin",
     "ticket.db",
     "eeprom.bin",
+    // The Xbox 360 console's key vault (extras spec D12 deny list).
+    "kv.bin",
 ];
 
 /// Extensions (lower-case) of licence and ticket files.

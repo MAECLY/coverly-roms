@@ -259,10 +259,19 @@ fn is_key_material_new_names() {
         "ticket.db",
         "eeprom.bin",
         "Game.edat",
+        "kv.bin",
+        "KV.BIN",
     ] {
         assert!(is_key_material(name), "{name}");
     }
-    for name in ["keys.txt.bak", "eeprom.bin.sav", "Game.edat.txt", ".edat"] {
+    for name in [
+        "keys.txt.bak",
+        "eeprom.bin.sav",
+        "Game.edat.txt",
+        ".edat",
+        "kv.bin.bak",
+        "kvx.bin",
+    ] {
         assert!(!is_key_material(name), "{name}");
     }
 }
