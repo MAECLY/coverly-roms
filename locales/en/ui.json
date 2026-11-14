@@ -959,6 +959,7 @@
     },
     "systems": "System",
     "exts": "Extension",
+    "noExt": "No extension",
     "regions": "Region",
     "date": "Modified",
     "from": "From",

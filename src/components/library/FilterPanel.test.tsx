@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { generateLibrary } from '@/ipc/mock/fixture';
+import { pcArcadeLibrary } from '@/ipc/mock/pcArcadeFixture';
 import { computeFacets, EMPTY_FILTERS } from '@/lib/filters';
 import { useFilterStore } from '@/stores/filterStore';
 
@@ -52,6 +53,32 @@ describe('FilterPanel', () => {
     expect(container.querySelectorAll('[data-system-icon]')).toHaveLength(
       shown.length,
     );
+  });
+});
+
+describe('FilterPanel extensions', () => {
+  afterEach(() => useFilterStore.getState().reset());
+
+  it('names folder games without a suffix instead of a bare dot', () => {
+    const pc = pcArcadeLibrary(1, 1_760_000_000);
+    const pcFacets = computeFacets(pc.entries, [], EMPTY_FILTERS);
+    for (const [locale, label] of [
+      ['es', 'Sin extensión'],
+      ['en', 'No extension'],
+    ] as const) {
+      const { unmount } = render(
+        <I18nProvider locale={locale}>
+          <FilterPanel view={pc} facets={pcFacets} />
+        </I18nProvider>,
+      );
+      const box = screen.getByRole('checkbox', {
+        name: new RegExp(`^${label}\\s*3$`),
+      });
+      expect(box).toHaveAttribute('value', '');
+      expect(screen.queryByText('.', { exact: true })).toBeNull();
+      expect(screen.getByText('.exe')).toBeInTheDocument();
+      unmount();
+    }
   });
 });
 
