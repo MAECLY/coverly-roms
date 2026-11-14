@@ -1581,8 +1581,20 @@ mod tests {
             folder_per_game_suffix("Chaos Code.EXE").as_deref(),
             Some("exe")
         );
+        // RetroBat folder suffixes and a mixed-case launcher (spec P8).
+        for (name, ext) in [
+            ("Homura.parrot", "parrot"),
+            ("Homura.TeknoParrot", "teknoparrot"),
+            ("Homura.game", "game"),
+            ("Homura.AppImage", "appimage"),
+            ("Homura.Desktop", "desktop"),
+        ] {
+            assert_eq!(folder_per_game_suffix(name).as_deref(), Some(ext), "{name}");
+        }
+        assert_eq!(folder_per_game_suffix("Homura.zip"), None);
         assert_eq!(folder_per_game_suffix("Raiden IV (Type X)"), None);
         assert_eq!(folder_per_game_suffix(".exe"), None);
+        assert_eq!(folder_per_game_suffix("  .exe"), None);
         assert_eq!(folder_per_game_suffix("Game.v1.2"), None);
     }
 
