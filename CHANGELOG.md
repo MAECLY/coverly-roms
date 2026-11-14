@@ -117,9 +117,9 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   `.cia` files. Manuals that live inside the game on 3DS, Wii U, Switch and
   Vita stay there, and the panel says so. Retro systems have no official
   extras; a music rip (SPC, NSF and NSFe, GBS, VGM and VGZ, PSF) whose tags
-  name a game in the library is suggested for its «Banda sonora». `coverly
-organize` lists the extras under their game and says what it wrote to
-  `extras.json`.
+  name a game in the library is suggested for its «Banda sonora».
+  `coverly organize` lists the extras under their game and says what it
+  wrote to `extras.json`.
 - An in-app player and viewer for extras: audio plays in a mini player that
   keeps going while you browse other games, and video, images (with zoom and
   pan), PDF manuals and text files such as `.nfo` open in a viewer. All of it
