@@ -2221,6 +2221,9 @@ time {
 }
 
 .drawer {
+  /* Contains the panel's screen-reader-only live regions (absolute), so
+     they scroll with it instead of stretching the page. */
+  position: relative;
   width: 22rem;
   overflow: auto;
   padding: 1rem;
