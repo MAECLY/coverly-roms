@@ -28,6 +28,7 @@ import {
   MOCK_REVISIONS_KEY,
 } from './addonViewsFixture';
 import { extrasLibrary, MOCK_EXTRAS } from './extrasFixture';
+import { MOCK_PCARCADE, pcArcadeLibrary } from './pcArcadeFixture';
 import { FIXTURE_SYSTEMS, generateLibrary } from './fixture';
 import { createMockDedupe, type MockDedupeScenario } from './mockDedupe';
 import {
@@ -66,6 +67,7 @@ export type { MockExport } from './mockJobs';
 export type { MockDedupeScenario } from './mockDedupe';
 export type { MockExtrasPick } from './mockExtras';
 export { MOCK_EXTRAS } from './extrasFixture';
+export { MOCK_PCARCADE, MOCK_PCARCADE_PILE } from './pcArcadeFixture';
 export {
   MOCK_ADDONS,
   MOCK_ADDONS_HUGE,
@@ -705,6 +707,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       sortedLayout: MOCK_BUILTIN_PROFILES.find(
         (p) => p.profile.id === 'anbernic-stock',
       ),
+      layouts: MOCK_BUILTIN_PROFILES,
     },
   );
   const dedupe = createMockDedupe(
@@ -901,7 +904,9 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
             ? addonViewsHuge(gen, now)
             : path === MOCK_EXTRAS
               ? extrasLibrary(gen, now, extras.extrasCount)
-              : organize.library(path, gen);
+              : path === MOCK_PCARCADE
+                ? pcArcadeLibrary(gen, now)
+                : organize.library(path, gen);
       if (!scanned) throw new BackendError('not-found', path);
       // Like Rust: the revision defaults saved for this root.
       const chosen = revisionChoices.get(scanned.root);
