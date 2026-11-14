@@ -2327,7 +2327,7 @@
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
     "fit": "Fit",
-    "unplayable": "This format doesn't play in Coverly.",
+    "unplayable": "Coverly can't show this file here.",
     "pageFailed": "This page can't be shown here.",
     "openExternal": "Open with another app",
     "previous": "Previous file",

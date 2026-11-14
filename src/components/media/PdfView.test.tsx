@@ -454,7 +454,7 @@ describe('the PDF in the viewer (extras D18, D23)', () => {
     viewer();
     openAt('Guides/Field Guide.pdf');
     expect(
-      await screen.findByText('Este formato no se reproduce en Coverly.'),
+      await screen.findByText('Coverly no puede mostrar este archivo aquí.'),
     ).toBeInTheDocument();
   });
 });

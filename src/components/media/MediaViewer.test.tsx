@@ -376,7 +376,7 @@ describe('MediaViewer (extras D17, D23, §8.1)', () => {
     await waitFor(() => expect(dialog().querySelector('video')).not.toBeNull());
     fireEvent.error(dialog().querySelector('video')!);
     expect(
-      await screen.findByText('Este formato no se reproduce en Coverly.'),
+      await screen.findByText('Coverly no puede mostrar este archivo aquí.'),
     ).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Abrir con otra app' }),
@@ -408,7 +408,7 @@ describe('MediaViewer (extras D17, D23, §8.1)', () => {
     const b = fakeBackend();
     show();
     openAt('Themes/Tidewalker.p3t');
-    await screen.findByText('Este formato no se reproduce en Coverly.');
+    await screen.findByText('Coverly no puede mostrar este archivo aquí.');
     fireEvent.click(screen.getByRole('button', { name: 'Abrir con otra app' }));
     await waitFor(() =>
       expect(b.extrasOpenExternal).toHaveBeenCalledWith(
@@ -437,7 +437,7 @@ describe('MediaViewer (extras D17, D23, §8.1)', () => {
     const b = fakeBackend();
     show();
     openAt('Videos/Huge.mov');
-    await screen.findByText('Este formato no se reproduce en Coverly.');
+    await screen.findByText('Coverly no puede mostrar este archivo aquí.');
     expect(b.extrasMedia).not.toHaveBeenCalled();
   });
 
@@ -452,7 +452,7 @@ describe('MediaViewer (extras D17, D23, §8.1)', () => {
     });
     fireEvent.load(img);
     expect(
-      await screen.findByText('Este formato no se reproduce en Coverly.'),
+      await screen.findByText('Coverly no puede mostrar este archivo aquí.'),
     ).toBeInTheDocument();
   });
 
@@ -465,7 +465,7 @@ describe('MediaViewer (extras D17, D23, §8.1)', () => {
     show();
     openAt('Artwork/Box Front.png');
     expect(
-      await screen.findByText('Este formato no se reproduce en Coverly.'),
+      await screen.findByText('Coverly no puede mostrar este archivo aquí.'),
     ).toBeInTheDocument();
   });
 
