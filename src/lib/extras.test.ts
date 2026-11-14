@@ -18,6 +18,7 @@ import {
   diskName,
   extOf,
   filterFiles,
+  fitsCategory,
   gameTags,
   moveTargets,
   MAX_TAGS,
@@ -365,5 +366,28 @@ describe('splitExt, moveTargets and stepCategory (§8.3)', () => {
     ).toBeNull();
     expect(stepCategory(targets, { kind: 'root' }, 1)).toBeNull();
     expect(stepCategory(targets, { kind: 'user', name: 'Gone' }, 1)).toBeNull();
+  });
+});
+
+describe('fitsCategory (a drop skips the add dialog, §8.3)', () => {
+  it('a fixed category takes only its own types', () => {
+    expect(fitsCategory('01 Opening.flac', fixed('soundtrack'))).toBe(true);
+    expect(fitsCategory('Map.png', fixed('soundtrack'))).toBe(false);
+    expect(fitsCategory('Trailer.webm', fixed('videos'))).toBe(true);
+    expect(fitsCategory('Poster.jpg', fixed('artwork'))).toBe(true);
+    expect(fitsCategory('Poster.pdf', fixed('artwork'))).toBe(false);
+    expect(fitsCategory('Manual.pdf', fixed('manuals'))).toBe(true);
+    expect(fitsCategory('Manual scan.png', fixed('manuals'))).toBe(true);
+    expect(fitsCategory('Walkthrough.txt', fixed('guides'))).toBe(true);
+    expect(fitsCategory('Theme.p3t', fixed('themes'))).toBe(true);
+    expect(fitsCategory('Theme.mp3', fixed('themes'))).toBe(false);
+    expect(fitsCategory('setup.exe', fixed('guides'))).toBe(false);
+  });
+
+  it('own categories and loose files take anything', () => {
+    expect(fitsCategory('setup.exe', { kind: 'user', name: 'Remixes' })).toBe(
+      true,
+    );
+    expect(fitsCategory('Boss.flac', { kind: 'root' })).toBe(true);
   });
 });

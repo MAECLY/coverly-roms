@@ -13,7 +13,7 @@ import type {
   LibraryView,
 } from '@/ipc/types';
 
-import { useExtrasStore } from './extrasStore';
+import { onAddEnd, useExtrasStore } from './extrasStore';
 import { currentTrack, usePlayerStore } from './playerStore';
 
 const SOUNDTRACK: CategoryRef = { kind: 'fixed', name: 'soundtrack' };
@@ -408,5 +408,93 @@ describe('extrasStore', () => {
     await again;
     expect([...store().selection].sort()).toEqual([0, 1]);
     expect(store().anchor).toBe(1);
+  });
+
+  describe('adds (D13)', () => {
+    async function withPick(pick: 'two' | 'many') {
+      b = createMockBackend({
+        delayMs: 0,
+        now: FIXTURE_NOW,
+        storage: null,
+        pauseAfter: null,
+        extrasPick: pick,
+      });
+      setBackend(b);
+      lib = await b.openLibrary(MOCK_EXTRAS);
+      store().reset();
+      await store().open(lib.generation, id('Tidewalker'));
+      const plan = await b.extrasAddPick(lib.generation, id('Tidewalker'));
+      return plan!;
+    }
+
+    it('a short add answers its write and shows the new listing', async () => {
+      const plan = await withPick('two');
+      const before = store().listing!.files.length;
+      const started = await store().addCommit(
+        plan.plan,
+        plan.files.map((f) => ({ index: f.index, category: SOUNDTRACK })),
+      );
+      expect(started.kind).toBe('done');
+      expect(store().listing!.files.length).toBe(before + 2);
+      expect(store().lastJob[id('Tidewalker')]).toBeDefined();
+      expect(store().addRun).toBeNull();
+    });
+
+    it('a long add runs in the background with progress, then ends', async () => {
+      const plan = await withPick('many');
+      const ends: unknown[] = [];
+      const off = onAddEnd((e) => ends.push(e));
+      const before = store().listing!.files.length;
+      const started = await store().addCommit(
+        plan.plan,
+        plan.files.map((f) => ({ index: f.index, category: VIDEOS })),
+      );
+      expect(started.kind).toBe('background');
+      expect(store().addRun).toMatchObject({
+        entryId: id('Tidewalker'),
+        n: 60,
+      });
+      await vi.waitFor(() => expect(store().addRun?.i ?? 0).toBeGreaterThan(0));
+      await vi.waitFor(() => expect(ends).toHaveLength(1));
+      off();
+      expect(store().addRun).toBeNull();
+      expect(store().listing!.files.length).toBe(before + 60);
+      expect(store().lastJob[id('Tidewalker')]).toBeDefined();
+    });
+
+    it('cancel stops after the current file and keeps what was copied', async () => {
+      const plan = await withPick('many');
+      const ends: { end: { kind: string } }[] = [];
+      const off = onAddEnd((e) => ends.push(e));
+      const before = store().listing!.files.length;
+      await store().addCommit(
+        plan.plan,
+        plan.files.map((f) => ({ index: f.index, category: VIDEOS })),
+      );
+      await store().cancelAdd();
+      expect(store().addRun?.cancelling).toBe(true);
+      await vi.waitFor(() => expect(ends).toHaveLength(1));
+      off();
+      const added = store().listing!.files.length - before;
+      expect(added).toBeGreaterThan(0);
+      expect(added).toBeLessThan(60);
+    });
+
+    it('adds an OS drop by token into one category', async () => {
+      await withPick('two');
+      const token = b.emitDrop({
+        names: ['Boss Theme.flac', 'prod.keys'],
+        position: { x: 0, y: 0 },
+      });
+      const started = await store().addDropped(token, SOUNDTRACK);
+      if (started.kind !== 'done') throw new Error('expected done');
+      expect(started.write.notes).toContainEqual({
+        kind: 'keys-skipped',
+        n: 1,
+      });
+      expect(
+        store().listing!.files.some((f) => f.name === 'Boss Theme.flac'),
+      ).toBe(true);
+    });
   });
 });

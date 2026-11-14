@@ -19,6 +19,9 @@ import {
 export const MAX_TAG_CHARS = 64;
 /** Most tags on one file (Rust `MAX_TAGS`). */
 export const MAX_TAGS = 32;
+/** One add's limits (Rust `AddLimits::default`): above, nothing is copied. */
+export const ADD_FILES = 500;
+export const ADD_BYTES = 20 * 1024 ** 3;
 
 const AUDIO = new Set([
   'mp3',
@@ -119,6 +122,26 @@ export function suggestedCategory(name: string): ExtrasCategory {
     default:
       return 'guides';
   }
+}
+
+/** The types each fixed category takes without asking (a drop on it
+ * skips the add dialog only when every file fits, §8.3). */
+const FITS: Record<ExtrasCategory, readonly ExtraType[]> = {
+  soundtrack: ['audio'],
+  manuals: ['document', 'image'],
+  artwork: ['image'],
+  videos: ['video'],
+  themes: [],
+  guides: ['document', 'image'],
+};
+
+/** Whether file `name` belongs in category `ref` as dropped: a fixed
+ * category takes its own types (themes take packages), an own category
+ * or loose in `Extras/` takes anything the user put there. */
+export function fitsCategory(name: string, ref: CategoryRef): boolean {
+  if (ref.kind !== 'fixed') return true;
+  if (ref.name === 'themes') return PACKAGES.has(extOf(name));
+  return FITS[ref.name].includes(typeOfName(name));
 }
 
 /** What a category is called in the section. */

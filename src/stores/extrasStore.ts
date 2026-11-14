@@ -13,6 +13,9 @@ import { create } from 'zustand';
 import { getBackend, type Backend } from '@/ipc/backend';
 import { toBackendError, type BackendError } from '@/ipc/errors';
 import type {
+  AddChoice,
+  AddFinishedEvent,
+  AddStarted,
   CategoryRef,
   ExtrasUndone,
   ExtrasView,
@@ -32,7 +35,22 @@ export type ExtrasAction =
   | 'category-create'
   | 'category-rename'
   | 'category-remove'
+  | 'add'
   | 'undo';
+
+/** A background add (D13): where it is, for the section's progress line. */
+export interface AddRun {
+  entryId: number;
+  add: number;
+  /** Files copied so far, of `n`. */
+  i: number;
+  n: number;
+  /** Bytes copied so far, of `total`. */
+  done: number;
+  total: number;
+  /** «Cancelar» was pressed: it stops after the current file. */
+  cancelling: boolean;
+}
 
 /** How a click changes the selection: only this file, toggle it, or the
  * range from the last clicked file within its category. */
@@ -62,6 +80,16 @@ interface ExtrasState {
   createCategory(name: string): Promise<ExtrasWriteView>;
   renameCategory(from: string, to: string): Promise<ExtrasWriteView>;
   removeCategory(name: string): Promise<ExtrasWriteView>;
+  /** The background add in flight (one writer at a time), or null. */
+  addRun: AddRun | null;
+  /** Copies the chosen files of add plan `plan` (D13). A short add answers
+   * its write at once; a long one runs in the background (`addRun`) and
+   * ends through `onAddEnd`. */
+  addCommit(plan: number, choices: AddChoice[]): Promise<AddStarted>;
+  /** Copies what OS drop `token` recorded into `category` (D11). */
+  addDropped(token: number, category: CategoryRef): Promise<AddStarted>;
+  /** «Cancelar» on the background add: stops after the current file. */
+  cancelAdd(): Promise<void>;
   /** Takes a write done elsewhere (an add): its listing and its job. */
   applyWrite(write: ExtrasWriteView): void;
   /** Undoes the open game's last Extras job; null when there is none. */
@@ -87,7 +115,25 @@ const INITIAL = {
   lastJob: {},
   selection: EMPTY,
   anchor: null,
+  addRun: null,
 } satisfies Partial<ExtrasState>;
+
+/** Who hears that a background add ended (the section's toast). */
+const addEndListeners = new Set<(e: AddFinishedEvent) => void>();
+
+/** Hears every background add that ends, whatever game is open; answers
+ * the function that stops it. */
+export function onAddEnd(cb: (e: AddFinishedEvent) => void): () => void {
+  addEndListeners.add(cb);
+  return () => {
+    addEndListeners.delete(cb);
+  };
+}
+
+/** The backend whose add events the store hears (subscribed once each). */
+let heard: Backend | null = null;
+/** Background adds that ended before their start was answered. */
+const endedEarly = new Set<number>();
 
 /** Numbers every request that answers a listing. */
 let seq = 0;
@@ -197,8 +243,86 @@ export const useExtrasStore = create<ExtrasState>()((set, get) => {
     }
   }
 
+  /** Hears the backend's add progress and ends (once per backend). */
+  async function hearAdds(backend: Backend): Promise<void> {
+    if (heard === backend) return;
+    heard = backend;
+    await backend.onExtrasProgress((e) => {
+      const run = get().addRun;
+      if (!run || run.add !== e.add) return;
+      set({ addRun: { ...run, i: e.i, n: e.n, done: e.done, total: e.total } });
+    });
+    await backend.onExtrasAdded((e) => {
+      const run = get().addRun;
+      if (run && run.add === e.add) set({ addRun: null });
+      else endedEarly.add(e.add);
+      if (e.end.kind === 'done') get().applyWrite(e.end.write);
+      addEndListeners.forEach((cb) => cb(e));
+    });
+  }
+
+  /** Starts an add on the listing on screen (D13). */
+  async function startAdd(
+    run: (
+      backend: Backend,
+      generation: number,
+      entryId: number,
+      rev: number,
+    ) => Promise<AddStarted>,
+  ): Promise<AddStarted> {
+    const { generation, entryId, listing } = get();
+    if (generation === null || entryId === null || listing === null)
+      throw new Error('no extras listing open');
+    const req = ++seq;
+    set({ pending: 'add' });
+    try {
+      const backend = await getBackend();
+      await hearAdds(backend);
+      const started = await run(backend, generation, entryId, listing.rev);
+      if (started.kind === 'done') {
+        remember(entryId, started.write.job);
+        if (show(req, started.write.listing))
+          set({ selection: EMPTY, anchor: null });
+      } else if (!endedEarly.delete(started.add)) {
+        set({
+          addRun: {
+            entryId,
+            add: started.add,
+            i: 0,
+            n: started.n,
+            done: 0,
+            total: started.total,
+            cancelling: false,
+          },
+        });
+      }
+      return started;
+    } catch (e) {
+      const err = toBackendError(e);
+      if (err.code === 'extras-changed' && entryId === get().entryId)
+        await list();
+      throw err;
+    } finally {
+      if (get().pending === 'add') set({ pending: null });
+    }
+  }
+
   return {
     ...INITIAL,
+
+    addCommit: (plan, choices) =>
+      startAdd((b, g, e, rev) => b.extrasAddCommit(g, e, rev, plan, choices)),
+    addDropped: (token, category) =>
+      startAdd((b, g, e, rev) =>
+        b.extrasAddDropped(g, e, rev, token, category),
+      ),
+    async cancelAdd() {
+      const run = get().addRun;
+      if (!run || run.cancelling) return;
+      set({ addRun: { ...run, cancelling: true } });
+      const backend = await getBackend();
+      await backend.extrasAddCancel(run.add);
+    },
 
     async open(generation, entryId) {
       const s = get();
