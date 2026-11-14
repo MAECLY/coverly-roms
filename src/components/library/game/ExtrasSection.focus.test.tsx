@@ -206,6 +206,21 @@ describe('ExtrasSection focus (extras spec §8.3, §8.4)', () => {
     });
     await waitFor(() => expect(menu).toHaveFocus());
   });
+  it('a new own category typed decomposed (NFD) still takes the focus', async () => {
+    const r = await shown('Tidewalker');
+    fireEvent.click(within(r).getByRole('button', { name: 'Nueva categoría' }));
+    const input = within(r).getByRole('textbox', {
+      name: 'Nombre de la categoría',
+    });
+    // The backend stores the NFC form; the focus target must match it.
+    fireEvent.change(input, { target: { value: ' Cancio\u0301n ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    const menu = await within(r).findByRole('button', {
+      name: 'Más acciones para Canción',
+    });
+    await waitFor(() => expect(menu).toHaveFocus());
+  });
+
   it('a removed own category leaves the focus on «Nueva categoría»', async () => {
     const r = await shown('Tidewalker');
     openMenu(r, 'Remixes');

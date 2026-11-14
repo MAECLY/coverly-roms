@@ -898,10 +898,13 @@ export function ExtrasSection({
       try {
         // Set before the write: the listing it answers runs the effect.
         focusAfter.current = {
-          band: categoryKey({ kind: 'user', name: to.trim() }),
+          band: categoryKey({ kind: 'user', name: to.trim().normalize('NFC') }),
         };
         const w = await store().renameCategory(from, to);
-        done([w], t('extras.categoryRenamed', { name: to.trim() }));
+        done(
+          [w],
+          t('extras.categoryRenamed', { name: to.trim().normalize('NFC') }),
+        );
         return null;
       } catch (e) {
         focusAfter.current = null;
@@ -1224,11 +1227,19 @@ export function ExtrasSection({
               setWriteError(null);
               try {
                 focusAfter.current = {
-                  band: categoryKey({ kind: 'user', name: name.trim() }),
+                  band: categoryKey({
+                    kind: 'user',
+                    name: name.trim().normalize('NFC'),
+                  }),
                 };
                 const w = await store().createCategory(name);
                 setNewCategory(false);
-                done([w], t('extras.categoryCreated', { name: name.trim() }));
+                done(
+                  [w],
+                  t('extras.categoryCreated', {
+                    name: name.trim().normalize('NFC'),
+                  }),
+                );
                 return null;
               } catch (e) {
                 focusAfter.current = null;
