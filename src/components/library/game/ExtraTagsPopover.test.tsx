@@ -101,7 +101,13 @@ describe('ExtraTagsPopover (extras spec §8.3, D20)', () => {
     window.addEventListener('keydown', outer);
     const full = Array.from({ length: MAX_TAGS }, (_, i) => `t${i}`);
     render(<Harness tags={full} onSave={vi.fn()} />);
-    expect(input()).toBeDisabled();
+    // Read-only, not disabled: the focus stays in the popover.
+    expect(input()).not.toBeDisabled();
+    expect(input()).toHaveAttribute('readonly');
+    expect(input()).toHaveFocus();
+    expect(input()).toHaveAccessibleDescription(
+      'Como mucho 32 etiquetas por archivo.',
+    );
     const note = screen
       .getByRole('dialog')
       .querySelector('.extras-tagpop__note')!;

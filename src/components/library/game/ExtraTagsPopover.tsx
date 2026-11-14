@@ -1,5 +1,11 @@
 import { X } from 'lucide-react';
-import { useId, useState, type KeyboardEvent, type ReactElement } from 'react';
+import {
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactElement,
+} from 'react';
 
 import { Input } from '@/components/ui/input';
 import {
@@ -24,6 +30,9 @@ export interface ExtraTagsPopoverProps {
   onOpenChange(open: boolean): void;
   /** The edited tags, once, when the popover closes with a change. */
   onSave(tags: string[]): void;
+  /** Puts the focus back where the popover was opened from (the row),
+   * unless it closed because the user clicked or tabbed elsewhere. */
+  onReturnFocus?: (() => void) | undefined;
   /** The element the popover hangs from (the row). */
   children: ReactElement;
 }
@@ -41,6 +50,7 @@ export function ExtraTagsPopover({
   open,
   onOpenChange,
   onSave,
+  onReturnFocus,
   children,
 }: ExtraTagsPopoverProps) {
   return (
@@ -51,6 +61,7 @@ export function ExtraTagsPopover({
           name={name}
           tags={tags}
           suggestions={suggestions}
+          onReturnFocus={onReturnFocus}
           onClose={(draft) => {
             if (draft) onSave(draft);
             onOpenChange(false);
@@ -65,11 +76,13 @@ function TagsEditor({
   name,
   tags,
   suggestions,
+  onReturnFocus,
   onClose,
 }: {
   name: string;
   tags: readonly string[];
   suggestions: readonly string[];
+  onReturnFocus?: (() => void) | undefined;
   /** The edited tags when they changed, else null. */
   onClose(draft: string[] | null): void;
 }) {
@@ -78,6 +91,7 @@ function TagsEditor({
   const id = useId();
   const [draft, setDraft] = useState<string[]>([...tags]);
   const [text, setText] = useState('');
+  const outside = useRef(false);
   const full = draft.length >= MAX_TAGS;
   const have = new Set(draft.map(nameKey));
   const offered = suggestions
@@ -117,7 +131,17 @@ function TagsEditor({
         e.preventDefault();
         close();
       }}
-      onInteractOutside={() => close()}
+      onInteractOutside={() => {
+        outside.current = true;
+        close();
+      }}
+      onCloseAutoFocus={(e) => {
+        // The popover hangs from the row, not a trigger: Radix would drop
+        // the focus on the page. Back to the row unless the user left.
+        if (outside.current || !onReturnFocus) return;
+        e.preventDefault();
+        onReturnFocus();
+      }}
       onKeyDown={(e) => {
         // The library's shortcuts never see what is typed here.
         e.stopPropagation();
@@ -151,7 +175,9 @@ function TagsEditor({
         // eslint-disable-next-line jsx-a11y/no-autofocus -- the popover opened to type a tag
         autoFocus
         value={text}
-        disabled={full}
+        // Read-only, not disabled: a disabled input would drop the focus.
+        readOnly={full}
+        aria-describedby={full ? `${id}-full` : undefined}
         aria-label={t('extras.tagAdd')}
         placeholder={t('extras.tagAdd')}
         maxLength={64}
@@ -159,7 +185,7 @@ function TagsEditor({
         onKeyDown={onKeyDown}
       />
       {full && (
-        <p className="panel-note extras-tagpop__note">
+        <p id={`${id}-full`} className="panel-note extras-tagpop__note">
           {tr('extras.tagLimit', { n: MAX_TAGS })}
         </p>
       )}
