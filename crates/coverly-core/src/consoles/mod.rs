@@ -544,6 +544,13 @@ mod open_log {
     }
 }
 
+/// Records `path` in the open log as a file Coverly opens outside
+/// [`open_rom`] (an extra copied in), so tests see every read.
+#[cfg(feature = "test-util")]
+pub(crate) fn record_open(path: &Path) {
+    open_log::record(path);
+}
+
 /// Starts (or restarts, empty) the process-wide log of [`open_rom`].
 #[cfg(feature = "test-util")]
 pub fn start_open_log() {

@@ -435,7 +435,7 @@ struct Walked {
 
 /// Whether a name is never listed: hidden whatever `include_hidden` says,
 /// AppleDouble twins, OS junk and partial downloads (D4).
-fn skipped_name(name: &str) -> bool {
+pub(crate) fn skipped_name(name: &str) -> bool {
     name.starts_with('.') || is_skipped_entry(name, &ScanOptions::default())
 }
 

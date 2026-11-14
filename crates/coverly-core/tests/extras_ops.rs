@@ -9,10 +9,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use coverly_core::dedupe::testing::pin_mtime;
 use coverly_core::extras::index::{list, read_index, IndexRead, Listing};
 use coverly_core::extras::ops::{
-    confine, create_category, forget, move_to, remove_category, rename, rename_category, set_tags,
-    trash, ExtrasCtx, ExtrasError, ExtrasNote, ExtrasOutcome,
+    add_files, confine, create_category, expand_sources, forget, move_to, plan_add,
+    remove_category, rename, rename_category, set_tags, trash, AddLimits, AddProgress, AddSource,
+    ExtrasCtx, ExtrasError, ExtrasNote, ExtrasOutcome,
 };
-use coverly_core::extras::{CategoryRef, ExtrasCategory, NameRefusal, TagRefusal};
+use coverly_core::extras::{CategoryRef, ExtraType, ExtrasCategory, NameRefusal, TagRefusal};
+use coverly_core::organize::apply::user_available;
 use coverly_core::write::trash::FakeTrash;
 use coverly_core::write::{
     job_transfers, list_jobs, same_volume, undo_job, undo_job_with, JobKind,
@@ -98,6 +100,7 @@ impl Fx {
             trash: &self.trash,
             now: noon(),
             same_volume: self.same_volume,
+            available: user_available,
         }
     }
 
@@ -1447,4 +1450,490 @@ fn a_set_aside_folder_that_is_a_symlink_is_never_used() {
         .next()
         .is_none());
     assert_eq!(fx.jobs(), 0);
+}
+
+// ---- Adds by verified copy (D11, D13) ----
+
+/// A folder outside the library holding the files to add, mtimes pinned.
+fn sources(files: &[(&str, &[u8])]) -> (TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    // Temp folders are hidden (`.tmpXXXX`); a dropped folder never is.
+    let root = dir.path().canonicalize().unwrap().join("Picked");
+    std::fs::create_dir(&root).unwrap();
+    for (n, (rel, bytes)) in files.iter().enumerate() {
+        let path = rel.split('/').fold(root.clone(), |p, c| p.join(c));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        pin_mtime(&path, 10 + n as u64);
+    }
+    (dir, root)
+}
+
+fn to(cat: CategoryRef, paths: &[PathBuf]) -> Vec<AddSource> {
+    paths
+        .iter()
+        .map(|p| AddSource {
+            path: p.clone(),
+            category: cat.clone(),
+        })
+        .collect()
+}
+
+fn soundtrack() -> CategoryRef {
+    CategoryRef::Fixed(ExtrasCategory::Soundtrack)
+}
+
+fn add(fx: &Fx, sources: &[AddSource]) -> Result<ExtrasOutcome, ExtrasError> {
+    add_files(
+        &fx.ctx(),
+        &fx.listing(),
+        sources,
+        AddLimits::default(),
+        &mut |_| std::ops::ControlFlow::Continue(()),
+    )
+}
+
+/// A game with no `Extras/` yet.
+fn bare() -> Fx {
+    let fx = Fx::new();
+    std::fs::remove_dir_all(fx.extras()).unwrap();
+    fx
+}
+
+#[test]
+fn add_copies_into_the_category_and_keeps_the_source() {
+    let fx = bare();
+    let (_d, src) = sources(&[("02 Boss.flac", b"boss theme")]);
+    let from = src.join("02 Boss.flac");
+    let out = add(&fx, &to(soundtrack(), std::slice::from_ref(&from))).unwrap();
+    assert_eq!(names_in(&fx, "Soundtrack"), ["02 Boss.flac"]);
+    assert_eq!(
+        std::fs::read(fx.extras().join("Soundtrack").join("02 Boss.flac")).unwrap(),
+        b"boss theme"
+    );
+    assert_eq!(std::fs::read(&from).unwrap(), b"boss theme");
+    let job = out.job.clone().unwrap();
+    let journal =
+        std::fs::read_to_string(fx.data.path().join("jobs").join(format!("{job}.jsonl"))).unwrap();
+    let ops: Vec<String> = journal
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter_map(|l| l["op"]["kind"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(
+        ops.iter().filter(|o| *o == "dir-created").count(),
+        2,
+        "{ops:?}"
+    );
+    // The intent, then the completion with the fingerprint.
+    assert_eq!(
+        ops.iter().filter(|o| *o == "copied-in").count(),
+        2,
+        "{ops:?}"
+    );
+    let idx = fx.index();
+    let r = record(&idx, "Soundtrack/02 Boss.flac");
+    assert_eq!(r["provenance"], "user");
+    assert_eq!(r["type"], "audio");
+    assert_eq!(r["origin"]["how"], "added");
+    assert_eq!(r["origin"]["from_name"], "02 Boss.flac");
+    assert_eq!(r["added_at"], "2026-11-13T12:00:00Z");
+    assert!(out.notes.is_empty(), "{:?}", out.notes);
+
+    undo_job(fx.data.path(), &job).unwrap();
+    assert!(!fx.extras().exists());
+    assert_eq!(std::fs::read(&from).unwrap(), b"boss theme");
+}
+
+#[test]
+fn add_suffixes_collisions_and_reports_the_new_name() {
+    let fx = Fx::new();
+    tag_first(&fx, &["jefe"]);
+    let (_d, src) = sources(&[("01 Opening.flac", b"a new opening")]);
+    let out = add(&fx, &to(soundtrack(), &[src.join("01 Opening.flac")])).unwrap();
+    assert_eq!(
+        names_in(&fx, "Soundtrack"),
+        ["01 Opening (2).flac", "01 Opening.flac"]
+    );
+    assert_eq!(
+        std::fs::read(fx.extras().join("Soundtrack").join("01 Opening.flac")).unwrap(),
+        TRACK
+    );
+    assert!(out.notes.contains(&ExtrasNote::RenamedDup {
+        name: "01 Opening (2).flac".into()
+    }));
+    let idx = fx.index();
+    assert_eq!(
+        record(&idx, "Soundtrack/01 Opening.flac")["tags"],
+        json!(["jefe"])
+    );
+    assert_eq!(
+        record(&idx, "Soundtrack/01 Opening (2).flac")["tags"],
+        json!([])
+    );
+}
+
+#[test]
+fn two_sources_with_one_name_are_both_kept() {
+    let fx = bare();
+    let (_d, src) = sources(&[("a/theme.mp3", b"one"), ("b/theme.mp3", b"two")]);
+    let out = add(
+        &fx,
+        &to(
+            soundtrack(),
+            &[
+                src.join("a").join("theme.mp3"),
+                src.join("b").join("theme.mp3"),
+            ],
+        ),
+    )
+    .unwrap();
+    assert_eq!(names_in(&fx, "Soundtrack"), ["theme (2).mp3", "theme.mp3"]);
+    assert_eq!(fx.index()["files"].as_array().unwrap().len(), 2);
+    assert!(out.notes.contains(&ExtrasNote::RenamedDup {
+        name: "theme (2).mp3".into()
+    }));
+}
+
+#[cfg(unix)]
+#[test]
+fn add_sanitises_source_names_and_reports_them() {
+    let fx = bare();
+    let (_d, src) = sources(&[("a:b.mp3", b"colon")]);
+    let out = add(&fx, &to(soundtrack(), &[src.join("a:b.mp3")])).unwrap();
+    assert_eq!(names_in(&fx, "Soundtrack"), ["a_b.mp3"]);
+    assert!(out.notes.contains(&ExtrasNote::Sanitised {
+        names: vec!["a_b.mp3".into()]
+    }));
+    assert_eq!(
+        record(&fx.index(), "Soundtrack/a_b.mp3")["origin"]["from_name"],
+        "a:b.mp3"
+    );
+}
+
+#[test]
+fn key_material_and_hidden_files_are_skipped_never_opened() {
+    let fx = bare();
+    let (_d, src) = sources(&[
+        ("prod.keys", b"not a real key"),
+        ("x.rap", b"not a real licence"),
+        (".secret.mp3", b"hidden"),
+        ("theme.mp3", b"music"),
+    ]);
+    let paths: Vec<PathBuf> = ["prod.keys", "x.rap", ".secret.mp3", "theme.mp3"]
+        .iter()
+        .map(|n| src.join(n))
+        .collect();
+    coverly_core::consoles::start_open_log();
+    let suggested = plan_add(&paths);
+    let out = add(&fx, &to(soundtrack(), &paths)).unwrap();
+    let log = coverly_core::consoles::take_open_log();
+    assert_eq!(names_in(&fx, "Soundtrack"), ["theme.mp3"]);
+    assert!(out.notes.contains(&ExtrasNote::KeysSkipped { n: 2 }));
+    assert!(out.notes.contains(&ExtrasNote::HiddenSkipped { n: 1 }));
+    assert_eq!(suggested.len(), 1);
+    assert!(log.iter().any(|p| p.ends_with("theme.mp3")), "{log:?}");
+    for key in ["prod.keys", "x.rap"] {
+        assert!(!log.iter().any(|p| p.ends_with(key)), "{key} opened");
+    }
+}
+
+#[test]
+fn only_keys_copy_nothing_and_say_why() {
+    let fx = bare();
+    let (_d, src) = sources(&[("prod.keys", b"not a real key")]);
+    let out = add(&fx, &to(soundtrack(), &[src.join("prod.keys")])).unwrap();
+    assert!(out.job.is_none());
+    assert_eq!(out.notes, [ExtrasNote::KeysSkipped { n: 1 }]);
+    assert!(!fx.extras().exists());
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
+fn dropped_folders_are_added_file_by_file_up_to_depth_two() {
+    let fx = bare();
+    let (_d, src) = sources(&[
+        ("OST/01.mp3", b"1"),
+        ("OST/Disc 2/02.mp3", b"2"),
+        ("OST/Disc 2/deep/03.mp3", b"3"),
+        ("OST/.hidden/04.mp3", b"4"),
+        ("OST/title.keys", b"k"),
+    ]);
+    let (files, keys, hidden) = expand_sources(&[src.join("OST")]);
+    let names: Vec<String> = files
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["01.mp3", "02.mp3"]);
+    assert_eq!((keys, hidden), (1, 1));
+
+    let out = add(&fx, &to(soundtrack(), &[src.join("OST")])).unwrap();
+    assert_eq!(names_in(&fx, "Soundtrack"), ["01.mp3", "02.mp3"]);
+    assert!(out.notes.contains(&ExtrasNote::KeysSkipped { n: 1 }));
+    assert!(out.notes.contains(&ExtrasNote::HiddenSkipped { n: 1 }));
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_sources_are_never_followed() {
+    let fx = bare();
+    let (_d, src) = sources(&[("real.mp3", b"real"), ("dir/in.mp3", b"in")]);
+    std::os::unix::fs::symlink(src.join("real.mp3"), src.join("link.mp3")).unwrap();
+    std::os::unix::fs::symlink(src.join("dir"), src.join("linkdir")).unwrap();
+    let (files, _, _) = expand_sources(&[src.join("link.mp3"), src.join("linkdir")]);
+    assert!(files.is_empty(), "{files:?}");
+    let out = add(&fx, &to(soundtrack(), &[src.join("link.mp3")])).unwrap();
+    assert!(out.job.is_none());
+    assert!(!fx.extras().exists());
+}
+
+#[test]
+fn more_than_500_files_or_20_gib_copies_nothing() {
+    assert_eq!(AddLimits::default().files, 500);
+    assert_eq!(AddLimits::default().bytes, 20 << 30);
+    let fx = bare();
+    let (_d, src) = sources(&[
+        ("a.mp3", b"1"),
+        ("b.mp3", b"2"),
+        ("c.mp3", b"3"),
+        ("d.mp3", b"4"),
+        ("big.mp3", b"0123456789A"),
+    ]);
+    let quiet = &mut |_: AddProgress| std::ops::ControlFlow::Continue(());
+    let limits = || AddLimits {
+        files: 3,
+        bytes: 10,
+    };
+    let four: Vec<PathBuf> = ["a.mp3", "b.mp3", "c.mp3", "d.mp3"]
+        .iter()
+        .map(|n| src.join(n))
+        .collect();
+    for paths in [four, vec![src.join("big.mp3")], vec![src.clone()]] {
+        let err = add_files(
+            &fx.ctx(),
+            &fx.listing(),
+            &to(soundtrack(), &paths),
+            limits(),
+            quiet,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ExtrasError::TooMany), "{err:?}");
+    }
+    assert!(!fx.extras().exists());
+    assert_eq!(fx.jobs(), 0);
+    // Exactly at the limits is fine.
+    let three: Vec<PathBuf> = ["a.mp3", "b.mp3", "c.mp3"]
+        .iter()
+        .map(|n| src.join(n))
+        .collect();
+    add_files(
+        &fx.ctx(),
+        &fx.listing(),
+        &to(soundtrack(), &three),
+        limits(),
+        quiet,
+    )
+    .unwrap();
+    assert_eq!(names_in(&fx, "Soundtrack").len(), 3);
+}
+
+#[test]
+fn not_enough_space_copies_nothing() {
+    let fx = bare();
+    let (_d, src) = sources(&[("a.mp3", b"twelve bytes")]);
+    let ctx = ExtrasCtx {
+        available: |_| Some(1),
+        ..fx.ctx()
+    };
+    let err = add_files(
+        &ctx,
+        &fx.listing(),
+        &to(soundtrack(), &[src.join("a.mp3")]),
+        AddLimits::default(),
+        &mut |_| std::ops::ControlFlow::Continue(()),
+    )
+    .unwrap_err();
+    assert!(matches!(err, ExtrasError::NoSpace { short: 11 }), "{err:?}");
+    assert!(!fx.extras().exists());
+    assert_eq!(fx.jobs(), 0);
+    // Space that cannot be told does not block.
+    let ctx = ExtrasCtx {
+        available: |_| None,
+        ..fx.ctx()
+    };
+    add_files(
+        &ctx,
+        &fx.listing(),
+        &to(soundtrack(), &[src.join("a.mp3")]),
+        AddLimits::default(),
+        &mut |_| std::ops::ControlFlow::Continue(()),
+    )
+    .unwrap();
+}
+
+#[test]
+fn cancel_after_the_first_file_keeps_it_as_an_undoable_job() {
+    let fx = bare();
+    let (_d, src) = sources(&[("a.mp3", b"aaa"), ("b.mp3", b"bb"), ("c.mp3", b"c")]);
+    let paths: Vec<PathBuf> = ["a.mp3", "b.mp3", "c.mp3"]
+        .iter()
+        .map(|n| src.join(n))
+        .collect();
+    let mut seen = Vec::new();
+    let out = add_files(
+        &fx.ctx(),
+        &fx.listing(),
+        &to(soundtrack(), &paths),
+        AddLimits::default(),
+        &mut |p| {
+            seen.push((p.i, p.n, p.done, p.total));
+            if p.i == 1 {
+                std::ops::ControlFlow::Break(())
+            } else {
+                std::ops::ControlFlow::Continue(())
+            }
+        },
+    )
+    .unwrap();
+    assert_eq!(seen, [(0, 3, 0, 6), (1, 3, 3, 6)]);
+    assert!(out.notes.contains(&ExtrasNote::Cancelled { copied: 1 }));
+    assert_eq!(names_in(&fx, "Soundtrack"), ["a.mp3"]);
+    record(&fx.index(), "Soundtrack/a.mp3");
+    undo_job(fx.data.path(), &out.job.unwrap()).unwrap();
+    assert!(!fx.extras().exists());
+}
+
+#[test]
+fn cancel_before_the_first_file_copies_nothing() {
+    let fx = bare();
+    let (_d, src) = sources(&[("a.mp3", b"aaa")]);
+    let err = add_files(
+        &fx.ctx(),
+        &fx.listing(),
+        &to(soundtrack(), &[src.join("a.mp3")]),
+        AddLimits::default(),
+        &mut |_| std::ops::ControlFlow::Break(()),
+    )
+    .unwrap_err();
+    assert!(matches!(err, ExtrasError::Cancelled), "{err:?}");
+    assert!(!fx.extras().exists());
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
+fn add_into_root_and_into_a_new_user_category() {
+    let fx = Fx::new();
+    let (_d, src) = sources(&[("notes.txt", b"notes"), ("remix.mp3", b"remix")]);
+    let mut sources = to(CategoryRef::Root, &[src.join("notes.txt")]);
+    sources.extend(to(user("Remixes"), &[src.join("remix.mp3")]));
+    let out = add(&fx, &sources).unwrap();
+    assert!(fx.extras().join("notes.txt").is_file());
+    assert_eq!(names_in(&fx, "Remixes"), ["remix.mp3"]);
+    let idx = fx.index();
+    assert_eq!(record(&idx, "notes.txt")["type"], "document");
+    record(&idx, "Remixes/remix.mp3");
+    assert_eq!(idx["categories"]["Remixes"], json!({ "sync": null }));
+    assert!(out
+        .listing
+        .categories
+        .iter()
+        .any(|c| c.category == user("Remixes")));
+    undo_job(fx.data.path(), &out.job.unwrap()).unwrap();
+    assert!(!fx.extras().join("Remixes").exists());
+    assert!(!fx.extras().join("notes.txt").exists());
+}
+
+#[test]
+fn add_refuses_bad_category_names_and_index_names_at_the_root() {
+    let fx = Fx::new();
+    let (_d, src) = sources(&[("a.mp3", b"a"), ("extras.json", b"{}")]);
+    let err = add(&fx, &to(user("a/b"), &[src.join("a.mp3")])).unwrap_err();
+    assert!(matches!(err, ExtrasError::Name(_)), "{err:?}");
+    let err = add(&fx, &to(CategoryRef::Root, &[src.join("extras.json")])).unwrap_err();
+    assert!(
+        matches!(err, ExtrasError::Name(NameRefusal::Reserved)),
+        "{err:?}"
+    );
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
+fn add_of_a_stale_listing_is_refused() {
+    let fx = Fx::new();
+    let (_d, src) = sources(&[("a.mp3", b"a")]);
+    let l = fx.listing();
+    fx.put("Soundtrack/02 Boss.flac", b"boss", 3);
+    let err = add_files(
+        &fx.ctx(),
+        &l,
+        &to(soundtrack(), &[src.join("a.mp3")]),
+        AddLimits::default(),
+        &mut |_| std::ops::ControlFlow::Continue(()),
+    )
+    .unwrap_err();
+    assert!(matches!(err, ExtrasError::Changed), "{err:?}");
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
+fn plan_add_suggests_a_category_and_type_per_file() {
+    let (_d, src) = sources(&[
+        ("Boss.flac", b"a"),
+        ("Trailer.webm", b"v"),
+        ("Cover.png", b"i"),
+        ("Super Metroid Manual.pdf", b"%PDF"),
+        ("walkthrough.txt", b"t"),
+        ("theme.p3t", b"p"),
+    ]);
+    let names = [
+        "Boss.flac",
+        "Trailer.webm",
+        "Cover.png",
+        "Super Metroid Manual.pdf",
+        "walkthrough.txt",
+        "theme.p3t",
+    ];
+    let paths: Vec<PathBuf> = names.iter().map(|n| src.join(n)).collect();
+    let got: Vec<(String, ExtrasCategory, ExtraType, u64)> = plan_add(&paths)
+        .into_iter()
+        .map(|s| (s.name, s.category, s.kind, s.size))
+        .collect();
+    use ExtrasCategory as C;
+    assert_eq!(
+        got,
+        [
+            ("Boss.flac".into(), C::Soundtrack, ExtraType::Audio, 1),
+            ("Trailer.webm".into(), C::Videos, ExtraType::Video, 1),
+            ("Cover.png".into(), C::Artwork, ExtraType::Image, 1),
+            (
+                "Super Metroid Manual.pdf".into(),
+                C::Manuals,
+                ExtraType::Document,
+                4
+            ),
+            ("walkthrough.txt".into(), C::Guides, ExtraType::Document, 1),
+            ("theme.p3t".into(), C::Themes, ExtraType::Other, 1),
+        ]
+    );
+}
+
+#[test]
+fn add_then_undo_restores_tree_and_json() {
+    for with_index in [false, true] {
+        let fx = Fx::new();
+        if with_index {
+            tag_first(&fx, &["jefe"]);
+        }
+        let (_d, src) = sources(&[("01 Opening.flac", b"dup"), ("art.png", b"png")]);
+        let before = snapshot(&fx);
+        let mut s = to(soundtrack(), &[src.join("01 Opening.flac")]);
+        s.extend(to(
+            CategoryRef::Fixed(ExtrasCategory::Artwork),
+            &[src.join("art.png")],
+        ));
+        let out = add(&fx, &s).unwrap();
+        assert_ne!(snapshot(&fx), before);
+        undo_job(fx.data.path(), &out.job.unwrap()).unwrap();
+        assert_eq!(snapshot(&fx), before, "index {with_index}");
+    }
 }

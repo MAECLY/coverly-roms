@@ -10,26 +10,30 @@
 //! copied aside first (D5), a newer one refuses every write.
 
 use std::fs;
+use std::ops::ControlFlow;
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 
 use serde::Serialize;
 
 use super::index::{
-    list, read_index_bytes, rel_components, serialize, IndexState, ListedFile, Listing, Match,
+    list, read_index_bytes, rel_components, serialize, skipped_name, IndexState, ListedFile,
+    Listing, Match,
 };
 use super::{
-    is_reserved_key, normalize_tags, validate_category_name, validate_file_stem, CategoryMeta,
-    CategoryRef, ExtrasCategory, ExtrasFile, NameRefusal, TagRefusal, EXTRAS_JSON,
+    is_reserved_key, normalize_tags, rips, suggested_category, type_of, validate_category_name,
+    validate_file_stem, CategoryMeta, CategoryRef, ExtraRecord, ExtraType, ExtrasCategory,
+    ExtrasFile, NameRefusal, Origin, OriginHow, Provenance, RipTags, TagRefusal, EXTRAS_JSON,
 };
+use crate::consoles::is_key_material;
 use crate::dedupe::apply::{trash_file, TrashStep};
 use crate::game_folder::FixedFolder;
 use crate::organize::target::WINDOWS_MAX_PATH;
 use crate::time::rfc3339_utc;
 use crate::write::trash::TrashBackend;
 use crate::write::{
-    ensure_within, name_key, Collision, DirOutcome, JobKind, JobMeta, MoveOutcome, OverwritePolicy,
-    WriteError, WriteOutcome, Writer,
+    ensure_within, mtime_ns, name_key, safe_file_name, Collision, DirOutcome, JobKind, JobMeta,
+    MoveOutcome, OverwritePolicy, WriteError, WriteOutcome, Writer,
 };
 
 /// The folder below the library root where files are set aside when a
@@ -124,6 +128,9 @@ pub struct ExtrasCtx<'a> {
     /// outside tests. Setting a file aside in `.coverly-trash` is only
     /// ever a rename (D8).
     pub same_volume: fn(&Path, &Path) -> bool,
+    /// Bytes the user may still write on the volume holding a path:
+    /// [`crate::organize::apply::user_available`] outside tests (D13).
+    pub available: fn(&Path) -> Option<u64>,
 }
 
 /// A finished Extras job: its id (undo), notes and the new listing.
@@ -1139,6 +1146,480 @@ impl ExtrasJob<'_> {
             }
         }
         Ok(removed)
+    }
+}
+
+// ---- Adds by verified copy (D11, D13) ----
+
+/// How much one add may copy (D13); above either, nothing is copied.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AddLimits {
+    pub files: usize,
+    pub bytes: u64,
+}
+
+impl Default for AddLimits {
+    fn default() -> Self {
+        Self {
+            files: 500,
+            bytes: 20 << 30,
+        }
+    }
+}
+
+/// How deep a dropped or picked folder is entered: its own files and the
+/// files of its sub-folders (D11).
+pub const ADD_DEPTH: usize = 2;
+
+/// A file or folder to add and the category it goes to. A folder's files
+/// (to [`ADD_DEPTH`]) all go to that category, side by side.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AddSource {
+    pub path: PathBuf,
+    pub category: CategoryRef,
+}
+
+/// Where a long add is (D13): `i` of `n` files and `done` of `total`
+/// bytes copied. Reported once before the first file and after each one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct AddProgress {
+    pub i: usize,
+    pub n: usize,
+    pub done: u64,
+    pub total: u64,
+}
+
+/// What the add dialog shows for one file (D13): the category suggested
+/// by its type, its size and the tags of a music rip, offered (never
+/// added) as tag suggestions.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AddSuggestion {
+    /// The source; never sent to the webview (ids, never paths).
+    #[serde(skip)]
+    pub path: PathBuf,
+    pub name: String,
+    pub category: ExtrasCategory,
+    pub kind: ExtraType,
+    pub size: u64,
+    pub rip: Option<RipTags>,
+}
+
+/// The files of a set of picked or dropped paths, with what was skipped.
+struct Expanded {
+    /// `(path, size)` in the order given, a folder's files by name.
+    files: Vec<(PathBuf, u64)>,
+    keys: usize,
+    hidden: usize,
+}
+
+/// Whether `name` is hidden or system litter (AppleDouble twins, OS
+/// junk, partial downloads): never added, counted (D11).
+fn hidden_name(name: &str) -> bool {
+    skipped_name(name)
+}
+
+/// Expands `paths` into files (D11): a folder file by file to
+/// [`ADD_DEPTH`], symlinks never followed nor added, and key material
+/// (by name, before anything is opened) and hidden files skipped and
+/// counted. Stops once more than `cap` files are found.
+fn expand(paths: &[PathBuf], cap: usize) -> Expanded {
+    let mut out = Expanded {
+        files: Vec::new(),
+        keys: 0,
+        hidden: 0,
+    };
+    let take = |out: &mut Expanded, path: PathBuf, size: u64| {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if is_key_material(&name) {
+            out.keys += 1;
+        } else if hidden_name(&name) {
+            out.hidden += 1;
+        } else if !out.files.iter().any(|(p, _)| *p == path) {
+            out.files.push((path, size));
+        }
+    };
+    for path in paths {
+        if out.files.len() > cap {
+            break;
+        }
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let Ok(meta) = fs::symlink_metadata(path) else {
+            continue;
+        };
+        let ft = meta.file_type();
+        if ft.is_file() {
+            take(&mut out, path.clone(), meta.len());
+            continue;
+        }
+        if !ft.is_dir() {
+            continue;
+        }
+        if hidden_name(&name) {
+            out.hidden += 1;
+            continue;
+        }
+        let mut walk = walkdir::WalkDir::new(path)
+            .min_depth(1)
+            .max_depth(ADD_DEPTH)
+            .follow_links(false)
+            .sort_by_file_name()
+            .into_iter();
+        while let Some(entry) = walk.next() {
+            if out.files.len() > cap {
+                break;
+            }
+            let Ok(entry) = entry else {
+                continue;
+            };
+            let ft = entry.file_type();
+            if ft.is_dir() {
+                if hidden_name(&entry.file_name().to_string_lossy()) {
+                    out.hidden += 1;
+                    walk.skip_current_dir();
+                }
+                continue;
+            }
+            if !ft.is_file() {
+                continue;
+            }
+            let size = entry.metadata().map_or(0, |m| m.len());
+            take(&mut out, entry.into_path(), size);
+        }
+    }
+    out
+}
+
+/// The files `paths` stand for (D11): a folder file by file to
+/// [`ADD_DEPTH`], at most one more than [`AddLimits::default`] allows
+/// (so a larger drop is refused, never cut), no symlinks; with the key
+/// files and the hidden files skipped.
+pub fn expand_sources(paths: &[PathBuf]) -> (Vec<PathBuf>, usize, usize) {
+    let e = expand(paths, AddLimits::default().files);
+    (
+        e.files.into_iter().map(|(p, _)| p).collect(),
+        e.keys,
+        e.hidden,
+    )
+}
+
+/// What the add dialog shows for `paths` (D13): per file, the suggested
+/// category, the type, the size and a music rip's tags. Key material is
+/// left out by name before anything is read.
+pub fn plan_add(paths: &[PathBuf]) -> Vec<AddSuggestion> {
+    expand(paths, AddLimits::default().files)
+        .files
+        .into_iter()
+        .map(|(path, size)| {
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            AddSuggestion {
+                category: suggested_category(&name),
+                kind: type_of(ext_of(&name)),
+                size,
+                rip: rips::read_rip(&path),
+                name,
+                path,
+            }
+        })
+        .collect()
+}
+
+/// The extension of `name` without its dot, `""` when it has none.
+fn ext_of(name: &str) -> &str {
+    Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+}
+
+/// One file of an add, checked and ready to copy.
+struct PlannedCopy {
+    from: PathBuf,
+    size: u64,
+    /// The source's own name.
+    from_name: String,
+    /// Its name made portable (D13).
+    name: String,
+    dir: PathBuf,
+}
+
+/// Adds `sources` to `Extras/` by verified copy (D13): the sources are
+/// only read, never moved; folders are added file by file (D11). Key
+/// material and hidden files are skipped and counted; names are made
+/// portable ([`ExtrasNote::Sanitised`]); a taken name gets the next free
+/// `" (n)"` ([`ExtrasNote::RenamedDup`]), never an overwrite. A user
+/// category that does not exist yet is created when its name is valid.
+///
+/// Refused before anything is written: more files or bytes than `limits`
+/// ([`ExtrasError::TooMany`]), less free space than the files take
+/// ([`ExtrasError::NoSpace`]), a stale listing, a name the index holds at
+/// the root or a path too long for Windows. `progress` is told before the
+/// first file and after each; [`ControlFlow::Break`] before the first
+/// copies nothing ([`ExtrasError::Cancelled`]), later it stops between
+/// files and keeps what was copied as the job ([`ExtrasNote::Cancelled`]),
+/// undone like any other. One job; every copy gets its record
+/// (`user`, `added`, the source's name).
+pub fn add_files(
+    ctx: &ExtrasCtx,
+    listing: &Listing,
+    sources: &[AddSource],
+    limits: AddLimits,
+    progress: &mut dyn FnMut(AddProgress) -> ControlFlow<()>,
+) -> Result<ExtrasOutcome, ExtrasError> {
+    check_game_dir(ctx)?;
+    let extras = extras_dir(ctx.game_dir);
+    let mut skipped = Vec::new();
+    let mut keys = 0;
+    let mut hidden = 0;
+    let mut files: Vec<(PathBuf, u64, &CategoryRef)> = Vec::new();
+    for source in sources {
+        let left = limits.files.saturating_sub(files.len());
+        let e = expand(std::slice::from_ref(&source.path), left);
+        keys += e.keys;
+        hidden += e.hidden;
+        for (path, size) in e.files {
+            if !files.iter().any(|(p, _, _)| *p == path) {
+                files.push((path, size, &source.category));
+            }
+        }
+        if files.len() > limits.files {
+            return Err(ExtrasError::TooMany);
+        }
+    }
+    if keys > 0 {
+        skipped.push(ExtrasNote::KeysSkipped { n: keys });
+    }
+    if hidden > 0 {
+        skipped.push(ExtrasNote::HiddenSkipped { n: hidden });
+    }
+    let total = files
+        .iter()
+        .map(|(_, s, _)| *s)
+        .fold(0u64, u64::saturating_add);
+    if total > limits.bytes {
+        return Err(ExtrasError::TooMany);
+    }
+    if files.is_empty() {
+        return Ok(ExtrasOutcome {
+            job: None,
+            notes: skipped,
+            listing: listing.clone(),
+        });
+    }
+    let mut new_cats: Vec<String> = Vec::new();
+    let mut planned = Vec::with_capacity(files.len());
+    for (from, size, cat) in files {
+        let dir = add_dir(&extras, listing, cat, &mut new_cats)?;
+        let from_name = from
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let name = safe_file_name(&from_name).map_err(|_| ExtrasError::Name(NameRefusal::Empty))?;
+        if dir == extras && is_reserved_key(&name_key(&name)) {
+            return Err(ExtrasError::Name(NameRefusal::Reserved));
+        }
+        if too_long_for_windows(&dir.join(&name)) {
+            return Err(ExtrasError::Name(NameRefusal::PathTooLong));
+        }
+        planned.push(PlannedCopy {
+            from,
+            size,
+            from_name,
+            name,
+            dir,
+        });
+    }
+    if let Some(free) = (ctx.available)(&extras) {
+        if free < total {
+            return Err(ExtrasError::NoSpace {
+                short: total - free,
+            });
+        }
+    }
+    let n = planned.len();
+    if progress(AddProgress {
+        i: 0,
+        n,
+        done: 0,
+        total,
+    })
+    .is_break()
+    {
+        return Err(ExtrasError::Cancelled);
+    }
+    let mut job = ExtrasJob::begin(ctx, listing)?;
+    let made = job.ensure_extras_dir().and_then(|()| {
+        for name in &new_cats {
+            let dir = job.confine(&extras.join(name))?;
+            job.w.ensure_dir(&dir)?;
+        }
+        Ok(())
+    });
+    if let Err(e) = made {
+        job.abandon();
+        return Err(e);
+    }
+    for name in new_cats {
+        job.file.categories.insert(name, CategoryMeta::default());
+    }
+    let mut sanitised = Vec::new();
+    let mut done = 0u64;
+    let mut copied = 0usize;
+    for copy in &planned {
+        match job.copy_one(copy) {
+            Ok(name) => {
+                if copy.name != copy.from_name {
+                    sanitised.push(name);
+                }
+            }
+            Err(e) => {
+                job.abandon();
+                return Err(e);
+            }
+        }
+        copied += 1;
+        done = done.saturating_add(copy.size);
+        let step = progress(AddProgress {
+            i: copied,
+            n,
+            done,
+            total,
+        });
+        if step.is_break() && copied < n {
+            job.notes.push(ExtrasNote::Cancelled { copied });
+            break;
+        }
+    }
+    if !sanitised.is_empty() {
+        job.notes.push(ExtrasNote::Sanitised { names: sanitised });
+    }
+    job.notes.extend(skipped);
+    job.finish()
+}
+
+/// The folder an add to `cat` copies into: [`category_dir`], except that
+/// a user category not listed yet is validated (D1) and recorded in
+/// `new_cats`, to be created by the job.
+fn add_dir(
+    extras: &Path,
+    listing: &Listing,
+    cat: &CategoryRef,
+    new_cats: &mut Vec<String>,
+) -> Result<PathBuf, ExtrasError> {
+    let CategoryRef::User(raw) = cat else {
+        return category_dir(extras, listing, cat);
+    };
+    if listing
+        .categories
+        .iter()
+        .any(|c| same_category(&c.category, cat))
+    {
+        return category_dir(extras, listing, cat);
+    }
+    let name = validate_category_name(raw, &user_names(listing)).map_err(ExtrasError::Name)?;
+    if let Some(known) = new_cats.iter().find(|n| name_key(n) == name_key(&name)) {
+        return Ok(extras.join(known));
+    }
+    if name_taken(extras, &name, "")? {
+        return Err(ExtrasError::Name(NameRefusal::Taken));
+    }
+    new_cats.push(name.clone());
+    Ok(extras.join(name))
+}
+
+/// `"{stem} ({n}).{ext}"`, the numbered name of a copy (D13).
+fn numbered(name: &str, n: u32) -> String {
+    let path = Path::new(name);
+    match (
+        path.file_stem().and_then(|s| s.to_str()),
+        path.extension().and_then(|e| e.to_str()),
+    ) {
+        (Some(stem), Some(ext)) if !stem.is_empty() => format!("{stem} ({n}).{ext}"),
+        _ => format!("{name} ({n})"),
+    }
+}
+
+impl ExtrasJob<'_> {
+    /// Whether a record of the index (a missing one too: its file may come
+    /// back) holds `path`, ignoring case and Unicode normalization.
+    fn record_holds(&self, path: &Path) -> Result<bool, ExtrasError> {
+        let want: Vec<String> = rel_of(&self.extras, path)?
+            .split('/')
+            .map(name_key)
+            .collect();
+        Ok(self.file.files.iter().any(|r| {
+            rel_components(&r.path).is_some_and(|parts| {
+                parts.len() == want.len() && parts.iter().zip(&want).all(|(a, b)| name_key(a) == *b)
+            })
+        }))
+    }
+
+    /// Copies one planned file into its folder under a name neither a
+    /// file nor a record holds, and records it (D2, D13). Returns the
+    /// copy's name.
+    fn copy_one(&mut self, copy: &PlannedCopy) -> Result<String, ExtrasError> {
+        let dir = self.confine(&copy.dir.join(&copy.name))?;
+        let dir = dir.parent().ok_or(ExtrasError::Changed)?.to_path_buf();
+        if dir != self.extras {
+            self.w.ensure_dir(&dir)?;
+        }
+        let mut name = copy.name.clone();
+        let mut next = 2;
+        while name_taken(&dir, &name, "")? || self.record_holds(&dir.join(&name))? {
+            if next > 1000 {
+                return Err(ExtrasError::Name(NameRefusal::Taken));
+            }
+            name = numbered(&copy.name, next);
+            next += 1;
+        }
+        let target = self.confine(&dir.join(&name))?;
+        #[cfg(feature = "test-util")]
+        crate::consoles::record_open(&copy.from);
+        let to = match self.w.copy_in(&copy.from, &target, Collision::Rename)? {
+            MoveOutcome::Copied { to, .. } => to,
+            _ => return Err(ExtrasError::Changed),
+        };
+        // A name numbered past the Windows limit: stopped here; the closed
+        // journal undoes this copy and the ones before it.
+        if too_long_for_windows(&to) {
+            return Err(ExtrasError::Name(NameRefusal::PathTooLong));
+        }
+        let name = to
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if name != copy.name {
+            self.notes
+                .push(ExtrasNote::RenamedDup { name: name.clone() });
+        }
+        let meta = fs::symlink_metadata(&to).map_err(WriteError::Io)?;
+        let record = ExtraRecord {
+            path: rel_of(&self.extras, &to)?,
+            kind: type_of(ext_of(&name)),
+            provenance: Provenance::User,
+            origin: Origin {
+                how: OriginHow::Added,
+                format: None,
+                from_name: Some(copy.from_name.clone()),
+                rip: None,
+                rest: Default::default(),
+            },
+            tags: Vec::new(),
+            size: meta.len(),
+            mtime_ns: meta.modified().map_or(0, mtime_ns),
+            added_at: rfc3339_utc(self.ctx.now),
+            rest: Default::default(),
+        };
+        self.file.files.insert(self.listed, record);
+        self.listed += 1;
+        Ok(name)
     }
 }
 
