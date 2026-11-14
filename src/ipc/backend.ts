@@ -276,6 +276,10 @@ export interface Backend {
   ): Promise<void>;
   /** OS drops Rust recorded by token, `position` in CSS pixels (D11). */
   onExtrasDrop(cb: (e: ExtrasDropEvent) => void): Promise<() => void>;
+  /** Where an OS drag is over the window, in CSS pixels; `null` when it
+   * left or dropped. HTML5 `dragover` never fires while Tauri handles
+   * drops, so this drives the drop zones' highlight (D11). */
+  onExtrasDragOver(cb: (point: DropPoint | null) => void): Promise<() => void>;
   onExtrasProgress(cb: (e: AddProgressEvent) => void): Promise<() => void>;
   /** A background add ended. */
   onExtrasAdded(cb: (e: AddFinishedEvent) => void): Promise<() => void>;
@@ -549,6 +553,8 @@ type MockWindow = Window & {
     names: string[];
     position: { x: number; y: number };
   }) => number;
+  /** A simulated OS drag over the window (CSS pixels), `null` to leave. */
+  mockExtrasDragOver?: (point: { x: number; y: number } | null) => void;
   /** Extras paths revealed and handed to another app (copies). */
   mockExtrasRevealed?: () => string[];
   mockExtrasOpened?: () => string[];
@@ -581,6 +587,7 @@ async function createBackend(): Promise<Backend> {
     w.mockRevealedPaths = () => [...mock.revealedPaths];
     w.mockDedupeArtCalls = () => [...mock.artCalls];
     w.mockExtrasDrop = mock.emitDrop;
+    w.mockExtrasDragOver = mock.emitDragOver;
     w.mockExtrasRevealed = () => [...mock.extrasRevealed];
     w.mockExtrasOpened = () => [...mock.extrasOpened];
   }

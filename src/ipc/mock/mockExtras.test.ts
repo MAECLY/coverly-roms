@@ -600,6 +600,17 @@ describe('mock extras library (?mockPick=extras)', () => {
       expect((await list('Tidewalker')).writable).toEqual({ kind: 'yes' });
     });
 
+    it('emitDragOver reaches onExtrasDragOver listeners until they stop', async () => {
+      const { b } = await open();
+      const seen: ({ x: number; y: number } | null)[] = [];
+      const off = await b.onExtrasDragOver((p) => seen.push(p));
+      b.emitDragOver({ x: 5, y: 6 });
+      b.emitDragOver(null);
+      off();
+      b.emitDragOver({ x: 1, y: 1 });
+      expect(seen).toEqual([{ x: 5, y: 6 }, null]);
+    });
+
     it('an OS drop is announced by token with names, sizes and position', async () => {
       const { b, gen, id, list } = await open();
       const game = id('Tidewalker');

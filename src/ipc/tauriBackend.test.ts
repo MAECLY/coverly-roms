@@ -279,6 +279,28 @@ describe('Tauri backend', () => {
       await off();
     });
 
+    it('onExtrasDragOver reports enter and over in CSS pixels, then null', async () => {
+      vi.stubGlobal('devicePixelRatio', 2);
+      mockWindows('main');
+      mockIPC(() => null, { shouldMockEvents: true });
+      const cb = vi.fn();
+      const off = await createTauriBackend().onExtrasDragOver(cb);
+      await emit('tauri://drag-enter', {
+        paths: ['/x.mp3'],
+        position: { x: 200, y: 100 },
+      });
+      await emit('tauri://drag-over', { position: { x: 400, y: 300 } });
+      await emit('tauri://drag-leave', null);
+      expect(cb.mock.calls).toEqual([
+        [{ x: 100, y: 50 }],
+        [{ x: 200, y: 150 }],
+        [null],
+      ]);
+      await drop(10, 10);
+      expect(cb).toHaveBeenLastCalledWith(null);
+      await off();
+    });
+
     it('ignores drags that are not drops and drops with no path', async () => {
       const { cb, off } = await listening();
       await emit('tauri://drag-over', { position: { x: 1, y: 1 } });

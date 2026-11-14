@@ -154,6 +154,8 @@ export interface MockBackend extends Backend {
     names: string[];
     position: { x: number; y: number };
   }): number;
+  /** Simulates an OS drag over the window (CSS pixels); `null` leaves. */
+  emitDragOver(point: { x: number; y: number } | null): void;
   /** Extras paths revealed in the file manager, for tests. */
   readonly extrasRevealed: string[];
   /** Extras paths handed to another app, for tests. */
@@ -1191,9 +1193,11 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     extrasReveal: extras.extrasReveal,
     extrasOpenExternal: extras.extrasOpenExternal,
     onExtrasDrop: extras.onExtrasDrop,
+    onExtrasDragOver: extras.onExtrasDragOver,
     onExtrasProgress: extras.onExtrasProgress,
     onExtrasAdded: extras.onExtrasAdded,
     emitDrop: extras.emitDrop,
+    emitDragOver: extras.emitDragOver,
     extrasRevealed: extras.extrasRevealed,
     extrasOpened: extras.extrasOpened,
     pickFolder: () =>

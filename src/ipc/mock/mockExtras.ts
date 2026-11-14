@@ -192,6 +192,9 @@ export interface MockExtrasApi {
     index: number,
   ): Promise<void>;
   onExtrasDrop(cb: (e: ExtrasDropEvent) => void): Promise<() => void>;
+  onExtrasDragOver(
+    cb: (point: { x: number; y: number } | null) => void,
+  ): Promise<() => void>;
   onExtrasProgress(cb: (e: AddProgressEvent) => void): Promise<() => void>;
   onExtrasAdded(cb: (e: AddFinishedEvent) => void): Promise<() => void>;
   /** Simulates an OS drop Rust recorded (`extras://drop`); answers its
@@ -200,6 +203,8 @@ export interface MockExtrasApi {
     names: string[];
     position: { x: number; y: number };
   }): number;
+  /** Simulates an OS drag over the window (CSS pixels); `null` leaves. */
+  emitDragOver(point: { x: number; y: number } | null): void;
   /** Paths (relative to `Extras/`) revealed in the file manager, for tests. */
   readonly extrasRevealed: string[];
   /** Paths handed to another app, for tests. */
@@ -708,6 +713,9 @@ export function createMockExtras(
   const plans = new Map<number, Plan>();
   const drops = new Map<number, { items: DroppedItem[]; at: number }>();
   const dropListeners = new Set<(e: ExtrasDropEvent) => void>();
+  const overListeners = new Set<
+    (point: { x: number; y: number } | null) => void
+  >();
   const progressListeners = new Set<(e: AddProgressEvent) => void>();
   const addedListeners = new Set<(e: AddFinishedEvent) => void>();
   const extrasRevealed: string[] = [];
@@ -1589,8 +1597,12 @@ export function createMockExtras(
       extrasOpened.push(pathOf(f));
     },
     onExtrasDrop: (cb) => listen(dropListeners, cb),
+    onExtrasDragOver: (cb) => listen(overListeners, cb),
     onExtrasProgress: (cb) => listen(progressListeners, cb),
     onExtrasAdded: (cb) => listen(addedListeners, cb),
+    emitDragOver(point) {
+      overListeners.forEach((cb) => cb(point));
+    },
     emitDrop({ names, position }) {
       const token = (dropSeq += 1);
       const items = names.map((name): DroppedItem => ({

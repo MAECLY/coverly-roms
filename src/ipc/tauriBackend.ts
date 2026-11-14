@@ -303,6 +303,13 @@ export function createTauriBackend(): Backend {
         // Rust reports physical pixels; the section hit-tests in CSS ones.
         cb({ ...e.payload, position: toCssPoint(e.payload.position) }),
       ),
+    onExtrasDragOver: (cb) =>
+      getCurrentWebview().onDragDropEvent((event) => {
+        const p = event.payload;
+        // Rust reports physical pixels; the section hit-tests in CSS ones.
+        if (p.type === 'enter' || p.type === 'over') cb(toCssPoint(p.position));
+        else cb(null);
+      }),
     onExtrasProgress: (cb) =>
       listen<AddProgressEvent>(EXTRAS_PROGRESS_EVENT, (e) => cb(e.payload)),
     onExtrasAdded: (cb) =>
