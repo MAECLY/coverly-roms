@@ -73,6 +73,18 @@ pub enum IpcError {
     UpdateOffline(String),
     #[error("the update failed its signature check and was not installed: {0}")]
     UpdateSignature(String),
+    /// The extras named by a handle are no longer what that listing showed
+    /// (an older `rev`, or files changed on disk): list again (part D D22).
+    #[error("the extras changed; list them again")]
+    ExtrasChanged,
+    /// The game's `extras.json` was written by a newer Coverly: view only
+    /// (part D D5).
+    #[error("extras.json was written by a newer Coverly")]
+    ExtrasNewer,
+    /// A name or tags the extras rules refuse; `why` is a kebab-case
+    /// reason the webview renders (part D D1, D20).
+    #[error("refused: {why}")]
+    ExtrasRefused { why: String },
     #[error("no update is published for this channel and system: {0}")]
     UpdateUnavailable(String),
     #[error("this build has no update key")]
@@ -221,6 +233,21 @@ mod tests {
         assert_eq!(
             serde_json::to_value(IpcError::UnknownChild(3)).unwrap(),
             serde_json::json!({ "code": "unknown-child", "detail": 3 })
+        );
+        assert_eq!(
+            serde_json::to_value(IpcError::ExtrasChanged).unwrap(),
+            serde_json::json!({ "code": "extras-changed" })
+        );
+        assert_eq!(
+            serde_json::to_value(IpcError::ExtrasNewer).unwrap(),
+            serde_json::json!({ "code": "extras-newer" })
+        );
+        assert_eq!(
+            serde_json::to_value(IpcError::ExtrasRefused {
+                why: "taken".into()
+            })
+            .unwrap(),
+            serde_json::json!({ "code": "extras-refused", "detail": { "why": "taken" } })
         );
         let json = serde_json::to_value(IpcError::JobRunning).unwrap();
         assert_eq!(json, serde_json::json!({ "code": "job-running" }));

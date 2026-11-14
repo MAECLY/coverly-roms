@@ -62,6 +62,7 @@ pub fn run() {
             ipc::identify_entry,
             ipc::reveal_entry,
             ipc::game_details,
+            ipc::extras_list,
             ipc::set_default_revision,
             ipc::read_child_art,
             ipc::read_child_art_bytes,

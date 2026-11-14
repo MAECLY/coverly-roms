@@ -1709,6 +1709,26 @@ pub fn job_header_roots(
     Ok((created_roots, extra_roots))
 }
 
+/// The targets job `job` journaled, in order, undone or not (the history
+/// names an Extras job after the game folder its targets sit in).
+pub fn job_targets(data_dir: &Path, job: &str) -> Result<Vec<PathBuf>, WriteError> {
+    if !valid_job_id(job) {
+        return Err(WriteError::Journal(format!("not a job id: {job}")));
+    }
+    let journal = journals(data_dir)?
+        .into_iter()
+        .find(|j| j.job == job)
+        .ok_or(WriteError::NothingToUndo)?;
+    let (_, entries, _) = parse(&journal.path)?;
+    Ok(entries
+        .into_iter()
+        .filter_map(|line| match line {
+            Line::Entry { target, .. } => Some(target),
+            _ => None,
+        })
+        .collect())
+}
+
 /// `from` made absolute against the source root (journals written by
 /// hand or by a later format may keep it relative).
 fn absolute_from(source_root: &Path, from: PathBuf) -> PathBuf {

@@ -3,6 +3,7 @@
 
 pub mod art;
 pub mod details;
+pub mod extras;
 pub mod identify;
 pub mod refresh;
 pub mod view;

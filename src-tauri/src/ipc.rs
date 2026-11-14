@@ -224,6 +224,17 @@ pub async fn game_details(
     .await
 }
 
+/// A game's `Extras/` by entry id, with the revision later handles name
+/// (part D D4, D22): read off the UI thread, never written.
+#[tauri::command]
+pub async fn extras_list(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+) -> Result<crate::library::extras::ExtrasView, IpcError> {
+    blocking(move || app.state::<AppState>().extras_list(generation, entry_id)).await
+}
+
 /// Makes this revision the default of its group (part C D7); answers the
 /// library's choices (version group → `rel_path`).
 #[tauri::command]

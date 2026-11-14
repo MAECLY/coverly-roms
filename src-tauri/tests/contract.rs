@@ -203,6 +203,7 @@ fn rust_serialises_the_shared_sample() {
             undone: false,
             kind: coverly_core::write::JobKind::Fill,
             undoable: true,
+            game: None,
         },
         "error": IpcError::NotFound("/Volumes/SD".into()),
         "item_error_kinds": ALL_ITEM_ERROR_KINDS,
@@ -779,6 +780,7 @@ fn organise_views_match_the_shared_sample() {
                 undone: false,
                 kind: JobKind::Fill,
                 undoable: true,
+                game: None,
             }],
         },
         "organize_errors": [
@@ -2516,6 +2518,167 @@ fn game_panel_answers_match_the_shared_sample() {
         ],
         "region_certainties": [Certainty::Certain, Certainty::Likely, Certainty::Unknown],
         "unknown_child": IpcError::UnknownChild(3),
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+#[test]
+fn extras_views_match_the_shared_sample() {
+    use coverly_core::extras::index::IndexState;
+    use coverly_core::extras::{CategoryRef, ExtraFormat, ExtraType, ExtrasCategory, Provenance};
+    use coverly_core::write::JobKind;
+    use coverly_roms_lib::library::extras::{
+        CategoryView, ExtraFileView, ExtrasView, MissingView, Playable, Writability,
+    };
+
+    let slot = |c: ExtrasCategory, present: bool, count: u32| CategoryView {
+        category: CategoryRef::Fixed(c),
+        present,
+        count,
+        link: false,
+        sync: None,
+    };
+    let view = ExtrasView {
+        entry_id: 7,
+        rev: 12,
+        game_folder: true,
+        index: IndexState::Ok,
+        writable: Writability::Yes,
+        categories: vec![
+            CategoryView {
+                sync: Some(false),
+                ..slot(ExtrasCategory::Soundtrack, true, 1)
+            },
+            slot(ExtrasCategory::Manuals, false, 0),
+            slot(ExtrasCategory::Artwork, false, 0),
+            slot(ExtrasCategory::Videos, false, 0),
+            slot(ExtrasCategory::Themes, true, 1),
+            slot(ExtrasCategory::Guides, false, 0),
+            CategoryView {
+                category: CategoryRef::User("Remixes".into()),
+                present: true,
+                count: 0,
+                link: false,
+                sync: None,
+            },
+            CategoryView {
+                category: CategoryRef::Root,
+                present: true,
+                count: 1,
+                link: false,
+                sync: None,
+            },
+        ],
+        files: vec![
+            ExtraFileView {
+                index: 0,
+                category: CategoryRef::Fixed(ExtrasCategory::Soundtrack),
+                path: "Soundtrack/01 Opening.flac".into(),
+                name: "01 Opening.flac".into(),
+                kind: ExtraType::Audio,
+                provenance: Provenance::User,
+                format: None,
+                tags: vec!["tema del jefe final".into()],
+                size: 31_457_280,
+                link: false,
+                playable: Playable::Inline,
+            },
+            ExtraFileView {
+                index: 1,
+                category: CategoryRef::Fixed(ExtrasCategory::Themes),
+                path: "Themes/Resistance Theme.p3t".into(),
+                name: "Resistance Theme.p3t".into(),
+                kind: ExtraType::Other,
+                provenance: Provenance::Official,
+                format: Some(ExtraFormat::Ps3P3t),
+                tags: vec![],
+                size: 2_097_152,
+                link: false,
+                playable: Playable::RevealOnly,
+            },
+            ExtraFileView {
+                index: 2,
+                category: CategoryRef::Root,
+                path: "track01.spc".into(),
+                name: "track01.spc".into(),
+                kind: ExtraType::Audio,
+                provenance: Provenance::User,
+                format: Some(ExtraFormat::Spc),
+                tags: vec![],
+                size: 66_048,
+                link: false,
+                playable: Playable::External,
+            },
+        ],
+        missing: vec![MissingView {
+            index: 0,
+            category: CategoryRef::Fixed(ExtrasCategory::Videos),
+            path: "Videos/intro.mp4".into(),
+            name: "intro.mp4".into(),
+            kind: ExtraType::Video,
+            provenance: Provenance::Official,
+            tags: vec!["intro".into()],
+            size: 99,
+        }],
+        capped: false,
+        system: "ps3".into(),
+        manual_inside: false,
+    };
+    let bare = ExtrasView {
+        entry_id: 8,
+        rev: 13,
+        game_folder: false,
+        index: IndexState::Absent,
+        writable: Writability::ReadOnly,
+        categories: vec![],
+        files: vec![],
+        missing: vec![],
+        capped: false,
+        system: "3ds".into(),
+        manual_inside: true,
+    };
+    let history = JobHistoryView {
+        job: "20261114T120000Z-1bfb-0000".into(),
+        root: "/Volumes/SD".into(),
+        created_at: "2026-11-14T12:00:00Z".into(),
+        entries: 2,
+        complete: true,
+        undone: false,
+        kind: JobKind::Extras,
+        undoable: true,
+        game: Some("Resistance (USA)".into()),
+    };
+    let actual = json!({
+        "extras_view": view,
+        "extras_view_bare": bare,
+        "extras_index_states": [
+            IndexState::Ok,
+            IndexState::Absent,
+            IndexState::Malformed { bad_records: 2, unreadable: None },
+            IndexState::Newer { version: 2 },
+        ],
+        "extras_writabilities": [
+            Writability::Yes,
+            Writability::ReadOnly,
+            Writability::Busy,
+            Writability::Newer,
+        ],
+        "extras_playables": [Playable::Inline, Playable::External, Playable::RevealOnly],
+        "extras_errors": [
+            IpcError::ExtrasChanged,
+            IpcError::ExtrasNewer,
+            IpcError::ExtrasRefused { why: "taken".into() },
+        ],
+        "history_item_extras": history,
     });
     let expected: Value =
         serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();

@@ -3605,5 +3605,238 @@
   "unknown_child": {
     "code": "unknown-child",
     "detail": 3
+  },
+  "extras_view": {
+    "entry_id": 7,
+    "rev": 12,
+    "game_folder": true,
+    "index": {
+      "state": "ok"
+    },
+    "writable": {
+      "kind": "yes"
+    },
+    "categories": [
+      {
+        "category": {
+          "kind": "fixed",
+          "name": "soundtrack"
+        },
+        "present": true,
+        "count": 1,
+        "link": false,
+        "sync": false
+      },
+      {
+        "category": {
+          "kind": "fixed",
+          "name": "manuals"
+        },
+        "present": false,
+        "count": 0,
+        "link": false,
+        "sync": null
+      },
+      {
+        "category": {
+          "kind": "fixed",
+          "name": "artwork"
+        },
+        "present": false,
+        "count": 0,
+        "link": false,
+        "sync": null
+      },
+      {
+        "category": {
+          "kind": "fixed",
+          "name": "videos"
+        },
+        "present": false,
+        "count": 0,
+        "link": false,
+        "sync": null
+      },
+      {
+        "category": {
+          "kind": "fixed",
+          "name": "themes"
+        },
+        "present": true,
+        "count": 1,
+        "link": false,
+        "sync": null
+      },
+      {
+        "category": {
+          "kind": "fixed",
+          "name": "guides"
+        },
+        "present": false,
+        "count": 0,
+        "link": false,
+        "sync": null
+      },
+      {
+        "category": {
+          "kind": "user",
+          "name": "Remixes"
+        },
+        "present": true,
+        "count": 0,
+        "link": false,
+        "sync": null
+      },
+      {
+        "category": {
+          "kind": "root"
+        },
+        "present": true,
+        "count": 1,
+        "link": false,
+        "sync": null
+      }
+    ],
+    "files": [
+      {
+        "index": 0,
+        "category": {
+          "kind": "fixed",
+          "name": "soundtrack"
+        },
+        "path": "Soundtrack/01 Opening.flac",
+        "name": "01 Opening.flac",
+        "kind": "audio",
+        "provenance": "user",
+        "format": null,
+        "tags": ["tema del jefe final"],
+        "size": 31457280,
+        "link": false,
+        "playable": "inline"
+      },
+      {
+        "index": 1,
+        "category": {
+          "kind": "fixed",
+          "name": "themes"
+        },
+        "path": "Themes/Resistance Theme.p3t",
+        "name": "Resistance Theme.p3t",
+        "kind": "other",
+        "provenance": "official",
+        "format": "ps3-p3t",
+        "tags": [],
+        "size": 2097152,
+        "link": false,
+        "playable": "reveal-only"
+      },
+      {
+        "index": 2,
+        "category": {
+          "kind": "root"
+        },
+        "path": "track01.spc",
+        "name": "track01.spc",
+        "kind": "audio",
+        "provenance": "user",
+        "format": "spc",
+        "tags": [],
+        "size": 66048,
+        "link": false,
+        "playable": "external"
+      }
+    ],
+    "missing": [
+      {
+        "index": 0,
+        "category": {
+          "kind": "fixed",
+          "name": "videos"
+        },
+        "path": "Videos/intro.mp4",
+        "name": "intro.mp4",
+        "kind": "video",
+        "provenance": "official",
+        "tags": ["intro"],
+        "size": 99
+      }
+    ],
+    "capped": false,
+    "system": "ps3",
+    "manual_inside": false
+  },
+  "extras_view_bare": {
+    "entry_id": 8,
+    "rev": 13,
+    "game_folder": false,
+    "index": {
+      "state": "absent"
+    },
+    "writable": {
+      "kind": "read-only"
+    },
+    "categories": [],
+    "files": [],
+    "missing": [],
+    "capped": false,
+    "system": "3ds",
+    "manual_inside": true
+  },
+  "extras_index_states": [
+    {
+      "state": "ok"
+    },
+    {
+      "state": "absent"
+    },
+    {
+      "state": "malformed",
+      "bad_records": 2,
+      "unreadable": null
+    },
+    {
+      "state": "newer",
+      "version": 2
+    }
+  ],
+  "extras_writabilities": [
+    {
+      "kind": "yes"
+    },
+    {
+      "kind": "read-only"
+    },
+    {
+      "kind": "busy"
+    },
+    {
+      "kind": "newer"
+    }
+  ],
+  "extras_playables": ["inline", "external", "reveal-only"],
+  "extras_errors": [
+    {
+      "code": "extras-changed"
+    },
+    {
+      "code": "extras-newer"
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "taken"
+      }
+    }
+  ],
+  "history_item_extras": {
+    "job": "20261114T120000Z-1bfb-0000",
+    "root": "/Volumes/SD",
+    "created_at": "2026-11-14T12:00:00Z",
+    "entries": 2,
+    "complete": true,
+    "undone": false,
+    "kind": "extras",
+    "undoable": true,
+    "game": "Resistance (USA)"
   }
 }
