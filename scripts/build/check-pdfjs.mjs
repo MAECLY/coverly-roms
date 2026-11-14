@@ -4,7 +4,9 @@
  *
  * - `dist/pdfjs/cmaps/` and `dist/pdfjs/standard_fonts/` hold pdf.js's data
  *   (with their licence files);
- * - pdf.js is not in the entry chunk: it loads only when a PDF opens;
+ * - pdf.js is not in the entry chunk, not in any chunk the entry imports
+ *   statically and not preloaded by `index.html`: it loads only when a PDF
+ *   opens;
  * - its own chunk and its worker are there, and neither contains an eval
  *   path (`eval(`, `new Function(`), so the CSP never needs 'unsafe-eval';
  * - nothing ships a `.wasm` file (the CSP has no 'wasm-unsafe-eval').
@@ -12,7 +14,7 @@
  *   node scripts/build/check-pdfjs.mjs [distDir]
  */
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -24,6 +26,32 @@ function pdfjsVersion(root) {
 }
 
 const EVAL = /(?<![\w$.])eval\s*\(|new\s+Function\s*\(/;
+
+/** `import … from "./x.js"`, `import "./x.js"`, `export … from "./x.js"`. */
+const STATIC_IMPORT =
+  /(?<![\w$.])(?:import|export)\s*(?:[^'"`;()]*?\s*from\s*)?["'`]\.\/([^"'`]+)["'`]/g;
+
+/**
+ * The file names in `dist/assets` that load with `entry` (a path relative
+ * to `dist`, like `assets/index-a.js`): the entry and every chunk it
+ * imports statically, transitively. Dynamic `import()`s are not followed.
+ */
+export function staticImports(dist, entry) {
+  const assets = join(dist, 'assets');
+  const seen = new Set();
+  const todo = [basename(entry)];
+  while (todo.length > 0) {
+    const f = todo.pop();
+    if (seen.has(f)) continue;
+    seen.add(f);
+    const at = join(assets, f);
+    if (!existsSync(at)) continue;
+    for (const m of readFileSync(at, 'utf8').matchAll(STATIC_IMPORT)) {
+      todo.push(basename(m[1]));
+    }
+  }
+  return [...seen];
+}
 
 /** Every problem found in `dist`; empty when the build is right. */
 export function checkPdfjsBuild(dist, version) {
@@ -53,6 +81,14 @@ export function checkPdfjsBuild(dist, version) {
   const chunk = assets.find((f) => /^pdfjs-.*\.js$/.test(f));
   const worker = assets.find((f) => /^pdf\.worker.*\.m?js$/.test(f));
   if (!chunk) problems.push('no pdfjs-*.js chunk in dist/assets');
+  if (chunk) {
+    if (staticImports(dist, entry).includes(chunk)) {
+      problems.push(`the entry chunk ${entry} loads ${chunk} at startup`);
+    }
+    if (new RegExp(`rel="modulepreload"[^>]*assets/${chunk.replace(/[.]/g, '\\.')}`).test(html)) {
+      problems.push(`dist/index.html preloads assets/${chunk}`);
+    }
+  }
   if (!worker) problems.push('no pdf.worker asset in dist/assets');
   for (const f of [chunk, worker].filter(Boolean)) {
     if (EVAL.test(readFileSync(join(dist, 'assets', f), 'utf8'))) {

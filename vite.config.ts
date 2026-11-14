@@ -85,8 +85,18 @@ export default defineConfig(async () => ({
     rolldownOptions: {
       output: {
         // pdf.js stays in its own chunk, loaded when a PDF opens (D18).
+        // Only pdf.js's own code: not the `?url` module naming the worker
+        // (the app imports it at startup) nor the helpers pdf.js shares
+        // with the app (lowered class fields), or the entry would import
+        // the whole of pdf.js at startup.
         codeSplitting: {
-          groups: [{ name: 'pdfjs', test: /node_modules[\\/]pdfjs-dist[\\/]/ }],
+          groups: [
+            {
+              name: 'pdfjs',
+              test: /node_modules[\\/]pdfjs-dist[\\/][^?]*$/,
+              includeDependenciesRecursively: false,
+            },
+          ],
         },
       },
     },
