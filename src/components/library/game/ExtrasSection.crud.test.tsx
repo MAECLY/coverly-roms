@@ -194,6 +194,36 @@ describe('ExtrasSection CRUD (extras spec §8.3, D11 b, D23)', () => {
     });
   });
 
+  describe('row menu from the keyboard and the pointer', () => {
+    it.each([
+      ['Shift+F10', { key: 'F10', shiftKey: true }],
+      ['the menu key', { key: 'ContextMenu' }],
+    ])(
+      '%s on a row opens its menu, as in the details view; Esc goes back to the row',
+      async (_, key) => {
+        show('Tidewalker');
+        const r = await listed('Tidewalker');
+        const name = row(r, 'Key Art.png');
+        name.focus();
+        fireEvent.keyDown(name, key);
+        const menu = await screen.findByRole('menu');
+        expect(
+          within(menu).getByRole('menuitem', { name: /^Renombrar/ }),
+        ).toBeInTheDocument();
+        fireEvent.keyDown(menu, { key: 'Escape' });
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+        await waitFor(() => expect(name).toHaveFocus());
+      },
+    );
+
+    it('a right click on a row opens its menu', async () => {
+      show('Tidewalker');
+      const r = await listed('Tidewalker');
+      fireEvent.contextMenu(row(r, 'Key Art.png'));
+      expect(await screen.findByRole('menu')).toBeInTheDocument();
+    });
+  });
+
   describe('move (D11 b)', () => {
     it('«Mover a…» lists the other categories and moves the file', async () => {
       show('Tidewalker');

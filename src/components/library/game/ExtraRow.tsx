@@ -109,6 +109,10 @@ export function ExtraRow({
   const selected = a.selection.has(file.index);
   const renaming = a.renaming === file.index;
   const nameRef = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  /** The menu came from the row (Shift+F10, the menu key, a right click):
+   * closing it goes back to the row, not to the «…» button. */
+  const menuFromRow = useRef(false);
   const label = [
     file.name,
     t(`extras.kind.${file.kind}`),
@@ -154,6 +158,16 @@ export function ExtraRow({
       own(() => a.trash(group()));
     else if (e.key === 'Escape' && a.selection.size > 0 && plain)
       own(() => a.clearSelection());
+    else if (
+      e.key === 'ContextMenu' ||
+      (e.key === 'F10' && e.shiftKey && !e.ctrlKey && !e.metaKey)
+    )
+      own(openMenuFromRow);
+  }
+
+  function openMenuFromRow() {
+    menuFromRow.current = true;
+    setMenuOpen(true);
   }
 
   function onClick(e: MouseEvent<HTMLButtonElement>) {
@@ -178,6 +192,10 @@ export function ExtraRow({
       onFocus={() => onFocusRow(file.index)}
       onClick={onClick}
       onDoubleClick={() => onOpen?.(file.index)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        openMenuFromRow();
+      }}
       onKeyDown={onKeyDown}
       onKeyUp={(e) => {
         // Space toggled the checkbox on keydown: no click on keyup.
@@ -253,7 +271,14 @@ export function ExtraRow({
               <Play aria-hidden />
             </button>
           )}
-          <DropdownMenu modal={false}>
+          <DropdownMenu
+            modal={false}
+            open={menuOpen}
+            onOpenChange={(open) => {
+              if (open) menuFromRow.current = false;
+              setMenuOpen(open);
+            }}
+          >
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
@@ -264,7 +289,14 @@ export function ExtraRow({
                 <MoreHorizontal aria-hidden />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent
+              align="end"
+              onCloseAutoFocus={(e) => {
+                if (!menuFromRow.current || !nameRef.current) return;
+                e.preventDefault();
+                nameRef.current.focus();
+              }}
+            >
               <DropdownMenuLabel className="extras-menu__what">
                 {official && what
                   ? t('extras.officialWhat', { what: t(what) })
