@@ -23,7 +23,9 @@ export interface ExtrasActions {
   landed: string | null;
   select(index: number, mode: SelectMode): void;
   clearSelection(): void;
-  startRename(index: number | null): void;
+  /** Starts (an index) or ends (null) an inline rename; `refocus` puts
+   * the focus back on the row (a cancel by key, not a click elsewhere). */
+  startRename(index: number | null, refocus?: boolean): void;
   /** Renames to `stem`; answers the refusal to show under the input, or
    * null when it is done. */
   rename(file: ExtraFileView, stem: string): Promise<string | null>;

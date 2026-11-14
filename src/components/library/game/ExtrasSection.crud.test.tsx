@@ -22,7 +22,7 @@ import { ExtrasSection } from './ExtrasSection';
 
 vi.mock('@/components/ui/toaster', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/components/ui/toaster')>();
-  return { ...real, toast: vi.fn() };
+  return { ...real, toast: Object.assign(vi.fn(), { dismiss: vi.fn() }) };
 });
 
 const toastMock = vi.mocked(toast);

@@ -258,7 +258,11 @@ export function ExtrasSection({
   const focusAfter = useRef<FocusAfter | null>(null);
   const drag = useRef<Drag | null>(null);
   const swallow = useRef(false);
-  const lastAction = useRef<{ entryId: number; jobs: string[] } | null>(null);
+  const lastAction = useRef<{
+    entryId: number;
+    jobs: string[];
+    toast?: string | number | undefined;
+  } | null>(null);
   const landedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -382,7 +386,12 @@ export function ExtrasSection({
     try {
       for (const job of [...jobs].reverse())
         await store().undoJob(entryId, job);
-      if (lastAction.current?.jobs === jobs) lastAction.current = null;
+      if (lastAction.current?.jobs === jobs) {
+        // Its toast's «Deshacer» would now undo nothing.
+        if (lastAction.current.toast !== undefined)
+          toast.dismiss(lastAction.current.toast);
+        lastAction.current = null;
+      }
       announce(t('extras.undone'));
     } catch (e) {
       setWriteError(toBackendError(e));
@@ -395,8 +404,7 @@ export function ExtrasSection({
     const notes = writes.flatMap((w) => noteTexts(w.notes, t));
     announce(text);
     const entryId = entry.id;
-    if (jobs.length > 0) lastAction.current = { entryId, jobs };
-    toast(text, {
+    const id: string | number | undefined = toast(text, {
       description: notes.length > 0 ? notes.join(' ') : undefined,
       duration: TOAST_MS,
       action:
@@ -407,6 +415,7 @@ export function ExtrasSection({
             }
           : undefined,
     });
+    if (jobs.length > 0) lastAction.current = { entryId, jobs, toast: id };
   }
 
   async function run(
@@ -606,7 +615,12 @@ export function ExtrasSection({
     landed,
     select: (index, mode) => store().select(index, mode),
     clearSelection: () => store().clearSelection(),
-    startRename: setRenaming,
+    startRename(index, refocus) {
+      const was = renaming === null ? undefined : fileAt(renaming);
+      if (index === null && refocus && was)
+        focusAfter.current = { path: was.path };
+      setRenaming(index);
+    },
     async rename(file, stem) {
       const [, ext] = splitExt(file.name);
       const name = `${stem.trim().normalize('NFC')}${ext}`;

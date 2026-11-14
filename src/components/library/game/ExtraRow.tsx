@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import {
   useContext,
+  useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent,
@@ -107,6 +108,7 @@ export function ExtraRow({
   const sub = subPath(file);
   const selected = a.selection.has(file.index);
   const renaming = a.renaming === file.index;
+  const nameRef = useRef<HTMLButtonElement>(null);
   const label = [
     file.name,
     t(`extras.kind.${file.kind}`),
@@ -165,6 +167,7 @@ export function ExtraRow({
     <RenameInput file={file} />
   ) : (
     <button
+      ref={nameRef}
       type="button"
       className="extras-row__name"
       data-extras-primary=""
@@ -194,6 +197,7 @@ export function ExtraRow({
       open={a.tagsFor === file.index}
       onOpenChange={(open) => a.openTags(open ? file.index : null)}
       onSave={(tags) => a.saveTags(file, tags)}
+      onReturnFocus={() => nameRef.current?.focus()}
     >
       <li
         ref={measureRef}
@@ -324,7 +328,7 @@ function RenameInput({ file }: { file: ExtraFileView }) {
 
   async function save() {
     if (value === stem) {
-      a.startRename(null);
+      a.startRename(null, true);
       return;
     }
     setSaving(true);
@@ -342,7 +346,10 @@ function RenameInput({ file }: { file: ExtraFileView }) {
           // eslint-disable-next-line jsx-a11y/no-autofocus -- the user asked to rename this row
           autoFocus
           value={value}
-          disabled={saving}
+          // Read-only, not disabled, while saving: a disabled input drops
+          // the focus, and a refused name is typed again in place.
+          readOnly={saving}
+          aria-busy={saving || undefined}
           aria-label={t('extras.renameLabel', { name: file.name })}
           aria-invalid={error !== null || undefined}
           aria-describedby={error ? `extras-rename-${file.index}` : undefined}
@@ -358,10 +365,10 @@ function RenameInput({ file }: { file: ExtraFileView }) {
             e.stopPropagation();
             if (e.key === 'Enter') {
               e.preventDefault();
-              void save();
+              if (!saving) void save();
             } else if (e.key === 'Escape') {
               e.preventDefault();
-              a.startRename(null);
+              a.startRename(null, true);
             }
           }}
         />
