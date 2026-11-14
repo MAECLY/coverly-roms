@@ -1065,3 +1065,488 @@ fn extras_undo_refuses_a_job_of_another_game_or_kind() {
     assert!(!extra(lib.path(), "Remezclas").exists());
     assert_eq!(o.undo(&job).unwrap_err(), IpcError::NothingToUndo);
 }
+
+// ---- Adds from a picker or an OS drop (part D D11, D13, P-5) ----
+
+mod adds {
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::{Arc, Mutex};
+
+    use coverly_core::consoles::{start_open_log, take_open_log};
+    use coverly_core::extras::ops::ExtrasNote;
+    use coverly_roms_lib::jobs::view::EntriesUpdatedEvent;
+    use coverly_roms_lib::library::extras::{
+        AddChoice, AddEnd, AddFinishedEvent, AddProgressEvent, AddStarted, DropPosition,
+        ExtrasAddEvents, ExtrasWriteView, Picker,
+    };
+
+    use super::*;
+
+    struct Picks(Vec<PathBuf>);
+
+    impl Picker for Picks {
+        fn pick_files(&self) -> Option<Vec<PathBuf>> {
+            Some(self.0.clone())
+        }
+    }
+
+    struct NoPick;
+
+    impl Picker for NoPick {
+        fn pick_files(&self) -> Option<Vec<PathBuf>> {
+            None
+        }
+    }
+
+    /// Records a background add; with `hold_at`, the copy waits after
+    /// that file until the test lets it go.
+    struct Recorder {
+        progress: Mutex<Vec<AddProgressEvent>>,
+        updated: Mutex<Vec<EntriesUpdatedEvent>>,
+        finished: Mutex<Sender<AddFinishedEvent>>,
+        hold_at: Option<u32>,
+        reached: Mutex<Sender<()>>,
+        release: Mutex<Receiver<()>>,
+    }
+
+    struct Handles {
+        rec: Arc<Recorder>,
+        finished: Receiver<AddFinishedEvent>,
+        reached: Receiver<()>,
+        release: Sender<()>,
+    }
+
+    fn recorder(hold_at: Option<u32>) -> Handles {
+        let (fin_tx, finished) = channel();
+        let (reach_tx, reached) = channel();
+        let (release, rel_rx) = channel();
+        Handles {
+            rec: Arc::new(Recorder {
+                progress: Mutex::default(),
+                updated: Mutex::default(),
+                finished: Mutex::new(fin_tx),
+                hold_at,
+                reached: Mutex::new(reach_tx),
+                release: Mutex::new(rel_rx),
+            }),
+            finished,
+            reached,
+            release,
+        }
+    }
+
+    impl ExtrasAddEvents for Recorder {
+        fn progress(&self, event: AddProgressEvent) {
+            let i = event.i;
+            self.progress.lock().unwrap().push(event);
+            if Some(i) == self.hold_at {
+                self.reached.lock().unwrap().send(()).unwrap();
+                self.release.lock().unwrap().recv().unwrap();
+            }
+        }
+
+        fn finished(&self, event: AddFinishedEvent) {
+            self.finished.lock().unwrap().send(event).unwrap();
+        }
+
+        fn entries_updated(&self, event: EntriesUpdatedEvent) {
+            self.updated.lock().unwrap().push(event);
+        }
+    }
+
+    fn wait(rx: &Receiver<AddFinishedEvent>) -> AddFinishedEvent {
+        rx.recv_timeout(Duration::from_secs(60))
+            .expect("the add ends")
+    }
+
+    fn done(started: AddStarted) -> ExtrasWriteView {
+        match started {
+            AddStarted::Done { write } => write,
+            other => panic!("not done at once: {other:?}"),
+        }
+    }
+
+    /// Source files outside the library, pinned.
+    fn sources(dir: &TempDir, names: &[&str]) -> Vec<PathBuf> {
+        names
+            .iter()
+            .map(|n| put(dir.path(), n, n.as_bytes()))
+            .collect()
+    }
+
+    fn many(dir: &TempDir, n: usize) -> Vec<PathBuf> {
+        let names: Vec<String> = (0..n).map(|i| format!("scan {i:02}.txt")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        sources(dir, &refs)
+    }
+
+    fn all(n: usize, category: CategoryRef) -> Vec<AddChoice> {
+        (0..n)
+            .map(|i| AddChoice {
+                index: u32::try_from(i).unwrap(),
+                category: category.clone(),
+            })
+            .collect()
+    }
+
+    fn position() -> DropPosition {
+        DropPosition { x: 10.0, y: 20.0 }
+    }
+
+    #[test]
+    fn the_picker_runs_off_the_main_thread() {
+        // The command runs the picker on a blocking worker; the state
+        // only ever sees what the picker answers, through this seam.
+        let config = TempDir::new().unwrap();
+        let lib = TempDir::new().unwrap();
+        let src = TempDir::new().unwrap();
+        let o = opened(state(&config), &lib);
+        let picked = sources(
+            &src,
+            &["01 Theme.mp3", "manual.pdf", "prod.keys", ".DS_Store"],
+        );
+        let before = snapshot(lib.path());
+        assert_eq!(
+            o.st.extras_add_pick(o.generation, o.id, &NoPick).unwrap(),
+            None
+        );
+
+        start_open_log();
+        let plan =
+            o.st.extras_add_pick(o.generation, o.id, &Picks(picked.clone()))
+                .unwrap()
+                .expect("a plan");
+        let opened = take_open_log();
+        assert!(
+            !opened.iter().any(|p| p.ends_with("prod.keys")),
+            "{opened:?}"
+        );
+        assert_eq!(snapshot(lib.path()), before, "a plan never writes");
+        assert_eq!(plan.entry_id, o.id);
+        let names: Vec<(&str, ExtrasCategory)> = plan
+            .files
+            .iter()
+            .map(|f| (f.name.as_str(), f.category))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("01 Theme.mp3", ExtrasCategory::Soundtrack),
+                ("manual.pdf", ExtrasCategory::Manuals),
+            ]
+        );
+        assert_eq!((plan.keys, plan.hidden, plan.too_many), (1, 1, false));
+        assert_eq!(plan.total, 12 + 10);
+        let json = serde_json::to_string(&plan).unwrap();
+        assert!(
+            !json.contains(src.path().to_string_lossy().as_ref()),
+            "{json}"
+        );
+
+        let (h, listed) = (recorder(None), o.list());
+        let choices = [
+            AddChoice {
+                index: 0,
+                category: CategoryRef::Fixed(ExtrasCategory::Soundtrack),
+            },
+            AddChoice {
+                index: 1,
+                category: CategoryRef::User("Escaneos".into()),
+            },
+        ];
+        let write = done(
+            o.st.extras_add_commit(
+                o.generation,
+                o.id,
+                listed.rev,
+                plan.plan,
+                &choices,
+                h.rec.clone(),
+            )
+            .unwrap(),
+        );
+        assert!(has(&write.listing, "Soundtrack/01 Theme.mp3"));
+        assert!(has(&write.listing, "Escaneos/manual.pdf"));
+        assert!(picked[0].is_file(), "a copy, never a move");
+        assert!(write.notes.contains(&ExtrasNote::KeysSkipped { n: 1 }));
+        assert!(write.notes.contains(&ExtrasNote::HiddenSkipped { n: 1 }));
+        assert!(!extra(lib.path(), "prod.keys").exists());
+        assert_eq!(h.rec.updated.lock().unwrap().len(), 1);
+        assert!(h.rec.progress.lock().unwrap().is_empty(), "a small add");
+
+        // A plan is committed once.
+        assert!(matches!(
+            o.st.extras_add_commit(
+                o.generation,
+                o.id,
+                write.listing.rev,
+                plan.plan,
+                &choices,
+                h.rec.clone(),
+            ),
+            Err(IpcError::BadRequest(_))
+        ));
+        o.undo(&write.job.unwrap()).unwrap();
+        assert!(!extra(lib.path(), "Soundtrack/01 Theme.mp3").exists());
+        assert!(!extra(lib.path(), "Escaneos").exists());
+    }
+
+    #[test]
+    fn a_plan_of_another_entry_or_an_old_rev_is_refused() {
+        let config = TempDir::new().unwrap();
+        let lib = TempDir::new().unwrap();
+        let src = TempDir::new().unwrap();
+        let o = opened(state(&config), &lib);
+        let picked = sources(&src, &["a.mp3"]);
+        let h = recorder(None);
+        let plan =
+            o.st.extras_add_pick(o.generation, o.id, &Picks(picked.clone()))
+                .unwrap()
+                .unwrap();
+        let old = o.list();
+        let new = o.list();
+        let soundtrack = all(1, CategoryRef::Fixed(ExtrasCategory::Soundtrack));
+        assert_eq!(
+            o.st.extras_add_commit(
+                o.generation,
+                o.id,
+                old.rev,
+                plan.plan,
+                &soundtrack,
+                h.rec.clone()
+            )
+            .unwrap_err(),
+            IpcError::ExtrasChanged
+        );
+        let gba = 1 - o.id.min(1);
+        assert!(o
+            .st
+            .extras_add_commit(
+                o.generation,
+                gba,
+                new.rev,
+                plan.plan,
+                &soundtrack,
+                h.rec.clone()
+            )
+            .is_err());
+        assert!(!extra(lib.path(), "Soundtrack/a.mp3").exists());
+        // A choice outside the plan is refused before anything is copied.
+        assert!(matches!(
+            o.st.extras_add_commit(
+                o.generation,
+                o.id,
+                new.rev,
+                plan.plan,
+                &all(2, CategoryRef::Root),
+                h.rec.clone()
+            ),
+            Err(IpcError::BadRequest(_))
+        ));
+        assert!(!extra(lib.path(), "a.mp3").exists());
+    }
+
+    #[test]
+    fn extras_add_dropped_copies_only_the_recorded_paths() {
+        let config = TempDir::new().unwrap();
+        let lib = TempDir::new().unwrap();
+        let src = TempDir::new().unwrap();
+        let o = opened(state(&config), &lib);
+        let files = sources(&src, &["a.mp3", "b.mp3", "Scans/c.png", "Scans/x.rap"]);
+        start_open_log();
+        let event =
+            o.st.extras_drop(vec![files[0].clone(), src.path().join("Scans")], position());
+        assert_eq!(event.items.len(), 2);
+        let h = recorder(None);
+        let listed = o.list();
+        let write = done(
+            o.st.extras_add_dropped(
+                o.generation,
+                o.id,
+                listed.rev,
+                event.token,
+                CategoryRef::Fixed(ExtrasCategory::Artwork),
+                h.rec.clone(),
+            )
+            .unwrap(),
+        );
+        let opened = take_open_log();
+        assert!(!opened.iter().any(|p| p.ends_with("x.rap")), "{opened:?}");
+        assert!(has(&write.listing, "Artwork/a.mp3"));
+        assert!(has(&write.listing, "Artwork/c.png"));
+        assert!(!has(&write.listing, "Artwork/b.mp3"), "never dropped");
+        assert!(!extra(lib.path(), "Artwork/x.rap").exists());
+        assert!(write.notes.contains(&ExtrasNote::KeysSkipped { n: 1 }));
+        // The token is spent.
+        assert_eq!(
+            o.st.extras_add_dropped(
+                o.generation,
+                o.id,
+                write.listing.rev,
+                event.token,
+                CategoryRef::Root,
+                h.rec.clone(),
+            )
+            .unwrap_err(),
+            IpcError::ExtrasRefused {
+                why: "drop-expired".into()
+            }
+        );
+        // A drop on no category asks which one: the plan of that drop.
+        let other = o.st.extras_drop(vec![files[1].clone()], position());
+        let plan =
+            o.st.extras_add_plan(o.generation, o.id, other.token)
+                .unwrap();
+        assert_eq!(plan.files.len(), 1);
+        assert_eq!(plan.files[0].name, "b.mp3");
+        assert_eq!(plan.files[0].category, ExtrasCategory::Soundtrack);
+        assert_eq!(
+            o.st.extras_add_plan(o.generation, o.id, other.token)
+                .unwrap_err(),
+            IpcError::ExtrasRefused {
+                why: "drop-expired".into()
+            }
+        );
+    }
+
+    #[test]
+    fn add_progress_events_and_cancel_keep_what_was_copied() {
+        let config = TempDir::new().unwrap();
+        let lib = TempDir::new().unwrap();
+        let src = TempDir::new().unwrap();
+        let o = opened(state(&config), &lib);
+        let n = 51;
+        let picked = many(&src, n);
+        let plan =
+            o.st.extras_add_pick(o.generation, o.id, &Picks(picked))
+                .unwrap()
+                .unwrap();
+        let h = recorder(Some(1));
+        let listed = o.list();
+        let started =
+            o.st.extras_add_commit(
+                o.generation,
+                o.id,
+                listed.rev,
+                plan.plan,
+                &all(n, CategoryRef::Fixed(ExtrasCategory::Guides)),
+                h.rec.clone(),
+            )
+            .unwrap();
+        let AddStarted::Background {
+            add,
+            n: count,
+            total,
+        } = started
+        else {
+            panic!("more than 50 files run in the background: {started:?}");
+        };
+        assert_eq!((add, count), (plan.plan, 51));
+        assert_eq!(total, plan.total);
+        h.reached
+            .recv_timeout(Duration::from_secs(60))
+            .expect("the first file is copied");
+        assert!(o.st.extras_add_cancel(add));
+        assert!(!o.st.extras_add_cancel(add + 100), "no such add");
+        h.release.send(()).unwrap();
+        let end = wait(&h.finished);
+        assert_eq!((end.entry_id, end.add), (o.id, add));
+        let AddEnd::Done { write } = end.end else {
+            panic!("{:?}", end.end);
+        };
+        assert!(write.notes.contains(&ExtrasNote::Cancelled { copied: 1 }));
+        let copied: Vec<_> = write
+            .listing
+            .files
+            .iter()
+            .filter(|f| f.category == CategoryRef::Fixed(ExtrasCategory::Guides))
+            .collect();
+        assert_eq!(copied.len(), 1, "{copied:?}");
+        let progress = h.rec.progress.lock().unwrap().clone();
+        assert_eq!(
+            progress.iter().map(|p| p.i).collect::<Vec<_>>(),
+            [0, 1],
+            "before the first file and after each"
+        );
+        assert!(progress
+            .iter()
+            .all(|p| p.entry_id == o.id && p.add == add && p.n == 51 && p.total == total));
+        assert_eq!(h.rec.updated.lock().unwrap().len(), 1);
+        // The kept copy is one undoable job; the guard is free again.
+        assert!(!o.st.extras_add_cancel(add), "it ended");
+        let undone = o.undo(&write.job.unwrap()).unwrap();
+        assert!(!undone
+            .listing
+            .files
+            .iter()
+            .any(|f| f.category == CategoryRef::Fixed(ExtrasCategory::Guides)));
+    }
+
+    #[test]
+    fn a_big_add_runs_in_the_background_and_other_writes_see_busy() {
+        let config = TempDir::new().unwrap();
+        let lib = TempDir::new().unwrap();
+        let src = TempDir::new().unwrap();
+        let o = opened(state(&config), &lib);
+        let n = 51;
+        let picked = many(&src, n);
+        let h = recorder(Some(2));
+        let event = o.st.extras_drop(picked, position());
+        let listed = o.list();
+        let started =
+            o.st.extras_add_dropped(
+                o.generation,
+                o.id,
+                listed.rev,
+                event.token,
+                CategoryRef::User("Escaneos".into()),
+                h.rec.clone(),
+            )
+            .unwrap();
+        let AddStarted::Background { add, .. } = started else {
+            panic!("{started:?}");
+        };
+        h.reached.recv_timeout(Duration::from_secs(60)).unwrap();
+        // The library stays usable for reads; writes see the busy reason.
+        let during = o.list();
+        assert_eq!(during.writable, Writability::Busy);
+        assert_eq!(
+            o.write(during.rev, ExtrasAction::Forget { missing: 0 })
+                .unwrap_err(),
+            IpcError::JobRunning
+        );
+        let other = recorder(None);
+        let again =
+            o.st.extras_drop(vec![src.path().join("scan 00.txt")], position());
+        assert_eq!(
+            o.st.extras_add_dropped(
+                o.generation,
+                o.id,
+                during.rev,
+                again.token,
+                CategoryRef::Root,
+                other.rec.clone(),
+            )
+            .unwrap_err(),
+            IpcError::JobRunning
+        );
+        h.release.send(()).unwrap();
+        let end = wait(&h.finished);
+        assert_eq!(end.add, add);
+        let AddEnd::Done { write } = end.end else {
+            panic!("{:?}", end.end);
+        };
+        assert!(write.job.is_some());
+        assert_eq!(
+            write
+                .listing
+                .files
+                .iter()
+                .filter(|f| f.category == CategoryRef::User("Escaneos".into()))
+                .count(),
+            n
+        );
+        assert_eq!(h.rec.progress.lock().unwrap().last().unwrap().i, 51);
+        assert!(o.st.jobs().begin_manual().is_ok(), "the guard is released");
+    }
+}

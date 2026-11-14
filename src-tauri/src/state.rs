@@ -99,7 +99,9 @@ use coverly_core::sources::libretro::{LibretroConfig, LibretroSource, INDEX_TTL_
 
 pub struct AppState {
     latest: AtomicU64,
-    session: Mutex<Option<Arc<Session>>>,
+    /// Shared with a background Extras add, which refreshes the entry's
+    /// counts when it ends (part D D13).
+    session: Arc<Mutex<Option<Arc<Session>>>>,
     config_dir: PathBuf,
     prefs: Mutex<Prefs>,
     /// Folders, endpoints and test timings; the settings complete it.
@@ -142,7 +144,11 @@ pub struct AppState {
     title_list: Box<dyn LatestVersions>,
     /// The last Extras listing of each entry of the open library, by
     /// revision (part D D22, P-4).
-    extras: Mutex<crate::library::extras::ExtrasCache>,
+    extras: Arc<Mutex<crate::library::extras::ExtrasCache>>,
+    /// The paths of the last OS drops, by token (part D D11, P-5).
+    drops: Mutex<crate::library::extras::DropTokens>,
+    /// Add plans for the add dialog and the running adds (part D D13).
+    adds: Arc<Mutex<crate::library::extras::AddPlans>>,
 }
 
 /// A snapshot of the stored keys, dropped when a credential is saved or
@@ -380,7 +386,7 @@ impl AppState {
         }
         AppState {
             latest: AtomicU64::new(0),
-            session: Mutex::new(None),
+            session: Arc::new(Mutex::new(None)),
             config_dir,
             prefs: Mutex::new(Prefs { settings, report }),
             base,
@@ -400,7 +406,9 @@ impl AppState {
             catalog_base: None,
             ui_locale: Mutex::new(None),
             title_list: Box::new(NoTitleList),
-            extras: Mutex::new(Default::default()),
+            extras: Arc::new(Mutex::new(Default::default())),
+            drops: Mutex::new(Default::default()),
+            adds: Arc::new(Mutex::new(Default::default())),
         }
     }
 

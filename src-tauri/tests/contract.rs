@@ -2821,3 +2821,120 @@ fn extras_write_views_match_the_shared_sample() {
         ]
     );
 }
+
+/// Adds from a picker or an OS drop (part D D11, D13): plans by index and
+/// drops by token, never a path; background progress and end.
+#[test]
+fn extras_add_views_match_the_shared_sample() {
+    use coverly_core::extras::ops::ExtrasNote;
+    use coverly_core::extras::{CategoryRef, ExtraType, ExtrasCategory, RipTags};
+    use coverly_roms_lib::library::extras::{
+        AddChoice, AddEnd, AddFileView, AddFinishedEvent, AddPlanView, AddProgressEvent,
+        AddStarted, DropEvent, DropPosition, DroppedItem, ExtrasView, ExtrasWriteView, Writability,
+    };
+
+    let plan = AddPlanView {
+        plan: 3,
+        entry_id: 7,
+        files: vec![
+            AddFileView {
+                index: 0,
+                name: "01 Opening.spc".into(),
+                size: 66_048,
+                kind: ExtraType::Audio,
+                category: ExtrasCategory::Soundtrack,
+                rip: Some(RipTags {
+                    game: Some("Super Metroid".into()),
+                    title: Some("Opening".into()),
+                    ..RipTags::default()
+                }),
+            },
+            AddFileView {
+                index: 1,
+                name: "manual.pdf".into(),
+                size: 1_200_000,
+                kind: ExtraType::Document,
+                category: ExtrasCategory::Manuals,
+                rip: None,
+            },
+        ],
+        total: 1_266_048,
+        keys: 2,
+        hidden: 1,
+        too_many: false,
+    };
+    let listing = ExtrasView {
+        entry_id: 7,
+        rev: 15,
+        game_folder: true,
+        index: coverly_core::extras::index::IndexState::Ok,
+        writable: Writability::Yes,
+        categories: vec![],
+        files: vec![],
+        missing: vec![],
+        capped: false,
+        system: "snes".into(),
+        manual_inside: false,
+    };
+    let write = ExtrasWriteView {
+        job: Some("20261114T120000Z-1bfb-0002".into()),
+        listing,
+        notes: vec![
+            ExtrasNote::Sanitised {
+                names: vec!["a_b.mp3".into()],
+            },
+            ExtrasNote::KeysSkipped { n: 2 },
+            ExtrasNote::HiddenSkipped { n: 1 },
+            ExtrasNote::Cancelled { copied: 3 },
+        ],
+    };
+    let actual = json!({
+        "extras_add_plan": plan,
+        "extras_add_started_done": AddStarted::Done { write: write.clone() },
+        "extras_add_started_background": AddStarted::Background { add: 3, n: 12, total: 4_000_000_000u64 },
+        "extras_add_progress": AddProgressEvent { entry_id: 7, add: 3, i: 3, n: 12, done: 1_200_000_000, total: 4_000_000_000 },
+        "extras_added_done": AddFinishedEvent { entry_id: 7, add: 3, end: AddEnd::Done { write } },
+        "extras_added_failed": AddFinishedEvent {
+            entry_id: 7,
+            add: 4,
+            end: AddEnd::Failed { error: IpcError::ExtrasRefused { why: "too-many".into() } },
+        },
+        "extras_drop": DropEvent {
+            token: 9,
+            position: DropPosition { x: 812.0, y: 430.5 },
+            items: vec![
+                DroppedItem { name: "01 Opening.flac".into(), size: 31_457_280, is_dir: false },
+                DroppedItem { name: "Scans".into(), size: 0, is_dir: true },
+            ],
+        },
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+
+    // What the dialog sends: a category per chosen file of the plan.
+    let req: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.requests.json")).unwrap();
+    let choices: Vec<AddChoice> =
+        serde_json::from_value(req["extras_add_choices"].clone()).unwrap();
+    assert_eq!(
+        choices,
+        [
+            AddChoice {
+                index: 0,
+                category: CategoryRef::Fixed(ExtrasCategory::Soundtrack),
+            },
+            AddChoice {
+                index: 1,
+                category: CategoryRef::User("Escaneos".into()),
+            },
+        ]
+    );
+}

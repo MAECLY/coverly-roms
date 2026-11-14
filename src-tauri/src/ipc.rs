@@ -57,6 +57,13 @@ pub const JOB_PROGRESS_EVENT: &str = "fill-job-progress";
 pub const JOB_CHANGED_EVENT: &str = "fill-job-changed";
 /// Event carrying `EntriesUpdatedEvent` after art was written.
 pub const ENTRIES_UPDATED_EVENT: &str = "library-entries-updated";
+/// An OS drop recorded under a token (part D D11): names, sizes and the
+/// position, never a path.
+pub const EXTRAS_DROP_EVENT: &str = "extras://drop";
+/// Where a background Extras add is (part D D13).
+pub const EXTRAS_PROGRESS_EVENT: &str = "extras://progress";
+/// A background Extras add ended.
+pub const EXTRAS_ADDED_EVENT: &str = "extras://added";
 /// Event carrying the saved `Settings` after an update or a reset.
 pub const SETTINGS_CHANGED_EVENT: &str = "settings-changed";
 /// Event carrying `UpdateProgressEvent` while an update downloads (throttled).
@@ -440,6 +447,118 @@ pub async fn extras_undo(
         Ok(done)
     })
     .await
+}
+
+/// The native multi-file dialog, opened from Rust (part D D13): no path
+/// crosses the bridge. Called on a blocking worker, never the main thread
+/// (where it deadlocks on macOS and GTK).
+struct DialogPicker<'a>(&'a AppHandle);
+
+impl crate::library::extras::Picker for DialogPicker<'_> {
+    fn pick_files(&self) -> Option<Vec<PathBuf>> {
+        let files = self
+            .0
+            .dialog()
+            .file()
+            .set_can_create_directories(false)
+            .blocking_pick_files()?;
+        Some(
+            files
+                .into_iter()
+                .filter_map(|f| f.into_path().ok())
+                .collect(),
+        )
+    }
+}
+
+/// Emits a background add's progress and end, and the entry's counts.
+struct TauriAddEvents(AppHandle);
+
+impl crate::library::extras::ExtrasAddEvents for TauriAddEvents {
+    fn progress(&self, event: crate::library::extras::AddProgressEvent) {
+        let _ = self.0.emit(EXTRAS_PROGRESS_EVENT, event);
+    }
+
+    fn finished(&self, event: crate::library::extras::AddFinishedEvent) {
+        let _ = self.0.emit(EXTRAS_ADDED_EVENT, event);
+    }
+
+    fn entries_updated(&self, event: EntriesUpdatedEvent) {
+        let _ = self.0.emit(ENTRIES_UPDATED_EVENT, event);
+    }
+}
+
+/// «Añadir archivos»: the native picker, then the plan the add dialog
+/// shows (files by index, never by path); `None` when cancelled.
+#[tauri::command]
+pub async fn extras_add_pick(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+) -> Result<Option<crate::library::extras::AddPlanView>, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .extras_add_pick(generation, entry_id, &DialogPicker(&app))
+    })
+    .await
+}
+
+/// The plan of OS drop `token` for the add dialog (a drop on no category).
+#[tauri::command]
+pub async fn extras_add_plan(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    token: u64,
+) -> Result<crate::library::extras::AddPlanView, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .extras_add_plan(generation, entry_id, token)
+    })
+    .await
+}
+
+/// Copies the files of plan `plan` the dialog chose, each to its category.
+#[tauri::command]
+pub async fn extras_add_commit(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    plan: u64,
+    choices: Vec<crate::library::extras::AddChoice>,
+) -> Result<crate::library::extras::AddStarted, IpcError> {
+    blocking(move || {
+        let events = Arc::new(TauriAddEvents(app.clone()));
+        app.state::<AppState>()
+            .extras_add_commit(generation, entry_id, rev, plan, &choices, events)
+    })
+    .await
+}
+
+/// Copies what OS drop `token` recorded into `category` (a drop on a
+/// category).
+#[tauri::command]
+pub async fn extras_add_dropped(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    token: u64,
+    category: coverly_core::extras::CategoryRef,
+) -> Result<crate::library::extras::AddStarted, IpcError> {
+    blocking(move || {
+        let events = Arc::new(TauriAddEvents(app.clone()));
+        app.state::<AppState>()
+            .extras_add_dropped(generation, entry_id, rev, token, category, events)
+    })
+    .await
+}
+
+/// «Cancelar» on a background add: stops after the current file.
+#[tauri::command]
+pub fn extras_add_cancel(state: State<'_, AppState>, add: u64) -> bool {
+    state.extras_add_cancel(add)
 }
 
 /// Makes this revision the default of its group (part C D7); answers the

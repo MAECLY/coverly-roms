@@ -143,5 +143,21 @@
     {
       "kind": "root"
     }
+  ],
+  "extras_add_choices": [
+    {
+      "index": 0,
+      "category": {
+        "kind": "fixed",
+        "name": "soundtrack"
+      }
+    },
+    {
+      "index": 1,
+      "category": {
+        "kind": "user",
+        "name": "Escaneos"
+      }
+    }
   ]
 }
