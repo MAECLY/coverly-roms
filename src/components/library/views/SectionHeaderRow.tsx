@@ -52,6 +52,8 @@ export function SectionHeaderRow({
   // a fact about the world, so no box and no warning colour.
   const kind = useSystemNote(section.systemId);
   const note = kind ? t(`systems.${kind}`) : null;
+  // Heard with a comma where the eye gets the hidden dot: «Taito Type X,
+  // Solo en PC…», never «Taito Type X Solo en PC» run together.
   return (
     <div
       role="row"
@@ -66,7 +68,7 @@ export function SectionHeaderRow({
         role="rowheader"
         aria-colspan={colSpan}
         aria-label={t('layouts.groupCount', {
-          group: note ? `${group} ${note}` : group,
+          group: note ? `${group}, ${note}` : group,
           n: count,
         })}
         className="section-row__label"

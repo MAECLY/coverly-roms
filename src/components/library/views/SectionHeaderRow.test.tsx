@@ -39,11 +39,13 @@ afterEach(() => {
 });
 
 describe('SectionHeaderRow (systems batch 3 §9.1)', () => {
+  // The comma is the pause the hidden dot gives the eye: without it a
+  // screen reader runs «Taito Type X PC only» together as one name.
   it('says «Sin emulador» after the name, inside the header name', () => {
     setNoEmulatorIds(['xboxseries']);
     renderRow('es', shelf('xboxseries', 'Microsoft Xbox Series X|S'));
     const header = screen.getByRole('rowheader', {
-      name: 'Microsoft Xbox Series X|S Sin emulador, 3 juegos',
+      name: 'Microsoft Xbox Series X|S, Sin emulador, 3 juegos',
     });
     const label = screen.getByText('Sin emulador');
     expect(header).toContainElement(label);
@@ -81,7 +83,7 @@ describe('SectionHeaderRow (systems batch 3 §9.1)', () => {
       setSystemNotes({ noEmulator: [], pcOnly: ['typex'] });
       renderRow(locale, shelf('typex', 'Taito Type X', 12));
       const header = screen.getByRole('rowheader', {
-        name: `Taito Type X ${note}, ${games}`,
+        name: `Taito Type X, ${note}, ${games}`,
       });
       const label = screen.getByText(note);
       expect(header).toContainElement(label);
@@ -106,7 +108,7 @@ describe('SectionHeaderRow (systems batch 3 §9.1)', () => {
     renderRow('en', shelf('xboxseries', 'Microsoft Xbox Series X|S', 2));
     expect(
       await screen.findByRole('rowheader', {
-        name: 'Microsoft Xbox Series X|S No emulator, 2 games',
+        name: 'Microsoft Xbox Series X|S, No emulator, 2 games',
       }),
     ).toBeInTheDocument();
     await act(async () => {});
