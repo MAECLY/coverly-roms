@@ -48,6 +48,9 @@ export const ERROR_CODES = [
   'keeper-required',
   'quarantine-in-system-folder',
   'large-transfer',
+  'extras-changed',
+  'extras-newer',
+  'extras-refused',
   'unknown',
 ] as const;
 
@@ -114,6 +117,14 @@ export function toBackendError(e: unknown): BackendError {
             }
           : undefined,
       );
+    }
+    if (code === 'extras-refused') {
+      // A struct variant: the kebab reason the UI renders (part D D20).
+      const why =
+        typeof detail === 'object' && detail !== null
+          ? (detail as { why?: unknown }).why
+          : detail;
+      return new BackendError(code, typeof why === 'string' ? why : undefined);
     }
     if (isErrorCode(code)) {
       return new BackendError(

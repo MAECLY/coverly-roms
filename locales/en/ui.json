@@ -485,6 +485,9 @@
     "keeper-required": "Every group needs one copy that stays. Pick the copy to keep ({detail}).",
     "quarantine-in-system-folder": "The duplicates folder cannot be inside a system folder, or hold one ({detail}). Choose another folder.",
     "large-transfer": "The size has to be confirmed before writing",
+    "extras-changed": "The extras changed outside the app; the list has been updated.",
+    "extras-newer": "extras.json comes from a newer version of Coverly; here it is view-only.",
+    "extras-refused": "This change to the extras could not be made.",
     "unknown": "Unexpected error: {detail}",
     "field": {
       "range": "Use a value from {min} to {max}.",

@@ -485,6 +485,9 @@
     "keeper-required": "Cada grupo necesita una copia que se quede. Elige la copia que conservas ({detail}).",
     "quarantine-in-system-folder": "La carpeta de duplicados no puede estar dentro de una carpeta de sistema ni contener una ({detail}). Elige otra carpeta.",
     "large-transfer": "Hace falta confirmar el tamaño antes de escribir",
+    "extras-changed": "Los extras cambiaron fuera de la app; se ha actualizado la lista.",
+    "extras-newer": "extras.json es de una versión más nueva de Coverly; aquí solo se puede ver.",
+    "extras-refused": "No se ha podido hacer este cambio en los extras.",
     "unknown": "Error inesperado: {detail}",
     "field": {
       "range": "Usa un valor entre {min} y {max}.",
