@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::addons::cheat::{is_global_cheat_db, may_be_cheat, sniff_cheat};
 use crate::addons::link::{
-    resolve, resolve_by_readme, wanted_sizes, Candidate, Candidates, GameRef, Resolution,
+    resolve, resolve_by_readme, resolve_by_untagged_stem, wanted_sizes, Candidate, Candidates,
+    GameRef, Resolution,
 };
 use crate::addons::mods::{
     is_mod_dir_without_keys, n64_htc_name, sniff_mod_dir_on_disk, ModVerdict, SMALL_FILE_CAP,
@@ -772,7 +773,8 @@ fn read_readme(path: &Path) -> Option<String> {
 }
 
 /// D5's order for one addon against `list`: its key, then a keyless
-/// patch's readme, then a patch's name.
+/// patch's readme, then a patch's name, then a patch's name without its
+/// translation tags (owner decision 2026-11-14).
 fn resolve_addon(
     c: &AddonCandidate,
     own_stem: &str,
@@ -798,11 +800,19 @@ fn resolve_addon(
                 return by_readme;
             }
         }
-        return first;
+        return untagged_or(first, own_stem, &cands);
     }
     // A patch whose key found nothing: its name (D5 name fallback).
     match resolve(&AddonKey::None, None, own_stem, &cands) {
-        Resolution::None => first,
+        Resolution::None => untagged_or(first, own_stem, &cands),
+        other => other,
+    }
+}
+
+/// The patch's name without translation tags, else `otherwise`.
+fn untagged_or(otherwise: Resolution, own_stem: &str, cands: &Candidates<'_>) -> Resolution {
+    match resolve_by_untagged_stem(own_stem, cands) {
+        Resolution::None => otherwise,
         other => other,
     }
 }

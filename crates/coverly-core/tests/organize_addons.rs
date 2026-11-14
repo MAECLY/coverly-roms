@@ -826,6 +826,76 @@ fn a_retro_patch_has_no_place_in_coverly_library() {
 }
 
 #[test]
+fn a_translation_patch_links_by_its_name_without_the_tags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(
+        &pile,
+        "Super Metroid (Japan).sfc",
+        &vec![0x02u8; 1 << 20],
+        1,
+    );
+    put(
+        &pile,
+        "Super Metroid (Japan) [T-En by Someone].ips",
+        &at::ips(),
+        2,
+    );
+    put(&pile, "Chrono Trigger (USA).sfc", &vec![0x03u8; 1 << 20], 3);
+    // A BPS whose source CRC32 matches no ROM falls back to its name.
+    put(
+        &pile,
+        "Chrono Trigger (USA) [T+Spa].bps",
+        &at::bps(1 << 20, 0xDEAD_BEEF),
+        4,
+    );
+    fs::create_dir_all(&lib).unwrap();
+    let plan = lib_plan(&pile, &lib);
+    for (patch, rom) in [
+        (
+            "Super Metroid (Japan) [T-En by Someone].ips",
+            "Super Metroid (Japan).sfc",
+        ),
+        (
+            "Chrono Trigger (USA) [T+Spa].bps",
+            "Chrono Trigger (USA).sfc",
+        ),
+    ] {
+        let rom_item = item(&plan, rom);
+        let it = item(&plan, patch);
+        assert_eq!(
+            left(it),
+            LeftReason::AddonNoPlace {
+                kind: AddonKind::Patch
+            },
+            "{patch}"
+        );
+        let link = it.game.as_ref().unwrap();
+        assert_eq!(link.of, Some(rom_item.id), "{patch}");
+        assert_eq!(link.addon.as_ref().unwrap().via, LinkVia::Name, "{patch}");
+    }
+}
+
+#[test]
+fn a_translation_patch_never_links_to_another_or_an_ambiguous_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (pile, lib) = (tmp.path().join("pile"), tmp.path().join("lib"));
+    put(&pile, "Tetris.gb", &vec![0x04u8; 1 << 20], 1);
+    put(&pile, "Tetris.nes", &vec![0x05u8; 1 << 20], 2);
+    put(&pile, "Tetris [T-Es].ips", &at::ips(), 3);
+    put(&pile, "Zelda (USA).sfc", &vec![0x06u8; 1 << 20], 4);
+    put(&pile, "Zelda (Europe) [T-Es].ips", &at::ips(), 5);
+    fs::create_dir_all(&lib).unwrap();
+    let plan = lib_plan(&pile, &lib);
+    let why = |name: &str| match left(item(&plan, name)) {
+        LeftReason::AddonUnlinked { why, .. } => why,
+        other => panic!("{name}: {other:?}"),
+    };
+    assert_eq!(why("Tetris [T-Es].ips"), UnlinkedWhy::Several { count: 2 });
+    assert_eq!(why("Zelda (Europe) [T-Es].ips"), UnlinkedWhy::NoMatch);
+}
+
+#[test]
 fn a_same_name_in_cheats_is_taken_not_numbered() {
     for same in [false, true] {
         let tmp = tempfile::tempdir().unwrap();
