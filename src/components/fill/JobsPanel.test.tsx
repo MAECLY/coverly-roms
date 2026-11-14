@@ -442,6 +442,74 @@ describe('Jobs panel', () => {
     ).toBeDisabled();
   });
 
+  it('names_extras_jobs_by_game_and_undoes_them_without_a_resume', async () => {
+    // Extras spec D10: an Extras job is listed with its kind and game, never
+    // as an organise job, and undone from the history like one.
+    const { backend } = await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const [real] = await backend.jobHistory();
+    const plain = {
+      ...real!,
+      job: 'extras-0001',
+      kind: 'extras' as const,
+      entries: 2,
+      complete: true,
+      undone: false,
+    };
+    const extras = {
+      ...plain,
+      job: 'extras-0002',
+      game: 'Tidewalker (USA)',
+      complete: false,
+    };
+    vi.spyOn(backend, 'jobHistory').mockResolvedValue([extras, plain]);
+    const undo = vi.spyOn(backend, 'organizeUndo').mockResolvedValue({
+      report: [
+        {
+          job: 'extras-0002',
+          removed: ['/t.flac'],
+          restored: ['/u.flac'],
+          skipped_modified: [],
+          skipped_occupied: [],
+          dirs_removed: [],
+          archive_lost: [],
+        },
+      ],
+      later_jobs: [],
+    });
+    const dialog = await openPanel();
+    const list = await within(dialog).findByRole('list', { name: 'History' });
+    await waitFor(() =>
+      expect(within(list).getAllByRole('listitem')).toHaveLength(2),
+    );
+    const [interrupted, unnamed] = within(list).getAllByRole('listitem');
+    expect(
+      within(interrupted!).getByText('Extras of Tidewalker (USA)'),
+    ).toBeInTheDocument();
+    expect(within(unnamed!).getByText('Extras')).toBeInTheDocument();
+    expect(
+      within(unnamed!).getByRole('button', { name: /^Undo the extras of \S/ }),
+    ).toBeInTheDocument();
+    // Nothing to resume an Extras change on: it is undone or kept.
+    expect(
+      within(interrupted!).queryByRole('button', { name: 'Resume' }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      within(interrupted!).getByRole('button', {
+        name: /^Undo the extras of Tidewalker \(USA\) from /,
+      }),
+    );
+    const confirm = screen.getByRole('alertdialog', {
+      name: /^Undo the extras of Tidewalker \(USA\) from .+\?$/,
+    });
+    await userEvent.click(
+      within(confirm).getByRole('button', { name: 'Undo 2 files' }),
+    );
+    await waitFor(() =>
+      expect(undo).toHaveBeenCalledWith('extras-0002', false),
+    );
+  });
+
   it('undoes_an_organise_job_from_its_history_row_after_confirming', async () => {
     // Organise spec §4.3: undo is also available later from the job history.
     const { backend, view } = await running();

@@ -1189,7 +1189,15 @@
     "kind": {
       "fill": "Portadas",
       "organize": "Organización",
-      "dedupe": "Duplicados"
+      "dedupe": "Duplicados",
+      "extras": "Extras"
+    },
+    "extrasOf": "Extras de {game}",
+    "extrasUndo": {
+      "label": "Deshacer los extras del {date}",
+      "labelOf": "Deshacer los extras de {game} del {date}",
+      "title": "¿Deshacer los extras del {date}?",
+      "titleOf": "¿Deshacer los extras de {game} del {date}?"
     },
     "dedupeUndo": {
       "label": "Deshacer los duplicados del {date}"

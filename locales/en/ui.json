@@ -1189,7 +1189,15 @@
     "kind": {
       "fill": "Covers",
       "organize": "Organisation",
-      "dedupe": "Duplicates"
+      "dedupe": "Duplicates",
+      "extras": "Extras"
+    },
+    "extrasOf": "Extras of {game}",
+    "extrasUndo": {
+      "label": "Undo the extras of {date}",
+      "labelOf": "Undo the extras of {game} from {date}",
+      "title": "Undo the extras of {date}?",
+      "titleOf": "Undo the extras of {game} from {date}?"
     },
     "dedupeUndo": {
       "label": "Undo the duplicates of {date}"

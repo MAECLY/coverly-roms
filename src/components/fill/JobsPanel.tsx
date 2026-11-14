@@ -243,6 +243,32 @@ export function JobsPanel({
     }
   }
 
+  /** A history row's kind; an Extras job names its game (extras D10). */
+  function kindLabel(h: JobHistoryItem) {
+    return h.kind === 'extras' && h.game
+      ? t('jobs.extrasOf', { game: h.game })
+      : t(`jobs.kind.${h.kind}`);
+  }
+
+  /** The undo of a history row that is not a fill, as a label or a title. */
+  function undoText(h: JobHistoryItem, part: 'label' | 'title') {
+    const date = when(h.created_at);
+    if (h.kind === 'extras')
+      return h.game
+        ? t(`jobs.extrasUndo.${part}Of`, { game: h.game, date })
+        : t(`jobs.extrasUndo.${part}`, { date });
+    if (part === 'label')
+      return t(
+        h.kind === 'dedupe'
+          ? 'jobs.dedupeUndo.label'
+          : 'jobs.organizeUndo.label',
+        { date },
+      );
+    return h.kind === 'dedupe'
+      ? t('dedupe.undo.title', { count: n.format(h.entries) })
+      : t('jobs.organizeUndo.title', { date });
+  }
+
   function laterJobs(detail: string | undefined) {
     return (detail ?? '')
       .split(',')
@@ -252,7 +278,7 @@ export function JobsPanel({
         const h = history.find((x: JobHistoryItem) => x.job === id);
         return h
           ? t('organize.undo.laterJob', {
-              kind: t(`jobs.kind.${h.kind}`),
+              kind: kindLabel(h),
               date: when(h.created_at),
             })
           : id;
@@ -506,7 +532,7 @@ export function JobsPanel({
               <ul className="history-list" aria-labelledby="jobs-history">
                 {history.map((h) => (
                   <li key={h.job} className="items-center">
-                    <span>{t(`jobs.kind.${h.kind}`)}</span>
+                    <span>{kindLabel(h)}</span>
                     <span>{when(h.created_at)}</span>
                     <span className="tabular-nums">
                       {h.entries === 1
@@ -526,6 +552,8 @@ export function JobsPanel({
                     )}
                     <span className="flex flex-wrap justify-end gap-1">
                       {h.kind !== 'fill' &&
+                        // An Extras change is undone or kept, never resumed.
+                        h.kind !== 'extras' &&
                         !h.complete &&
                         !h.undone &&
                         h.undoable && (
@@ -550,12 +578,7 @@ export function JobsPanel({
                               variant="outline"
                               size="sm"
                               disabled={running || organizeBusy}
-                              aria-label={t(
-                                h.kind === 'dedupe'
-                                  ? 'jobs.dedupeUndo.label'
-                                  : 'jobs.organizeUndo.label',
-                                { date: when(h.created_at) },
-                              )}
+                              aria-label={undoText(h, 'label')}
                             >
                               <Undo2 aria-hidden />
                               {t('organize.undo.action')}
@@ -564,13 +587,7 @@ export function JobsPanel({
                           <AlertDialogContent>
                             <AlertDialogHeader>
                               <AlertDialogTitle>
-                                {h.kind === 'dedupe'
-                                  ? t('dedupe.undo.title', {
-                                      count: n.format(h.entries),
-                                    })
-                                  : t('jobs.organizeUndo.title', {
-                                      date: when(h.created_at),
-                                    })}
+                                {undoText(h, 'title')}
                               </AlertDialogTitle>
                               <AlertDialogDescription>
                                 {t('jobs.organizeUndo.confirm')}
