@@ -295,30 +295,45 @@ fn vgm_systems(text: &str) -> &'static [&'static str] {
         &["gamegear"]
     } else if has("sg-1000") || has("sg1000") {
         &["sg1000"]
+    } else if (has("pc engine") || has("pc-engine") || has("turbografx"))
+        && (has("cd-rom") || has(" cd") || has("-cd"))
+    {
+        &["pcenginecd", "pcengine"]
     } else if has("pc engine") || has("pc-engine") || has("turbografx") {
         &["pcengine"]
+    } else if (has("neo geo pocket") || has("neo-geo pocket")) && has("color") {
+        &["ngpc", "ngp"]
     } else if has("neo geo pocket") || has("neo-geo pocket") {
-        &["ngp"]
+        &["ngp", "ngpc"]
     } else if has("neo geo") || has("neo-geo") {
         &["neogeo"]
     } else if has("game boy advance") {
         &["gba"]
     } else if has("game boy") || has("gameboy") {
         &["gb", "gbc"]
-    } else if (has("entertainment system") && !has("super")) || word("nes") || has("famicom") {
+    } else if has("super") && (has("famicom") || has("entertainment system")) {
+        &[]
+    } else if has("famicom disk") || word("fds") {
+        &["fds", "nes", "famicom"]
+    } else if has("entertainment system") || word("nes") || has("famicom") || has("family computer")
+    {
         &["nes", "famicom"]
     } else if has("colecovision") {
         &["colecovision"]
-    } else if word("msx") || word("msx2") {
-        &["msx"]
+    } else if word("msx2") {
+        &["msx2", "msx"]
+    } else if word("msx") {
+        &["msx", "msx2"]
     } else if has("x68000") {
         &["x68000"]
     } else if has("pc-98") || has("pc98") {
         &["pc98"]
     } else if has("pc-88") || has("pc88") {
         &["pc88"]
+    } else if has("wonderswan") && has("color") {
+        &["wonderswancolor", "wonderswan"]
     } else if has("wonderswan") {
-        &["wonderswan"]
+        &["wonderswan", "wonderswancolor"]
     } else {
         &[]
     }

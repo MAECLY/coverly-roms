@@ -286,6 +286,28 @@ fn nsfe_auth_after_a_large_data_chunk_is_read() {
 }
 
 #[test]
+fn vgm_system_text_links_only_the_consoles_it_names() {
+    let sys = |s: &str| tags("a.vgm", &vgm("t", "g", s, "a")).systems;
+    // A Super Famicom is not a Famicom.
+    assert!(!sys("Nintendo Super Famicom").contains(&"nes"));
+    assert!(!sys("Super Nintendo Entertainment System").contains(&"nes"));
+    assert_eq!(sys("Nintendo Family Computer"), ["nes", "famicom"]);
+    assert_eq!(sys("Famicom Disk System"), ["fds", "nes", "famicom"]);
+    // The colour handhelds and later models are linked too.
+    assert_eq!(sys("SNK Neo Geo Pocket Color"), ["ngpc", "ngp"]);
+    assert_eq!(sys("SNK Neo Geo Pocket"), ["ngp", "ngpc"]);
+    assert_eq!(
+        sys("Bandai WonderSwan Color"),
+        ["wonderswancolor", "wonderswan"]
+    );
+    assert_eq!(sys("Bandai WonderSwan"), ["wonderswan", "wonderswancolor"]);
+    assert_eq!(sys("MSX2"), ["msx2", "msx"]);
+    assert_eq!(sys("MSX"), ["msx", "msx2"]);
+    assert_eq!(sys("NEC PC Engine CD-ROM²"), ["pcenginecd", "pcengine"]);
+    assert_eq!(sys("Sega Mega Drive / Genesis"), ["megadrive", "genesis"]);
+}
+
+#[test]
 fn vgz_compressed_input_is_capped_too() {
     // 18 MiB of empty stored deflate blocks before the real data: no
     // output for all that input, so the input is capped as well.
