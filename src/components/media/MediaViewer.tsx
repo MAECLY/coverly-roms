@@ -39,6 +39,7 @@ import { usePlayerStore } from '@/stores/playerStore';
 import { useViewerStore } from '@/stores/viewerStore';
 
 import { ImageView } from './ImageView';
+import { PdfView, type PdfHandle, type PdfStep } from './PdfView';
 import { TextView } from './TextView';
 import { UnplayableView } from './UnplayableView';
 import { VideoView } from './VideoView';
@@ -58,18 +59,27 @@ const ZOOM_KEYS: Record<string, 1 | -1 | 0> = {
   '0': 0,
 };
 
+/** The PDF page keys (D18, §8.3). */
+const PAGE_KEYS: Record<string, PdfStep> = {
+  PageDown: 'next',
+  PageUp: 'previous',
+  Home: 'first',
+  End: 'last',
+};
+
 /** Whether `el` has content past its sides to scroll to. */
 function scrollsSideways(el: HTMLElement | null): boolean {
   return el !== null && el.scrollWidth > el.clientWidth;
 }
 
 /**
- * The Extras viewer (extras D17, D19, D23, §8.1): video, images, text and
- * an honest «doesn't play here» for the rest, in a Dialog at up to
- * 90 vw × 90 vh on the sunken surface. The header names the file
+ * The Extras viewer (extras D17, D18, D19, D23, §8.1): video, images,
+ * PDF, text and an honest «doesn't play here» for the rest, in a Dialog
+ * at up to 90 vw × 90 vh on the sunken surface. The header names the file
  * (Archivo, the one accent), its category and its place in mono; the
- * footer steps through the category (←/→), zooms images (+ − 0) and
- * reveals the file or hands an allowed type to another app. It fetches
+ * footer steps through the category (←/→), zooms images and PDFs
+ * (+ − 0), counts PDF pages (PageUp/PageDown/Home/End) and reveals the
+ * file or hands an allowed type to another app. It fetches
  * by the listing's `(rev, index)` handle, never a path; a video pauses
  * the mini player; the focus goes back to the file's row on close.
  * Opened through `viewerStore`, which also stands the library's window
@@ -117,7 +127,19 @@ export function MediaViewer({
   );
   const zoom = zoomed && zoomed.key === key ? zoomed.zoom : null;
   const fit = fitted && fitted.key === key ? fitted.fit : 1;
-  const fetches = route === 'image' || route === 'video' || route === 'text';
+  const fetches =
+    route === 'image' ||
+    route === 'video' ||
+    route === 'pdf' ||
+    route === 'text';
+  const pdfRef = useRef<PdfHandle>(null);
+  // The PDF's page counter, for the file it belongs to.
+  const [paged, setPaged] = useState<{
+    key: string;
+    page: number;
+    pages: number;
+  } | null>(null);
+  const pageAt = paged && paged.key === key ? paged : null;
   const shown: Content = !fetches
     ? { state: 'unplayable' }
     : content && content.key === key
@@ -208,6 +230,8 @@ export function MediaViewer({
   }
 
   const image = route === 'image' && shown.state === 'media';
+  const pdf = route === 'pdf' && shown.state === 'media';
+  const zooms = image || pdf;
   function zoomBy(dir: 1 | -1 | 0) {
     if (!key) return;
     setZoomed(dir === 0 ? null : { key, zoom: zoomStep(zoom, dir, fit) });
@@ -244,7 +268,13 @@ export function MediaViewer({
     if (z !== undefined) {
       // Always ours while open, so ⌘+ never zooms the webview or the covers.
       own();
-      if (image) zoomBy(z);
+      if (zooms) zoomBy(z);
+      return;
+    }
+    const step = PAGE_KEYS[e.key];
+    if (step && pdf && !media && !e.metaKey && !e.ctrlKey) {
+      own();
+      pdfRef.current?.step(step);
     }
   }
 
@@ -353,6 +383,22 @@ export function MediaViewer({
                     onUnplayable={unplayable}
                   />
                 )}
+                {shown.state === 'media' && route === 'pdf' && (
+                  <PdfView
+                    key={file.path}
+                    ref={pdfRef}
+                    url={shown.url}
+                    name={file.name}
+                    zoom={zoom}
+                    onFit={(f) => key && setFitted({ key, fit: f })}
+                    onPage={(page, pages) =>
+                      key && setPaged({ key, page, pages })
+                    }
+                    onUnplayable={unplayable}
+                    canExternal={file.playable !== 'reveal-only'}
+                    onOpenExternal={() => void handOver('external')}
+                  />
+                )}
                 {shown.state === 'media' && route === 'video' && (
                   <VideoView
                     key={file.path}
@@ -390,7 +436,19 @@ export function MediaViewer({
                     <ChevronRight aria-hidden />
                   </Button>
                 </div>
-                {image && (
+                {pdf && pageAt && (
+                  <span className="media-viewer__page" aria-live="polite">
+                    {tr(
+                      'viewer.page',
+                      {
+                        i: num.format(pageAt.page),
+                        n: num.format(pageAt.pages),
+                      },
+                      ['i', 'n'],
+                    )}
+                  </span>
+                )}
+                {zooms && (
                   <div className="media-viewer__group">
                     <Button
                       variant="ghost"

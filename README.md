@@ -942,6 +942,10 @@ Coverly builds on the work of these projects. Here is what it uses from each, it
 - [Tailwind CSS](https://tailwindcss.com/). Generates the interface styles. Licence: [MIT](https://spdx.org/licenses/MIT.html).
 - [TanStack Virtual](https://tanstack.com/virtual). Long lists that stay smooth. Licence: [MIT](https://spdx.org/licenses/MIT.html).
 - [sonner](https://sonner.emilkowal.ski/). The toast notifications. Licence: [MIT](https://spdx.org/licenses/MIT.html).
+- [pdf.js](https://mozilla.github.io/pdf.js/). The PDFs in Extras, inside the app. Licence: [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html).
+
+  > pdf.js, by Mozilla and its contributors. Includes Adobe's CMaps and the Foxit (BSD 3-Clause) and Liberation Sans (GPL v2 with font exception) standard fonts.
+
 - [class-variance-authority](https://github.com/joe-bell/cva). The components' style variants. Licence: [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html).
 - [SQLite](https://sqlite.org/). The cache and the local database. Licence: Public domain.
 - [rusqlite](https://github.com/rusqlite/rusqlite). SQLite access from Rust. Licence: [MIT](https://spdx.org/licenses/MIT.html).
