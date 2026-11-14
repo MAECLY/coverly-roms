@@ -151,9 +151,11 @@ fn organize_keeps_cave3rd_and_sends_a_loose_set_to_fbneo() {
     world.cache_set(MAME_DAT, "mushisam", &roms);
     world.cache_set(FBNEO_DAT, "mushisam", &roms);
     let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    // The sorted copy hashes like the loose one (the FBNeo DAT names it),
+    // so only its `cave3rd/` location keeps it from moving to `fbneo`.
     let sorted = s.path().join("cave3rd").join("mushisam.zip");
     fs::create_dir_all(sorted.parent().unwrap()).unwrap();
-    fs::write(&sorted, b"PK\x05\x06\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0").unwrap();
+    common::roms::zip_file(&sorted, &[(roms[0].0, roms[0].1, true)]);
     pin_mtime(&sorted, 1);
     let loose = s.path().join("mushisam.zip");
     common::roms::zip_file(&loose, &[(roms[0].0, roms[0].1, true)]);
@@ -175,4 +177,9 @@ fn organize_keeps_cave3rd_and_sends_a_loose_set_to_fbneo() {
         .flat_map(|i| i.sources.iter())
         .all(|src| src.components().all(|c| c.as_os_str() != "cave3rd")));
     assert_eq!(p.items.len(), 1);
+    // ...because `cave3rd/` is a sorted folder resolving to `cave3rd`.
+    assert!(p
+        .sorted_folders
+        .iter()
+        .any(|(dir, id)| dir == Path::new("cave3rd") && id == "cave3rd"));
 }
