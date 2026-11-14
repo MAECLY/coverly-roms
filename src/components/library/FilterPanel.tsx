@@ -241,7 +241,7 @@ export function FilterPanel({
                   onCheckedChange={() => toggleExt(x)}
                 />
               }
-              label={`.${x}`}
+              label={x === '' ? t('filters.noExt') : `.${x}`}
               count={n.format(facets.exts.get(x) ?? 0)}
             />
           ))}

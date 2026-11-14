@@ -1072,3 +1072,172 @@ fn typex_reads_no_byte() {
         assert!(cache.quick_id(&r.path, r.size, mtime).unwrap().is_none());
     }
 }
+
+/// A pile picked at a Type X game, or at a folder inside one (P5, P16):
+/// the walk lists, measures and opens nothing, and proposes nothing, so a
+/// game's own files are never read nor moved out of it.
+#[test]
+fn organize_never_walks_inside_a_type_x_game() {
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let sys = typex_library(&s.path().join("ROMS"));
+    let game = sys.join("Raiden IV (Type X)");
+    // Invented bytes: ROM-like names that would otherwise be sorted.
+    let binary: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
+    for (rel, n) in [
+        (Path::new("data").join("sound.zip"), 20),
+        (PathBuf::from("mushisam.zip"), 21),
+        (PathBuf::from("Raiden.sfc"), 22),
+    ] {
+        fs::write(game.join(&rel), &binary).unwrap();
+        pin_mtime(&game.join(&rel), n);
+    }
+    let db = SystemDb::builtin();
+    let profiles = builtin_profiles();
+    let cache = Cache::in_memory().unwrap();
+    for source in [game.clone(), game.join("data")] {
+        for layout in ["esde", "batocera"] {
+            let probe = CountingProbe::default();
+            let env = OrganizeEnv {
+                db: &db,
+                profiles: &profiles,
+                cache: &cache,
+                dats: None,
+                probe: &probe,
+                online: None,
+                titles: None,
+                now: SystemTime::now(),
+            };
+            let opts = OrganizeOptions {
+                layout: layout.into(),
+                offline: true,
+                target: Some(t.path().to_path_buf()),
+                ..OrganizeOptions::default()
+            };
+            let p = plan_organize(&source, &opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap();
+            assert!(
+                p.items.is_empty(),
+                "{layout} {}: {:?}",
+                source.display(),
+                p.items.iter().map(|i| &i.sources).collect::<Vec<_>>()
+            );
+            let seen = probe.seen.lock().unwrap().clone();
+            assert!(seen.is_empty(), "{layout}: the walk measured {seen:?}");
+        }
+    }
+    // A pile that only holds a folder named like the system is still
+    // walked: the rule is about being inside a game, not near one.
+    let world = World::new();
+    let p = plan(&world, &sys, t.path(), "esde");
+    assert!(!p.items.is_empty());
+}
+
+/// Every file and folder below `dir`, relative to it, as component lists.
+fn rel_tree(dir: &Path) -> std::collections::BTreeSet<Vec<String>> {
+    fn walk(base: &Path, dir: &Path, out: &mut std::collections::BTreeSet<Vec<String>>) {
+        for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            out.insert(
+                path.strip_prefix(base)
+                    .unwrap()
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect(),
+            );
+            if entry.file_type().unwrap().is_dir() {
+                walk(base, &path, out);
+            }
+        }
+    }
+    let mut out = std::collections::BTreeSet::new();
+    walk(dir, dir, &mut out);
+    out
+}
+
+#[test]
+fn organize_round_trip_keeps_cave3rd_and_type_x() {
+    use coverly_core::organize::{apply_organize, ApplyEnv, TransferMode};
+    use coverly_core::write::trash::FakeTrash;
+    use coverly_core::write::undo_job;
+    let world = World::new();
+    let roms: [(&str, &[u8]); 1] = [("u4", b"mushihime synthetic")];
+    world.cache_set(MAME_DAT, "mushisam", &roms);
+    world.cache_set(FBNEO_DAT, "mushisam", &roms);
+    let tmp = TempDir::new().unwrap();
+    let (pile, card, data) = (
+        tmp.path().join("pile"),
+        tmp.path().join("card"),
+        tmp.path().join("data"),
+    );
+    fs::create_dir_all(&card).unwrap();
+    for rel in [
+        Path::new("cave3rd").join("mushisam.zip"),
+        PathBuf::from("mushisam.zip"),
+    ] {
+        let path = pile.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        common::roms::zip_file(&path, &[(roms[0].0, roms[0].1, true)]);
+        pin_mtime(&path, 1);
+    }
+    touch(
+        &pile
+            .join("type-x")
+            .join("Raiden IV (Type X)")
+            .join("game.exe"),
+        2,
+    );
+    touch(&pile.join("game.exe"), 3);
+    let before = rel_tree(&pile);
+
+    let opts = OrganizeOptions {
+        layout: "batocera".into(),
+        offline: true,
+        target: Some(card.clone()),
+        mode: Some(TransferMode::Move),
+        ..OrganizeOptions::default()
+    };
+    let p = plan_organize(&pile, &opts, &world.env(), &|_| {}, &AtomicBool::new(false)).unwrap();
+    // Dry run: only the loose set moves, and to fbneo.
+    let moving: Vec<_> = p
+        .items
+        .iter()
+        .filter(|i| matches!(i.action, OrganizeAction::Auto))
+        .collect();
+    assert_eq!(moving.len(), 1, "{:?}", p.items);
+    assert_eq!(moving[0].sources[0], Path::new("mushisam.zip"));
+    assert_eq!(moving[0].system_id.as_deref(), Some("fbneo"));
+
+    let report = apply_organize(
+        &p,
+        &ApplyEnv {
+            data_dir: &data,
+            progress: &|_| {},
+            cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
+        },
+    )
+    .unwrap();
+    let after = rel_tree(&pile);
+    let mut expected = before.clone();
+    expected.remove(&vec!["mushisam.zip".to_string()]);
+    assert_eq!(after, expected, "only the loose set left the pile");
+    let landed = rel_tree(&card);
+    assert!(
+        landed
+            .iter()
+            .any(|c| c.len() >= 2 && c[c.len() - 2] == "fbneo" && c[c.len() - 1] == "mushisam.zip"),
+        "{landed:?}"
+    );
+    assert!(landed
+        .iter()
+        .all(|c| !c.iter().any(|n| n == "cave3rd" || n == "type-x")));
+
+    undo_job(&data, report.job.as_deref().unwrap()).unwrap();
+    assert_eq!(rel_tree(&pile), before, "undo restores the pile");
+    assert!(
+        rel_tree(&card)
+            .iter()
+            .all(|c| !c.iter().any(|n| n.ends_with(".zip"))),
+        "undo empties the card"
+    );
+}
