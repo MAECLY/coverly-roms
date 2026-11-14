@@ -1609,3 +1609,40 @@ fn pruning_counts_extras_apart_and_keeps_young_ones() {
     // The newest five Extras journals are the three young ones and two old.
     assert_eq!(old_left, [&old_extras[29], &old_extras[28]]);
 }
+
+#[test]
+fn a_category_emptied_by_moves_and_removed_comes_back_with_its_files_on_undo() {
+    // One Extras job moves the only file out of `Remixes/Live`, then
+    // removes `Live` and `Remixes` (children first): undo, newest first,
+    // creates the folders again before the file moves back into them.
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    let extras = root.join("Game").join("Extras");
+    let live = extras.join("Remixes").join("Live");
+    let soundtrack = extras.join("Soundtrack");
+    fs::create_dir_all(&live).unwrap();
+    fs::create_dir_all(&soundtrack).unwrap();
+    let file = live.join("encore.ogg");
+    fs::write(&file, b"ogg").unwrap();
+    coverly_core::dedupe::testing::pin_mtime(&file, 7);
+
+    let mut w = extras_job(&root, &data);
+    w.move_file(
+        &file,
+        &soundtrack.join("encore.ogg"),
+        Collision::Rename,
+        None,
+    )
+    .unwrap();
+    w.remove_empty_dir(&live).unwrap();
+    w.remove_empty_dir(&extras.join("Remixes")).unwrap();
+    let job = w.finish().unwrap();
+    assert!(!extras.join("Remixes").exists());
+
+    let report = undo_job(&data, &job).unwrap();
+    assert_eq!(fs::read(&file).unwrap(), b"ogg");
+    assert!(!soundtrack.join("encore.ogg").exists());
+    assert!(soundtrack.is_dir(), "a folder the job never created stays");
+    assert!(report.restored.contains(&live));
+    assert!(report.restored.contains(&extras.join("Remixes")));
+}
