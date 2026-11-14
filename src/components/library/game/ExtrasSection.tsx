@@ -2,6 +2,7 @@ import { Plus, Tag, Trash2, X } from 'lucide-react';
 import {
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -34,15 +35,21 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toaster';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { LocaleContext } from '@/i18n/core';
 import { useRichT } from '@/i18n/rich';
 import { useT, type TFunction } from '@/i18n/useT';
+import { getBackend } from '@/ipc/backend';
+import { EXTRAS_DROP_ROOT } from '@/ipc/dropTarget';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
 import {
   EXTRAS_CATEGORIES,
+  type AddChoice,
+  type AddFinishedEvent,
+  type AddStarted,
   type CategoryRef,
   type EntryView,
   type ExtraFileView,
@@ -55,6 +62,7 @@ import {
   categoryKey,
   categoryLabel,
   filterFiles,
+  fitsCategory,
   gameTags,
   moveTargets,
   nameKey,
@@ -64,12 +72,19 @@ import {
   splitExt,
   stepCategory,
 } from '@/lib/extras';
+import { formatSize } from '@/lib/format';
 import { isTyping, letterOf } from '@/lib/keyboard';
-import { useExtrasStore } from '@/stores/extrasStore';
+import { onAddEnd, useExtrasStore } from '@/stores/extrasStore';
 import { currentTrack, usePlayerStore } from '@/stores/playerStore';
 
 import { ExtrasCategory, VIRTUALISE_AFTER } from './ExtrasCategory';
+import {
+  ExtrasAddDialog,
+  type AddRequest,
+  type AddTags,
+} from './ExtrasAddDialog';
 import { ExtrasActionsContext, type ExtrasActions } from './extrasContext';
+import { ExtrasDropLayer, type SectionDrop } from './ExtrasDropLayer';
 import { ExtrasMissing } from './ExtrasMissing';
 
 const REASON: Record<Exclude<Writability['kind'], 'yes'>, string> = {
@@ -173,6 +188,22 @@ function noteTexts(notes: readonly ExtrasNote[], t: TFunction): string[] {
         return [t('extras.noTrash', { folder: n.folder })];
       case 'stays-no-trash':
         return [t('extras.noTrashStays')];
+      case 'renamed-dup':
+        return [t('extras.renamedDup', { name: n.name })];
+      case 'sanitised':
+        return [t('extras.nameSanitised', { names: n.names.join(', ') })];
+      case 'keys-skipped':
+        return [
+          n.n === 1
+            ? t('extras.keysSkippedOne')
+            : t('extras.keysSkipped', { n: n.n }),
+        ];
+      case 'hidden-skipped':
+        return [
+          n.n === 1
+            ? t('extras.hiddenSkippedOne')
+            : t('extras.hiddenSkipped', { n: n.n }),
+        ];
       default:
         return [];
     }
@@ -187,6 +218,13 @@ type FocusAfter =
 type Confirm =
   | { kind: 'trash'; files: number[]; name: string }
   | { kind: 'remove'; name: string; count: number };
+
+/** What an add copies, for its toast and the tags chosen in the dialog. */
+interface AddMeta {
+  entryId: number;
+  /** Where each file goes (by its source name) and the tags to set. */
+  files: { name: string; category: CategoryRef; tags: string[] }[];
+}
 
 interface Drag {
   files: number[];
@@ -204,20 +242,20 @@ interface Drag {
  * line of dashed slots, «No encontrados» last, and the CRUD of §8.3:
  * inline rename, «Mover a…», `Alt+↑/↓` and pointer drag onto a band, the
  * Trash with an undo toast, tags, tag and text filters, a selection with
- * its bulk bar, own categories and `Cmd/Ctrl+Z`. Opening it never writes
- * (D3); every write is one journaled job (D10). One roving tab stop.
+ * its bulk bar, own categories and `Cmd/Ctrl+Z`, and the adds of D13:
+ * «Añadir archivos» or a category's «+» (the native picker, then the add
+ * dialog), OS drops on a category (D11 a) and the background copy's
+ * progress line with «Cancelar». Opening it never writes (D3); every
+ * write is one journaled job (D10). One roving tab stop.
  */
 export function ExtrasSection({
   generation,
   entry,
-  onAdd,
   onOpen,
   onPlay,
 }: {
   generation: number;
   entry: EntryView;
-  /** «Añadir archivos» or a category's «+» (the add flow). */
-  onAdd?: ((category?: CategoryRef) => void) | undefined;
   onOpen?: ((index: number) => void) | undefined;
   onPlay?: ((index: number) => void) | undefined;
 }) {
@@ -233,6 +271,12 @@ export function ExtrasSection({
   const loading = useExtrasStore((s) => s.loading);
   const error = useExtrasStore((s) => s.error);
   const selection = useExtrasStore((s) => s.selection);
+  const addRun = useExtrasStore((s) =>
+    s.addRun?.entryId === entry.id ? s.addRun : null,
+  );
+  const adding = useExtrasStore((s) => s.pending === 'add');
+  const [addReq, setAddReq] = useState<AddRequest | null>(null);
+  const addMeta = useRef(new Map<number, AddMeta>());
   const track = usePlayerStore(currentTrack);
   const [writeError, setWriteError] = useState<BackendError | null>(null);
   const [focused, setFocused] = useState<number | null>(null);
@@ -326,8 +370,6 @@ export function ExtrasSection({
     },
     [],
   );
-
-  if (listing && !listing.game_folder) return null;
 
   const canWrite = listing?.writable.kind === 'yes';
   const reason =
@@ -518,6 +560,127 @@ export function ExtrasSection({
     }
     const tag = raw.trim().normalize('NFC');
     if (writes.length > 0) done(writes, t('extras.tagsSaved', { name: tag }));
+  }
+
+  /* ---------- adds (D13, D11 a) ------------------------------------- */
+
+  function addedText(meta: AddMeta, copied: number): string {
+    const keys = new Set(meta.files.map((f) => categoryKey(f.category)));
+    const first = meta.files[0]?.category;
+    if (keys.size === 1 && first) {
+      const category = categoryLabel(first, t);
+      return copied === 1
+        ? t('extras.addedOne', { category })
+        : t('extras.added', { n: copied, category });
+    }
+    return t('extras.addSpread', { n: copied });
+  }
+
+  /** The tags chosen in the add dialog, set on the copies once they are
+   * listed (a copy renamed on a collision keeps none: said in its note). */
+  async function tagAdded(meta: AddMeta): Promise<ExtrasWriteView[]> {
+    const writes: ExtrasWriteView[] = [];
+    for (const want of meta.files) {
+      if (want.tags.length === 0) continue;
+      const now = store().listing;
+      if (!now || now.entry_id !== meta.entryId) break;
+      const f = now.files.find(
+        (x) => sameCategory(x.category, want.category) && x.name === want.name,
+      );
+      if (!f) continue;
+      const next = normalizeTags([...f.tags, ...want.tags]);
+      if (!next.ok || next.tags.length === f.tags.length) continue;
+      writes.push(await store().setTags(f.index, next.tags));
+    }
+    return writes;
+  }
+
+  /** An add answered: its toast with «Deshacer» (the copy and its tags). */
+  async function landedAdd(meta: AddMeta, write: ExtrasWriteView) {
+    let tagged: ExtrasWriteView[] = [];
+    try {
+      tagged = await tagAdded(meta);
+    } catch (e) {
+      setWriteError(toBackendError(e));
+    }
+    const cancelled = write.notes.find((n) => n.kind === 'cancelled');
+    done(
+      [write, ...tagged],
+      cancelled?.kind === 'cancelled'
+        ? t('extras.cancelled', { n: cancelled.copied })
+        : addedText(meta, meta.files.length),
+    );
+  }
+
+  function addStarted(meta: AddMeta, started: AddStarted) {
+    if (started.kind === 'done') void landedAdd(meta, started.write);
+    else addMeta.current.set(started.add, meta);
+  }
+
+  /** «Añadir archivos» or a category's «+»: the native picker (opened by
+   * Rust), then the add dialog. */
+  async function pickAdd(category?: CategoryRef) {
+    setWriteError(null);
+    try {
+      const b = await getBackend();
+      const plan = await b.extrasAddPick(generation, entry.id);
+      if (plan) setAddReq({ plan, category });
+    } catch (e) {
+      setWriteError(toBackendError(e));
+    }
+  }
+
+  async function commitAdd(
+    choices: AddChoice[],
+    tags: AddTags,
+  ): Promise<BackendError | null> {
+    const req = addReq;
+    if (!req) return null;
+    const meta: AddMeta = {
+      entryId: entry.id,
+      files: choices.map((c) => ({
+        name: req.plan.files.find((f) => f.index === c.index)?.name ?? '',
+        category: c.category,
+        tags: tags[c.index] ?? [],
+      })),
+    };
+    try {
+      const started = await store().addCommit(req.plan.plan, choices);
+      setAddReq(null);
+      addStarted(meta, started);
+      return null;
+    } catch (e) {
+      return toBackendError(e);
+    }
+  }
+
+  /** An OS drop on the section (D11 a): straight into the category when
+   * every file fits it, else the add dialog (asking for the category when
+   * it landed on none). */
+  async function dropAdd(d: SectionDrop) {
+    setWriteError(null);
+    const to = d.key
+      ? (targets.find((c) => categoryKey(c) === d.key) ?? null)
+      : null;
+    const fits =
+      to !== null &&
+      d.items.length > 0 &&
+      d.items.every((i) => !i.is_dir && fitsCategory(i.name, to));
+    try {
+      if (to && fits) {
+        const meta: AddMeta = {
+          entryId: entry.id,
+          files: d.items.map((i) => ({ name: i.name, category: to, tags: [] })),
+        };
+        addStarted(meta, await store().addDropped(d.token, to));
+        return;
+      }
+      const b = await getBackend();
+      const plan = await b.extrasAddPlan(generation, entry.id, d.token);
+      setAddReq({ plan, dropped: to ?? undefined, ask: to === null });
+    } catch (e) {
+      setWriteError(toBackendError(e));
+    }
   }
 
   /* ---------- pointer drag (D11 b) ----------------------------------- */
@@ -752,7 +915,24 @@ export function ExtrasSection({
     }
   }
 
+  // A background add of this game ended: its toast, its chosen tags.
+  const addEnded = useRef<(e: AddFinishedEvent) => void>(() => {});
+  useLayoutEffect(() => {
+    addEnded.current = (e) => {
+      const meta = addMeta.current.get(e.add);
+      if (!meta) return;
+      addMeta.current.delete(e.add);
+      if (e.end.kind === 'done') void landedAdd(meta, e.end.write);
+      else setWriteError(e.end.error);
+    };
+  });
+  useEffect(() => onAddEnd((e) => addEnded.current(e)), []);
+
+  if (listing && !listing.game_folder) return null;
+
   const shownError = writeError ?? error;
+  const canAdd = canWrite && addRun === null && !adding;
+  const add = (c?: CategoryRef) => void pickAdd(c);
   const selected = selection.size;
 
   return (
@@ -764,6 +944,7 @@ export function ExtrasSection({
         data-panel-section="extras"
         data-entry={listing?.entry_id}
         data-dragging={ghost !== null || undefined}
+        {...{ [EXTRAS_DROP_ROOT]: '' }}
         className="panel-sec panel-extras"
         aria-labelledby="panel-extras-h"
         aria-busy={loading || undefined}
@@ -776,18 +957,57 @@ export function ExtrasSection({
               <small className="mono">{num.format(listing.files.length)}</small>
             )}
           </h3>
+          <ExtrasDropLayer
+            rootRef={sectionRef}
+            enabled={canAdd}
+            onOver={setDropKey}
+            onDrop={(d) => void dropAdd(d)}
+            announce={announce}
+          />
           {loading && <Spinner size="sm" className="extras-head__spin" />}
           <Button
             variant="ghost"
             size="sm"
             className="extras-head__add"
-            disabled={!canWrite}
-            onClick={() => onAdd?.()}
+            disabled={!canAdd}
+            onClick={() => add()}
           >
             <Plus aria-hidden />
             {t('extras.add')}
           </Button>
         </div>
+        {addRun && (
+          <div className="extras-progress">
+            <p
+              id="panel-extras-progress"
+              className="extras-progress__text"
+              role="status"
+            >
+              {tr('extras.copying', {
+                i: num.format(Math.min(addRun.i + 1, addRun.n)),
+                n: num.format(addRun.n),
+                done: formatSize(addRun.done, locale),
+                total: formatSize(addRun.total, locale),
+              })}
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="extras-progress__cancel"
+              disabled={addRun.cancelling}
+              onClick={() => void store().cancelAdd()}
+            >
+              {t('extras.cancel')}
+            </Button>
+            <Progress
+              size="sm"
+              className="extras-progress__bar"
+              value={addRun.done}
+              max={Math.max(addRun.total, 1)}
+              aria-labelledby="panel-extras-progress"
+            />
+          </div>
+        )}
         {reason && <p className="panel-note extras-reason">{t(reason)}</p>}
         {listing?.index.state === 'malformed' && (
           <Alert variant="warning" className="extras-alert">
@@ -924,7 +1144,7 @@ export function ExtrasSection({
               }))
             }
             onFocusRow={setFocused}
-            onAdd={onAdd}
+            onAdd={canAdd ? add : undefined}
             onOpen={onOpen}
             onPlay={onPlay}
           />
@@ -963,8 +1183,8 @@ export function ExtrasSection({
                     data-extras-band={key}
                     data-drop={dropKey === key || undefined}
                     aria-label={t('extras.addTo', { category: label })}
-                    disabled={!canWrite}
-                    onClick={() => onAdd?.(c)}
+                    disabled={!canAdd}
+                    onClick={() => add(c)}
                   >
                     {label}
                   </button>
@@ -1016,6 +1236,12 @@ export function ExtrasSection({
             </div>,
             document.body,
           )}
+        <ExtrasAddDialog
+          request={addReq}
+          targets={targets}
+          onCommit={commitAdd}
+          onClose={() => setAddReq(null)}
+        />
         <AlertDialog
           open={confirm !== null}
           onOpenChange={(o) => {
