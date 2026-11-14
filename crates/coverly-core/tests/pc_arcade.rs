@@ -656,3 +656,106 @@ fn organize_type_x_source_keeps_the_existing_skips() {
         "a quarantine is never walked"
     );
 }
+
+/// A dedupe env over `cache` with the given byte reader (scan → plan).
+fn dedupe_plan(
+    root: &Path,
+    p: &Profile,
+    cache: &Cache,
+    bytes: &dyn coverly_core::dedupe::keys::FileBytes,
+) -> coverly_core::dedupe::DedupePlan {
+    use coverly_core::archive::Limits;
+    use coverly_core::dedupe::archive::ArchiveEntryListing;
+    use coverly_core::dedupe::testing::FakeDiscProbe;
+    use coverly_core::dedupe::{plan_dedupe, DedupeEnv, DedupeOptions};
+    use coverly_core::scan::{scan_library, ScanOptions};
+    use coverly_core::settings::{DedupeLevel, Settings};
+    let db = SystemDb::builtin();
+    let settings = Settings::default();
+    let mut opts = DedupeOptions::from_settings(&settings.dedupe);
+    opts.levels = vec![
+        DedupeLevel::Exact,
+        DedupeLevel::Format,
+        DedupeLevel::Version,
+    ];
+    opts.one_game_one_rom = true;
+    let env = DedupeEnv {
+        cache,
+        db: &db,
+        profile: p,
+        settings: &settings,
+        listing: &ArchiveEntryListing::new(Limits::default()),
+        discs: &FakeDiscProbe::new(),
+        dats: None,
+        bytes,
+        progress: &|_| {},
+        cancel: &AtomicBool::new(false),
+    };
+    let scan = scan_library(root, p, &db, &ScanOptions::default());
+    plan_dedupe(&scan, &opts, &env).unwrap()
+}
+
+#[test]
+fn dedupe_skips_typex() {
+    use coverly_core::dedupe::archive::ArchiveEntryListing;
+    use coverly_core::dedupe::testing::CountingBytes;
+    use coverly_core::dedupe::units::{units_from_scan, Exclusion, UnitOptions};
+    use coverly_core::scan::{scan_library, ScanOptions};
+    // P15: the same title twice, same bytes: no group, nothing read.
+    let p = profile("esde");
+    let tmp = TempDir::new().unwrap();
+    let sys = tmp.path().join(&p.roms_root).join("type-x");
+    let bytes: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
+    for (game, n) in [("Raiden IV (Type X)", 1), ("Raiden IV.exe", 2)] {
+        let f = sys.join(game).join("game.exe");
+        fs::create_dir_all(f.parent().unwrap()).unwrap();
+        fs::write(&f, &bytes).unwrap();
+        pin_mtime(&f, n);
+    }
+    let cache = Cache::in_memory().unwrap();
+    let counting = CountingBytes::new();
+    let plan = dedupe_plan(tmp.path(), &p, &cache, &counting);
+    assert!(plan.groups.is_empty(), "{:?}", plan.groups);
+    assert_eq!(counting.opens(), 0, "no file opened");
+
+    let db = SystemDb::builtin();
+    let scan = scan_library(tmp.path(), &p, &db, &ScanOptions::default());
+    let set = units_from_scan(
+        &scan,
+        &db,
+        &UnitOptions::for_profile(&p),
+        &ArchiveEntryListing::new(coverly_core::archive::Limits::default()),
+    );
+    assert!(set.units.is_empty(), "{:?}", set.units);
+    assert!(set
+        .excluded
+        .iter()
+        .any(|(path, why)| path == &sys && *why == Exclusion::Folder));
+}
+
+#[test]
+fn esde_typex_art_path() {
+    use coverly_core::art::target_path;
+    use coverly_core::profiles::Media;
+    let db = SystemDb::builtin();
+    let p = profile("esde");
+    let root = Path::new("lib");
+    let sys_dir = root.join(&p.roms_root).join("type-x");
+    let got = target_path(
+        root,
+        &p,
+        &sys_dir,
+        db.get("typex").unwrap(),
+        Path::new(""),
+        "Chaos Code.exe",
+        Media::Cover,
+    )
+    .unwrap();
+    // Known limitation (P8, owner question): ES-DE reads
+    // downloaded_media/type-x/, Coverly writes the system id. A later
+    // `{system_folder}` fix changes this on purpose.
+    let want = root.join("downloaded_media").join("typex").join("covers");
+    assert_eq!(got.parent().unwrap(), want);
+    assert_eq!(got.file_stem().unwrap(), "Chaos Code.exe");
+    assert_eq!(got.extension().unwrap(), "png");
+}

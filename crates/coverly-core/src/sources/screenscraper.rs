@@ -24,7 +24,7 @@ use crate::identify::names::{parse_name, Region};
 use crate::integrations::SsQuota;
 use crate::net::{host_of, Http, HttpRequest, HttpResponse, Limiter, NetError};
 use crate::profiles::Media;
-use crate::systems::System;
+use crate::systems::{Family, System};
 
 pub const SCREENSCRAPER_BASE: &str = crate::net::hosts::SCREENSCRAPER_BASE;
 pub const SOURCE_ID: &str = "screenscraper";
@@ -65,8 +65,8 @@ impl Default for SsConfig {
     }
 }
 
-/// The ScreenScraper media type for a Coverly media (arcade covers are
-/// flyers).
+/// The ScreenScraper media type for a Coverly media: arcade covers, and
+/// those of the arcade family (Type X), are flyers.
 pub fn media_type(media: Media, arcade: bool) -> &'static str {
     match media {
         Media::Cover if arcade => "flyer",
@@ -599,7 +599,12 @@ impl ArtSource for ScreenScraperSource<'_> {
         let Some(name) = game.name().map(str::to_string) else {
             return Ok(Vec::new());
         };
-        let wanted = media_type(q.media, q.system.arcade);
+        // Arcade-family systems that are not `arcade` (Type X) keep their
+        // covers as flyers too (spec 2026-10-26-pc-arcade P11).
+        let wanted = media_type(
+            q.media,
+            q.system.arcade || q.system.family == Family::Arcade,
+        );
         // A media without a region (`media=<type>`) or with a code Coverly
         // has no region for (`ss`, `cus`...) is region-agnostic: no region,
         // so it ranks after every region of the user's order, and it is
