@@ -73,6 +73,20 @@ pub fn is_folder_per_game(id: &str) -> bool {
     FOLDER_PER_GAME_SYSTEMS.contains(&id)
 }
 
+/// Whether `path` is a game of a folder-per-game system, or lies inside
+/// one: one of its folders (itself included) sits directly in a folder
+/// that resolves to such a system under `profile`. The path is resolved
+/// first, so `..` and links name where they lead.
+pub fn inside_folder_per_game(path: &Path, db: &SystemDb, profile: Option<&Profile>) -> bool {
+    let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    resolved.ancestors().any(|dir| {
+        dir.parent()
+            .and_then(Path::file_name)
+            .and_then(|n| db.resolve_folder_in(profile, &n.to_string_lossy()))
+            .is_some_and(|s| is_folder_per_game(&s.id))
+    })
+}
+
 /// The suffix of a folder-per-game folder name (`Chaos Code.exe` →
 /// `exe`), lowercase; `None` when the last `.ext` is not one of
 /// [`FOLDER_PER_GAME_SUFFIXES`] or nothing precedes it.
@@ -452,6 +466,11 @@ pub struct WalkOptions<'a> {
 /// returned error.
 pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walked> {
     fs::read_dir(source)?;
+    // A pile picked at a Type X game, or inside one (P5, P16): nothing in
+    // it is listed, measured or opened, and nothing leaves the game.
+    if inside_folder_per_game(source, db, opts.profile) {
+        return Ok(Walked::default());
+    }
 
     let mut out = Walked::default();
     let mut sorted: Vec<(PathBuf, String)> = Vec::new();
