@@ -2243,6 +2243,7 @@
     "copying": "Copiando {i} de {n} · {done} de {total}",
     "cancel": "Cancelar",
     "cancelled": "Cancelado: se copiaron {n} archivos; puedes deshacerlo.",
+    "cancelledOne": "Cancelado: se copió 1 archivo; puedes deshacerlo.",
     "dropHint": "Suelta en una categoría para copiar",
     "whichCategory": "¿A qué categoría?",
     "hiddenSkipped": "{n} archivos ocultos no se añaden.",

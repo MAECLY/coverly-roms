@@ -49,7 +49,6 @@ import {
   EXTRAS_CATEGORIES,
   type AddChoice,
   type AddFinishedEvent,
-  type AddStarted,
   type CategoryRef,
   type EntryView,
   type ExtraFileView,
@@ -74,7 +73,13 @@ import {
 } from '@/lib/extras';
 import { formatSize } from '@/lib/format';
 import { isTyping, letterOf } from '@/lib/keyboard';
-import { onAddEnd, useExtrasStore } from '@/stores/extrasStore';
+import {
+  onAddEnd,
+  useExtrasStore,
+  type AddLaunched,
+  type AddTagged,
+  type AddTagWant,
+} from '@/stores/extrasStore';
 import { currentTrack, usePlayerStore } from '@/stores/playerStore';
 
 import { ExtrasCategory, VIRTUALISE_AFTER } from './ExtrasCategory';
@@ -223,7 +228,27 @@ type Confirm =
 interface AddMeta {
   entryId: number;
   /** Where each file goes (by its source name) and the tags to set. */
-  files: { name: string; category: CategoryRef; tags: string[] }[];
+  files: AddTagWant[];
+  /** An OS drop copied straight away: its key and hidden files are in
+   * `files` but skipped by Rust (said in the write's notes). */
+  dropped?: boolean;
+}
+
+/** The background adds in flight, by add: kept outside the section so a
+ * section opened again (another game, the same one) still gives the toast
+ * with «Deshacer» when the copy ends. */
+const ADDS = new Map<number, AddMeta>();
+
+/** How many files an add copied: a straight drop leaves out the key and
+ * hidden files Rust skipped. */
+function copiedCount(meta: AddMeta, write: ExtrasWriteView): number {
+  if (!meta.dropped) return meta.files.length;
+  const skipped = write.notes.reduce(
+    (s, n) =>
+      n.kind === 'keys-skipped' || n.kind === 'hidden-skipped' ? s + n.n : s,
+    0,
+  );
+  return Math.max(0, meta.files.length - skipped);
 }
 
 interface Drag {
@@ -276,7 +301,6 @@ export function ExtrasSection({
   );
   const adding = useExtrasStore((s) => s.pending === 'add');
   const [addReq, setAddReq] = useState<AddRequest | null>(null);
-  const addMeta = useRef(new Map<number, AddMeta>());
   const track = usePlayerStore(currentTrack);
   const [writeError, setWriteError] = useState<BackendError | null>(null);
   const [focused, setFocused] = useState<number | null>(null);
@@ -441,11 +465,14 @@ export function ExtrasSection({
   }
 
   /** A finished write: the toast with «Deshacer», the live region. */
-  function done(writes: readonly ExtrasWriteView[], text: string) {
+  function done(
+    writes: readonly ExtrasWriteView[],
+    text: string,
+    entryId: number = entry.id,
+  ) {
     const jobs = writes.flatMap((w) => (w.job ? [w.job] : []));
     const notes = writes.flatMap((w) => noteTexts(w.notes, t));
     announce(text);
-    const entryId = entry.id;
     const id: string | number | undefined = toast(text, {
       description: notes.length > 0 ? notes.join(' ') : undefined,
       duration: TOAST_MS,
@@ -576,45 +603,24 @@ export function ExtrasSection({
     return t('extras.addSpread', { n: copied });
   }
 
-  /** The tags chosen in the add dialog, set on the copies once they are
-   * listed (a copy renamed on a collision keeps none: said in its note). */
-  async function tagAdded(meta: AddMeta): Promise<ExtrasWriteView[]> {
-    const writes: ExtrasWriteView[] = [];
-    for (const want of meta.files) {
-      if (want.tags.length === 0) continue;
-      const now = store().listing;
-      if (!now || now.entry_id !== meta.entryId) break;
-      const f = now.files.find(
-        (x) => sameCategory(x.category, want.category) && x.name === want.name,
-      );
-      if (!f) continue;
-      const next = normalizeTags([...f.tags, ...want.tags]);
-      if (!next.ok || next.tags.length === f.tags.length) continue;
-      writes.push(await store().setTags(f.index, next.tags));
-    }
-    return writes;
-  }
-
-  /** An add answered: its toast with «Deshacer» (the copy and its tags). */
-  async function landedAdd(meta: AddMeta, write: ExtrasWriteView) {
-    let tagged: ExtrasWriteView[] = [];
-    try {
-      tagged = await tagAdded(meta);
-    } catch (e) {
-      setWriteError(toBackendError(e));
-    }
+  /** An add answered: its toast with «Deshacer» (the copy and the tags
+   * chosen for it, set by the store). */
+  function landedAdd(meta: AddMeta, write: ExtrasWriteView, tagged: AddTagged) {
+    if (tagged.error) setWriteError(tagged.error);
     const cancelled = write.notes.find((n) => n.kind === 'cancelled');
-    done(
-      [write, ...tagged],
-      cancelled?.kind === 'cancelled'
-        ? t('extras.cancelled', { n: cancelled.copied })
-        : addedText(meta, meta.files.length),
-    );
+    let text: string;
+    if (cancelled?.kind === 'cancelled')
+      text =
+        cancelled.copied === 1
+          ? t('extras.cancelledOne')
+          : t('extras.cancelled', { n: cancelled.copied });
+    else text = addedText(meta, copiedCount(meta, write));
+    done([write, ...tagged.writes], text, meta.entryId);
   }
 
-  function addStarted(meta: AddMeta, started: AddStarted) {
-    if (started.kind === 'done') void landedAdd(meta, started.write);
-    else addMeta.current.set(started.add, meta);
+  function addStarted(meta: AddMeta, started: AddLaunched) {
+    if (started.kind === 'done') landedAdd(meta, started.write, started.tagged);
+    else ADDS.set(started.add, meta);
   }
 
   /** «Añadir archivos» or a category's «+»: the native picker (opened by
@@ -645,7 +651,11 @@ export function ExtrasSection({
       })),
     };
     try {
-      const started = await store().addCommit(req.plan.plan, choices);
+      const started = await store().addCommit(
+        req.plan.plan,
+        choices,
+        meta.files,
+      );
       setAddReq(null);
       addStarted(meta, started);
       return null;
@@ -671,6 +681,7 @@ export function ExtrasSection({
         const meta: AddMeta = {
           entryId: entry.id,
           files: d.items.map((i) => ({ name: i.name, category: to, tags: [] })),
+          dropped: true,
         };
         addStarted(meta, await store().addDropped(d.token, to));
         return;
@@ -916,17 +927,19 @@ export function ExtrasSection({
   }
 
   // A background add of this game ended: its toast, its chosen tags.
-  const addEnded = useRef<(e: AddFinishedEvent) => void>(() => {});
+  const addEnded = useRef<(e: AddFinishedEvent, tagged: AddTagged) => void>(
+    () => {},
+  );
   useLayoutEffect(() => {
-    addEnded.current = (e) => {
-      const meta = addMeta.current.get(e.add);
+    addEnded.current = (e, tagged) => {
+      const meta = ADDS.get(e.add);
       if (!meta) return;
-      addMeta.current.delete(e.add);
-      if (e.end.kind === 'done') void landedAdd(meta, e.end.write);
+      ADDS.delete(e.add);
+      if (e.end.kind === 'done') landedAdd(meta, e.end.write, tagged);
       else setWriteError(e.end.error);
     };
   });
-  useEffect(() => onAddEnd((e) => addEnded.current(e)), []);
+  useEffect(() => onAddEnd((e, tagged) => addEnded.current(e, tagged)), []);
 
   if (listing && !listing.game_folder) return null;
 

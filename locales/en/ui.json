@@ -2243,6 +2243,7 @@
     "copying": "Copying {i} of {n} · {done} of {total}",
     "cancel": "Cancel",
     "cancelled": "Cancelled: {n} files were copied; you can undo it.",
+    "cancelledOne": "Cancelled: 1 file was copied; you can undo it.",
     "dropHint": "Drop on a category to copy",
     "whichCategory": "Which category?",
     "hiddenSkipped": "{n} hidden files are not added.",

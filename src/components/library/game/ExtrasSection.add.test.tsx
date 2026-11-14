@@ -178,6 +178,62 @@ describe('ExtrasSection adds (D11 a, D13, §8.3)', () => {
     ).not.toHaveAttribute('data-drop');
   });
 
+  it('a drop counts only the files it copied, not the hidden ones it skipped', async () => {
+    await setup();
+    const r = await show('Moss Garden');
+    const tops = layout(r);
+    act(() => {
+      b.emitDrop({
+        names: ['Boss.flac', '._Boss.flac'],
+        position: { x: 10, y: tops['fixed:soundtrack']! + 5 },
+      });
+    });
+    await waitFor(() =>
+      expect(lastToast()[0]).toBe('Copiado 1 archivo a Banda sonora'),
+    );
+    expect(
+      (lastToast()[1] as unknown as { description?: string }).description,
+    ).toBe('1 archivo oculto no se añade.');
+  });
+
+  it('a background add that ends after the game changed still gets its toast and undo', async () => {
+    await setup('many');
+    const tide = entry('Tidewalker');
+    const before = (await b.extrasList(lib.generation, tide.id)).files.length;
+    const view = render(
+      <I18nProvider locale="es">
+        <ExtrasSection key={tide.id} generation={lib.generation} entry={tide} />
+      </I18nProvider>,
+    );
+    const r = await screen.findByRole('region', { name: /^Extras/ });
+    await waitFor(() => expect(r).not.toHaveAttribute('aria-busy', 'true'));
+    fireEvent.click(within(r).getByRole('button', { name: 'Añadir archivos' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Copiar 60 archivos' }),
+    );
+    await within(r).findByText(/^Copiando/);
+    const moss = entry('Moss Garden');
+    view.rerender(
+      <I18nProvider locale="es">
+        <ExtrasSection key={moss.id} generation={lib.generation} entry={moss} />
+      </I18nProvider>,
+    );
+    await waitFor(() =>
+      expect(lastToast()?.[0]).toBe('Copiados 60 archivos a Arte'),
+    );
+    expect((await b.extrasList(lib.generation, tide.id)).files.length).toBe(
+      before + 60,
+    );
+    const opts = lastToast()[1] as unknown as { action: { onClick(): void } };
+    act(() => opts.action.onClick());
+    await waitFor(async () =>
+      expect((await b.extrasList(lib.generation, tide.id)).files.length).toBe(
+        before,
+      ),
+    );
+  });
+
   it('a drop with a file that does not fit opens the dialog, keeping the fitting ones there', async () => {
     await setup();
     const r = await show('Moss Garden');
@@ -246,14 +302,18 @@ describe('ExtrasSection adds (D11 a, D13, §8.3)', () => {
     ).toBeDisabled();
     fireEvent.click(within(r).getByRole('button', { name: 'Cancelar' }));
     await waitFor(() =>
-      expect(String(lastToast()[0])).toMatch(
-        /^Cancelado: se copiaron \d+ archivos; puedes deshacerlo\.$/,
-      ),
+      expect(String(lastToast()?.[0])).toMatch(/^Cancelado: /),
     );
     expect(within(r).queryByText(/^Copiando/)).not.toBeInTheDocument();
     const copied = files().length - before;
     expect(copied).toBeGreaterThan(0);
     expect(copied).toBeLessThan(60);
+    // The exact count, in the singular for one file.
+    expect(lastToast()[0]).toBe(
+      copied === 1
+        ? 'Cancelado: se copió 1 archivo; puedes deshacerlo.'
+        : `Cancelado: se copiaron ${copied} archivos; puedes deshacerlo.`,
+    );
     const opts = lastToast()[1] as unknown as { action: { onClick(): void } };
     act(() => opts.action.onClick());
     await waitFor(() => expect(files().length).toBe(before));
