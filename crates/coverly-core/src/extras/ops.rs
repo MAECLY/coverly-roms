@@ -611,7 +611,9 @@ fn name_taken(dir: &Path, name: &str, own: &str) -> Result<bool, ExtrasError> {
 /// rules of D1/D14 or another file holds it; a change of case (or of
 /// Unicode normalization) only goes through a temporary name, as the
 /// no-clobber rename sees the target as taken on case-insensitive disks.
-/// The file's record follows it; the same name is no job at all.
+/// The file's record follows it; the same name is no job at all. Key
+/// material keeps its name ([`NameRefusal::Reserved`]): renamed to a plain
+/// name (`keys.txt` to `notes.txt`) the viewer would read it.
 pub fn rename(
     ctx: &ExtrasCtx,
     listing: &Listing,
@@ -620,6 +622,9 @@ pub fn rename(
 ) -> Result<ExtrasOutcome, ExtrasError> {
     check_game_dir(ctx)?;
     let f = listed_file(listing, file)?;
+    if is_key_material(&f.name) {
+        return Err(ExtrasError::Name(NameRefusal::Reserved));
+    }
     let extras = extras_dir(ctx.game_dir);
     let from = path_of(&extras, f)?;
     let dir = from.parent().ok_or(ExtrasError::Changed)?.to_path_buf();

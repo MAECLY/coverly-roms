@@ -778,6 +778,25 @@ fn moving_within_its_own_category_changes_nothing() {
     assert_eq!(fx.jobs(), 0);
 }
 
+#[test]
+fn key_material_keeps_its_name() {
+    // A key file renamed into a plain name would be read by the viewer
+    // (`keys.txt` -> `notes.txt`): the app never renames one.
+    let fx = Fx::new();
+    for name in ["keys.txt", "AES_KEYS.TXT", "game.rap"] {
+        fx.put(&format!("Guides/{name}"), b"synthetic", 3);
+        let l = fx.listing();
+        let i = file_index(&l, &format!("Guides/{name}"));
+        let err = rename(&fx.ctx(), &l, i, "notes").unwrap_err();
+        assert!(
+            matches!(err, ExtrasError::Name(NameRefusal::Reserved)),
+            "{name}: {err:?}"
+        );
+        assert!(fx.extras().join("Guides").join(name).exists());
+    }
+    assert_eq!(fx.jobs(), 0);
+}
+
 #[cfg(unix)]
 #[test]
 fn a_symlinked_file_cannot_be_moved_or_renamed() {
