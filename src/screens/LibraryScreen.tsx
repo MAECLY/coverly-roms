@@ -28,6 +28,7 @@ import { MountsView } from '@/components/library/views/MountsView';
 import { QuickLook } from '@/components/library/views/QuickLook';
 import { ShelvesView } from '@/components/library/views/ShelvesView';
 import type { ViewContent, ViewProps } from '@/components/library/views/types';
+import { MiniPlayer } from '@/components/media/MiniPlayer';
 import { ReportsPanel } from '@/components/reports/ReportsPanel';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -45,6 +46,7 @@ import { useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
 import { useSelectionStore } from '@/stores/selectionStore';
+import { useViewerStore } from '@/stores/viewerStore';
 import { useVisibleEntries } from '@/stores/useVisibleEntries';
 import { useViewStore } from '@/stores/viewStore';
 
@@ -176,6 +178,8 @@ export function LibraryScreen() {
       // (alert dialog, tooltip) that already handled Escape marks it
       // defaultPrevented: the drawer stays open.
       if (overlay !== 'none' || ev.defaultPrevented) return;
+      // The Extras media viewer owns `/` and Escape while open (D23).
+      if (useViewerStore.getState().open !== null) return;
       const find = ev.key === 'f' && (ev.metaKey || ev.ctrlKey);
       if (find || (ev.key === '/' && !isTyping(ev.target))) {
         ev.preventDefault();
@@ -352,6 +356,9 @@ export function LibraryScreen() {
           />
         )}
       </div>
+      {/* With the panel closed the mini player folds into a strip; the
+          panel docks its own (extras D19). */}
+      {!((docked || drawerOpen) && selected) && <MiniPlayer variant="strip" />}
       <StatusBar
         total={counts}
         shown={orphansOpen ? counts : shownCounts}

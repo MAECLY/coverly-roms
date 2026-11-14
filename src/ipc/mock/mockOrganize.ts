@@ -124,6 +124,7 @@ import {
   type AdjustPile,
 } from './adjustFixture';
 import { MOCK_ADDONS, MOCK_ADDONS_HUGE } from './addonViewsFixture';
+import { MOCK_EXTRAS } from './extrasFixture';
 import { MOCK_DISC_ARCHIVES, type MockArchiveEntry } from './discFixture';
 import {
   GAME_FOLDER_FILES,
@@ -155,7 +156,7 @@ export const MOCK_PICK_KEY = 'coverly.mock.pick';
 /**
  * What "Open folder…" picks in the browser mock, so the organise offer is
  * reachable from the start screen:
- * `?mockPick=downloads|loose|mixed|retro|modern|current|huge|switch|odd|discs|dupes-title|gamefolders|mods|addons|addons-huge|<absolute path>` (or
+ * `?mockPick=downloads|loose|mixed|retro|modern|current|huge|switch|odd|discs|dupes-title|gamefolders|mods|addons|addons-huge|extras|<absolute path>` (or
  * localStorage `coverly.mock.pick`). `downloads` is the owner's pile as it
  * is now (`MOCK_SAMPLE`), `loose` the same pile before any of it was sorted
  * (`MOCK_DOWNLOADS`), `retro` the systems batch 1 pile (`MOCK_RETRO`),
@@ -170,7 +171,10 @@ export const MOCK_PICK_KEY = 'coverly.mock.pick';
  * add-ons library of part C (`MOCK_ADDONS`, `addonViewsFixture.ts`: games
  * with updates, DLC, demos and revisions, opened as a library without
  * Organizar) and `addons-huge` its 10 000-game variant
- * (`MOCK_ADDONS_HUGE`, 50 000 updates and DLC, the D1 performance check).
+ * (`MOCK_ADDONS_HUGE`, 50 000 updates and DLC, the D1 performance check),
+ * and `extras` the Extras library of part D (`MOCK_EXTRAS`,
+ * `extrasFixture.ts`: game folders showing every state of the Extras
+ * section, with media the viewer plays).
  * Null: the first fixture library, as before.
  */
 export function readMockPick(): string | null {
@@ -190,6 +194,7 @@ export function readMockPick(): string | null {
     if (v === 'mods') return MOCK_MODS;
     if (v === 'addons') return MOCK_ADDONS;
     if (v === 'addons-huge') return MOCK_ADDONS_HUGE;
+    if (v === 'extras') return MOCK_EXTRAS;
     return v && v.startsWith('/') ? v : null;
   };
   try {

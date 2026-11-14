@@ -160,10 +160,13 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
   applyArtUpdates(generation, updates) {
     const view = get().view;
     if (!view || view.generation !== generation || updates.length === 0) return;
-    const byId = new Map(updates.map((u) => [u.id, u.art]));
+    const byId = new Map(updates.map((u) => [u.id, u]));
     const entries = view.entries.map((e) => {
-      const art = byId.get(e.id);
-      return art ? { ...e, art } : e;
+      const u = byId.get(e.id);
+      if (!u) return e;
+      return u.addons
+        ? { ...e, art: u.art, addons: u.addons }
+        : { ...e, art: u.art };
     });
     dropArtUrls(generation, [...byId.keys()]);
     set({ view: { ...view, entries } });

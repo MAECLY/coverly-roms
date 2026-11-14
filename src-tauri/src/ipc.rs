@@ -57,6 +57,13 @@ pub const JOB_PROGRESS_EVENT: &str = "fill-job-progress";
 pub const JOB_CHANGED_EVENT: &str = "fill-job-changed";
 /// Event carrying `EntriesUpdatedEvent` after art was written.
 pub const ENTRIES_UPDATED_EVENT: &str = "library-entries-updated";
+/// An OS drop recorded under a token (part D D11): names, sizes and the
+/// position, never a path.
+pub const EXTRAS_DROP_EVENT: &str = "extras://drop";
+/// Where a background Extras add is (part D D13).
+pub const EXTRAS_PROGRESS_EVENT: &str = "extras://progress";
+/// A background Extras add ended.
+pub const EXTRAS_ADDED_EVENT: &str = "extras://added";
 /// Event carrying the saved `Settings` after an update or a reset.
 pub const SETTINGS_CHANGED_EVENT: &str = "settings-changed";
 /// Event carrying `UpdateProgressEvent` while an update downloads (throttled).
@@ -222,6 +229,411 @@ pub async fn game_details(
             .game_details(generation, entry_id, request)
     })
     .await
+}
+
+/// A game's `Extras/` by entry id, with the revision later handles name
+/// (part D D4, D22): read off the UI thread, never written.
+#[tauri::command]
+pub async fn extras_list(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+) -> Result<crate::library::extras::ExtrasView, IpcError> {
+    blocking(move || app.state::<AppState>().extras_list(generation, entry_id)).await
+}
+
+/// Runs one Extras write (part D D10, D22) and emits the entry's new
+/// counts as `library-entries-updated`.
+async fn extras_write(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    action: crate::library::extras::ExtrasAction,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    blocking(move || {
+        let done = app
+            .state::<AppState>()
+            .extras_write(generation, entry_id, rev, action)?;
+        if let Some(event) = done.updated {
+            let _ = app.emit(ENTRIES_UPDATED_EVENT, event);
+        }
+        Ok(done.view)
+    })
+    .await
+}
+
+/// Renames extra `index` of listing `rev` to the typed `stem` (its
+/// extension stays).
+#[tauri::command]
+pub async fn extras_rename(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    index: u32,
+    stem: String,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::Rename { index, stem },
+    )
+    .await
+}
+
+/// Moves extras `files` of listing `rev` into category `to`.
+#[tauri::command]
+pub async fn extras_move(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    files: Vec<u32>,
+    to: coverly_core::extras::CategoryRef,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::Move { files, to },
+    )
+    .await
+}
+
+/// Sends extras `files` of listing `rev` to the Trash (set aside where
+/// the drive has none; never a permanent delete).
+#[tauri::command]
+pub async fn extras_trash(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    files: Vec<u32>,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::Trash { files },
+    )
+    .await
+}
+
+/// Replaces the tags of extra `index` of listing `rev`.
+#[tauri::command]
+pub async fn extras_set_tags(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    index: u32,
+    tags: Vec<String>,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::SetTags { index, tags },
+    )
+    .await
+}
+
+/// «Olvidar»: drops record `missing` of listing `rev`'s «No encontrados».
+#[tauri::command]
+pub async fn extras_forget(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    missing: u32,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::Forget { missing },
+    )
+    .await
+}
+
+/// Creates the user category `name`.
+#[tauri::command]
+pub async fn extras_category_create(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    name: String,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::CategoryCreate { name },
+    )
+    .await
+}
+
+/// Renames the user category `from` to `to`.
+#[tauri::command]
+pub async fn extras_category_rename(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    from: String,
+    to: String,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::CategoryRename { from, to },
+    )
+    .await
+}
+
+/// Removes the user category `name`, its files to the Trash.
+#[tauri::command]
+pub async fn extras_category_remove(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    name: String,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::CategoryRemove { name },
+    )
+    .await
+}
+
+/// Undoes Extras job `job` of this game and answers its listing after.
+#[tauri::command]
+pub async fn extras_undo(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    job: String,
+) -> Result<crate::library::extras::ExtrasUndone, IpcError> {
+    blocking(move || {
+        let done = app
+            .state::<AppState>()
+            .extras_undo(generation, entry_id, &job)?;
+        if let Some(event) = &done.updated {
+            let _ = app.emit(ENTRIES_UPDATED_EVENT, event);
+        }
+        Ok(done)
+    })
+    .await
+}
+
+/// Grants extra `index` of listing `rev` to the asset protocol, that one
+/// file only (part D D12), and answers what `convertFileSrc` needs.
+#[tauri::command]
+pub async fn extras_media(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    index: u32,
+) -> Result<crate::library::extras_media::MediaView, IpcError> {
+    blocking(move || {
+        let scope = app.asset_protocol_scope();
+        app.state::<AppState>()
+            .extras_media(generation, entry_id, rev, index, &scope)
+    })
+    .await
+}
+
+/// The text of extra `index` (txt, md, nfo; at most 1 MiB, D17).
+#[tauri::command]
+pub async fn extras_read_text(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    index: u32,
+) -> Result<crate::library::extras_media::TextView, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .extras_read_text(generation, entry_id, rev, index)
+    })
+    .await
+}
+
+/// Shows extra `index` in Finder / Explorer / the file manager.
+#[tauri::command]
+pub async fn extras_reveal(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    index: u32,
+) -> Result<(), IpcError> {
+    blocking(move || {
+        let path = app
+            .state::<AppState>()
+            .extras_reveal_target(generation, entry_id, rev, index)?;
+        app.opener()
+            .reveal_item_in_dir(path)
+            .map_err(|e| IpcError::Io(e.to_string()))
+    })
+    .await
+}
+
+/// Opens extra `index` with the system's app for its type: allow-listed
+/// types only (D17); executables, scripts, shortcuts and packages are
+/// refused (`reveal-only`).
+#[tauri::command]
+pub async fn extras_open_external(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    index: u32,
+) -> Result<(), IpcError> {
+    blocking(move || {
+        let path = app
+            .state::<AppState>()
+            .extras_open_target(generation, entry_id, rev, index)?;
+        // The path itself, not a lossy string of it.
+        tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| IpcError::Io(e.to_string()))
+    })
+    .await
+}
+
+/// The native multi-file dialog, opened from Rust (part D D13): no path
+/// crosses the bridge. Called on a blocking worker, never the main thread
+/// (where it deadlocks on macOS and GTK).
+struct DialogPicker<'a>(&'a AppHandle);
+
+impl crate::library::extras::Picker for DialogPicker<'_> {
+    fn pick_files(&self) -> Option<Vec<PathBuf>> {
+        let files = self
+            .0
+            .dialog()
+            .file()
+            .set_can_create_directories(false)
+            .blocking_pick_files()?;
+        Some(
+            files
+                .into_iter()
+                .filter_map(|f| f.into_path().ok())
+                .collect(),
+        )
+    }
+}
+
+/// Emits a background add's progress and end, and the entry's counts.
+struct TauriAddEvents(AppHandle);
+
+impl crate::library::extras::ExtrasAddEvents for TauriAddEvents {
+    fn progress(&self, event: crate::library::extras::AddProgressEvent) {
+        let _ = self.0.emit(EXTRAS_PROGRESS_EVENT, event);
+    }
+
+    fn finished(&self, event: crate::library::extras::AddFinishedEvent) {
+        let _ = self.0.emit(EXTRAS_ADDED_EVENT, event);
+    }
+
+    fn entries_updated(&self, event: EntriesUpdatedEvent) {
+        let _ = self.0.emit(ENTRIES_UPDATED_EVENT, event);
+    }
+}
+
+/// «Añadir archivos»: the native picker, then the plan the add dialog
+/// shows (files by index, never by path); `None` when cancelled.
+#[tauri::command]
+pub async fn extras_add_pick(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+) -> Result<Option<crate::library::extras::AddPlanView>, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .extras_add_pick(generation, entry_id, &DialogPicker(&app))
+    })
+    .await
+}
+
+/// The plan of OS drop `token` for the add dialog (a drop on no category).
+#[tauri::command]
+pub async fn extras_add_plan(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    token: u64,
+) -> Result<crate::library::extras::AddPlanView, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .extras_add_plan(generation, entry_id, token)
+    })
+    .await
+}
+
+/// Copies the files of plan `plan` the dialog chose, each to its category.
+#[tauri::command]
+pub async fn extras_add_commit(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    plan: u64,
+    choices: Vec<crate::library::extras::AddChoice>,
+) -> Result<crate::library::extras::AddStarted, IpcError> {
+    blocking(move || {
+        let events = Arc::new(TauriAddEvents(app.clone()));
+        app.state::<AppState>()
+            .extras_add_commit(generation, entry_id, rev, plan, &choices, events)
+    })
+    .await
+}
+
+/// Copies what OS drop `token` recorded into `category` (a drop on a
+/// category).
+#[tauri::command]
+pub async fn extras_add_dropped(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    token: u64,
+    category: coverly_core::extras::CategoryRef,
+) -> Result<crate::library::extras::AddStarted, IpcError> {
+    blocking(move || {
+        let events = Arc::new(TauriAddEvents(app.clone()));
+        app.state::<AppState>()
+            .extras_add_dropped(generation, entry_id, rev, token, category, events)
+    })
+    .await
+}
+
+/// «Cancelar» on a background add: stops after the current file.
+#[tauri::command]
+pub fn extras_add_cancel(state: State<'_, AppState>, add: u64) -> bool {
+    state.extras_add_cancel(add)
 }
 
 /// Makes this revision the default of its group (part C D7); answers the

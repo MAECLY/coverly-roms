@@ -139,6 +139,22 @@ pub enum NotARom {
     EmulatorCache,
     /// An emulator's per-game settings file (game folders spec D18).
     EmulatorConfig,
+    /// A music rip (SPC, NSF, GBS, VGM, the PSF family; extras spec D15),
+    /// recognised by its extension: never a game, linked to one only by
+    /// its own tags.
+    Music,
+}
+
+/// Extensions (lowercase) of music rips (extras spec D15). An `.rsn` (a
+/// RAR of SPCs) is not here: it stays an archive.
+pub const MUSIC_EXTS: [&str; 18] = [
+    "spc", "nsf", "nsfe", "gbs", "vgm", "vgz", "psf", "minipsf", "psf2", "gsf", "minigsf", "usf",
+    "miniusf", "2sf", "mini2sf", "ssf", "dsf", "qsf",
+];
+
+/// Whether `ext` (any case) is a music rip's extension.
+pub fn is_music_ext(ext: &str) -> bool {
+    MUSIC_EXTS.iter().any(|m| m.eq_ignore_ascii_case(ext))
 }
 
 /// Container formats recognised by their magic (contents not read here).
@@ -282,6 +298,13 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
 /// readers may use (Switch title-id tokens, spec D10); `""` when unknown.
 pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sniff {
     let ext = ext.to_ascii_lowercase();
+    // A music rip by its extension, never read (extras spec D15).
+    if is_music_ext(&ext) {
+        return Sniff {
+            not_a_rom: Some(NotARom::Music),
+            ..Sniff::default()
+        };
+    }
     if let Some(s) = sniff_by_name(&ext) {
         return s;
     }

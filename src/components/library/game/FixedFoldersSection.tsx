@@ -1,8 +1,10 @@
 import { useContext } from 'react';
 
+import { Button } from '@/components/ui/button';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import type { EntryView } from '@/ipc/types';
+import { useViewStore } from '@/stores/viewStore';
 
 /** The count Rust stops at per folder (D9): then it says «más de». */
 export const FOLDER_COUNT_CAP = 10_000;
@@ -12,8 +14,9 @@ const FOLDERS = ['mods', 'cheats', 'extras', 'saves'] as const;
 /**
  * «Mods, trucos, extras y partidas» in the game panel (addon views §8.8 6,
  * D9): read-only file counts of the game folder's fixed folders, collapsed
- * by default. No action writes from here: the Extras manager is part D
- * and saves arrive with block 5, which the placeholder says.
+ * by default. No action writes from here: «Ver extras» scrolls to the
+ * Extras section (part D) and saves arrive with block 5, which the
+ * placeholder says.
  */
 export function FixedFoldersSection({ entry }: { entry: EntryView }) {
   const t = useT();
@@ -48,7 +51,20 @@ export function FixedFoldersSection({ entry }: { entry: EntryView }) {
             data-empty={counts[f] === 0 || undefined}
           >
             <dt>{t(`gameFolder.${f}`)}</dt>
-            <dd className="mono">{text(counts[f])}</dd>
+            {f === 'extras' ? (
+              <dd className="panel-folders__extras">
+                <span className="mono">{text(counts[f])}</span>
+                <Button
+                  variant="link"
+                  size="sm"
+                  onClick={() => useViewStore.getState().openDrawer('extras')}
+                >
+                  {t('extras.seeExtras')}
+                </Button>
+              </dd>
+            ) : (
+              <dd className="mono">{text(counts[f])}</dd>
+            )}
           </div>
         ))}
       </dl>

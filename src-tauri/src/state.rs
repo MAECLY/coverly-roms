@@ -99,7 +99,9 @@ use coverly_core::sources::libretro::{LibretroConfig, LibretroSource, INDEX_TTL_
 
 pub struct AppState {
     latest: AtomicU64,
-    session: Mutex<Option<Arc<Session>>>,
+    /// Shared with a background Extras add, which refreshes the entry's
+    /// counts when it ends (part D D13).
+    session: Arc<Mutex<Option<Arc<Session>>>>,
     config_dir: PathBuf,
     prefs: Mutex<Prefs>,
     /// Folders, endpoints and test timings; the settings complete it.
@@ -140,6 +142,13 @@ pub struct AppState {
     /// The offline title list that knows a title's newest version (the 3.1
     /// seam, part C D6): [`NoTitleList`] until 3.1 ships one.
     title_list: Box<dyn LatestVersions>,
+    /// The last Extras listing of each entry of the open library, by
+    /// revision (part D D22, P-4).
+    extras: Arc<Mutex<crate::library::extras::ExtrasCache>>,
+    /// The paths of the last OS drops, by token (part D D11, P-5).
+    drops: Mutex<crate::library::extras::DropTokens>,
+    /// Add plans for the add dialog and the running adds (part D D13).
+    adds: Arc<Mutex<crate::library::extras::AddPlans>>,
 }
 
 /// A snapshot of the stored keys, dropped when a credential is saved or
@@ -307,6 +316,7 @@ fn check_organize_data_dir(cfg: &FillConfig, roots: &[&Path]) -> Result<(), IpcE
 }
 
 mod catalog;
+mod extras;
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -376,7 +386,7 @@ impl AppState {
         }
         AppState {
             latest: AtomicU64::new(0),
-            session: Mutex::new(None),
+            session: Arc::new(Mutex::new(None)),
             config_dir,
             prefs: Mutex::new(Prefs { settings, report }),
             base,
@@ -396,6 +406,9 @@ impl AppState {
             catalog_base: None,
             ui_locale: Mutex::new(None),
             title_list: Box::new(NoTitleList),
+            extras: Arc::new(Mutex::new(Default::default())),
+            drops: Mutex::new(Default::default()),
+            adds: Arc::new(Mutex::new(Default::default())),
         }
     }
 
@@ -970,12 +983,120 @@ impl AppState {
         })
     }
 
-    /// Every journal kept, newest first.
+    /// Every journal kept, newest first; an Extras job carries the game
+    /// folder it wrote in (its root is the library, part D P-1).
     pub fn job_history(&self) -> Result<Vec<JobHistoryView>, IpcError> {
-        Ok(list_jobs(&self.fill_config().data_dir)?
+        let data_dir = self.fill_config().data_dir.clone();
+        Ok(list_jobs(&data_dir)?
             .into_iter()
-            .map(JobHistoryView::from)
+            .map(|s| {
+                let game = (s.kind == JobKind::Extras)
+                    .then(|| coverly_core::write::job_targets(&data_dir, &s.job).ok())
+                    .flatten()
+                    .and_then(|targets| crate::library::extras::job_game(&s.root, &targets));
+                JobHistoryView {
+                    game,
+                    ..JobHistoryView::from(s)
+                }
+            })
             .collect())
+    }
+
+    /// Lists entry `id`'s `Extras/` (blocking; part D D4, D22): never
+    /// writes, keeps the listing under a new revision for later handles,
+    /// and answers view only while a job or a write holds the library.
+    pub fn extras_list(
+        &self,
+        generation: u64,
+        id: u32,
+    ) -> Result<crate::library::extras::ExtrasView, IpcError> {
+        let session = self.session(generation)?;
+        let (game_dir, listing) = crate::library::extras::read_listing(&session, id)?;
+        let system = session.entries[id as usize].system_id.clone();
+        let listed = lock(&self.extras).store(generation, id, game_dir, listing);
+        Ok(crate::library::extras::view(
+            id,
+            &system,
+            &listed,
+            self.jobs.occupied(),
+            self.trash.as_ref(),
+        ))
+    }
+
+    /// The file at `index` of entry `id`'s listing `rev`:
+    /// [`IpcError::ExtrasChanged`] once a newer listing replaced it.
+    pub fn extras_handle(
+        &self,
+        generation: u64,
+        id: u32,
+        rev: u64,
+        index: u32,
+    ) -> Result<crate::library::extras::ExtrasHandle, IpcError> {
+        self.session(generation)?;
+        let listed = lock(&self.extras).get(generation, id, rev)?;
+        crate::library::extras::handle(&listed, index)
+    }
+
+    /// Grants file `index` of entry `id`'s listing `rev` to the asset
+    /// protocol `scope`, alone, after the canonical checks of part D D12
+    /// (a regular file under the game's `Extras/` inside the open library,
+    /// not a link, not key material, unchanged since the listing).
+    pub fn extras_media(
+        &self,
+        generation: u64,
+        id: u32,
+        rev: u64,
+        index: u32,
+        scope: &tauri::scope::fs::Scope,
+    ) -> Result<crate::library::extras_media::MediaView, IpcError> {
+        let session = self.session(generation)?;
+        let handle = self.extras_handle(generation, id, rev, index)?;
+        let (canon, view) =
+            crate::library::extras_media::media_target(&handle, &session.root_canon)?;
+        scope
+            .allow_file(&canon)
+            .map_err(|e| IpcError::Io(e.to_string()))?;
+        Ok(view)
+    }
+
+    /// The text of file `index` (txt, md, nfo; at most 1 MiB, D17).
+    pub fn extras_read_text(
+        &self,
+        generation: u64,
+        id: u32,
+        rev: u64,
+        index: u32,
+    ) -> Result<crate::library::extras_media::TextView, IpcError> {
+        let session = self.session(generation)?;
+        let handle = self.extras_handle(generation, id, rev, index)?;
+        crate::library::extras_media::read_text(&handle, &session.root_canon)
+    }
+
+    /// The path of file `index` to hand to another app: allow-listed
+    /// types only (D17), resolved here, never sent by the webview.
+    pub fn extras_open_target(
+        &self,
+        generation: u64,
+        id: u32,
+        rev: u64,
+        index: u32,
+    ) -> Result<PathBuf, IpcError> {
+        let session = self.session(generation)?;
+        let handle = self.extras_handle(generation, id, rev, index)?;
+        crate::library::extras_media::open_target(&handle, &session.root_canon)
+    }
+
+    /// The path of file `index` to show in the file manager.
+    pub fn extras_reveal_target(
+        &self,
+        generation: u64,
+        id: u32,
+        rev: u64,
+        index: u32,
+    ) -> Result<PathBuf, IpcError> {
+        let session = self.session(generation)?;
+        let handle = self.extras_handle(generation, id, rev, index)?;
+        crate::library::extras_media::reveal_target(&handle, &session.root_canon)
     }
 
     /// Resolves the art of `ids` again and installs the updated session,

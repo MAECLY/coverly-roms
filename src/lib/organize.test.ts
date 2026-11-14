@@ -1757,6 +1757,11 @@ describe('game folders (spec §9.1, §10)', () => {
       'No es una ROM (caché de un emulador)',
       'Not a ROM (emulator settings)',
     ]);
+    const music: LeftReason = { kind: 'not-a-rom', what: 'music' };
+    expect([leftReasonText(t, music), leftReasonText(tEn, music)]).toEqual([
+      'No es una ROM (música)',
+      'Not a ROM (music)',
+    ]);
   });
 
   it('a licence goes with its base, or stays when the core left it', () => {
@@ -1930,6 +1935,17 @@ describe('mods and cheats (mods spec §9, §10)', () => {
       'dlc.cia',
       '0004000000055D00',
       '0004000000055D00.txt',
+    ]);
+    // An extra row (part D) goes last, after the cheats.
+    const theme = ds(6, 'theme.cia', {
+      target: `${DIR}/Extras/Themes/theme.cia`,
+      game: { role: 'extra', of: 0 },
+    });
+    expect(names(updatesUnderBases([theme, cheat, base, update]))).toEqual([
+      'Pokemon Y.cia',
+      'upd.cia',
+      '0004000000055D00.txt',
+      'theme.cia',
     ]);
     // An addon linked to a library base (no `of`) keeps its place.
     const loose = ds(5, 'loose.ips', {

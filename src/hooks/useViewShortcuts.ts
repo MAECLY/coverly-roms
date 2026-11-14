@@ -8,6 +8,7 @@ import {
   type ViewId,
   type ViewPrefs,
 } from '@/lib/viewPrefs';
+import { useViewerStore } from '@/stores/viewerStore';
 
 /** Views with a cover size slider (spec §B.4.1). */
 const SIZED_VIEWS: ReadonlySet<ViewId> = new Set(['covers', 'shelves']);
@@ -24,7 +25,8 @@ const WHEEL_IDLE_MS = 400;
 export interface ViewShortcutOptions {
   prefs: ViewPrefs;
   setPrefs(patch: Partial<ViewPrefs>): void;
-  /** False while something owns the keyboard (an overlay, the art workspace). */
+  /** False while something owns the keyboard (an overlay, the art
+   * workspace). The Extras media viewer always disables it while open. */
   enabled?: boolean;
 }
 
@@ -94,7 +96,13 @@ export function useViewShortcuts({
 
     function active(views: ReadonlySet<ViewId>): boolean {
       const { prefs: p, enabled: on } = latest.current;
-      return on && views.has(p.view) && !behindDialog();
+      // The media viewer owns `+ - 0` while open (extras D23).
+      return (
+        on &&
+        views.has(p.view) &&
+        !behindDialog() &&
+        useViewerStore.getState().open === null
+      );
     }
 
     function resize(next: CoverSize): void {

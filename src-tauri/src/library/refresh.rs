@@ -11,7 +11,7 @@ use coverly_core::scan::{LibraryScan, SystemScan};
 use coverly_core::systems::SystemDb;
 use serde::Serialize;
 
-use super::view::ArtMarks;
+use super::view::{ArtMarks, FolderCountsView};
 use super::Session;
 
 /// New art marks of one entry.
@@ -19,6 +19,10 @@ use super::Session;
 pub struct EntryArtUpdate {
     pub id: u32,
     pub art: ArtMarks,
+    /// The game folder's fixed-folder counts read again, after a write in
+    /// its `Extras/` (part D D22); absent when they did not change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub addons: Option<FolderCountsView>,
 }
 
 /// The art files that exist, per media.
@@ -90,6 +94,7 @@ pub fn refresh_entries(
         updates.push(EntryArtUpdate {
             id,
             art: ArtMarks::from_states(&rom_art.art),
+            addons: None,
         });
     }
     (next, updates)

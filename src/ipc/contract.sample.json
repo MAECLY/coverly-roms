@@ -2537,6 +2537,21 @@
     "path": "ROMS/GB/Tetris (World) (Rev 1).gb",
     "relation": "version"
   },
+  "organize_report_extras": {
+    "copied": 0,
+    "extras_saved": [
+      "/Users/me/ROMs/PS3/Resistance (USA)/Extras/extras.broken-20261114-120000.json"
+    ],
+    "extras_unwritten": ["/Users/me/ROMs/PS3/Tidewalker/Extras"],
+    "failed": 0,
+    "items": [],
+    "job": "20261114T120000Z-1bfb-0005",
+    "moved": 2,
+    "pause_reason": null,
+    "paused": null,
+    "resumable_items": [],
+    "skipped": 0
+  },
   "organize_report_set_aside": {
     "copied": 0,
     "failed": 0,
@@ -3103,6 +3118,7 @@
     { "kind": "game-folder-content", "folder": "mods", "of": "Pokemon Y" },
     { "kind": "not-a-rom", "what": "emulator-cache" },
     { "kind": "not-a-rom", "what": "emulator-config" },
+    { "kind": "not-a-rom", "what": "music" },
     { "kind": "licence-of", "of": "Resistance.pkg" }
   ],
   "game_folder_notes": [
@@ -3117,7 +3133,15 @@
     "extras",
     "saves"
   ],
-  "game_folder_roles": ["base", "update", "dlc", "demo", "mod", "cheat"],
+  "game_folder_roles": [
+    "base",
+    "update",
+    "dlc",
+    "demo",
+    "mod",
+    "cheat",
+    "extra"
+  ],
   "addon_item": {
     "action": "auto",
     "alternatives": [],
@@ -3589,5 +3613,750 @@
   "unknown_child": {
     "code": "unknown-child",
     "detail": 3
-  }
+  },
+  "extras_view": {
+    "entry_id": 7,
+    "rev": 12,
+    "game_folder": true,
+    "index": {
+      "state": "ok"
+    },
+    "writable": {
+      "kind": "yes"
+    },
+    "categories": [
+      {
+        "category": {
+          "kind": "fixed",
+          "name": "soundtrack"
+        },
+        "present": true,
+        "count": 1,
+        "link": false,
+        "sync": false
+      },
+      {
+        "category": {
+          "kind": "fixed",
+          "name": "manuals"
+        },
+        "present": false,
+        "count": 0,
+        "link": false,
+        "sync": null
+      },
+      {
+        "category": {
+          "kind": "fixed",
+          "name": "artwork"
+        },
+        "present": false,
+        "count": 0,
+        "link": false,
+        "sync": null
+      },
+      {
+        "category": {
+          "kind": "fixed",
+          "name": "videos"
+        },
+        "present": false,
+        "count": 0,
+        "link": false,
+        "sync": null
+      },
+      {
+        "category": {
+          "kind": "fixed",
+          "name": "themes"
+        },
+        "present": true,
+        "count": 1,
+        "link": false,
+        "sync": null
+      },
+      {
+        "category": {
+          "kind": "fixed",
+          "name": "guides"
+        },
+        "present": false,
+        "count": 0,
+        "link": false,
+        "sync": null
+      },
+      {
+        "category": {
+          "kind": "user",
+          "name": "Remixes"
+        },
+        "present": true,
+        "count": 0,
+        "link": false,
+        "sync": null
+      },
+      {
+        "category": {
+          "kind": "root"
+        },
+        "present": true,
+        "count": 1,
+        "link": false,
+        "sync": null
+      }
+    ],
+    "files": [
+      {
+        "index": 0,
+        "category": {
+          "kind": "fixed",
+          "name": "soundtrack"
+        },
+        "path": "Soundtrack/01 Opening.flac",
+        "name": "01 Opening.flac",
+        "kind": "audio",
+        "provenance": "user",
+        "format": null,
+        "tags": ["tema del jefe final"],
+        "size": 31457280,
+        "link": false,
+        "playable": "inline"
+      },
+      {
+        "index": 1,
+        "category": {
+          "kind": "fixed",
+          "name": "themes"
+        },
+        "path": "Themes/Resistance Theme.p3t",
+        "name": "Resistance Theme.p3t",
+        "kind": "other",
+        "provenance": "official",
+        "format": "ps3-p3t",
+        "tags": [],
+        "size": 2097152,
+        "link": false,
+        "playable": "reveal-only"
+      },
+      {
+        "index": 2,
+        "category": {
+          "kind": "root"
+        },
+        "path": "track01.spc",
+        "name": "track01.spc",
+        "kind": "audio",
+        "provenance": "user",
+        "format": "spc",
+        "tags": [],
+        "size": 66048,
+        "link": false,
+        "playable": "external"
+      }
+    ],
+    "missing": [
+      {
+        "index": 0,
+        "category": {
+          "kind": "fixed",
+          "name": "videos"
+        },
+        "path": "Videos/intro.mp4",
+        "name": "intro.mp4",
+        "kind": "video",
+        "provenance": "official",
+        "tags": ["intro"],
+        "size": 99
+      }
+    ],
+    "capped": false,
+    "system": "ps3",
+    "manual_inside": false,
+    "trash": true
+  },
+  "extras_view_bare": {
+    "entry_id": 8,
+    "rev": 13,
+    "game_folder": false,
+    "index": {
+      "state": "absent"
+    },
+    "writable": {
+      "kind": "read-only"
+    },
+    "categories": [],
+    "files": [],
+    "missing": [],
+    "capped": false,
+    "system": "3ds",
+    "manual_inside": true,
+    "trash": false
+  },
+  "extras_index_states": [
+    {
+      "state": "ok"
+    },
+    {
+      "state": "absent"
+    },
+    {
+      "state": "malformed",
+      "bad_records": 2,
+      "unreadable": null
+    },
+    {
+      "state": "newer",
+      "version": 2
+    }
+  ],
+  "extras_writabilities": [
+    {
+      "kind": "yes"
+    },
+    {
+      "kind": "read-only"
+    },
+    {
+      "kind": "busy"
+    },
+    {
+      "kind": "newer"
+    }
+  ],
+  "extras_playables": ["inline", "external", "reveal-only"],
+  "extras_errors": [
+    {
+      "code": "extras-changed"
+    },
+    {
+      "code": "extras-newer"
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "taken"
+      }
+    }
+  ],
+  "history_item_extras": {
+    "job": "20261114T120000Z-1bfb-0000",
+    "root": "/Volumes/SD",
+    "created_at": "2026-11-14T12:00:00Z",
+    "entries": 2,
+    "complete": true,
+    "undone": false,
+    "kind": "extras",
+    "undoable": true,
+    "game": "Resistance (USA)"
+  },
+  "extras_write": {
+    "job": "20261114T120000Z-1bfb-0001",
+    "listing": {
+      "entry_id": 7,
+      "rev": 14,
+      "game_folder": true,
+      "index": {
+        "state": "ok"
+      },
+      "writable": {
+        "kind": "yes"
+      },
+      "categories": [],
+      "files": [],
+      "missing": [],
+      "capped": false,
+      "system": "ps3",
+      "manual_inside": false,
+      "trash": true
+    },
+    "notes": [
+      {
+        "kind": "malformed-saved",
+        "file": "extras.broken-20261114-120000.json"
+      },
+      {
+        "kind": "set-aside",
+        "folder": ".coverly-trash/20261114T120000Z-1bfb-0001"
+      },
+      {
+        "kind": "stays-no-trash",
+        "name": "boss.mp3"
+      },
+      {
+        "kind": "trash-failed",
+        "name": "intro.mp4"
+      },
+      {
+        "kind": "folder-kept",
+        "folder": "Remixes"
+      },
+      {
+        "kind": "renamed-dup",
+        "name": "boss (2).mp3"
+      }
+    ]
+  },
+  "extras_write_nothing": {
+    "job": null,
+    "listing": {
+      "entry_id": 7,
+      "rev": 14,
+      "game_folder": true,
+      "index": {
+        "state": "ok"
+      },
+      "writable": {
+        "kind": "yes"
+      },
+      "categories": [],
+      "files": [],
+      "missing": [],
+      "capped": false,
+      "system": "ps3",
+      "manual_inside": false,
+      "trash": true
+    },
+    "notes": []
+  },
+  "extras_undone": {
+    "job": "20261114T120000Z-1bfb-0001",
+    "removed": 0,
+    "restored": 2,
+    "kept": 1,
+    "listing": {
+      "entry_id": 7,
+      "rev": 14,
+      "game_folder": true,
+      "index": {
+        "state": "ok"
+      },
+      "writable": {
+        "kind": "yes"
+      },
+      "categories": [],
+      "files": [],
+      "missing": [],
+      "capped": false,
+      "system": "ps3",
+      "manual_inside": false,
+      "trash": true
+    }
+  },
+  "entries_updated_addons": {
+    "generation": 3,
+    "entries": [
+      {
+        "id": 7,
+        "art": {
+          "cover": "present",
+          "screenshot": "missing",
+          "title": "unsupported"
+        },
+        "addons": {
+          "mods": 0,
+          "cheats": 1,
+          "extras": 4,
+          "saves": 0
+        }
+      }
+    ]
+  },
+  "extras_refusals": [
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "empty"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "too-long"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "not-portable"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "dot"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "reserved"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "taken"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "path-too-long"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "tags-empty"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "tags-too-long"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "tags-too-many"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "index-unreadable"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "no-trash"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "too-many"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "link"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "key-file"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "not-media"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "not-text"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "reveal-only"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "drop-expired"
+      }
+    }
+  ],
+  "extras_add_plan": {
+    "entry_id": 7,
+    "files": [
+      {
+        "category": "soundtrack",
+        "index": 0,
+        "kind": "audio",
+        "name": "01 Opening.spc",
+        "rip": {
+          "game": "Super Metroid",
+          "title": "Opening"
+        },
+        "size": 66048
+      },
+      {
+        "category": "manuals",
+        "index": 1,
+        "kind": "document",
+        "name": "manual.pdf",
+        "rip": null,
+        "size": 1200000
+      }
+    ],
+    "hidden": 1,
+    "keys": 2,
+    "plan": 3,
+    "too_many": false,
+    "total": 1266048
+  },
+  "extras_add_progress": {
+    "add": 3,
+    "done": 1200000000,
+    "entry_id": 7,
+    "i": 3,
+    "n": 12,
+    "total": 4000000000
+  },
+  "extras_add_started_background": {
+    "add": 3,
+    "kind": "background",
+    "n": 12,
+    "total": 4000000000
+  },
+  "extras_add_started_done": {
+    "kind": "done",
+    "write": {
+      "job": "20261114T120000Z-1bfb-0002",
+      "listing": {
+        "capped": false,
+        "categories": [],
+        "entry_id": 7,
+        "files": [],
+        "game_folder": true,
+        "index": {
+          "state": "ok"
+        },
+        "manual_inside": false,
+        "trash": true,
+        "missing": [],
+        "rev": 15,
+        "system": "snes",
+        "writable": {
+          "kind": "yes"
+        }
+      },
+      "notes": [
+        {
+          "kind": "sanitised",
+          "names": ["a_b.mp3"]
+        },
+        {
+          "kind": "keys-skipped",
+          "n": 2
+        },
+        {
+          "kind": "hidden-skipped",
+          "n": 1
+        },
+        {
+          "copied": 3,
+          "kind": "cancelled"
+        }
+      ]
+    }
+  },
+  "extras_added_done": {
+    "add": 3,
+    "end": {
+      "kind": "done",
+      "write": {
+        "job": "20261114T120000Z-1bfb-0002",
+        "listing": {
+          "capped": false,
+          "categories": [],
+          "entry_id": 7,
+          "files": [],
+          "game_folder": true,
+          "index": {
+            "state": "ok"
+          },
+          "manual_inside": false,
+          "trash": true,
+          "missing": [],
+          "rev": 15,
+          "system": "snes",
+          "writable": {
+            "kind": "yes"
+          }
+        },
+        "notes": [
+          {
+            "kind": "sanitised",
+            "names": ["a_b.mp3"]
+          },
+          {
+            "kind": "keys-skipped",
+            "n": 2
+          },
+          {
+            "kind": "hidden-skipped",
+            "n": 1
+          },
+          {
+            "copied": 3,
+            "kind": "cancelled"
+          }
+        ]
+      }
+    },
+    "entry_id": 7
+  },
+  "extras_added_failed": {
+    "add": 4,
+    "end": {
+      "error": {
+        "code": "extras-refused",
+        "detail": {
+          "why": "too-many"
+        }
+      },
+      "kind": "failed"
+    },
+    "entry_id": 7
+  },
+  "extras_drop": {
+    "items": [
+      {
+        "is_dir": false,
+        "name": "01 Opening.flac",
+        "size": 31457280
+      },
+      {
+        "is_dir": true,
+        "name": "Scans",
+        "size": 0
+      }
+    ],
+    "position": {
+      "x": 812.0,
+      "y": 430.5
+    },
+    "token": 9
+  },
+  "extra_item": {
+    "action": "auto",
+    "alternatives": [],
+    "catalogue_name": null,
+    "companions": [],
+    "confidence": 0.95,
+    "disc": null,
+    "folder": "PS3",
+    "fps": [
+      {
+        "size": 2097152,
+        "mtime_ns": 1700000000000000000
+      }
+    ],
+    "game": {
+      "role": "extra",
+      "of": 0,
+      "folder": "PS3/Tidewalker (USA)",
+      "extra": {
+        "category": "themes",
+        "format": "ps3-p3t",
+        "provenance": "official",
+        "via": "key"
+      }
+    },
+    "id": 1,
+    "kind": "file",
+    "method": "header",
+    "notes": [
+      {
+        "kind": "extra-of",
+        "category": "themes",
+        "of": "Tidewalker",
+        "format": "ps3-p3t"
+      }
+    ],
+    "rename": null,
+    "set_targets": [],
+    "size": 2097152,
+    "sources": ["Tidewalker Theme.p3t"],
+    "system_id": "ps3",
+    "target": "PS3/Tidewalker (USA)/Extras/Themes/Tidewalker Theme.p3t",
+    "transfer": {
+      "kind": "as-is"
+    },
+    "why": [
+      {
+        "detail": "BCUS98174",
+        "kind": "header",
+        "system": "ps3",
+        "weight": 0.95
+      }
+    ]
+  },
+  "extra_reasons": [
+    {
+      "kind": "extra-without-game",
+      "category": "soundtrack"
+    },
+    {
+      "kind": "extras-index-newer"
+    }
+  ],
+  "extra_notes": [
+    {
+      "kind": "extra-of",
+      "category": "themes",
+      "of": "Tidewalker",
+      "format": "ps3-theme-pkg",
+      "content_type": 9
+    },
+    {
+      "kind": "extra-rip",
+      "of": "Super Metroid",
+      "format": "spc",
+      "tag": "Super Metroid"
+    },
+    {
+      "kind": "extras-backup-first"
+    }
+  ],
+  "extras_categories": [
+    "soundtrack",
+    "manuals",
+    "artwork",
+    "videos",
+    "themes",
+    "guides"
+  ],
+  "extra_types": ["audio", "video", "image", "document", "other"],
+  "extra_formats": [
+    "ps3-p3t",
+    "ps3-theme-pkg",
+    "ps3-avatar-pkg",
+    "vita-theme-pkg",
+    "psp-ptf",
+    "x360-theme",
+    "x360-gamerpic",
+    "x360-avatar",
+    "x360-video",
+    "3ds-soundtrack-cia",
+    "spc",
+    "nsf",
+    "gbs",
+    "vgm",
+    "psf"
+  ],
+  "extras_media": {
+    "src_path": "/Volumes/SD/PS3/Tidewalker (USA)/Extras/Soundtrack/01 Opening.flac",
+    "mime": "audio/flac",
+    "kind": "audio"
+  },
+  "extras_media_kinds": ["audio", "video", "image", "pdf"],
+  "extras_text": {
+    "text": "Tidewalker\n",
+    "truncated": false,
+    "encoding": "cp437"
+  },
+  "extras_text_encodings": ["utf-8", "cp437", "latin-1"]
 }

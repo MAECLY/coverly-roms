@@ -28,7 +28,12 @@
 //!   thumbnail (at most 0x4000 bytes) at 0x171A. Content types:
 //!   `0x00007000` Games on Demand, `0x000D0000` Arcade title,
 //!   `0x000B0000` installer (title update), `0x00000002` marketplace
-//!   content (DLC), `0x00080000` game demo (xenia `XContentType`).
+//!   content (DLC), `0x00080000` game demo (xenia `XContentType`). Extras (extras
+//!   spec D6, xenia `XContentType`): `0x00030000` theme, `0x00020000`
+//!   gamer picture, `0x00009000` avatar item, `0x00090000` video,
+//!   `0x000C0000` trailer, `0x00100000` movie, `0x00300000` music video,
+//!   `0x00400000` game video. `0x000F0000` (licence store) is none of
+//!   them and stays an unknown package.
 //!
 //! - Xbox One and Series folders (systems batch 3 D18): the GDK
 //!   `MicrosoftGame.config` (root `Game`; `Identity`, `ExecutableList/
@@ -92,6 +97,15 @@ const CT_XBLA: u32 = 0x000D_0000;
 const CT_UPDATE: u32 = 0x000B_0000;
 const CT_DLC: u32 = 0x0000_0002;
 const CT_DEMO: u32 = 0x0008_0000;
+/// Extras content types (extras spec D6, §5).
+pub const CT_THEME: u32 = 0x0003_0000;
+pub const CT_GAMERPIC: u32 = 0x0002_0000;
+pub const CT_AVATAR: u32 = 0x0000_9000;
+pub const CT_VIDEO: u32 = 0x0009_0000;
+pub const CT_TRAILER: u32 = 0x000C_0000;
+pub const CT_MOVIE: u32 = 0x0010_0000;
+pub const CT_MUSIC_VIDEO: u32 = 0x0030_0000;
+pub const CT_GAME_VIDEO: u32 = 0x0040_0000;
 /// The bytes of a ZAR's `default.xex` decoded for its header: one block.
 const ZAR_XEX_HEAD: u64 = zarchive::BLOCK;
 /// Longest launcher file whose text is read as a title id (D14).
@@ -295,6 +309,28 @@ pub fn xex2(bytes_at: &mut BytesAt) -> Option<ConsoleId> {
     Some(id)
 }
 
+/// An official extra an STFS content type names (extras spec D6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StfsExtra {
+    Theme,
+    GamerPicture,
+    AvatarItem,
+    /// A video, trailer, movie, music video or game video.
+    Video,
+}
+
+/// The extra an STFS content type names, or `None` for games, updates,
+/// DLC, demos, the licence store and everything else.
+pub fn stfs_extra(ctype: u32) -> Option<StfsExtra> {
+    match ctype {
+        CT_THEME => Some(StfsExtra::Theme),
+        CT_GAMERPIC => Some(StfsExtra::GamerPicture),
+        CT_AVATAR => Some(StfsExtra::AvatarItem),
+        CT_VIDEO | CT_TRAILER | CT_MOVIE | CT_MUSIC_VIDEO | CT_GAME_VIDEO => Some(StfsExtra::Video),
+        _ => None,
+    }
+}
+
 /// The kind and the fixed detail of an STFS content type.
 fn content_kind(ctype: u32) -> (TitleKind, &'static str) {
     match ctype {
@@ -303,8 +339,24 @@ fn content_kind(ctype: u32) -> (TitleKind, &'static str) {
         CT_UPDATE => (TitleKind::Update, "title update package"),
         CT_DLC => (TitleKind::Dlc, "DLC package"),
         CT_DEMO => (TitleKind::Demo, "demo package"),
-        _ => (TitleKind::Unknown, "STFS package"),
+        _ => match stfs_extra(ctype) {
+            Some(StfsExtra::Theme) => (TitleKind::Unknown, "theme package"),
+            Some(StfsExtra::GamerPicture) => (TitleKind::Unknown, "gamer picture package"),
+            Some(StfsExtra::AvatarItem) => (TitleKind::Unknown, "avatar item package"),
+            Some(StfsExtra::Video) => (TitleKind::Unknown, "video package"),
+            None => (TitleKind::Unknown, "STFS package"),
+        },
     }
+}
+
+/// The content type at 0x344 of an STFS package (`CON `, `LIVE`,
+/// `PIRS`) whose header block is whole, else `None`.
+pub fn stfs_content_type(b: &mut Budgeted) -> Option<u32> {
+    let magic = b.read(0, 4).ok()?;
+    if !matches!(&magic[..], b"CON " | b"LIVE" | b"PIRS") || b.len() < STFS_HEAD as u64 {
+        return None;
+    }
+    be32(&b.read(0x344, 4).ok()?, 0)
 }
 
 /// The No-Intro Xbox 360 (Digital) rom-name prefix of an STFS item:

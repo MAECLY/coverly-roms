@@ -445,6 +445,8 @@ const KEY_NAMES: &[&str] = &[
     "otp.bin",
     "ticket.db",
     "eeprom.bin",
+    // The Xbox 360 console's key vault (extras spec D12 deny list).
+    "kv.bin",
 ];
 
 /// Extensions (lower-case) of licence and ticket files.
@@ -542,6 +544,13 @@ mod open_log {
             log.push(path.to_path_buf());
         }
     }
+}
+
+/// Records `path` in the open log as a file Coverly opens outside
+/// [`open_rom`] (an extra copied in), so tests see every read.
+#[cfg(feature = "test-util")]
+pub(crate) fn record_open(path: &Path) {
+    open_log::record(path);
 }
 
 /// Starts (or restarts, empty) the process-wide log of [`open_rom`].

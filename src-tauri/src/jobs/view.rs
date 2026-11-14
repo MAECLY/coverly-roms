@@ -383,11 +383,16 @@ pub struct JobHistoryView {
     pub kind: JobKind,
     /// False for a journal this build cannot undo (a newer Coverly's).
     pub undoable: bool,
+    /// The game folder an Extras job wrote in (its root is the library,
+    /// part D P-1); absent for every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game: Option<String>,
 }
 
 impl From<JobSummary> for JobHistoryView {
     fn from(s: JobSummary) -> Self {
         JobHistoryView {
+            game: None,
             job: s.job,
             root: s.root.display().to_string(),
             created_at: s.created_at,

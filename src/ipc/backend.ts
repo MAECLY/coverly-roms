@@ -3,8 +3,15 @@
  * browser (`pnpm dev`) — the deterministic mock.
  */
 import { hasTauriIpc, type AppInfo } from './appInfo';
+import type { DropPoint } from './dropTarget';
 import type {
+  AddChoice,
+  AddFinishedEvent,
+  AddPlanView,
+  AddProgressEvent,
+  AddStarted,
   ArtImage,
+  CategoryRef,
   CandidateView,
   ChildArtReadView,
   ChildMedia,
@@ -21,6 +28,12 @@ import type {
   EntriesUpdated,
   EntryArtUpdate,
   ExportFormat,
+  ExtrasDropEvent,
+  ExtrasMedia,
+  ExtrasTextView,
+  ExtrasUndone,
+  ExtrasView,
+  ExtrasWriteView,
   FillRequest,
   FolderProbe,
   GameDetailsView,
@@ -131,7 +144,145 @@ export interface Backend {
     slot: ChildMedia,
   ): Promise<ArtImage>;
   pickFolder(): Promise<string | null>;
-  onFolderDrop(cb: (path: string) => void): Promise<() => void>;
+  /**
+   * A folder dropped from the OS, to open as a library, with where it
+   * landed (CSS pixels). Drops over the Extras section or while a dialog
+   * or the viewer is open are not reported (part D D11).
+   */
+  onFolderDrop(
+    cb: (path: string, point: DropPoint) => void,
+  ): Promise<() => void>;
+  /* A game's Extras/ (part D). Files by `(rev, index)` of the last
+   * listing, drops by token, adds by plan: never a path (D22). A write
+   * answers the next listing; a stale `rev` is `extras-changed`. */
+  extrasList(generation: number, entryId: number): Promise<ExtrasView>;
+  /** Renames file `index` to the typed `stem`; its extension stays. */
+  extrasRename(
+    generation: number,
+    entryId: number,
+    rev: number,
+    index: number,
+    stem: string,
+  ): Promise<ExtrasWriteView>;
+  extrasMove(
+    generation: number,
+    entryId: number,
+    rev: number,
+    files: number[],
+    to: CategoryRef,
+  ): Promise<ExtrasWriteView>;
+  /** To the Trash, or set aside where the drive has none; never deleted. */
+  extrasTrash(
+    generation: number,
+    entryId: number,
+    rev: number,
+    files: number[],
+  ): Promise<ExtrasWriteView>;
+  extrasSetTags(
+    generation: number,
+    entryId: number,
+    rev: number,
+    index: number,
+    tags: string[],
+  ): Promise<ExtrasWriteView>;
+  /** «Olvidar» record `missing` of «No encontrados». */
+  extrasForget(
+    generation: number,
+    entryId: number,
+    rev: number,
+    missing: number,
+  ): Promise<ExtrasWriteView>;
+  extrasCategoryCreate(
+    generation: number,
+    entryId: number,
+    rev: number,
+    name: string,
+  ): Promise<ExtrasWriteView>;
+  extrasCategoryRename(
+    generation: number,
+    entryId: number,
+    rev: number,
+    from: string,
+    to: string,
+  ): Promise<ExtrasWriteView>;
+  /** Its files to the Trash, then its emptied folder. */
+  extrasCategoryRemove(
+    generation: number,
+    entryId: number,
+    rev: number,
+    name: string,
+  ): Promise<ExtrasWriteView>;
+  /** Undoes Extras job `job` of this game; answers its listing after. */
+  extrasUndo(
+    generation: number,
+    entryId: number,
+    job: string,
+  ): Promise<ExtrasUndone>;
+  /** «Añadir archivos»: the native picker (opened by Rust), then the plan
+   * the add dialog shows; `null` when cancelled. */
+  extrasAddPick(
+    generation: number,
+    entryId: number,
+  ): Promise<AddPlanView | null>;
+  /** The plan of OS drop `token` (a drop on no category). */
+  extrasAddPlan(
+    generation: number,
+    entryId: number,
+    token: number,
+  ): Promise<AddPlanView>;
+  /** Copies the chosen files of `plan`, each to its category. */
+  extrasAddCommit(
+    generation: number,
+    entryId: number,
+    rev: number,
+    plan: number,
+    choices: AddChoice[],
+  ): Promise<AddStarted>;
+  /** Copies what OS drop `token` recorded into `category`. */
+  extrasAddDropped(
+    generation: number,
+    entryId: number,
+    rev: number,
+    token: number,
+    category: CategoryRef,
+  ): Promise<AddStarted>;
+  /** «Cancelar» on background add `add`: stops after the current file. */
+  extrasAddCancel(add: number): Promise<boolean>;
+  /** Grants file `index` to the viewer and answers its URL. */
+  extrasMedia(
+    generation: number,
+    entryId: number,
+    rev: number,
+    index: number,
+  ): Promise<ExtrasMedia>;
+  extrasReadText(
+    generation: number,
+    entryId: number,
+    rev: number,
+    index: number,
+  ): Promise<ExtrasTextView>;
+  extrasReveal(
+    generation: number,
+    entryId: number,
+    rev: number,
+    index: number,
+  ): Promise<void>;
+  /** Allow-listed types only; anything else is refused (reveal-only). */
+  extrasOpenExternal(
+    generation: number,
+    entryId: number,
+    rev: number,
+    index: number,
+  ): Promise<void>;
+  /** OS drops Rust recorded by token, `position` in CSS pixels (D11). */
+  onExtrasDrop(cb: (e: ExtrasDropEvent) => void): Promise<() => void>;
+  /** Where an OS drag is over the window, in CSS pixels; `null` when it
+   * left or dropped. HTML5 `dragover` never fires while Tauri handles
+   * drops, so this drives the drop zones' highlight (D11). */
+  onExtrasDragOver(cb: (point: DropPoint | null) => void): Promise<() => void>;
+  onExtrasProgress(cb: (e: AddProgressEvent) => void): Promise<() => void>;
+  /** A background add ended. */
+  onExtrasAdded(cb: (e: AddFinishedEvent) => void): Promise<() => void>;
   startFill(generation: number, request: FillRequest): Promise<JobView>;
   fillJob(): Promise<JobView | null>;
   fillJobItems(job: number, filter: ItemFilter): Promise<JobItemView[]>;
@@ -397,6 +548,16 @@ type MockWindow = Window & {
   mockRevealedPaths?: () => string[];
   /** `dedupeArt` calls as `plan:group:member|g:media` (a copy). */
   mockDedupeArtCalls?: () => string[];
+  /** A simulated OS drop over the Extras section (part D); its token. */
+  mockExtrasDrop?: (drop: {
+    names: string[];
+    position: { x: number; y: number };
+  }) => number;
+  /** A simulated OS drag over the window (CSS pixels), `null` to leave. */
+  mockExtrasDragOver?: (point: { x: number; y: number } | null) => void;
+  /** Extras paths revealed and handed to another app (copies). */
+  mockExtrasRevealed?: () => string[];
+  mockExtrasOpened?: () => string[];
 };
 
 let current: Backend | null = null;
@@ -417,12 +578,18 @@ async function createBackend(): Promise<Backend> {
   // `mockDedupeScenario({ empty: true })`, `({ failPlan: 'volume-gone' })`,
   // `({ trashAvailable: false })`, `({ pauseAfter: 10 })`.
   // What the E2E checks: `mockRevealedPaths()`, `mockDedupeArtCalls()`.
+  // An OS drop on the Extras section (CSS pixels):
+  // `mockExtrasDrop({ names: ['Manual.pdf'], position: { x: 900, y: 400 } })`.
   if (typeof window !== 'undefined') {
     const w = window as MockWindow;
     w.mockOrganizeTouch = mock.organizeTouch;
     w.mockDedupeScenario = mock.dedupeScenario;
     w.mockRevealedPaths = () => [...mock.revealedPaths];
     w.mockDedupeArtCalls = () => [...mock.artCalls];
+    w.mockExtrasDrop = mock.emitDrop;
+    w.mockExtrasDragOver = mock.emitDragOver;
+    w.mockExtrasRevealed = () => [...mock.extrasRevealed];
+    w.mockExtrasOpened = () => [...mock.extrasOpened];
   }
   return mock;
 }

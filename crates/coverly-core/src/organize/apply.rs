@@ -5,19 +5,21 @@
 //! read-only or vanished volume and a resume into the same journal, so one
 //! undo reverts every run of a job.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File};
 use std::io::{self, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
 use crate::archive::{open_archive_with, FoundTool, Limits, ToolsOnDemand};
 use crate::dedupe::apply::{trash_file, TrashStep};
 use crate::disc::sheets::SheetKind;
+use crate::extras::index::{read_index, IndexRead};
+use crate::extras::ops::{write_organized, OrganizedIndex, PlacedExtra};
 use crate::identify::overrides::{Overrides, OVERRIDES_FILE};
 use crate::jobs::ItemErrorKind;
 use crate::organize::extract::{
@@ -134,6 +136,16 @@ pub struct OrganizeReport {
     pub pause_reason: Option<ItemErrorKind>,
     /// Items not attempted yet: what a resume does.
     pub resumable_items: Vec<usize>,
+    /// Unreadable `extras.json` files copied aside (absolute) before the
+    /// index of a game whose extras were placed was written (extras spec
+    /// D5). Left out of the JSON when none was.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extras_saved: Vec<PathBuf>,
+    /// `Extras/` folders (absolute) whose placed extras got no record:
+    /// the index could not be written. The files are in place; the panel
+    /// lists them as found. Left out of the JSON when none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extras_unwritten: Vec<PathBuf>,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -392,6 +404,9 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
     let applicable: Vec<&OrganizeItem> = plan.items.iter().filter(|i| applicable(i)).collect();
     let mut pending = Vec::new();
     let mut started = HashMap::new();
+    // Extras earlier runs placed: their index is written again only when
+    // it does not say all of it yet (a crash before the write).
+    let mut earlier_extras = Vec::new();
     // Bytes of the entries earlier runs already extracted: they take no
     // more room (adjustments spec D17 checks extractions up front).
     let mut in_place: u64 = 0;
@@ -435,6 +450,9 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
                     started.insert(item.id, (status, record.target.clone()));
                     pending.push(*item);
                 } else {
+                    if let Some(placed) = placed_of(item, &record.target) {
+                        earlier_extras.push(placed);
+                    }
                     let targets = item_targets(&plan, item, &records);
                     record_outcome(&mut report, item.id, status, targets);
                 }
@@ -454,6 +472,9 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
     let mut run = Run::new(&plan, env, writer, true, records);
     run.started = started;
     run.archive_steps = steps;
+    for placed in earlier_extras {
+        run.note_placed(placed);
+    }
     Ok(run.run(&pending, done, report))
 }
 
@@ -1404,6 +1425,37 @@ fn companion_target(
     to.to_path_buf()
 }
 
+/// The `Extras/` folder (relative to the target root) an `Extra` item's
+/// target lies in: `<game folder>/Extras/<Category>/<name>`.
+fn extras_dir_of(item: &OrganizeItem) -> Option<&Path> {
+    if item.game.as_ref()?.role != GameRole::Extra {
+        return None;
+    }
+    item.target.as_deref()?.parent()?.parent()
+}
+
+/// What the index records of `item`, an `Extra` placed at `at`.
+fn placed_of(item: &OrganizeItem, at: &Path) -> Option<PlacedExtra> {
+    let game = item.game.as_ref()?;
+    if game.role != GameRole::Extra {
+        return None;
+    }
+    let link = game.extra.as_ref()?;
+    let from_name = item
+        .sources
+        .first()?
+        .file_name()?
+        .to_string_lossy()
+        .into_owned();
+    Some(PlacedExtra {
+        path: at.to_path_buf(),
+        provenance: link.provenance,
+        format: link.format,
+        from_name,
+        rip: link.rip.clone(),
+    })
+}
+
 fn split(path: &Path) -> Option<(&Path, &str)> {
     Some((path.parent()?, path.file_name()?.to_str()?))
 }
@@ -1473,6 +1525,10 @@ struct Run<'a> {
     /// Per item, the licences that stayed at their source (game folders
     /// spec D17), for its outcome.
     licences_left: HashMap<usize, Vec<PathBuf>>,
+    /// Extras placed by this job, by their game's `Extras/` folder: each
+    /// folder's `extras.json` is written once, at the end of the run, in
+    /// this journal (extras spec D3, D10).
+    extras: BTreeMap<PathBuf, Vec<PlacedExtra>>,
 }
 
 impl<'a> Run<'a> {
@@ -1500,6 +1556,7 @@ impl<'a> Run<'a> {
             tools: ToolsOnDemand::new(&[&plan.source_root, &plan.target_root]),
             archive_steps: Vec::new(),
             licences_left: HashMap::new(),
+            extras: BTreeMap::new(),
         }
     }
 
@@ -1533,6 +1590,7 @@ impl<'a> Run<'a> {
             match self.apply_item(item) {
                 Step::Done(status, targets) => {
                     self.read_child_art(item, &status, &targets);
+                    self.placed_extra(item, &status, &targets);
                     record_outcome(&mut report, item.id, status, targets);
                     if let (Some(left), Some(outcome)) =
                         (self.licences_left.remove(&item.id), report.items.last_mut())
@@ -1555,6 +1613,9 @@ impl<'a> Run<'a> {
                 }
             }
         }
+        // Also on a pause: what is placed gets its record now, and a
+        // resume writes again only what changed.
+        self.write_extras_indexes(&mut report);
         #[cfg(feature = "test-util")]
         LAST_DIR_READS.with(|c| c.set(self.index.read_dirs()));
         let job = self.writer.job_id().to_string();
@@ -1724,6 +1785,9 @@ impl<'a> Run<'a> {
             return self.apply_folder(item);
         }
         if let Some(step) = self.revalidate(item) {
+            return step;
+        }
+        if let Some(step) = self.extras_index_newer(item) {
             return step;
         }
         if matches!(item.transfer, Transfer::Extract { .. }) {
@@ -2246,6 +2310,54 @@ impl<'a> Run<'a> {
             Err(_) => self.licences_left.entry(id).or_default().push(from.into()),
         }
         None
+    }
+
+    /// An extra whose game's `extras.json` turned newer since the dry run
+    /// stays where it is: it is never placed without its record (extras
+    /// spec D5).
+    fn extras_index_newer(&self, item: &OrganizeItem) -> Option<Step> {
+        let extras = self.plan.target_root.join(extras_dir_of(item)?);
+        matches!(read_index(&extras), IndexRead::Newer { .. })
+            .then(|| skipped(SkipReason::ChangedSincePlan))
+    }
+
+    /// Remembers an extra this run placed, for its game's index.
+    fn placed_extra(&mut self, item: &OrganizeItem, status: &ItemStatus, targets: &[PathBuf]) {
+        if !matches!(
+            status,
+            ItemStatus::Moved | ItemStatus::Copied | ItemStatus::CopiedNotRemoved
+        ) {
+            return;
+        }
+        if let Some(placed) = targets.first().and_then(|t| placed_of(item, t)) {
+            self.note_placed(placed);
+        }
+    }
+
+    fn note_placed(&mut self, placed: PlacedExtra) {
+        let Some(extras) = placed.path.parent().and_then(Path::parent) else {
+            return;
+        };
+        self.extras
+            .entry(extras.to_path_buf())
+            .or_default()
+            .push(placed);
+    }
+
+    /// Writes the `extras.json` of every game this job placed extras for,
+    /// once each, through the job's own writer (extras spec D3, D10): one
+    /// journal, so one undo takes back the files and their records.
+    fn write_extras_indexes(&mut self, report: &mut OrganizeReport) {
+        let now = SystemTime::now();
+        for (extras, placed) in std::mem::take(&mut self.extras) {
+            match write_organized(&mut self.writer, &extras, &placed, now) {
+                Ok(OrganizedIndex::Written { saved: Some(name) }) => {
+                    report.extras_saved.push(extras.join(name));
+                }
+                Ok(OrganizedIndex::Written { saved: None } | OrganizedIndex::Unchanged) => {}
+                Err(_) => report.extras_unwritten.push(extras),
+            }
+        }
     }
 
     fn apply_single(&mut self, id: usize, from: &Path, want: &Path) -> Step {

@@ -1225,3 +1225,25 @@ fn switch_versions_report_the_higher_version_as_keeper() {
         assert_eq!(plan.totals.extras, 0);
     }
 }
+
+/// Extras D8: copies an Extras job set aside in `.coverly-trash/` are
+/// never members of a group, even when hidden entries are scanned: the
+/// library keeps one Tetris, so there is nothing to group.
+#[test]
+fn dedupe_never_groups_files_in_coverly_trash() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let tetris = rom_bytes(1, 32 * 1024);
+    put(root, "ROMS/GB/Tetris.gb", &tetris);
+    put(root, "ROMS/GB/.coverly-trash/job-1/Tetris.gb", &tetris);
+    put(root, "ROMS/.coverly-trash/job-2/GB/Tetris (1).gb", &tetris);
+    let opts = ScanOptions {
+        include_hidden: true,
+        ..ScanOptions::default()
+    };
+    let scan = scan_library(root, &profile(), &SystemDb::builtin(), &opts);
+    let fx = Fx::new();
+    let plan = fx.plan(&scan, &fx.opts());
+    assert!(plan.groups.is_empty(), "{:?}", plan.groups);
+    assert!(!format!("{plan:?}").contains(".coverly-trash"));
+}

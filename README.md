@@ -942,6 +942,10 @@ Coverly builds on the work of these projects. Here is what it uses from each, it
 - [Tailwind CSS](https://tailwindcss.com/). Generates the interface styles. Licence: [MIT](https://spdx.org/licenses/MIT.html).
 - [TanStack Virtual](https://tanstack.com/virtual). Long lists that stay smooth. Licence: [MIT](https://spdx.org/licenses/MIT.html).
 - [sonner](https://sonner.emilkowal.ski/). The toast notifications. Licence: [MIT](https://spdx.org/licenses/MIT.html).
+- [pdf.js](https://mozilla.github.io/pdf.js/). The PDFs in Extras, inside the app. Licence: [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html).
+
+  > pdf.js, by Mozilla and its contributors. Includes Adobe's CMaps and the Foxit (BSD 3-Clause) and Liberation Sans (GPL v2 with font exception) standard fonts.
+
 - [class-variance-authority](https://github.com/joe-bell/cva). The components' style variants. Licence: [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html).
 - [SQLite](https://sqlite.org/). The cache and the local database. Licence: Public domain.
 - [rusqlite](https://github.com/rusqlite/rusqlite). SQLite access from Rust. Licence: [MIT](https://spdx.org/licenses/MIT.html).
@@ -951,6 +955,7 @@ Coverly builds on the work of these projects. Here is what it uses from each, it
 - [zip](https://github.com/zip-rs/zip2). Reads and extracts zip archives. Licence: [MIT](https://spdx.org/licenses/MIT.html).
 - [sevenz-rust2](https://github.com/hasenbanck/sevenz-rust2). Reads and extracts 7z archives. Licence: [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html).
 - [image](https://github.com/image-rs/image). Decodes and resizes images. Licence: MIT OR Apache-2.0.
+- [encoding_rs](https://github.com/hsivonen/encoding_rs). Reads music rip tags written in Shift-JIS. Licence: (Apache-2.0 OR MIT) AND BSD-3-Clause.
 
 ### Fonts and icons
 

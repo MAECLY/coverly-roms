@@ -95,8 +95,8 @@ function baseNames(item: OrganizeItem): string[] {
     .map((x) => x.toLowerCase());
 }
 
-/** The order of a base's children: updates, DLC, then mods and cheats
- * (the order of the fixed folders, mods spec §9.1). */
+/** The order of a base's children: updates, DLC, mods, cheats, then
+ * extras (the order of the fixed folders, mods spec §9.1, extras D6). */
 const CHILD_ORDER: Record<GameRole, number> = {
   base: 0,
   demo: 0,
@@ -104,6 +104,7 @@ const CHILD_ORDER: Record<GameRole, number> = {
   dlc: 2,
   mod: 3,
   cheat: 4,
+  extra: 5,
 };
 
 /** A row matched by name (a plan without links) keeps its order. */
@@ -916,6 +917,7 @@ const NOT_A_ROM: Record<NotARom, string> = {
   'emulator-config': 'emulatorConfig',
   installer: 'installer',
   model3d: 'model3d',
+  music: 'music',
 };
 
 /** A left reason as text, nested fragments translated first. */

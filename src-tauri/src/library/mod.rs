@@ -3,6 +3,8 @@
 
 pub mod art;
 pub mod details;
+pub mod extras;
+pub mod extras_media;
 pub mod identify;
 pub mod refresh;
 pub mod view;
@@ -394,13 +396,7 @@ fn game_contents(
                         .and_then(|j| roms.get(j))
                         .map(|g| g.title_stem().to_string()),
                 }),
-                addons: rom.fixed_counts.map(|f| FolderCountsView {
-                    mods: f.mods,
-                    cheats: f.cheats,
-                    extras: f.extras,
-                    saves: f.saves,
-                    capped: f.capped,
-                }),
+                addons: rom.fixed_counts.map(FolderCountsView::from),
                 folder_root: rom.is_dir
                     && rom.role.is_none()
                     && (!rom.children.is_empty() || rom.fixed_counts.is_some()),

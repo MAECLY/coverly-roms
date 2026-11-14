@@ -73,6 +73,18 @@ pub enum IpcError {
     UpdateOffline(String),
     #[error("the update failed its signature check and was not installed: {0}")]
     UpdateSignature(String),
+    /// The extras named by a handle are no longer what that listing showed
+    /// (an older `rev`, or files changed on disk): list again (part D D22).
+    #[error("the extras changed; list them again")]
+    ExtrasChanged,
+    /// The game's `extras.json` was written by a newer Coverly: view only
+    /// (part D D5).
+    #[error("extras.json was written by a newer Coverly")]
+    ExtrasNewer,
+    /// A name or tags the extras rules refuse; `why` is a kebab-case
+    /// reason the webview renders (part D D1, D20).
+    #[error("refused: {why}")]
+    ExtrasRefused { why: String },
     #[error("no update is published for this channel and system: {0}")]
     UpdateUnavailable(String),
     #[error("this build has no update key")]
@@ -138,9 +150,64 @@ impl From<coverly_core::write::WriteError> for IpcError {
             W::Denied(p) => IpcError::WriteDenied(p.display().to_string()),
             W::DiskFull => IpcError::DiskFull,
             W::NothingToUndo => IpcError::NothingToUndo,
-            other @ (W::NotAFile(_) | W::CrossDevice(_) | W::Journal(_) | W::Io(_)) => {
-                IpcError::Io(other.to_string())
-            }
+            other @ (W::NotAFile(_)
+            | W::NotEmpty(_)
+            | W::CrossDevice(_)
+            | W::Journal(_)
+            | W::Io(_)) => IpcError::Io(other.to_string()),
+        }
+    }
+}
+
+/// The kebab-case wire name of a serialisable reason enum.
+fn reason<T: Serialize>(r: &T) -> String {
+    serde_json::to_value(r)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// The `extras-refused` reasons of viewing, opening and adding a file
+/// (writes refuse with the core's name and tag reasons, D20): kebab-case,
+/// rendered by the webview, never prose.
+pub mod extras_refusal {
+    /// A key or licence file: never opened, played or shown.
+    pub const KEY_FILE: &str = "key-file";
+    /// A symlink: listed, never followed or served.
+    pub const LINK: &str = "link";
+    /// Not played or shown in the app.
+    pub const NOT_MEDIA: &str = "not-media";
+    /// Not a text file the viewer shows.
+    pub const NOT_TEXT: &str = "not-text";
+    /// Only revealed in the file manager, never opened with another app.
+    pub const REVEAL_ONLY: &str = "reveal-only";
+    /// An OS drop already added, or too old.
+    pub const DROP_EXPIRED: &str = "drop-expired";
+    /// Every reason above but [`LINK`] (a write's reason too).
+    pub const ACCESS: [&str; 5] = [KEY_FILE, NOT_MEDIA, NOT_TEXT, REVEAL_ONLY, DROP_EXPIRED];
+}
+
+/// An Extras write refused or failed (part D D1, D5, D8, D20, D22): names
+/// and tags reach the webview as kebab-case reasons, never as prose.
+impl From<coverly_core::extras::ops::ExtrasError> for IpcError {
+    fn from(e: coverly_core::extras::ops::ExtrasError) -> Self {
+        use coverly_core::extras::ops::ExtrasError as E;
+        let refused = |why: &str| IpcError::ExtrasRefused { why: why.into() };
+        match e {
+            E::IndexNewer => IpcError::ExtrasNewer,
+            E::Changed => IpcError::ExtrasChanged,
+            E::IndexUnreadable => refused("index-unreadable"),
+            E::Name(r) => IpcError::ExtrasRefused { why: reason(&r) },
+            E::Tags(r) => IpcError::ExtrasRefused {
+                why: format!("tags-{}", reason(&r)),
+            },
+            E::NoTrash => refused("no-trash"),
+            E::TooMany => refused("too-many"),
+            E::NoSpace { needed, free } => IpcError::NoSpace(format!("{needed}/{free}")),
+            E::Link(_) => refused(extras_refusal::LINK),
+            E::OutsideExtras(p) => IpcError::OutsideLibrary(p.display().to_string()),
+            E::Cancelled => IpcError::Cancelled,
+            E::Write(w) => w.into(),
         }
     }
 }
@@ -220,6 +287,43 @@ mod tests {
             serde_json::to_value(IpcError::UnknownChild(3)).unwrap(),
             serde_json::json!({ "code": "unknown-child", "detail": 3 })
         );
+        assert_eq!(
+            serde_json::to_value(IpcError::ExtrasChanged).unwrap(),
+            serde_json::json!({ "code": "extras-changed" })
+        );
+        assert_eq!(
+            serde_json::to_value(IpcError::ExtrasNewer).unwrap(),
+            serde_json::json!({ "code": "extras-newer" })
+        );
+        assert_eq!(
+            serde_json::to_value(IpcError::ExtrasRefused {
+                why: "taken".into()
+            })
+            .unwrap(),
+            serde_json::json!({ "code": "extras-refused", "detail": { "why": "taken" } })
+        );
+        {
+            use coverly_core::extras::ops::ExtrasError as E;
+            use coverly_core::extras::{NameRefusal, TagRefusal};
+            let why = |e: E| match IpcError::from(e) {
+                IpcError::ExtrasRefused { why } => why,
+                other => panic!("{other:?}"),
+            };
+            assert_eq!(why(E::Name(NameRefusal::PathTooLong)), "path-too-long");
+            assert_eq!(why(E::Name(NameRefusal::Taken)), "taken");
+            assert_eq!(why(E::Tags(TagRefusal::TooLong)), "tags-too-long");
+            assert_eq!(why(E::NoTrash), "no-trash");
+            assert_eq!(why(E::IndexUnreadable), "index-unreadable");
+            assert_eq!(IpcError::from(E::Changed), IpcError::ExtrasChanged);
+            assert_eq!(IpcError::from(E::IndexNewer), IpcError::ExtrasNewer);
+            assert_eq!(
+                IpcError::from(E::NoSpace {
+                    needed: 8192,
+                    free: 4096
+                }),
+                IpcError::NoSpace("8192/4096".into())
+            );
+        }
         let json = serde_json::to_value(IpcError::JobRunning).unwrap();
         assert_eq!(json, serde_json::json!({ "code": "job-running" }));
         assert_eq!(

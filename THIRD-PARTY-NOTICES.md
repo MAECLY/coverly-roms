@@ -87,6 +87,28 @@ The 89 files, named by system id: `3do`, `3ds`, `a2600`, `a5200`, `a7800`,
   The primitives in `src/components/ui/` start from its component code, adapted
   to Coverly's tokens. Licence: MIT.
 
+## PDF viewer
+
+The Extras viewer shows PDF files with pdf.js, loaded only when a PDF is
+opened. Its code and its data files are bundled into every build (the data
+under `pdfjs/` in the webview's files):
+
+- **pdf.js** (`pdfjs-dist` 6.4.299, legacy build), Copyright Mozilla and the
+  pdf.js contributors (https://github.com/mozilla/pdf.js). Licence: Apache
+  License 2.0, full text in `LICENSES/Apache-2.0.txt`. Used unmodified.
+- **Adobe CMaps** (`pdfjs/cmaps/`, shipped with pdf.js), Copyright 1990-2009
+  Adobe Systems Incorporated. Licence: BSD 3-Clause, full text in
+  `LICENSES/BSD-3-Clause-Adobe-CMaps.txt` and beside the files.
+- **Foxit standard fonts** (`pdfjs/standard_fonts/Foxit*.pfb`, shipped with
+  pdf.js), Copyright 2014 PDFium Authors. Licence: BSD 3-Clause, full text in
+  `LICENSES/BSD-3-Clause-PDFium-Foxit.txt` and beside the files.
+- **Liberation Sans** (`pdfjs/standard_fonts/LiberationSans-*.ttf`, shipped
+  with pdf.js), Copyright Red Hat, Inc. Licence: GNU General Public License
+  v2 with the Liberation font exceptions, full text in
+  `LICENSES/Liberation-fonts.txt` and beside the files. The fonts are
+  distributed unmodified, as separate files that pdf.js reads to draw PDFs
+  that use a standard font without embedding it.
+
 ## Archive and compression crates
 
 The core library (`crates/coverly-core`, linked into the app and the `coverly`
@@ -145,6 +167,11 @@ because they are the larger parts of the app.
   (https://github.com/dropbox/rust-brotli,
   https://github.com/dropbox/rust-brotli-decompressor), used by Tauri to
   compress the web assets embedded in the app. BSD-3-Clause AND MIT.
+- **encoding_rs** 0.8.44 (Henri Sivonen and contributors,
+  https://github.com/hsivonen/encoding_rs), used to read music rip tags
+  written in Shift-JIS. (Apache-2.0 OR MIT) AND BSD-3-Clause; its index data
+  comes from the WHATWG Encoding Standard, whose BSD-3-Clause notice is
+  included in the generated file.
 - **option-ext** 0.2.0, used through `directories` for the user folders.
   MPL-2.0. Its source code, unmodified, is available at
   https://github.com/soc/option-ext.

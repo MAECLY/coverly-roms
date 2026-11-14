@@ -18,7 +18,26 @@ pub use coverly_core::credentials::keychain;
 pub use ipc::{app_info, AppInfo, APP_NAME};
 
 use coverly_core::paths::{config_dir, AppDirs};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+
+/// Records an OS file drop under a token (part D D11, P-5) and tells the
+/// webview its names, sizes and position: an Extras add copies only the
+/// paths recorded here, never a path the webview sends.
+fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) = event {
+        let Some(state) = window.try_state::<state::AppState>() else {
+            return;
+        };
+        let dropped = state.extras_drop(
+            paths.clone(),
+            library::extras::DropPosition {
+                x: position.x,
+                y: position.y,
+            },
+        );
+        let _ = window.emit(ipc::EXTRAS_DROP_EVENT, dropped);
+    }
+}
 
 /// Builds and runs the Tauri application.
 pub fn run() {
@@ -46,6 +65,7 @@ pub fn run() {
             app.manage(updates);
             Ok(())
         })
+        .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             ipc::app_info,
             integrations::integrations_view,
@@ -62,6 +82,25 @@ pub fn run() {
             ipc::identify_entry,
             ipc::reveal_entry,
             ipc::game_details,
+            ipc::extras_list,
+            ipc::extras_rename,
+            ipc::extras_move,
+            ipc::extras_trash,
+            ipc::extras_set_tags,
+            ipc::extras_forget,
+            ipc::extras_category_create,
+            ipc::extras_category_rename,
+            ipc::extras_category_remove,
+            ipc::extras_undo,
+            ipc::extras_add_pick,
+            ipc::extras_add_plan,
+            ipc::extras_add_commit,
+            ipc::extras_add_dropped,
+            ipc::extras_add_cancel,
+            ipc::extras_media,
+            ipc::extras_read_text,
+            ipc::extras_reveal,
+            ipc::extras_open_external,
             ipc::set_default_revision,
             ipc::read_child_art,
             ipc::read_child_art_bytes,

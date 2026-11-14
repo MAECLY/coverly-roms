@@ -551,6 +551,13 @@ impl JobManager {
         self.manual.load(Ordering::SeqCst)
     }
 
+    /// Whether something holds the library's writes: a job gathering,
+    /// applying or paused, or a manual write (the Extras panel shows its
+    /// listing as view only meanwhile).
+    pub fn occupied(&self) -> bool {
+        self.busy() || self.paused() || self.manual_running()
+    }
+
     /// Whether the job is gathering or applying.
     pub fn busy(&self) -> bool {
         lock(&self.current).as_ref().is_some_and(|j| j.running())

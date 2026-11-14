@@ -1353,3 +1353,76 @@ fn a_pile_that_is_a_system_folder_keeps_its_fixed_folders_as_today() {
     names.sort();
     assert_eq!(names, vec!["Game.cia", "d.cia", "m.cia"]);
 }
+
+/// Extras D8: what an Extras job set aside in `.coverly-trash/` is never
+/// a candidate, a left file, a companion or anything else Organizar
+/// would move, at the pile's root or deeper.
+#[test]
+fn organize_never_walks_coverly_trash() {
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "Tetris.gb", b"\0\x01\x02\x03");
+    put(
+        tmp.path(),
+        ".coverly-trash/job-1/GB/Set Aside.gb",
+        b"\0\x04",
+    );
+    put(tmp.path(), "pile/.coverly-trash/job-2/Inner.gb", b"\0\x05");
+    put(tmp.path(), ".coverly-trash/job-1/notes.txt", b"x");
+    let w = run(tmp.path(), &NoCloud);
+    assert_eq!(w.candidates.len(), 1, "{:?}", w.candidates);
+    let seen = format!("{w:?}");
+    assert!(!seen.contains(".coverly-trash"), "{seen}");
+}
+
+#[test]
+fn music_rips_are_left_as_music_never_other_files() {
+    use coverly_core::extras::testing as rips;
+    use coverly_core::extras::{ExtrasCategory, Provenance};
+    use coverly_core::identify::sniff::NotARom;
+    let tmp = tempfile::tempdir().unwrap();
+    let mut tagged = Vec::new();
+    for (name, bytes) in rips::all_rips() {
+        put(tmp.path(), name, &bytes);
+        tagged.push(name);
+    }
+    put(tmp.path(), "a.QSF", b"PSF\x41");
+    put(
+        tmp.path(),
+        "untagged.spc",
+        &rips::spc("Boss", "Super Metroid", "Kenji Yamamoto", false),
+    );
+    put(tmp.path(), "a.rsn", b"Rar!\x1a\x07\x00");
+    let w = run(tmp.path(), &NoCloud);
+    // A rip whose tags name a game is an extra the plan may file (extras
+    // spec D15); the plan leaves it as music until then.
+    for name in tagged {
+        let x = w
+            .extras
+            .iter()
+            .find(|x| x.path.ends_with(name))
+            .unwrap_or_else(|| panic!("{name}: {:?}", w.extras));
+        assert_eq!(x.provenance, Provenance::User, "{name}");
+        assert_eq!(x.category, ExtrasCategory::Soundtrack, "{name}");
+        assert!(x.rip.as_ref().is_some_and(|r| r.game.is_some()), "{name}");
+        assert_eq!(reason_of(&w, name), None, "{name}");
+        assert!(!w.other_files.iter().any(|p| p.ends_with(name)), "{name}");
+    }
+    // Without tags: left as music, never read again by the plan.
+    for name in ["a.QSF", "untagged.spc"] {
+        assert_eq!(
+            reason_of(&w, name),
+            Some(LeftReason::NotARom {
+                what: NotARom::Music
+            }),
+            "{name}"
+        );
+        assert!(!w.other_files.iter().any(|p| p.ends_with(name)), "{name}");
+    }
+    // An `.rsn` (a RAR of SPCs) is not music: it goes on as an archive.
+    assert_ne!(
+        reason_of(&w, "a.rsn"),
+        Some(LeftReason::NotARom {
+            what: NotARom::Music
+        })
+    );
+}

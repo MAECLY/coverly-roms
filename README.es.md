@@ -981,6 +981,10 @@ Coverly se apoya en el trabajo de estos proyectos. Aquí tienes qué usa de cada
 - [Tailwind CSS](https://tailwindcss.com/). Genera los estilos de la interfaz. Licencia: [MIT](https://spdx.org/licenses/MIT.html).
 - [TanStack Virtual](https://tanstack.com/virtual). Listas largas sin perder fluidez. Licencia: [MIT](https://spdx.org/licenses/MIT.html).
 - [sonner](https://sonner.emilkowal.ski/). Los avisos emergentes. Licencia: [MIT](https://spdx.org/licenses/MIT.html).
+- [pdf.js](https://mozilla.github.io/pdf.js/). Los PDF de Extras, dentro de la app. Licencia: [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html).
+
+  > pdf.js, de Mozilla y sus colaboradores. Incluye los CMaps de Adobe y las fuentes estándar de Foxit (BSD 3-Clause) y Liberation Sans (GPL v2 con excepción de fuentes).
+
 - [class-variance-authority](https://github.com/joe-bell/cva). Las variantes de estilo de los componentes. Licencia: [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html).
 - [SQLite](https://sqlite.org/). La caché y la base de datos local. Licencia: Dominio público.
 - [rusqlite](https://github.com/rusqlite/rusqlite). Acceso a SQLite desde Rust. Licencia: [MIT](https://spdx.org/licenses/MIT.html).
@@ -990,6 +994,7 @@ Coverly se apoya en el trabajo de estos proyectos. Aquí tienes qué usa de cada
 - [zip](https://github.com/zip-rs/zip2). Leer y extraer archivos zip. Licencia: [MIT](https://spdx.org/licenses/MIT.html).
 - [sevenz-rust2](https://github.com/hasenbanck/sevenz-rust2). Leer y extraer archivos 7z. Licencia: [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html).
 - [image](https://github.com/image-rs/image). Decodificar y redimensionar las imágenes. Licencia: MIT OR Apache-2.0.
+- [encoding_rs](https://github.com/hsivonen/encoding_rs). Leer en Shift-JIS las etiquetas de los rips de música. Licencia: (Apache-2.0 OR MIT) AND BSD-3-Clause.
 
 ### Tipografías e iconos
 

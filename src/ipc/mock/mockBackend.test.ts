@@ -83,6 +83,28 @@ describe('mock backend', () => {
     );
   });
 
+  it('answers an empty read-only Extras/ and refuses extras writes', async () => {
+    const b = backend();
+    const lib = await b.openLibrary(SMALL);
+    const view = await b.extrasList(lib.generation, 0);
+    expect(view).toMatchObject({
+      entry_id: 0,
+      game_folder: false,
+      writable: { kind: 'read-only' },
+      files: [],
+    });
+    await expect(
+      b.extrasTrash(lib.generation, 0, view.rev, [0]),
+    ).rejects.toMatchObject({ code: 'write-denied' });
+    // As Rust: no game folder, nothing to add to.
+    await expect(b.extrasAddPick(lib.generation, 0)).rejects.toMatchObject({
+      code: 'write-denied',
+    });
+    await expect(b.extrasList(lib.generation + 1, 0)).rejects.toBeInstanceOf(
+      BackendError,
+    );
+  });
+
   it('rejects unknown folders as not-found', async () => {
     await expect(backend().openLibrary('/mock/Broken')).rejects.toMatchObject({
       code: 'not-found',
@@ -163,6 +185,28 @@ describe('mock backend', () => {
     window.dispatchEvent(ev);
     off();
     expect(dropped).toEqual([SMALL]);
+  });
+
+  it('never opens a library from a drop over the extras section', async () => {
+    const b = backend();
+    const dropped: string[] = [];
+    const off = await b.onFolderDrop((p) => dropped.push(p));
+    const section = document.createElement('section');
+    section.setAttribute('data-extras-drop-root', '');
+    section.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100);
+    document.body.append(section);
+    const ev = new MouseEvent('drop', {
+      cancelable: true,
+      clientX: 50,
+      clientY: 50,
+    });
+    Object.defineProperty(ev, 'dataTransfer', {
+      value: { files: [], getData: () => 'Small library' },
+    });
+    window.dispatchEvent(ev);
+    section.remove();
+    off();
+    expect(dropped).toEqual([]);
   });
 
   it('keeps and normalises library settings', async () => {

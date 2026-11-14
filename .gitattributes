@@ -35,6 +35,7 @@
 *.ttf      binary
 *.otf      binary
 *.pdf      binary
+*.webm     binary
 *.pfx      binary
 *.exe      binary
 *.dll      binary

@@ -1,8 +1,9 @@
-import { render, within } from '@testing-library/react';
+import { fireEvent, render, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { I18nProvider } from '@/i18n/I18nProvider';
 import type { EntryView } from '@/ipc/types';
+import { useViewStore } from '@/stores/viewStore';
 
 import { FixedFoldersSection } from './FixedFoldersSection';
 
@@ -46,7 +47,7 @@ describe('FixedFoldersSection (addon views §8.8 6, D9)', () => {
     expect(cells).toEqual([
       'Mods1 archivo',
       'Trucos2 archivos',
-      'Extras3 archivos',
+      'Extras3 archivosVer extras',
       'Partidasvacía',
     ]);
     expect(
@@ -57,8 +58,12 @@ describe('FixedFoldersSection (addon views §8.8 6, D9)', () => {
     const path = details.querySelector('.panel-folders__path')!;
     expect(path).toHaveClass('mono');
     expect(path).toHaveTextContent('ROMS/PS4/Lantern Harbor');
-    // Nothing here writes.
-    expect(within(details).queryAllByRole('button')).toHaveLength(0);
+    // Nothing here writes: the one button scrolls to the Extras section.
+    const buttons = within(details).getAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    fireEvent.click(buttons[0]!);
+    expect(useViewStore.getState().panelSection).toBe('extras');
+    useViewStore.setState({ panelSection: null });
   });
 
   it('says «más de 10 000 archivos» when the count stopped', () => {

@@ -145,6 +145,7 @@ export function ChildArtSearch({
           <Input
             ref={boxRef}
             type="search"
+            name="child-art-search"
             size="sm"
             className="pl-7"
             value={query}

@@ -6,7 +6,7 @@ import type {
   OrganizeDedupeMode,
   OrganizeSetAsideAction,
 } from './dedupeTypes';
-import type { ErrorCode } from './errors';
+import type { BackendError, ErrorCode } from './errors';
 
 export * from './dedupeTypes';
 
@@ -477,6 +477,9 @@ export interface JobProgressEvent {
 export interface EntryArtUpdate {
   id: number;
   art: ArtMarks;
+  /** The game folder's fixed-folder counts read again after a write in
+   * its Extras/ (extras D22); absent when they did not change. */
+  addons?: EntryView['addons'];
 }
 
 export interface EntriesUpdated {
@@ -503,9 +506,14 @@ export interface JobHistoryItem {
   kind: JobKind;
   /** False for a journal written by a newer Coverly. */
   undoable: boolean;
+  /** The game folder an Extras job wrote in (its root is the library);
+   * absent for other jobs. */
+  game?: string;
 }
 
-export type JobKind = 'fill' | 'organize' | 'dedupe';
+/** What a job did: fill art, organise a pile, set duplicates aside or
+ * change a game's Extras/ (part D D10). */
+export type JobKind = 'fill' | 'organize' | 'dedupe' | 'extras';
 
 export type ExportFormat = 'csv' | 'json';
 
@@ -1035,7 +1043,9 @@ export type NotARom =
   /** An emulator's shader or pipeline cache, recognised by name. */
   | 'emulator-cache'
   /** An emulator's per-game settings file, recognised by name. */
-  | 'emulator-config';
+  | 'emulator-config'
+  /** A music rip (SPC, NSF, GBS, VGM, the PSF family), by its extension. */
+  | 'music';
 
 /** Why a file stays where it is. */
 export type LeftReason =
@@ -1133,7 +1143,13 @@ export type LeftReason =
   | { kind: 'not-supported'; emulator: string; why: NotSupportedWhy }
   /** A patch the emulator would apply when playing, renamed for it only
    * when the user chooses that emulator. */
-  | { kind: 'patch-not-applied'; emulator: string };
+  | { kind: 'patch-not-applied'; emulator: string }
+  /** An official extra whose game is not known, or not only one (extras
+   * D7): never guessed, never moved. */
+  | { kind: 'extra-without-game'; category: ExtrasCategory }
+  /** The game's `extras.json` is from a newer Coverly (extras D5): the
+   * extra is never placed without its record. */
+  | { kind: 'extras-index-newer' };
 
 /** A fixed folder inside a game folder (Rust `FixedFolder`). Its name on
  * disk is English (`Updates`, `DLC`, `Mods`, `Cheats`, `Extras`,
@@ -1141,8 +1157,24 @@ export type LeftReason =
 export type FixedFolder =
   'updates' | 'dlc' | 'mods' | 'cheats' | 'extras' | 'saves';
 
-/** What an item is to its game (Rust `GameRole`). */
-export type GameRole = 'base' | 'update' | 'dlc' | 'demo' | 'mod' | 'cheat';
+/** What an item is to its game (Rust `GameRole`); `extra` is an official
+ * extra or a tagged music rip filed into `Extras/<Category>/`. */
+export type GameRole =
+  'base' | 'update' | 'dlc' | 'demo' | 'mod' | 'cheat' | 'extra';
+
+/** What an `extra` row is and how it was linked (Rust `ExtraLink`). */
+export interface ExtraLink {
+  category: ExtrasCategory;
+  format: ExtraFormat;
+  /** `official` for a detected extra, `user` for a music rip. */
+  provenance: Provenance;
+  via: LinkVia;
+  /** The raw PKG or STFS content type, shown in mono so a wrong guess is
+   * visible in the dry run. */
+  content_type?: number;
+  /** The rip's own tags, for its `extras.json` record. */
+  rip?: RipTags;
+}
 
 /** What an addon is to its game (Rust `AddonKind`). */
 export type AddonKind = 'patch' | 'cheat' | 'mod';
@@ -1295,6 +1327,8 @@ export interface GameLink {
   newest_here?: boolean;
   /** What a `mod` or `cheat` row is and how it was linked. */
   addon?: AddonLink;
+  /** What an `extra` row is and how it was linked. */
+  extra?: ExtraLink;
 }
 
 /** A piece of a game that cannot play alone (Rust `PartKind`). */
@@ -1382,7 +1416,21 @@ export type ItemNote =
   | { kind: 'region-letter-unknown'; letter: string }
   /** `count` art files of this update or DLC stay at its source: the
    * layout shows no child art, or a name is taken or too long there. */
-  | { kind: 'child-art-stays'; count: number };
+  | { kind: 'child-art-stays'; count: number }
+  /** An official extra of `of` filed into `Extras/<category>/`, with its
+   * format and, for a package, its raw content type. */
+  | {
+      kind: 'extra-of';
+      category: ExtrasCategory;
+      of: string;
+      format: ExtraFormat;
+      content_type?: number;
+    }
+  /** A music rip of `of` filed into `Extras/Soundtrack/` as the user's
+   * own content, linked by its `tag` game. */
+  | { kind: 'extra-rip'; of: string; format: ExtraFormat; tag: string }
+  /** The game's `extras.json` cannot be read: apply keeps a copy first. */
+  | { kind: 'extras-backup-first' };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =
@@ -1770,6 +1818,12 @@ export interface OrganizeReport {
   pause_reason: ItemErrorKind | null;
   /** Items not attempted yet: what a resume does. */
   resumable_items: number[];
+  /** Unreadable `extras.json` files copied aside before a game's index
+   * was written (extras spec D5); absent when none. */
+  extras_saved?: string[];
+  /** `Extras/` folders whose placed extras got no record (the index could
+   * not be written); absent when none. */
+  extras_unwritten?: string[];
 }
 
 export type OrganizeJobState =
@@ -1915,4 +1969,341 @@ export type OrganizeUndoReportWire = WithOptional<
 export interface OrganizeUndoViewWire {
   report: OrganizeUndoReportWire[];
   later_jobs: JobHistoryItem[];
+}
+
+/* Extras/ of a game folder (part D) — mirror of coverly_core::extras and
+ * src-tauri/src/library/{extras,extras_media}.rs. Files are named by
+ * `(rev, index)` of a listing, drops by token and adds by plan: no path
+ * from the webview ever reaches a read or a write (D22). */
+
+/** A fixed, suggested category; its folder on disk is English
+ * (`Soundtrack`, `Manuals`, `Artwork`, `Videos`, `Themes`, `Guides`). */
+export type ExtrasCategory =
+  'soundtrack' | 'manuals' | 'artwork' | 'videos' | 'themes' | 'guides';
+
+/** Every fixed category, in Rust's (and the panel's) order. */
+export const EXTRAS_CATEGORIES = [
+  'soundtrack',
+  'manuals',
+  'artwork',
+  'videos',
+  'themes',
+  'guides',
+] as const satisfies readonly ExtrasCategory[];
+
+/** A category of the section: fixed, the user's own folder, or the files
+ * loose in `Extras/` itself. */
+export type CategoryRef =
+  | { kind: 'fixed'; name: ExtrasCategory }
+  | { kind: 'user'; name: string }
+  | { kind: 'root' };
+
+/** What an extra is, by its extension. */
+export type ExtraType = 'audio' | 'video' | 'image' | 'document' | 'other';
+
+/** Whether a file came with the game (found by Organizar) or from the user. */
+export type Provenance = 'official' | 'user';
+
+/** The detected format of an official extra or a music rip. */
+export type ExtraFormat =
+  | 'ps3-p3t'
+  | 'ps3-theme-pkg'
+  | 'ps3-avatar-pkg'
+  | 'vita-theme-pkg'
+  | 'psp-ptf'
+  | 'x360-theme'
+  | 'x360-gamerpic'
+  | 'x360-avatar'
+  | 'x360-video'
+  | '3ds-soundtrack-cia'
+  | 'spc'
+  | 'nsf'
+  | 'gbs'
+  | 'vgm'
+  | 'psf';
+
+/** Tags read from a music rip's own header (offered, never added); Rust
+ * leaves out what the rip does not say and keeps unknown fields. */
+export interface RipTags {
+  game?: string;
+  title?: string;
+  artist?: string;
+  [field: string]: unknown;
+}
+
+/** Why `extras.json` could not be read at all. */
+export type UnreadableKind = 'symlink' | 'folder' | 'too-large' | 'io';
+
+/** What reading `extras.json` found (D5). Reading never writes. */
+export type IndexState =
+  | { state: 'ok' }
+  | { state: 'absent' }
+  | {
+      state: 'malformed';
+      /** Records skipped, the rest still shown. */
+      bad_records: number;
+      /** Set when nothing could be read. */
+      unreadable: UnreadableKind | null;
+    }
+  /** From a newer Coverly: view only. */
+  | { state: 'newer'; version: number };
+
+/** Whether the panel may write this game's extras now. */
+export type Writability =
+  | { kind: 'yes' }
+  /** Not a game folder, or a folder the app cannot write. */
+  | { kind: 'read-only' }
+  /** A job or another write holds the library. */
+  | { kind: 'busy' }
+  /** `extras.json` comes from a newer Coverly. */
+  | { kind: 'newer' };
+
+/** What the panel may do with a file (D17): play or show it, hand it to
+ * another app, or only show it in the file manager. */
+export type Playable = 'inline' | 'external' | 'reveal-only';
+
+/** One category of the section: every fixed one (a drop slot until it
+ * exists), then the user's, then the files loose in `Extras/`. */
+export interface CategoryView {
+  category: CategoryRef;
+  /** A folder on disk (always true for the root). */
+  present: boolean;
+  count: number;
+  /** A spelling that is a symlink: listed, never entered. */
+  link: boolean;
+  /** Copy to devices (block 4, model only); `null` inherits the default. */
+  sync: boolean | null;
+}
+
+/** One listed file; `index` is its handle within the listing's `rev`. */
+export interface ExtraFileView {
+  index: number;
+  category: CategoryRef;
+  /** `/`-joined, relative to `Extras/`: shown, never sent back. */
+  path: string;
+  name: string;
+  kind: ExtraType;
+  provenance: Provenance;
+  format: ExtraFormat | null;
+  tags: string[];
+  size: number;
+  link: boolean;
+  playable: Playable;
+}
+
+/** A record whose file is gone («No encontrados»); `index` names it for
+ * «Olvidar». */
+export interface MissingView {
+  index: number;
+  category: CategoryRef;
+  path: string;
+  name: string;
+  kind: ExtraType;
+  provenance: Provenance;
+  tags: string[];
+  size: number;
+}
+
+/** A game's `Extras/` as the panel shows it (`extras_list`). */
+export interface ExtrasView {
+  entry_id: number;
+  /** Names this listing: every write sends it back with file indexes. */
+  rev: number;
+  /** False for an entry that is no game folder: nothing to list or write. */
+  game_folder: boolean;
+  index: IndexState;
+  writable: Writability;
+  categories: CategoryView[];
+  files: ExtraFileView[];
+  missing: MissingView[];
+  /** More files than one listing shows. */
+  capped: boolean;
+  system: string;
+  /** The system keeps the e-manual inside the game (D16). */
+  manual_inside: boolean;
+  /** The drive has a Trash; without one, trashed files are set aside in
+   * `.coverly-trash` inside the library, said before acting (D8). */
+  trash: boolean;
+}
+
+/** Something the user should know about a finished Extras job. */
+export type ExtrasNote =
+  /** The unreadable `extras.json` was copied to `file` first (D5). */
+  | { kind: 'malformed-saved'; file: string }
+  | { kind: 'renamed-dup'; name: string }
+  | { kind: 'sanitised'; names: string[] }
+  | { kind: 'keys-skipped'; n: number }
+  | { kind: 'hidden-skipped'; n: number }
+  /** No Trash on this drive: set aside in `folder` inside the library. */
+  | { kind: 'set-aside'; folder: string }
+  | { kind: 'stays-no-trash'; name: string }
+  | { kind: 'trash-failed'; name: string }
+  /** The removed category's folder still holds unlisted things. */
+  | { kind: 'folder-kept'; folder: string }
+  | { kind: 'cancelled'; copied: number };
+
+/** A finished Extras write: the job to undo (`null` when nothing changed),
+ * the new listing (its handles are the ones to use next) and the notes. */
+export interface ExtrasWriteView {
+  job: string | null;
+  listing: ExtrasView;
+  notes: ExtrasNote[];
+}
+
+/** An undone Extras job and the game's listing after it. */
+export interface ExtrasUndone {
+  job: string;
+  removed: number;
+  restored: number;
+  /** Files changed after the job: left as they are. */
+  kept: number;
+  listing: ExtrasView;
+}
+
+/** The `detail` of an `extras-refused` error: why a name, tags or a
+ * write were refused (rendered by the UI, never prose from Rust). */
+export type ExtrasRefusal =
+  | 'empty'
+  | 'too-long'
+  | 'not-portable'
+  | 'dot'
+  | 'reserved'
+  | 'taken'
+  | 'path-too-long'
+  | 'tags-empty'
+  | 'tags-too-long'
+  | 'tags-too-many'
+  | 'index-unreadable'
+  | 'no-trash'
+  | 'too-many'
+  | 'link'
+  /** A key or licence file: never opened, played or shown. */
+  | 'key-file'
+  /** Not played or shown in the app (a package, a text file…). */
+  | 'not-media'
+  /** Not a text file (txt, md, nfo). */
+  | 'not-text'
+  /** Only shown in the file manager, never opened with another app. */
+  | 'reveal-only'
+  /** The drop is too old or was already added: drop the files again. */
+  | 'drop-expired';
+
+/** One file the add dialog offers; `index` names it in the commit. */
+export interface AddFileView {
+  index: number;
+  name: string;
+  size: number;
+  kind: ExtraType;
+  /** Suggested by its type and name, changeable in the dialog. */
+  category: ExtrasCategory;
+  /** A music rip's own tags, offered, never added. */
+  rip: RipTags | null;
+}
+
+/** What the add dialog shows (D13): files by index, never by path. */
+export interface AddPlanView {
+  plan: number;
+  entry_id: number;
+  files: AddFileView[];
+  total: number;
+  /** Key files left out (never opened). */
+  keys: number;
+  /** Hidden files and system litter left out. */
+  hidden: number;
+  /** More files or bytes than one add may copy: nothing would be. */
+  too_many: boolean;
+}
+
+/** One file of a plan to add and its category; files left out are not
+ * added. */
+export interface AddChoice {
+  index: number;
+  category: CategoryRef;
+}
+
+/** How an add started: done at once, or copying in the background under
+ * `add` (ends with `onExtrasAdded`). */
+export type AddStarted =
+  | { kind: 'done'; write: ExtrasWriteView }
+  | { kind: 'background'; add: number; n: number; total: number };
+
+/** `extras://progress`: where a background add is. */
+export interface AddProgressEvent {
+  entry_id: number;
+  add: number;
+  i: number;
+  n: number;
+  done: number;
+  total: number;
+}
+
+/** How a background add ended; a failure is the error a call would throw. */
+export type AddEnd =
+  | { kind: 'done'; write: ExtrasWriteView }
+  | { kind: 'failed'; error: BackendError };
+
+/** `extras://added`: a background add ended. */
+export interface AddFinishedEvent {
+  entry_id: number;
+  add: number;
+  end: AddEnd;
+}
+
+/** The Rust `IpcError` as it travels inside an event. */
+export interface IpcErrorWire {
+  code: string;
+  detail?: unknown;
+}
+
+/** `extras://added` as Rust sends it: the error is still wire. */
+export type AddFinishedEventWire = Omit<AddFinishedEvent, 'end'> & {
+  end:
+    | { kind: 'done'; write: ExtrasWriteView }
+    | { kind: 'failed'; error: IpcErrorWire };
+};
+
+/** One dropped item as the webview sees it: its bare name, never a path. */
+export interface DroppedItem {
+  name: string;
+  /** Bytes of a file; 0 for a folder. */
+  size: number;
+  is_dir: boolean;
+}
+
+/** `extras://drop`: an OS drop Rust recorded under `token` (D11). The
+ * backend hands it over with `position` in CSS pixels (Rust sends
+ * physical ones). */
+export interface ExtrasDropEvent {
+  token: number;
+  position: { x: number; y: number };
+  items: DroppedItem[];
+}
+
+/** How the viewer shows a granted file. */
+export type ExtrasMediaKind = 'audio' | 'video' | 'image' | 'pdf';
+
+/** `extras_media` as Rust sends it: the granted canonical path, which only
+ * the backend turns into a URL. */
+export interface ExtrasMediaWire {
+  src_path: string;
+  mime: string;
+  kind: ExtrasMediaKind;
+}
+
+/** A granted media file as components get it: a URL, never a path. */
+export interface ExtrasMedia {
+  url: string;
+  mime: string;
+  kind: ExtrasMediaKind;
+}
+
+/** How a text extra was decoded. */
+export type TextEncoding = 'utf-8' | 'cp437' | 'latin-1';
+
+/** A text extra (txt, md, nfo; at most 1 MiB), shown as text, never HTML. */
+export interface ExtrasTextView {
+  text: string;
+  /** Longer than 1 MiB: only the start is shown. */
+  truncated: boolean;
+  encoding: TextEncoding;
 }

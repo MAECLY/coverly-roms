@@ -52,6 +52,19 @@ describe('backend errors', () => {
     ).toEqual(detail);
   });
 
+  it('keeps the kebab reason of an extras refusal as its detail (part D)', () => {
+    const e = toBackendError({
+      code: 'extras-refused',
+      detail: { why: 'tags-too-many' },
+    });
+    expect([e.code, e.detail]).toEqual(['extras-refused', 'tags-too-many']);
+    expect(toBackendError({ code: 'extras-changed' }).detail).toBeUndefined();
+    // Never "[object Object]", whatever the shape.
+    expect(
+      toBackendError({ code: 'extras-refused', detail: { x: 1 } }).detail,
+    ).toBeUndefined();
+  });
+
   it('turns anything else into an unknown error', () => {
     expect(toBackendError('boom').code).toBe('unknown');
     expect(toBackendError(new Error('bad')).detail).toBe('bad');

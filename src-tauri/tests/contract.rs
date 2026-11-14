@@ -191,6 +191,7 @@ fn rust_serialises_the_shared_sample() {
             entries: vec![EntryArtUpdate {
                 id: 0,
                 art: ArtMarks { cover: ArtMark::Present, screenshot: ArtMark::Unsupported, title: ArtMark::Unsupported },
+                addons: None,
             }],
         },
         "undo": UndoView { job: "20261016T050401Z-1bfb-0000".into(), removed: 2, restored: 1, kept: 0, entries: vec![] },
@@ -203,6 +204,7 @@ fn rust_serialises_the_shared_sample() {
             undone: false,
             kind: coverly_core::write::JobKind::Fill,
             undoable: true,
+            game: None,
         },
         "error": IpcError::NotFound("/Volumes/SD".into()),
         "item_error_kinds": ALL_ITEM_ERROR_KINDS,
@@ -646,6 +648,8 @@ fn archive_and_disc_views_match_the_shared_sample() {
             paused: None,
             pause_reason: None,
             resumable_items: vec![],
+            extras_saved: vec![],
+            extras_unwritten: vec![],
         },
         "organize_undo_archive_lost": UndoReport {
             job: job.into(),
@@ -730,6 +734,8 @@ fn organise_views_match_the_shared_sample() {
                 paused: Some(PauseKind::Volume),
                 pause_reason: Some(ItemErrorKind::DiskFull),
                 resumable_items: vec![],
+                extras_saved: vec![],
+                extras_unwritten: vec![],
             }),
             target_root: "/Users/me/ROMs-Downloaded".into(),
             layout: "anbernic-stock".into(),
@@ -775,6 +781,7 @@ fn organise_views_match_the_shared_sample() {
                 undone: false,
                 kind: JobKind::Fill,
                 undoable: true,
+                game: None,
             }],
         },
         "organize_errors": [
@@ -1218,6 +1225,16 @@ fn organise_set_aside_views_match_the_shared_sample() {
             in_library: 2,
             bytes: 32_768,
             ..Counts::default()
+        },
+        "organize_report_extras": OrganizeReport {
+            job: Some("20261114T120000Z-1bfb-0005".into()),
+            moved: 2,
+            extras_saved: vec![
+                "/Users/me/ROMs/PS3/Resistance (USA)/Extras/extras.broken-20261114-120000.json"
+                    .into(),
+            ],
+            extras_unwritten: vec!["/Users/me/ROMs/PS3/Tidewalker/Extras".into()],
+            ..OrganizeReport::default()
         },
         "organize_report_set_aside": OrganizeReport {
             job: Some("20261025T111500Z-1bfb-0004".into()),
@@ -1669,6 +1686,7 @@ fn game_folder_values_match_the_shared_sample() {
             },
             LeftReason::NotARom { what: NotARom::EmulatorCache },
             LeftReason::NotARom { what: NotARom::EmulatorConfig },
+            LeftReason::NotARom { what: NotARom::Music },
             LeftReason::LicenceOf {
                 of: "Resistance.pkg".into(),
             },
@@ -1692,6 +1710,7 @@ fn game_folder_values_match_the_shared_sample() {
             GameRole::Demo,
             GameRole::Mod,
             GameRole::Cheat,
+            GameRole::Extra,
         ],
     });
     let expected: Value =
@@ -2511,5 +2530,577 @@ fn game_panel_answers_match_the_shared_sample() {
             "sample `{key}`:\n{}",
             serde_json::to_string_pretty(value).unwrap()
         );
+    }
+}
+
+#[test]
+fn extras_views_match_the_shared_sample() {
+    use coverly_core::extras::index::IndexState;
+    use coverly_core::extras::{CategoryRef, ExtraFormat, ExtraType, ExtrasCategory, Provenance};
+    use coverly_core::write::JobKind;
+    use coverly_roms_lib::library::extras::{
+        CategoryView, ExtraFileView, ExtrasView, MissingView, Playable, Writability,
+    };
+
+    let slot = |c: ExtrasCategory, present: bool, count: u32| CategoryView {
+        category: CategoryRef::Fixed(c),
+        present,
+        count,
+        link: false,
+        sync: None,
+    };
+    let view = ExtrasView {
+        entry_id: 7,
+        rev: 12,
+        game_folder: true,
+        index: IndexState::Ok,
+        writable: Writability::Yes,
+        categories: vec![
+            CategoryView {
+                sync: Some(false),
+                ..slot(ExtrasCategory::Soundtrack, true, 1)
+            },
+            slot(ExtrasCategory::Manuals, false, 0),
+            slot(ExtrasCategory::Artwork, false, 0),
+            slot(ExtrasCategory::Videos, false, 0),
+            slot(ExtrasCategory::Themes, true, 1),
+            slot(ExtrasCategory::Guides, false, 0),
+            CategoryView {
+                category: CategoryRef::User("Remixes".into()),
+                present: true,
+                count: 0,
+                link: false,
+                sync: None,
+            },
+            CategoryView {
+                category: CategoryRef::Root,
+                present: true,
+                count: 1,
+                link: false,
+                sync: None,
+            },
+        ],
+        files: vec![
+            ExtraFileView {
+                index: 0,
+                category: CategoryRef::Fixed(ExtrasCategory::Soundtrack),
+                path: "Soundtrack/01 Opening.flac".into(),
+                name: "01 Opening.flac".into(),
+                kind: ExtraType::Audio,
+                provenance: Provenance::User,
+                format: None,
+                tags: vec!["tema del jefe final".into()],
+                size: 31_457_280,
+                link: false,
+                playable: Playable::Inline,
+            },
+            ExtraFileView {
+                index: 1,
+                category: CategoryRef::Fixed(ExtrasCategory::Themes),
+                path: "Themes/Resistance Theme.p3t".into(),
+                name: "Resistance Theme.p3t".into(),
+                kind: ExtraType::Other,
+                provenance: Provenance::Official,
+                format: Some(ExtraFormat::Ps3P3t),
+                tags: vec![],
+                size: 2_097_152,
+                link: false,
+                playable: Playable::RevealOnly,
+            },
+            ExtraFileView {
+                index: 2,
+                category: CategoryRef::Root,
+                path: "track01.spc".into(),
+                name: "track01.spc".into(),
+                kind: ExtraType::Audio,
+                provenance: Provenance::User,
+                format: Some(ExtraFormat::Spc),
+                tags: vec![],
+                size: 66_048,
+                link: false,
+                playable: Playable::External,
+            },
+        ],
+        missing: vec![MissingView {
+            index: 0,
+            category: CategoryRef::Fixed(ExtrasCategory::Videos),
+            path: "Videos/intro.mp4".into(),
+            name: "intro.mp4".into(),
+            kind: ExtraType::Video,
+            provenance: Provenance::Official,
+            tags: vec!["intro".into()],
+            size: 99,
+        }],
+        capped: false,
+        system: "ps3".into(),
+        manual_inside: false,
+        trash: true,
+    };
+    let bare = ExtrasView {
+        entry_id: 8,
+        rev: 13,
+        game_folder: false,
+        index: IndexState::Absent,
+        writable: Writability::ReadOnly,
+        categories: vec![],
+        files: vec![],
+        missing: vec![],
+        capped: false,
+        system: "3ds".into(),
+        manual_inside: true,
+        trash: false,
+    };
+    let history = JobHistoryView {
+        job: "20261114T120000Z-1bfb-0000".into(),
+        root: "/Volumes/SD".into(),
+        created_at: "2026-11-14T12:00:00Z".into(),
+        entries: 2,
+        complete: true,
+        undone: false,
+        kind: JobKind::Extras,
+        undoable: true,
+        game: Some("Resistance (USA)".into()),
+    };
+    let actual = json!({
+        "extras_view": view,
+        "extras_view_bare": bare,
+        "extras_index_states": [
+            IndexState::Ok,
+            IndexState::Absent,
+            IndexState::Malformed { bad_records: 2, unreadable: None },
+            IndexState::Newer { version: 2 },
+        ],
+        "extras_writabilities": [
+            Writability::Yes,
+            Writability::ReadOnly,
+            Writability::Busy,
+            Writability::Newer,
+        ],
+        "extras_playables": [Playable::Inline, Playable::External, Playable::RevealOnly],
+        "extras_errors": [
+            IpcError::ExtrasChanged,
+            IpcError::ExtrasNewer,
+            IpcError::ExtrasRefused { why: "taken".into() },
+        ],
+        "history_item_extras": history,
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+#[test]
+fn extras_write_views_match_the_shared_sample() {
+    use coverly_core::extras::index::IndexState;
+    use coverly_core::extras::ops::{ExtrasError, ExtrasNote};
+    use coverly_core::extras::{CategoryRef, ExtrasCategory, NameRefusal, TagRefusal};
+    use coverly_roms_lib::library::extras::{
+        ExtrasUndone, ExtrasView, ExtrasWriteView, Writability,
+    };
+
+    let listing = ExtrasView {
+        entry_id: 7,
+        rev: 14,
+        game_folder: true,
+        index: IndexState::Ok,
+        writable: Writability::Yes,
+        categories: vec![],
+        files: vec![],
+        missing: vec![],
+        capped: false,
+        system: "ps3".into(),
+        manual_inside: false,
+        trash: true,
+    };
+    let write = ExtrasWriteView {
+        job: Some("20261114T120000Z-1bfb-0001".into()),
+        listing: listing.clone(),
+        notes: vec![
+            ExtrasNote::MalformedSaved {
+                file: "extras.broken-20261114-120000.json".into(),
+            },
+            ExtrasNote::SetAside {
+                folder: ".coverly-trash/20261114T120000Z-1bfb-0001".into(),
+            },
+            ExtrasNote::StaysNoTrash {
+                name: "boss.mp3".into(),
+            },
+            ExtrasNote::TrashFailed {
+                name: "intro.mp4".into(),
+            },
+            ExtrasNote::FolderKept {
+                folder: "Remixes".into(),
+            },
+            ExtrasNote::RenamedDup {
+                name: "boss (2).mp3".into(),
+            },
+        ],
+    };
+    let nothing = ExtrasWriteView {
+        job: None,
+        listing: listing.clone(),
+        notes: vec![],
+    };
+    let undone = ExtrasUndone {
+        job: "20261114T120000Z-1bfb-0001".into(),
+        removed: 0,
+        restored: 2,
+        kept: 1,
+        listing,
+        updated: None,
+    };
+    let updated = EntriesUpdatedEvent {
+        generation: 3,
+        entries: vec![EntryArtUpdate {
+            id: 7,
+            art: ArtMarks {
+                cover: ArtMark::Present,
+                screenshot: ArtMark::Missing,
+                title: ArtMark::Unsupported,
+            },
+            addons: Some(FolderCountsView {
+                mods: 0,
+                cheats: 1,
+                extras: 4,
+                saves: 0,
+                capped: false,
+            }),
+        }],
+    };
+    let refusals: Vec<IpcError> = [
+        ExtrasError::Name(NameRefusal::Empty),
+        ExtrasError::Name(NameRefusal::TooLong),
+        ExtrasError::Name(NameRefusal::NotPortable),
+        ExtrasError::Name(NameRefusal::Dot),
+        ExtrasError::Name(NameRefusal::Reserved),
+        ExtrasError::Name(NameRefusal::Taken),
+        ExtrasError::Name(NameRefusal::PathTooLong),
+        ExtrasError::Tags(TagRefusal::Empty),
+        ExtrasError::Tags(TagRefusal::TooLong),
+        ExtrasError::Tags(TagRefusal::TooMany),
+        ExtrasError::IndexUnreadable,
+        ExtrasError::NoTrash,
+        ExtrasError::TooMany,
+        ExtrasError::Link("Soundtrack/link.mp3".into()),
+    ]
+    .into_iter()
+    .map(IpcError::from)
+    // Viewing, opening and adding refuse with their own reasons.
+    .chain(
+        coverly_roms_lib::error::extras_refusal::ACCESS
+            .into_iter()
+            .map(|why| IpcError::ExtrasRefused { why: why.into() }),
+    )
+    .collect();
+    let actual = json!({
+        "extras_write": write,
+        "extras_write_nothing": nothing,
+        "extras_undone": undone,
+        "entries_updated_addons": updated,
+        "extras_refusals": refusals,
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+
+    // What the webview sends: categories as the listing names them.
+    let req: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.requests.json")).unwrap();
+    let refs: Vec<CategoryRef> =
+        serde_json::from_value(req["extras_category_refs"].clone()).unwrap();
+    assert_eq!(
+        refs,
+        [
+            CategoryRef::Fixed(ExtrasCategory::Soundtrack),
+            CategoryRef::User("Remixes".into()),
+            CategoryRef::Root,
+        ]
+    );
+}
+
+/// Adds from a picker or an OS drop (part D D11, D13): plans by index and
+/// drops by token, never a path; background progress and end.
+#[test]
+fn extras_add_views_match_the_shared_sample() {
+    use coverly_core::extras::ops::ExtrasNote;
+    use coverly_core::extras::{CategoryRef, ExtraType, ExtrasCategory, RipTags};
+    use coverly_roms_lib::library::extras::{
+        AddChoice, AddEnd, AddFileView, AddFinishedEvent, AddPlanView, AddProgressEvent,
+        AddStarted, DropEvent, DropPosition, DroppedItem, ExtrasView, ExtrasWriteView, Writability,
+    };
+
+    let plan = AddPlanView {
+        plan: 3,
+        entry_id: 7,
+        files: vec![
+            AddFileView {
+                index: 0,
+                name: "01 Opening.spc".into(),
+                size: 66_048,
+                kind: ExtraType::Audio,
+                category: ExtrasCategory::Soundtrack,
+                rip: Some(RipTags {
+                    game: Some("Super Metroid".into()),
+                    title: Some("Opening".into()),
+                    ..RipTags::default()
+                }),
+            },
+            AddFileView {
+                index: 1,
+                name: "manual.pdf".into(),
+                size: 1_200_000,
+                kind: ExtraType::Document,
+                category: ExtrasCategory::Manuals,
+                rip: None,
+            },
+        ],
+        total: 1_266_048,
+        keys: 2,
+        hidden: 1,
+        too_many: false,
+    };
+    let listing = ExtrasView {
+        entry_id: 7,
+        rev: 15,
+        game_folder: true,
+        index: coverly_core::extras::index::IndexState::Ok,
+        writable: Writability::Yes,
+        categories: vec![],
+        files: vec![],
+        missing: vec![],
+        capped: false,
+        system: "snes".into(),
+        manual_inside: false,
+        trash: true,
+    };
+    let write = ExtrasWriteView {
+        job: Some("20261114T120000Z-1bfb-0002".into()),
+        listing,
+        notes: vec![
+            ExtrasNote::Sanitised {
+                names: vec!["a_b.mp3".into()],
+            },
+            ExtrasNote::KeysSkipped { n: 2 },
+            ExtrasNote::HiddenSkipped { n: 1 },
+            ExtrasNote::Cancelled { copied: 3 },
+        ],
+    };
+    let actual = json!({
+        "extras_add_plan": plan,
+        "extras_add_started_done": AddStarted::Done { write: write.clone() },
+        "extras_add_started_background": AddStarted::Background { add: 3, n: 12, total: 4_000_000_000u64 },
+        "extras_add_progress": AddProgressEvent { entry_id: 7, add: 3, i: 3, n: 12, done: 1_200_000_000, total: 4_000_000_000 },
+        "extras_added_done": AddFinishedEvent { entry_id: 7, add: 3, end: AddEnd::Done { write } },
+        "extras_added_failed": AddFinishedEvent {
+            entry_id: 7,
+            add: 4,
+            end: AddEnd::Failed { error: IpcError::ExtrasRefused { why: "too-many".into() } },
+        },
+        "extras_drop": DropEvent {
+            token: 9,
+            position: DropPosition { x: 812.0, y: 430.5 },
+            items: vec![
+                DroppedItem { name: "01 Opening.flac".into(), size: 31_457_280, is_dir: false },
+                DroppedItem { name: "Scans".into(), size: 0, is_dir: true },
+            ],
+        },
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+
+    // What the dialog sends: a category per chosen file of the plan.
+    let req: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.requests.json")).unwrap();
+    let choices: Vec<AddChoice> =
+        serde_json::from_value(req["extras_add_choices"].clone()).unwrap();
+    assert_eq!(
+        choices,
+        [
+            AddChoice {
+                index: 0,
+                category: CategoryRef::Fixed(ExtrasCategory::Soundtrack),
+            },
+            AddChoice {
+                index: 1,
+                category: CategoryRef::User("Escaneos".into()),
+            },
+        ]
+    );
+}
+
+/// Part D in Organizar and the viewer: an extra row, its reasons and
+/// notes, the extras vocabularies, a granted media file and a text view.
+#[test]
+fn extras_organize_and_media_values_match_the_shared_sample() {
+    use coverly_core::addons::LinkVia;
+    use coverly_core::extras::{ExtraFormat, ExtraType, ExtrasCategory, Provenance};
+    use coverly_core::identify::evidence::{Evidence, IdLevel};
+    use coverly_core::organize::plan::ExtraLink;
+    use coverly_core::organize::{
+        GameLink, GameRole, ItemKind, ItemNote, LeftReason, OrganizeAction, OrganizeItem, SourceFp,
+        Transfer,
+    };
+    use coverly_roms_lib::library::extras_media::{MediaKind, MediaView, TextEncoding, TextView};
+
+    let mut link = GameLink::new(GameRole::Extra);
+    link.of = Some(0);
+    link.folder = Some("PS3/Tidewalker (USA)".into());
+    link.extra = Some(ExtraLink {
+        category: ExtrasCategory::Themes,
+        format: ExtraFormat::Ps3P3t,
+        provenance: Provenance::Official,
+        via: LinkVia::Key,
+        content_type: None,
+        rip: None,
+    });
+    let extra = OrganizeItem {
+        id: 1,
+        sources: vec!["Tidewalker Theme.p3t".into()],
+        kind: ItemKind::File,
+        size: 2_097_152,
+        fps: vec![SourceFp {
+            size: 2_097_152,
+            mtime_ns: 1_700_000_000_000_000_000,
+        }],
+        target: Some("PS3/Tidewalker (USA)/Extras/Themes/Tidewalker Theme.p3t".into()),
+        set_targets: vec![],
+        system_id: Some("ps3".into()),
+        folder: Some("PS3".into()),
+        confidence: 0.95,
+        method: Some(IdLevel::Header),
+        why: vec![Evidence::new(IdLevel::Header, "ps3", 0.95, "BCUS98174")],
+        alternatives: vec![],
+        rename: None,
+        notes: vec![ItemNote::ExtraOf {
+            category: ExtrasCategory::Themes,
+            of: "Tidewalker".into(),
+            format: ExtraFormat::Ps3P3t,
+            content_type: None,
+        }],
+        companions: vec![],
+        catalogue_name: None,
+        transfer: Transfer::AsIs,
+        disc: None,
+        title_id: None,
+        content_id: None,
+        playlist: None,
+        title_source: None,
+        game: Some(link),
+        action: OrganizeAction::Auto,
+    };
+    let extra: Value = serde_json::from_str(&serde_json::to_string(&extra).unwrap()).unwrap();
+    let actual = json!({
+        "extra_item": extra,
+        "extra_reasons": [
+            LeftReason::ExtraWithoutGame {
+                category: ExtrasCategory::Soundtrack,
+            },
+            LeftReason::ExtrasIndexNewer,
+        ],
+        "extra_notes": [
+            ItemNote::ExtraOf {
+                category: ExtrasCategory::Themes,
+                of: "Tidewalker".into(),
+                format: ExtraFormat::Ps3ThemePkg,
+                content_type: Some(9),
+            },
+            ItemNote::ExtraRip {
+                of: "Super Metroid".into(),
+                format: ExtraFormat::Spc,
+                tag: "Super Metroid".into(),
+            },
+            ItemNote::ExtrasBackupFirst,
+        ],
+        "extras_categories": ExtrasCategory::ALL,
+        "extra_types": [
+            ExtraType::Audio,
+            ExtraType::Video,
+            ExtraType::Image,
+            ExtraType::Document,
+            ExtraType::Other,
+        ],
+        "extra_formats": [
+            ExtraFormat::Ps3P3t,
+            ExtraFormat::Ps3ThemePkg,
+            ExtraFormat::Ps3AvatarPkg,
+            ExtraFormat::VitaThemePkg,
+            ExtraFormat::PspPtf,
+            ExtraFormat::X360Theme,
+            ExtraFormat::X360Gamerpic,
+            ExtraFormat::X360Avatar,
+            ExtraFormat::X360Video,
+            ExtraFormat::N3dsSoundtrackCia,
+            ExtraFormat::Spc,
+            ExtraFormat::Nsf,
+            ExtraFormat::Gbs,
+            ExtraFormat::Vgm,
+            ExtraFormat::Psf,
+        ],
+        "extras_media": MediaView {
+            src_path: "/Volumes/SD/PS3/Tidewalker (USA)/Extras/Soundtrack/01 Opening.flac".into(),
+            mime: "audio/flac".into(),
+            kind: MediaKind::Audio,
+        },
+        "extras_media_kinds": [MediaKind::Audio, MediaKind::Video, MediaKind::Image, MediaKind::Pdf],
+        "extras_text": TextView {
+            text: "Tidewalker\n".into(),
+            truncated: false,
+            encoding: TextEncoding::Cp437,
+        },
+        "extras_text_encodings": [TextEncoding::Utf8, TextEncoding::Cp437, TextEncoding::Latin1],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+/// The tag rule the webview mirrors (D20): every case of the shared table
+/// gives the same tags, or the same refusal, in Rust.
+#[test]
+fn extras_tag_cases_match_rust() {
+    use coverly_core::extras::normalize_tags;
+
+    let req: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.requests.json")).unwrap();
+    let cases = req["extras_tag_cases"].as_array().unwrap();
+    assert!(cases.len() >= 5);
+    for case in cases {
+        let input: Vec<String> = serde_json::from_value(case["input"].clone()).unwrap();
+        let got = match normalize_tags(&input) {
+            Ok(tags) => json!({ "tags": tags }),
+            Err(why) => json!({ "refused": why }),
+        };
+        let mut want = case.clone();
+        want.as_object_mut().unwrap().remove("input");
+        assert_eq!(got, want, "tags {input:?}");
     }
 }

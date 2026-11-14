@@ -835,6 +835,26 @@
       "required": false
     },
     {
+      "id": "pdfjs",
+      "group": "libraries",
+      "name": "pdf.js",
+      "url": "https://mozilla.github.io/pdf.js/",
+      "use": {
+        "es": "Los PDF de Extras, dentro de la app.",
+        "en": "The PDFs in Extras, inside the app."
+      },
+      "license": {
+        "spdx": "Apache-2.0",
+        "name": "Apache-2.0",
+        "url": "https://spdx.org/licenses/Apache-2.0.html"
+      },
+      "credit": {
+        "es": "pdf.js, de Mozilla y sus colaboradores. Incluye los CMaps de Adobe y las fuentes estándar de Foxit (BSD 3-Clause) y Liberation Sans (GPL v2 con excepción de fuentes).",
+        "en": "pdf.js, by Mozilla and its contributors. Includes Adobe's CMaps and the Foxit (BSD 3-Clause) and Liberation Sans (GPL v2 with font exception) standard fonts."
+      },
+      "required": false
+    },
+    {
       "id": "cva",
       "group": "libraries",
       "name": "class-variance-authority",
@@ -972,6 +992,21 @@
       "license": {
         "spdx": "MIT OR Apache-2.0",
         "name": "MIT OR Apache-2.0"
+      },
+      "required": false
+    },
+    {
+      "id": "encoding-rs",
+      "group": "libraries",
+      "name": "encoding_rs",
+      "url": "https://github.com/hsivonen/encoding_rs",
+      "use": {
+        "es": "Leer en Shift-JIS las etiquetas de los rips de música.",
+        "en": "Reads music rip tags written in Shift-JIS."
+      },
+      "license": {
+        "spdx": "(Apache-2.0 OR MIT) AND BSD-3-Clause",
+        "name": "(Apache-2.0 OR MIT) AND BSD-3-Clause"
       },
       "required": false
     },

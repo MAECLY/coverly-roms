@@ -1,6 +1,7 @@
 import { FolderOpen, X } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
 
+import { MiniPlayer } from '@/components/media/MiniPlayer';
 import { SystemLabel } from '@/components/system/SystemLabel';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,7 @@ import { useViewStore } from '@/stores/viewStore';
 import { ArtWorkspace } from './ArtWorkspace';
 import { DemoSection } from './game/DemoSection';
 import { DlcSection } from './game/DlcSection';
+import { ExtrasSection } from './game/ExtrasSection';
 import { FixedFoldersSection } from './game/FixedFoldersSection';
 import { RegionLine } from './game/RegionLine';
 import { RevisionsSection } from './game/RevisionsSection';
@@ -297,6 +299,14 @@ export function DetailDrawer({
         />
       )}
       <FixedFoldersSection entry={game?.entry ?? entry} />
+      {(game?.entry ?? entry).addons && (
+        <ExtrasSection
+          // Open bands and the focused row belong to one game.
+          key={`${view.generation}:${(game?.entry ?? entry).id}`}
+          generation={view.generation}
+          entry={game?.entry ?? entry}
+        />
+      )}
       <ArtWorkspace
         key={`${view.generation}:${entry.id}:${workspaceMedia ?? ''}`}
         view={view}
@@ -345,6 +355,8 @@ export function DetailDrawer({
           </dd>
         </dl>
       </section>
+      {/* Pinned to the bottom of the panel's scroll (extras D19). */}
+      <MiniPlayer variant="panel" />
     </aside>
   );
 }

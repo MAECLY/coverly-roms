@@ -80,3 +80,40 @@ pub fn realistic_library() -> TempDir {
     write(root, "ROMS/.hidden/x.sfc", "hidden");
     dir
 }
+
+/// Every entry below `dir`, keyed by its path components: files with their
+/// bytes and modification time (ns), folders with no bytes and `-1`. A
+/// tree compared before an action and after its undo proves the undo.
+pub fn tree(dir: &Path) -> std::collections::BTreeMap<Vec<String>, (Vec<u8>, i64)> {
+    fn walk(
+        base: &Path,
+        dir: &Path,
+        out: &mut std::collections::BTreeMap<Vec<String>, (Vec<u8>, i64)>,
+    ) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let key: Vec<String> = path
+                .strip_prefix(base)
+                .unwrap()
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect();
+            let meta = fs::symlink_metadata(&path).unwrap();
+            if meta.is_dir() {
+                out.insert(key, (Vec::new(), -1));
+                walk(base, &path, out);
+            } else {
+                let mtime = meta
+                    .modified()
+                    .unwrap()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX));
+                out.insert(key, (fs::read(&path).unwrap_or_default(), mtime));
+            }
+        }
+    }
+    let mut out = std::collections::BTreeMap::new();
+    walk(dir, dir, &mut out);
+    out
+}
