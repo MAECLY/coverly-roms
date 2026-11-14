@@ -2327,6 +2327,10 @@
     "fit": "Ajustar",
     "unplayable": "Este formato no se reproduce en Coverly.",
     "pageFailed": "Esta página no se puede mostrar aquí.",
-    "openExternal": "Abrir con otra app"
+    "openExternal": "Abrir con otra app",
+    "previous": "Archivo anterior",
+    "next": "Archivo siguiente",
+    "truncated": "El archivo es largo: solo se muestra el principio.",
+    "zoomLevel": "{n} %"
   }
 }

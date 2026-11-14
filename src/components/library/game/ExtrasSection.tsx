@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 
+import { MediaViewer } from '@/components/media/MediaViewer';
 import { Alert } from '@/components/ui/alert';
 import {
   AlertDialog,
@@ -81,6 +82,7 @@ import {
   type AddTagWant,
 } from '@/stores/extrasStore';
 import { currentTrack, usePlayerStore } from '@/stores/playerStore';
+import { useViewerStore } from '@/stores/viewerStore';
 
 import { ExtrasCategory, VIRTUALISE_AFTER } from './ExtrasCategory';
 import {
@@ -450,8 +452,14 @@ export function ExtrasSection({
     });
   const openFile = (index: number) => {
     const f = fileAt(index);
-    if (f?.kind === 'audio' && f.playable === 'inline') play(index);
-    else onOpen?.(index);
+    if (!f) return;
+    if (f.kind === 'audio' && f.playable === 'inline') play(index);
+    else if (onOpen) onOpen(index);
+    // The rest opens in the viewer, which follows the file by its path.
+    else
+      useViewerStore
+        .getState()
+        .show({ generation, entryId: entry.id, path: f.path });
   };
   const store = () => useExtrasStore.getState();
 
@@ -1317,6 +1325,8 @@ export function ExtrasSection({
           )}
         </AlertDialog>
       </section>
+      {/* Outside the section: its row keys never see the viewer's. */}
+      <MediaViewer generation={generation} listing={listing} />
     </ExtrasActionsContext.Provider>
   );
 }

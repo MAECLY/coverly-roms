@@ -17,6 +17,7 @@ import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
 import type { EntryView, ExtrasView, LibraryView } from '@/ipc/types';
 import { useExtrasStore } from '@/stores/extrasStore';
 import { usePlayerStore } from '@/stores/playerStore';
+import { useViewerStore } from '@/stores/viewerStore';
 import { useViewStore } from '@/stores/viewStore';
 import { stubLayout } from '@/test/layout';
 
@@ -510,6 +511,35 @@ describe('ExtrasSection (extras spec §8.1, §8.2, §8.4)', () => {
     fireEvent.keyDown(name, { key: 'Enter' });
     const p = usePlayerStore.getState();
     expect(p.queue[p.at]?.name).toBe('02 Coral Depths.wav');
+  });
+
+  it('Enter on an image opens the viewer; Esc gives the row its focus back', async () => {
+    show('Tidewalker');
+    const r = await listed('Tidewalker');
+    const name = within(r).getByRole('button', { name: /^Key Art\.png/ });
+    name.focus();
+    fireEvent.keyDown(name, { key: 'Enter' });
+    const dialog = await screen.findByRole('dialog', { name: 'Key Art.png' });
+    expect(useViewerStore.getState().open?.path).toBe('Artwork/Key Art.png');
+    await within(dialog).findByRole('img', { name: 'Key Art.png' });
+    // The viewer's keys stay in the viewer: no rename, no tags, no trash.
+    fireEvent.keyDown(dialog, { key: 'Delete' });
+    fireEvent.keyDown(dialog, { key: 'F2' });
+    expect(screen.queryByRole('textbox')).toBeNull();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(name).toHaveFocus());
+  });
+
+  it('an open viewer closes with the panel', async () => {
+    const { unmount } = show('Tidewalker');
+    const r = await listed('Tidewalker');
+    fireEvent.doubleClick(
+      within(r).getByRole('button', { name: /^Readme\.nfo/ }),
+    );
+    await screen.findByRole('dialog', { name: 'Readme.nfo' });
+    unmount();
+    expect(useViewerStore.getState().open).toBeNull();
   });
 
   it('the music goes on when the panel unmounts', async () => {
