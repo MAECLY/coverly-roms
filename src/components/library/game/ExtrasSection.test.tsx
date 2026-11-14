@@ -443,8 +443,13 @@ describe('ExtrasSection (extras spec §8.1, §8.2, §8.4)', () => {
     // → reaches the row's own controls; ← comes back.
     fireEvent.keyDown(primaries[0]!, { key: 'ArrowRight' });
     expect(document.activeElement).toHaveAccessibleName(
+      'Reproducir 01 Opening Tide.flac',
+    );
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight' });
+    expect(document.activeElement).toHaveAccessibleName(
       'Más acciones para 01 Opening Tide.flac',
     );
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowLeft' });
     fireEvent.keyDown(document.activeElement!, { key: 'ArrowLeft' });
     expect(document.activeElement).toBe(primaries[0]);
   });
@@ -475,6 +480,46 @@ describe('ExtrasSection (extras spec §8.1, §8.2, §8.4)', () => {
       .getByRole('button', { name: /^02 Coral Depths\.wav/ })
       .closest('li')!;
     expect(row).toHaveAttribute('data-playing', 'true');
+  });
+
+  it("«Reproducir» queues the audio of the row's category from that row", async () => {
+    show('Tidewalker');
+    const r = await listed('Tidewalker');
+    fireEvent.click(
+      within(r).getByRole('button', { name: 'Reproducir 02 Coral Depths.wav' }),
+    );
+    const p = usePlayerStore.getState();
+    expect(p.playing).toBe(true);
+    expect(p.queue[p.at]!.name).toBe('02 Coral Depths.wav');
+    expect(p.queue[p.at]!.game).toBe('Tidewalker');
+    const listing = useExtrasStore.getState().listing!;
+    const start = listing.files.find((f) => f.name === '02 Coral Depths.wav')!;
+    for (const t of p.queue) {
+      const f = listing.files.find((x) => x.index === t.index)!;
+      expect(f.kind).toBe('audio');
+      expect(f.category).toEqual(start.category);
+    }
+  });
+
+  it('Enter on an audio row plays it', async () => {
+    show('Tidewalker');
+    const r = await listed('Tidewalker');
+    const name = within(r).getByRole('button', {
+      name: /^02 Coral Depths\.wav/,
+    });
+    fireEvent.keyDown(name, { key: 'Enter' });
+    const p = usePlayerStore.getState();
+    expect(p.queue[p.at]?.name).toBe('02 Coral Depths.wav');
+  });
+
+  it('the music goes on when the panel unmounts', async () => {
+    const { unmount } = show('Tidewalker');
+    const r = await listed('Tidewalker');
+    fireEvent.click(
+      within(r).getByRole('button', { name: 'Reproducir 02 Coral Depths.wav' }),
+    );
+    unmount();
+    expect(usePlayerStore.getState().playing).toBe(true);
   });
 
   it('shows nothing for an entry that is no game folder', async () => {

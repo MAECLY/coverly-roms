@@ -1,6 +1,7 @@
 import { FolderOpen, X } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
 
+import { MiniPlayer } from '@/components/media/MiniPlayer';
 import { SystemLabel } from '@/components/system/SystemLabel';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -354,6 +355,8 @@ export function DetailDrawer({
           </dd>
         </dl>
       </section>
+      {/* Pinned to the bottom of the panel's scroll (extras D19). */}
+      <MiniPlayer variant="panel" />
     </aside>
   );
 }

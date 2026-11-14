@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { PlayerHost } from './components/media/PlayerHost';
 import { Toaster } from './components/ui/toaster';
 import { I18nProvider } from './i18n/I18nProvider';
 import { applyTheme } from './lib/theme';
@@ -36,6 +37,9 @@ export function Root() {
       {/* Transient confirmations of any screen (Organizar's «nothing
           was moved»). */}
       <Toaster />
+      {/* The extras mini player's one <audio>, outside the game panel
+          that unmounts, so music goes on across games (D19). */}
+      <PlayerHost />
     </I18nProvider>
   );
 }

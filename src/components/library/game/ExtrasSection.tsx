@@ -438,6 +438,21 @@ export function ExtrasSection({
   );
   const num = new Intl.NumberFormat(locale);
   const fileAt = (i: number) => listing?.files.find((f) => f.index === i);
+  // «Reproducir» queues the audio of the row's category in the app-level
+  // player (D19); Enter or double-click plays audio and shows the rest.
+  const play =
+    onPlay ??
+    ((index: number) => {
+      if (listing)
+        usePlayerStore
+          .getState()
+          .playFrom(listing, index, { generation, title: entry.name });
+    });
+  const openFile = (index: number) => {
+    const f = fileAt(index);
+    if (f?.kind === 'audio' && f.playable === 'inline') play(index);
+    else onOpen?.(index);
+  };
   const store = () => useExtrasStore.getState();
 
   /* ---------- writes ------------------------------------------------- */
@@ -1158,8 +1173,8 @@ export function ExtrasSection({
             }
             onFocusRow={setFocused}
             onAdd={canAdd ? add : undefined}
-            onOpen={onOpen}
-            onPlay={onPlay}
+            onOpen={openFile}
+            onPlay={play}
           />
         ))}
         {newCategory && (

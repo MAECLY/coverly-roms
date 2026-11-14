@@ -28,6 +28,7 @@ import { MountsView } from '@/components/library/views/MountsView';
 import { QuickLook } from '@/components/library/views/QuickLook';
 import { ShelvesView } from '@/components/library/views/ShelvesView';
 import type { ViewContent, ViewProps } from '@/components/library/views/types';
+import { MiniPlayer } from '@/components/media/MiniPlayer';
 import { ReportsPanel } from '@/components/reports/ReportsPanel';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -352,6 +353,9 @@ export function LibraryScreen() {
           />
         )}
       </div>
+      {/* With the panel closed the mini player folds into a strip; the
+          panel docks its own (extras D19). */}
+      {!((docked || drawerOpen) && selected) && <MiniPlayer variant="strip" />}
       <StatusBar
         total={counts}
         shown={orphansOpen ? counts : shownCounts}

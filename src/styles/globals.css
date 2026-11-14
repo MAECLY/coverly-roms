@@ -2020,7 +2020,8 @@ time {
 
 .library-shell {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  /* Toolbar, body, the mini player strip when it plays, status bar. */
+  grid-template-rows: auto 1fr auto auto;
   height: 100vh;
 }
 
@@ -4647,5 +4648,158 @@ time {
   .miller__suffix--warning,
   .miller__warning {
     color: CanvasText;
+  }
+}
+
+/* The extras mini player (part D, D19): the record on the turntable. A
+ * Buckram spine ties it to the playing row; one filled play/pause is the
+ * only solid control. In the panel it is a 48 px band pinned to the bottom
+ * of the panel's scroll; with the panel closed, a 32 px strip above the
+ * status bar. No motion of its own. */
+.mini-player {
+  display: flex;
+  min-width: 0;
+  border-top: 1px solid var(--cr-border);
+  background: var(--cr-surface);
+  box-shadow: inset var(--cr-border-width-spine) 0 0 var(--cr-primary);
+  color: var(--cr-text);
+  font-size: 0.8125rem;
+}
+
+.mini-player--panel {
+  position: sticky;
+  z-index: 1;
+  /* The drawer's 1rem padding: flush with its edges and its bottom. */
+  bottom: -1rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.125rem;
+  min-height: 3rem;
+  margin: 1rem -1rem -1rem;
+  padding: 0.25rem 0.75rem 0.3125rem 1rem;
+}
+
+.mini-player--strip {
+  align-items: center;
+  gap: 0.5rem;
+  height: 2rem;
+  padding: 0 1rem;
+}
+
+.mini-player__row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.mini-player__line {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  min-width: 0;
+  margin-left: 0.25rem;
+  white-space: pre;
+}
+
+.mini-player__track {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini-player__game {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: var(--cr-radius-sm);
+  background: none;
+  color: var(--cr-text-secondary);
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-player__game:hover:not(:disabled) {
+  color: var(--cr-text);
+  text-decoration: underline;
+}
+
+.mini-player__btn {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text-secondary);
+}
+
+.mini-player__btn:hover:not(:disabled) {
+  background: var(--cr-hover);
+  color: var(--cr-text);
+}
+
+.mini-player__btn:disabled {
+  color: var(--cr-text-disabled);
+}
+
+.mini-player__btn svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.mini-player__btn--main {
+  border-radius: var(--cr-radius-full);
+  background: var(--cr-primary);
+  color: var(--cr-primary-fg);
+}
+
+.mini-player__btn--main:hover:not(:disabled) {
+  background: var(--cr-primary-hover);
+  color: var(--cr-primary-fg);
+}
+
+.mini-player__btn--main svg {
+  fill: currentColor;
+}
+
+.mini-player__btn:focus-visible,
+.mini-player__game:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-ring);
+  outline-offset: 1px;
+}
+
+.mini-player__seek {
+  flex: 1;
+  height: 1rem;
+  margin: 0 0.25rem;
+}
+
+.mini-player__time {
+  flex: none;
+  color: var(--cr-text-secondary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.mini-player[data-reduced-motion] *,
+.mini-player[data-reduced-motion] {
+  transition: none !important;
+}
+
+@media (forced-colors: active) {
+  .mini-player {
+    border-top-color: CanvasText;
+    box-shadow: none;
+  }
+
+  .mini-player__btn--main {
+    border: 1px solid ButtonText;
   }
 }

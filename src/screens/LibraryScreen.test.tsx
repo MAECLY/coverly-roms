@@ -28,6 +28,7 @@ import { useFilterStore } from '@/stores/filterStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { resetNavStore, useNavStore } from '@/stores/navStore';
 import { useOrganizeStore } from '@/stores/organizeStore';
+import { usePlayerStore } from '@/stores/playerStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useViewStore } from '@/stores/viewStore';
 import { stubLayout } from '@/test/layout';
@@ -227,6 +228,44 @@ describe('Library screen', () => {
     expect(useViewStore.getState().drawerOpen).toBe(true);
     expect(grid).toHaveFocus();
     act(() => useViewStore.getState().closeDrawer());
+  });
+
+  it('shows the mini player as a strip above the status bar while the panel is closed', async () => {
+    const view = await openLibrary();
+    const e = view.entries[0]!;
+    act(() =>
+      usePlayerStore.setState({
+        queue: [
+          {
+            generation: view.generation,
+            entryId: e.id,
+            game: e.name,
+            rev: 1,
+            index: 0,
+            path: 'Soundtrack/01 Opening.flac',
+            name: '01 Opening.flac',
+          },
+        ],
+        at: 0,
+        playing: true,
+      }),
+    );
+    const strip = screen.getByRole('group', { name: '01 Opening.flac' });
+    expect(strip).toHaveClass('mini-player--strip');
+    expect(strip.nextElementSibling).toBe(
+      screen.getByTestId('status-counts').closest('footer'),
+    );
+    act(() => {
+      useSelectionStore.getState().select(e.id);
+      useViewStore.getState().openDrawer();
+    });
+    const panel = screen.getByRole('group', { name: '01 Opening.flac' });
+    expect(panel).toHaveClass('mini-player--panel');
+    expect(panel.closest('aside')).not.toBeNull();
+    act(() => useViewStore.getState().closeDrawer());
+    // Closing the library stops it.
+    act(() => useLibraryStore.getState().close());
+    usePlayerStore.getState().stop();
   });
 
   it('enables Fill missing art', async () => {
