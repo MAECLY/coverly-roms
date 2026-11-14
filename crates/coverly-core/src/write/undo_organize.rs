@@ -118,12 +118,19 @@ pub(super) fn undo_entry(
             let target = within_either(ctx, &target)?;
             undo_dir_removed(&target, report)
         }
-        Op::CopiedIn { temp, .. } => {
-            // `from` is informational: never opened here.
+        Op::CopiedIn { from, temp } => {
+            // `from` is never opened here: only its metadata is read.
             let target = within_either(ctx, &target)?;
             match fp {
                 Some(fp) => {
                     ctx.settled_temps.insert(temp);
+                    if !source_still_there(&from, &fp) {
+                        // The copy is the only one left: never deleted.
+                        if fs::symlink_metadata(&target).is_ok() {
+                            report.skipped_modified.push(target);
+                        }
+                        return Ok(());
+                    }
                     undo_copy(ctx, &target, &fp, report)
                 }
                 None => {
@@ -479,6 +486,14 @@ fn same_bytes(a: &Path, b: &Path) -> Result<bool, WriteError> {
         return Ok(false);
     }
     Ok(crc_of(a)? == crc_of(b)?)
+}
+
+/// Whether the source of a copy in is still a regular file of the copy's
+/// size (by metadata alone, never opened): only then does undo remove the
+/// copy. A source deleted or replaced since leaves the copy as the only
+/// one, so it stays.
+fn source_still_there(from: &Path, fp: &Fingerprint) -> bool {
+    fs::symlink_metadata(from).is_ok_and(|m| m.file_type().is_file() && m.len() == fp.size)
 }
 
 /// Deletes `target` (a file the job made) and its AppleDouble sidecar.

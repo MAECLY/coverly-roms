@@ -1523,6 +1523,37 @@ fn copied_in_changed_after_the_job_is_kept_on_undo() {
 }
 
 #[test]
+fn a_copy_whose_source_is_gone_is_kept_on_undo() {
+    // Added from Downloads, then the download deleted: the copy is the
+    // only one left, so undo never deletes it.
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    let cat = root.join("Extras").join("Soundtrack");
+    fs::create_dir_all(&cat).unwrap();
+    let src = outside_source(tmp.path(), b"flac");
+    let mut w = extras_job(&root, &data);
+    let gone = cat.join("gone.flac");
+    w.copy_in(&src, &gone, Collision::Rename).unwrap();
+    let job = w.finish().unwrap();
+    fs::remove_file(&src).unwrap();
+    let report = undo_job(&data, &job).unwrap();
+    assert_eq!(report.skipped_modified, std::slice::from_ref(&gone));
+    assert!(report.removed.is_empty());
+    assert_eq!(fs::read(&gone).unwrap(), b"flac");
+
+    // A source that is now another file is no copy of this one either.
+    let src = outside_source(tmp.path(), b"flac");
+    let mut w = extras_job(&root, &data);
+    let other = cat.join("other.flac");
+    w.copy_in(&src, &other, Collision::Rename).unwrap();
+    let job = w.finish().unwrap();
+    fs::write(&src, b"a longer, different file").unwrap();
+    let report = undo_job(&data, &job).unwrap();
+    assert_eq!(report.skipped_modified, std::slice::from_ref(&other));
+    assert_eq!(fs::read(&other).unwrap(), b"flac");
+}
+
+#[test]
 fn a_bare_copied_in_intent_removes_only_the_job_temp() {
     let tmp = TempDir::new().unwrap();
     let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
