@@ -458,3 +458,41 @@ fn confine_refuses_a_category_that_is_a_symlink_out_of_extras() {
         Err(ExtrasError::OutsideExtras(_))
     ));
 }
+
+#[test]
+fn a_found_record_keeps_its_added_at_on_later_writes() {
+    let fx = Fx::new();
+    fx.put("Artwork/front.png", b"png", 4);
+    tag_first(&fx, &["x"]);
+    assert_eq!(
+        record(&fx.index(), "Artwork/front.png")["added_at"],
+        "2026-11-13T12:00:00Z"
+    );
+    let later = ExtrasCtx {
+        now: noon() + Duration::from_secs(86_400),
+        ..fx.ctx()
+    };
+    let l = fx.listing();
+    let i = file_index(&l, "Soundtrack/01 Opening.flac");
+    set_tags(&later, &l, i, &tags(&["y"])).unwrap();
+    assert_eq!(
+        record(&fx.index(), "Artwork/front.png")["added_at"],
+        "2026-11-13T12:00:00Z"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn confine_refuses_an_extras_folder_that_is_a_symlink() {
+    let fx = Fx::new();
+    let other = fx.root().join("snes").join("Other");
+    std::fs::create_dir_all(other.join("Extras")).unwrap();
+    let game = fx.root().join("snes").join("Linked game");
+    std::fs::create_dir_all(&game).unwrap();
+    let extras = game.join("Extras");
+    std::os::unix::fs::symlink(other.join("Extras"), &extras).unwrap();
+    assert!(matches!(
+        confine(&extras, &extras.join("extras.json")),
+        Err(ExtrasError::OutsideExtras(_))
+    ));
+}

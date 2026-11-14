@@ -15,8 +15,8 @@ use std::time::SystemTime;
 
 use serde::Serialize;
 
-use super::index::{list, read_index_bytes, serialize, IndexState, Listing};
-use super::{normalize_tags, ExtrasFile, NameRefusal, OriginHow, TagRefusal, EXTRAS_JSON};
+use super::index::{list, read_index_bytes, serialize, IndexState, Listing, Match};
+use super::{normalize_tags, ExtrasFile, NameRefusal, TagRefusal, EXTRAS_JSON};
 use crate::game_folder::FixedFolder;
 use crate::time::rfc3339_utc;
 use crate::write::trash::TrashBackend;
@@ -119,9 +119,13 @@ pub struct ExtrasOutcome {
 /// `target` when it lies strictly inside `dir`: lexically (plain names
 /// only) and on disk (its deepest existing ancestor resolves inside `dir`
 /// resolved, and the target itself is no symlink). `dir` need not exist
-/// yet. Anything else is [`ExtrasError::OutsideExtras`].
+/// yet, but is never a symlink itself (it would redirect every write).
+/// Anything else is [`ExtrasError::OutsideExtras`].
 pub fn confine(dir: &Path, target: &Path) -> Result<PathBuf, ExtrasError> {
     let outside = || ExtrasError::OutsideExtras(target.to_path_buf());
+    if fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(outside());
+    }
     let rel = target.strip_prefix(dir).map_err(|_| outside())?;
     if rel.as_os_str().is_empty() || rel.components().any(|c| !matches!(c, Component::Normal(_))) {
         return Err(outside());
@@ -234,7 +238,9 @@ impl<'a> ExtrasJob<'a> {
             .iter()
             .map(|f| {
                 let mut r = f.record.clone();
-                if r.origin.how == OriginHow::Found {
+                // Only an implicit record is new: a written `found` one
+                // keeps the `added_at` it got on its first write.
+                if f.matched == Match::Found {
                     r.added_at.clone_from(&added_at);
                 }
                 r
