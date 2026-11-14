@@ -3127,6 +3127,10 @@ time {
   flex: 1;
 }
 
+.extras-rename--band .extras-rename__input {
+  width: 100%;
+}
+
 /* Drag onto a band: Buckram fades in where the file would land. */
 .extras-band,
 .extras-slot {
