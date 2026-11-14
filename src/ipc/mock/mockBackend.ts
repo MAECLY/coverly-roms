@@ -403,6 +403,8 @@ const ESDE_FOLDERS = {
   quake: 'quake',
   solarus: 'solarus',
   ...EXTRA_ARCADE,
+  // PC arcade (spec 2026-10-26-pc-arcade P14): ES-DE only.
+  typex: 'type-x',
   // Systems batch 2 (spec §6).
   gamecube: 'gc',
   wii: 'wii',

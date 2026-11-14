@@ -232,3 +232,40 @@ fn typex_entry_and_aliases() {
         .collect();
     assert_eq!(pc, ["typex"]);
 }
+
+#[test]
+fn typex_folders_per_profile_and_art_union() {
+    use coverly_core::profiles::{builtin_art_dir_names, ProfileFolder};
+    let named = |p: &str| match profile(p).folders.get("typex") {
+        Some(ProfileFolder::Named(n)) => Some(n.clone()),
+        _ => None,
+    };
+    assert_eq!(named("esde").as_deref(), Some("type-x"));
+    for p in [
+        "batocera",
+        "muos",
+        "onion",
+        "garlicos",
+        "minui",
+        "anbernic-stock",
+    ] {
+        assert_eq!(named(p), None, "{p}");
+        assert!(
+            matches!(profile(p).folders.get("typex"), Some(ProfileFolder::Absent)),
+            "{p}"
+        );
+    }
+    let union = builtin_art_dir_names();
+    for p in builtin_profiles() {
+        for d in &p.art_dir_names {
+            assert!(
+                union.iter().any(|u| u.eq_ignore_ascii_case(d)),
+                "{d} of {}",
+                p.id
+            );
+        }
+    }
+    for d in ["images", "Imgs", ".media"] {
+        assert!(union.iter().any(|u| u.eq_ignore_ascii_case(d)), "{d}");
+    }
+}
