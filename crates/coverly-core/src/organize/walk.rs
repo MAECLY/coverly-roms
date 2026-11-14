@@ -31,13 +31,13 @@ use crate::game_folder::{
 use crate::identify::sniff::is_doom_wad;
 use crate::organize::inspect::names_an_archive;
 use crate::profiles::naming::system_folder;
-use crate::profiles::Profile;
+use crate::profiles::{builtin_art_dir_names, Profile};
 use crate::scan::classify::{
     extension, is_appledouble, is_bios_name, is_hidden, is_junk_file, is_partial_download,
     is_set_aside_dir, is_zone_identifier, COMPANION_EXTS, PARTIAL_DOWNLOAD_EXTS,
 };
 use crate::scan::ScanOptions;
-use crate::systems::SystemDb;
+use crate::systems::{System, SystemDb};
 
 /// Default walk depth below the source (spec §7.1).
 pub const MAX_DEPTH: usize = 4;
@@ -480,6 +480,13 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
         });
         note_fixed_folders(source, &listed, is_system, db, &mut fixed_seen);
     }
+    // A pile picked at a folder-per-game system folder (P16): its child
+    // folders are games, left in place whole; nothing inside is listed.
+    let source_per_game = source
+        .file_name()
+        .and_then(|n| db.resolve_folder_in(opts.profile, &n.to_string_lossy()))
+        .filter(|s| is_folder_per_game(&s.id))
+        .map(|s| (s.id.clone(), folder_of(s, db, opts)));
     let skip_keys: Vec<String> = opts.skip_dirs.iter().map(|p| dir_key(p)).collect();
     let roms_root_key = opts.roms_root.as_deref().map(dir_key);
     let mut partial_dirs: Vec<PathBuf> = Vec::new();
@@ -489,6 +496,16 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
         .chain(opts.art_dirs)
         .map(|d| d.to_lowercase())
         .collect();
+    // Art folders of any layout inside a folder-per-game source are art,
+    // never a game (as the scan treats them, P4).
+    let per_game_art: Vec<String> = if source_per_game.is_some() {
+        builtin_art_dir_names()
+            .iter()
+            .map(|d| d.to_lowercase())
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let walker = WalkDir::new(source)
         .follow_links(false)
@@ -511,6 +528,19 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 return false;
             }
             if is_hidden(&name) {
+                return false;
+            }
+            if let Some((system, folder)) = &source_per_game {
+                let key = name.to_lowercase();
+                if entry.depth() == 1 && !ignored.contains(&key) && !per_game_art.contains(&key) {
+                    folder_games.push((
+                        entry.path().to_path_buf(),
+                        LeftReason::FolderGame {
+                            system: system.clone(),
+                            folder: folder.clone(),
+                        },
+                    ));
+                }
                 return false;
             }
             // A game folder's `Mods/`, `Cheats/`, `Extras/` and `Saves/`
@@ -1220,18 +1250,23 @@ fn folder_game_in(
         });
     let proven = proven.or_else(|| (has("main.lua") && has("conf.lua")).then_some("lutro"))?;
     let system = db.get(proven)?;
-    let folder = match opts.profile {
+    Some(LeftReason::FolderGame {
+        system: system.id.clone(),
+        folder: folder_of(system, db, opts),
+    })
+}
+
+/// The folder `system` files into under the walk's layout (its first alias
+/// without one); the survey swaps in the user's folder names.
+fn folder_of(system: &System, db: &SystemDb, opts: &WalkOptions) -> String {
+    match opts.profile {
         Some(profile) => system_folder(profile, system, db, &BTreeMap::new()).folder,
         None => system
             .aliases
             .first()
             .cloned()
             .unwrap_or_else(|| system.id.clone()),
-    };
-    Some(LeftReason::FolderGame {
-        system: system.id.clone(),
-        folder,
-    })
+    }
 }
 
 /// Names of the folders that hold an emulator's own installed data

@@ -450,3 +450,156 @@ fn scan_typex_skips_the_profile_art_folders_too() {
     let names: Vec<String> = sys.roms.iter().map(|r| name(&r.path)).collect();
     assert_eq!(names, ["Raiden IV (Type X)"]);
 }
+
+#[test]
+fn organize_keeps_type_x() {
+    use coverly_core::organize::LeftReason;
+    let world = World::new();
+    for layout in ["esde", "batocera"] {
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let sys = typex_library(s.path());
+        // Pile at the root: `type-x/` resolves, is sorted, never walked.
+        let p = plan(&world, s.path(), t.path(), layout);
+        // Item sources are relative to the pile root.
+        assert!(
+            p.items
+                .iter()
+                .all(|i| i.sources.iter().all(|src| !src.starts_with("type-x"))),
+            "{layout}"
+        );
+        // Pile picked at `type-x/` itself (P16): one FolderGame row per game.
+        let p = plan(&world, &sys, t.path(), layout);
+        let mut left: Vec<String> = p
+            .items
+            .iter()
+            .filter_map(|i| match &i.action {
+                OrganizeAction::Left {
+                    reason: LeftReason::FolderGame { system, .. },
+                } => {
+                    assert_eq!(system, "typex", "{layout}");
+                    Some(name(&i.sources[0]))
+                }
+                _ => None,
+            })
+            .collect();
+        left.sort();
+        assert_eq!(
+            left,
+            [
+                "Akai Katana Shin for NesicaxLive",
+                "Chaos Code.exe",
+                "Empty Game",
+                "Raiden IV (Type X)"
+            ],
+            "{layout}"
+        );
+        assert!(
+            p.items
+                .iter()
+                .all(|i| i.sources.iter().all(|src| src.components().count() == 1)),
+            "nothing below a game is an item ({layout})"
+        );
+        assert!(
+            p.items
+                .iter()
+                .all(|i| i.system_id.as_deref() != Some("typex")
+                    || matches!(i.action, OrganizeAction::Left { .. })),
+            "nothing moves to typex ({layout})"
+        );
+    }
+}
+
+#[test]
+fn loose_game_exe_is_not_typex() {
+    use coverly_core::organize::{plan_from_survey, survey, Choice, Decision};
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    // Invented bytes: an empty file reads as a partial download.
+    let binary: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
+    for (rel, n) in [
+        (Path::new("Raiden IV (Type X)").join("game.exe"), 1),
+        (PathBuf::from("game.exe"), 2),
+        (PathBuf::from("Homura.lnk"), 3),
+        (PathBuf::from("Mystery.bin"), 4),
+    ] {
+        let path = s.path().join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, &binary).unwrap();
+        pin_mtime(&path, n);
+    }
+    let p = plan(&world, s.path(), t.path(), "esde");
+    assert!(p
+        .items
+        .iter()
+        .all(|i| i.system_id.as_deref() != Some("typex")));
+    assert!(p
+        .items
+        .iter()
+        .all(|i| i.alternatives.iter().all(|(id, _)| id != "typex")));
+
+    // A crafted choice naming typex is refused: every item stays as it was.
+    let opts = OrganizeOptions {
+        layout: "esde".into(),
+        offline: true,
+        target: Some(t.path().to_path_buf()),
+        ..OrganizeOptions::default()
+    };
+    let env = world.env();
+    let surveyed = survey(s.path(), &opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap();
+    let before = plan_from_survey(&surveyed, &opts, &[], &env).unwrap();
+    // `.exe`, `.bat` and launcher extensions are never an item's: each
+    // launcher is an other file, left untouched.
+    assert!(before.items.iter().all(|i| i.sources.iter().all(|src| {
+        let n = name(src);
+        n != "game.exe" && n != "Homura.lnk"
+    })));
+    assert_eq!(before.counts.other_files, 3);
+    // An unknown ROM-like file is left unknown: decidable, so the refusal
+    // below is real.
+    let mystery = before
+        .items
+        .iter()
+        .find(|i| i.sources.iter().any(|src| name(src) == "Mystery.bin"))
+        .expect("an item for Mystery.bin");
+    assert!(
+        matches!(
+            mystery.action,
+            OrganizeAction::Review
+                | OrganizeAction::Left {
+                    reason: coverly_core::organize::LeftReason::Unknown
+                }
+        ),
+        "{:?}",
+        mystery.action
+    );
+    for item in &before.items {
+        let after = plan_from_survey(
+            &surveyed,
+            &opts,
+            &[Decision {
+                item: item.id,
+                choice: Choice::Assign {
+                    system: "typex".into(),
+                },
+            }],
+            &env,
+        )
+        .unwrap();
+        let got = &after.items[item.id];
+        assert_ne!(
+            got.system_id.as_deref(),
+            Some("typex"),
+            "{:?}",
+            item.sources
+        );
+        assert_eq!(got.system_id, item.system_id, "{:?}", item.sources);
+        assert_eq!(got.action, item.action, "{:?}", item.sources);
+        assert_eq!(got.method, item.method, "{:?}", item.sources);
+    }
+    // The refused choice is not remembered either.
+    let again = plan(&world, s.path(), t.path(), "esde");
+    assert!(again
+        .items
+        .iter()
+        .all(|i| i.system_id.as_deref() != Some("typex")));
+}
