@@ -317,7 +317,7 @@ impl AppState {
         }
         let (guard, session, cfg) = self.add_guard(generation, id)?;
         let target = self.extras_target(generation, id, rev, &session)?;
-        lock(&self.adds)
+        let taken = lock(&self.adds)
             .take(plan, generation, id)
             .ok_or_else(no_plan)?;
         let mut skipped = Vec::new();
@@ -334,6 +334,7 @@ impl AppState {
                 generation,
                 id,
                 add: plan,
+                plan: Some(taken),
                 system: session.entries[id as usize].system_id.clone(),
                 target,
                 data_dir: cfg.data_dir.clone(),
@@ -386,6 +387,7 @@ impl AppState {
                 generation,
                 id,
                 add,
+                plan: None,
                 system: session.entries[id as usize].system_id.clone(),
                 target,
                 data_dir: cfg.data_dir.clone(),
@@ -433,9 +435,16 @@ impl AppState {
         bytes: u64,
     ) -> Result<AddStarted, IpcError> {
         if n <= BACKGROUND_FILES && bytes <= BACKGROUND_BYTES {
-            let write = work.copy(&mut |_| ControlFlow::Continue(()))?;
+            let mut started = false;
+            let copied = work.copy(&mut |_| {
+                started = true;
+                ControlFlow::Continue(())
+            });
+            if copied.is_err() && !started {
+                work.keep_plan(&self.adds);
+            }
             drop(guard);
-            return Ok(AddStarted::Done { write });
+            return copied.map(|write| AddStarted::Done { write });
         }
         let add = work.add;
         let adds = Arc::clone(&self.adds);
@@ -475,6 +484,9 @@ struct AddWork {
     generation: u64,
     id: u32,
     add: u64,
+    /// The dialog's plan, kept again when the add is refused before it
+    /// copies anything (D13): the user fixes the reason and adds again.
+    plan: Option<Arc<AddPlan>>,
     system: String,
     target: Target,
     data_dir: PathBuf,
@@ -534,31 +546,48 @@ impl AddWork {
         })
     }
 
+    /// Keeps the dialog's plan again, after a refusal that copied nothing.
+    fn keep_plan(&self, adds: &Mutex<AddPlans>) {
+        if let Some(plan) = &self.plan {
+            lock(adds).restore(Arc::clone(plan));
+        }
+    }
+
     /// [`Self::copy`] on a worker: progress before the first file and
     /// after each, stopped between files once `cancel` is set; the guard
-    /// is released and the add forgotten before `finished` is told.
+    /// is released and the add forgotten before `finished` is told, also
+    /// after a panic (the add then ends failed, never copying forever).
     fn background(self, guard: OwnedManualWrite, cancel: &AtomicBool, adds: &Mutex<AddPlans>) {
         let (entry_id, add) = (self.id, self.add);
         let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
         let events = Arc::clone(&self.events);
-        let end = match self.copy(&mut |p| {
-            events.progress(AddProgressEvent {
-                entry_id,
-                add,
-                i: count(p.i),
-                n: count(p.n),
-                done: p.done,
-                total: p.total,
-            });
-            if cancel.load(Ordering::SeqCst) {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
-            }
-        }) {
+        let mut started = false;
+        let copied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.copy(&mut |p| {
+                started = true;
+                events.progress(AddProgressEvent {
+                    entry_id,
+                    add,
+                    i: count(p.i),
+                    n: count(p.n),
+                    done: p.done,
+                    total: p.total,
+                });
+                if cancel.load(Ordering::SeqCst) {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+        }))
+        .unwrap_or_else(|_| Err(IpcError::Io("the extras add stopped unexpectedly".into())));
+        let end = match copied {
             Ok(write) => AddEnd::Done { write },
             Err(error) => {
                 log::warn!("extras add {add} failed: {error}");
+                if !started {
+                    self.keep_plan(adds);
+                }
                 AddEnd::Failed { error }
             }
         };

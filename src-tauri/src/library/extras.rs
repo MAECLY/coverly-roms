@@ -764,12 +764,22 @@ impl AddPlans {
 
     /// Keeps `plan`, forgetting the oldest past [`ADD_PLANS_KEPT`].
     pub fn keep(&mut self, plan: AddPlan) -> Arc<AddPlan> {
+        let plan = Arc::new(plan);
+        self.restore(Arc::clone(&plan));
+        plan
+    }
+
+    /// Keeps a taken plan again (an add refused before it copied
+    /// anything, so the dialog can try again), forgetting the oldest past
+    /// [`ADD_PLANS_KEPT`].
+    pub fn restore(&mut self, plan: Arc<AddPlan>) {
+        if self.kept.iter().any(|p| p.id == plan.id) {
+            return;
+        }
         while self.kept.len() >= ADD_PLANS_KEPT {
             self.kept.pop_front();
         }
-        let plan = Arc::new(plan);
-        self.kept.push_back(Arc::clone(&plan));
-        plan
+        self.kept.push_back(plan);
     }
 
     /// Plan `id` of entry `entry` in library `generation`, still kept.

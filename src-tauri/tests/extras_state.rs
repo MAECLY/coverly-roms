@@ -1549,4 +1549,112 @@ mod adds {
         assert_eq!(h.rec.progress.lock().unwrap().last().unwrap().i, 51);
         assert!(o.st.jobs().begin_manual().is_ok(), "the guard is released");
     }
+    #[test]
+    fn a_refused_commit_keeps_the_plan_for_another_try() {
+        // The dialog shows why (here: a new category with no name) and
+        // the user fixes it and adds again: the same plan still holds.
+        let config = TempDir::new().unwrap();
+        let lib = TempDir::new().unwrap();
+        let src = TempDir::new().unwrap();
+        let o = opened(state(&config), &lib);
+        let picked = sources(&src, &["a.mp3"]);
+        let plan =
+            o.st.extras_add_pick(o.generation, o.id, &Picks(picked))
+                .unwrap()
+                .unwrap();
+        let h = recorder(None);
+        let listed = o.list();
+        let before = snapshot(lib.path());
+        assert_eq!(
+            o.st.extras_add_commit(
+                o.generation,
+                o.id,
+                listed.rev,
+                plan.plan,
+                &all(1, CategoryRef::User("   ".into())),
+                h.rec.clone(),
+            )
+            .unwrap_err(),
+            IpcError::ExtrasRefused {
+                why: "empty".into()
+            }
+        );
+        assert_eq!(snapshot(lib.path()), before, "nothing copied");
+        let write = done(
+            o.st.extras_add_commit(
+                o.generation,
+                o.id,
+                listed.rev,
+                plan.plan,
+                &all(1, CategoryRef::Fixed(ExtrasCategory::Soundtrack)),
+                h.rec.clone(),
+            )
+            .unwrap(),
+        );
+        assert!(has(&write.listing, "Soundtrack/a.mp3"));
+        // Once copied, the plan is spent.
+        assert!(matches!(
+            o.st.extras_add_commit(
+                o.generation,
+                o.id,
+                write.listing.rev,
+                plan.plan,
+                &all(1, CategoryRef::Root),
+                h.rec.clone(),
+            ),
+            Err(IpcError::BadRequest(_))
+        ));
+    }
+
+    /// Panics on the progress after file `at`, as a bug in a copy would.
+    struct Breaks {
+        at: u32,
+        finished: Mutex<Sender<AddFinishedEvent>>,
+    }
+
+    impl ExtrasAddEvents for Breaks {
+        fn progress(&self, event: AddProgressEvent) {
+            assert!(event.i != self.at, "a bug in the copy");
+        }
+
+        fn finished(&self, event: AddFinishedEvent) {
+            self.finished.lock().unwrap().send(event).unwrap();
+        }
+
+        fn entries_updated(&self, _: EntriesUpdatedEvent) {}
+    }
+
+    #[test]
+    fn a_background_add_that_panics_still_ends_and_frees_the_guard() {
+        let config = TempDir::new().unwrap();
+        let lib = TempDir::new().unwrap();
+        let src = TempDir::new().unwrap();
+        let o = opened(state(&config), &lib);
+        let n = 51;
+        let event = o.st.extras_drop(many(&src, n), position());
+        let (tx, finished) = channel();
+        let breaks = Arc::new(Breaks {
+            at: 1,
+            finished: Mutex::new(tx),
+        });
+        let listed = o.list();
+        let AddStarted::Background { add, .. } =
+            o.st.extras_add_dropped(
+                o.generation,
+                o.id,
+                listed.rev,
+                event.token,
+                CategoryRef::Fixed(ExtrasCategory::Guides),
+                breaks,
+            )
+            .unwrap()
+        else {
+            panic!("more than 50 files run in the background");
+        };
+        let end = wait(&finished);
+        assert_eq!(end.add, add);
+        assert!(matches!(end.end, AddEnd::Failed { .. }), "{:?}", end.end);
+        assert!(!o.st.extras_add_cancel(add), "it ended");
+        assert!(o.st.jobs().begin_manual().is_ok(), "the guard is released");
+    }
 }
