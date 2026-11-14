@@ -265,7 +265,24 @@ fn typex_folders_per_profile_and_art_union() {
             );
         }
     }
-    for d in ["images", "Imgs", ".media"] {
+    // Spec P4 names these; a Batocera `type-x/images/` read as ES-DE, or a
+    // library `.res/`, is never a game.
+    for d in [
+        "images",
+        "videos",
+        "manuals",
+        "magazines",
+        "Imgs",
+        ".media",
+        ".res",
+    ] {
         assert!(union.iter().any(|u| u.eq_ignore_ascii_case(d)), "{d}");
+    }
+    for (i, a) in union.iter().enumerate() {
+        assert!(!a.trim().is_empty(), "empty art folder name");
+        assert!(
+            !union[i + 1..].iter().any(|b| b.eq_ignore_ascii_case(a)),
+            "{a} listed twice"
+        );
     }
 }
