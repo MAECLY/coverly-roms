@@ -402,6 +402,108 @@ impl Writer {
         self.transfer_dir(from, to, collision, item, Mode::Copy, progress)
     }
 
+    /// Copies the file `from` (absolute, from anywhere: a file picker or
+    /// an OS drop; never checked against the source root) to `to` (inside
+    /// the root), streamed and verified; the source stays and is only
+    /// read. `from` must be a regular file: a symlink, a folder or a FIFO
+    /// is refused. A taken name (any case or Unicode spelling) gets the
+    /// next free `"{stem} ({n}).{ext}"` under [`Collision::Rename`]; nothing
+    /// is ever replaced. Journaled [`Op::CopiedIn`] twice: the intent
+    /// naming the job temp before the copy streams into it, and the
+    /// completion with the copy's fingerprint after the rename.
+    pub fn copy_in(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        collision: Collision,
+    ) -> Result<MoveOutcome, WriteError> {
+        if !from.is_absolute() {
+            return Err(WriteError::NotAFile(from.to_path_buf()));
+        }
+        let meta = fs::symlink_metadata(from).map_err(|e| map_io(e, from))?;
+        if !meta.file_type().is_file() {
+            return Err(WriteError::NotAFile(from.to_path_buf()));
+        }
+        let to = self.ensure_within_any(to)?;
+        let asked = file_name_of(&to)?.to_string();
+        if safe_file_name(&asked)? != asked {
+            return Err(WriteError::NameInvalid(asked));
+        }
+        let parent = to
+            .parent()
+            .ok_or_else(|| WriteError::OutsideRoot(to.clone()))?
+            .to_path_buf();
+        self.ensure_dir(&parent)?;
+        let mut p = Prepared {
+            from: from.to_path_buf(),
+            parent,
+            name: asked.clone(),
+            asked,
+            next_n: 2,
+            indexed: false,
+        };
+        if let Some(existing) = find_twin(&p.parent, &p.name)? {
+            if collision == Collision::Skip {
+                return Ok(MoveOutcome::SkippedExists { existing });
+            }
+            self.take_next_name(&mut p)?;
+        }
+        for _ in 0..MAX_NAMES {
+            let target = p.parent.join(&p.name);
+            let source = open_source(from)?;
+            // A temp name nothing holds yet: names an earlier run left
+            // behind are skipped, never written through.
+            let temp = loop {
+                let temp = self.extract_temp();
+                if fs::symlink_metadata(p.parent.join(&temp)).is_err() {
+                    break temp;
+                }
+            };
+            let op = |temp: &str| Op::CopiedIn {
+                from: p.from.clone(),
+                temp: temp.to_string(),
+            };
+            self.append_entry(target.clone(), op(&temp), None, None, None)?;
+            self.extract_temps.insert(temp.clone());
+            let tmp = p.parent.join(&temp);
+            let mut opts = OpenOptions::new();
+            opts.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.custom_flags(libc::O_NOFOLLOW);
+            }
+            let file = opts.open(&tmp).map_err(|e| map_io(e, &target))?;
+            match copy_through(source, from, tmp, file, &target, true, &mut |_| {}) {
+                Ok(fp) => {
+                    if let Err(e) =
+                        self.append_entry(target.clone(), op(&temp), None, Some(fp), None)
+                    {
+                        // Not journaled as done, so no undo would remove
+                        // it: renamed into place this very moment, it is
+                        // ours to drop.
+                        let _ = fs::remove_file(&target);
+                        remove_apple_doubles(&[target]);
+                        return Err(e);
+                    }
+                    self.changes += 1;
+                    return Ok(MoveOutcome::Copied {
+                        renamed: p.name != p.asked,
+                        to: target,
+                    });
+                }
+                Err(WriteError::Io(e)) if e.kind() == ErrorKind::AlreadyExists => {
+                    if collision == Collision::Skip {
+                        return Ok(MoveOutcome::SkippedExists { existing: target });
+                    }
+                    self.take_next_name(&mut p)?;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(too_many_collisions(&p.parent, &p.asked))
+    }
+
     /// Deletes this job's temp files (`.coverly-<job>-*.tmp`) and their
     /// AppleDouble sidecars directly in `dirs`, best effort: what a crash
     /// in the middle of a copy leaves behind.
@@ -1160,14 +1262,10 @@ fn stream_copy_with(
     let dir = to
         .parent()
         .ok_or_else(|| WriteError::OutsideRoot(to.to_path_buf()))?;
-    let mut source = File::open(from).map_err(|e| map_io(e, from))?;
-    let modified = source
-        .metadata()
-        .and_then(|m| m.modified())
-        .map_err(|e| map_io(e, from))?;
+    let source = File::open(from).map_err(|e| map_io(e, from))?;
     // A crash (or an earlier run of a resumed job) can leave a temp
     // file with the next name behind: skip past it.
-    let (tmp, mut file) = loop {
+    let (tmp, file) = loop {
         let tmp = dir.join(format!("{tmp_prefix}{counter}.tmp"));
         *counter = counter.wrapping_add(1);
         match OpenOptions::new().write(true).create_new(true).open(&tmp) {
@@ -1176,7 +1274,28 @@ fn stream_copy_with(
             Err(e) => return Err(map_io(e, to)),
         }
     };
+    copy_through(source, from, tmp, file, to, list_target, progress)
+}
+
+/// The body of [`stream_copy`] once the source is open and the temp file
+/// `tmp` is created (`file`): streams the bytes with their CRC-32, keeps
+/// the source's modification time, fsyncs, renames the temp to `to`
+/// without replacing anything, and re-reads `to` to verify the CRC. On
+/// any error nothing is left at `to` or at `tmp`.
+fn copy_through(
+    mut source: File,
+    from: &Path,
+    tmp: PathBuf,
+    mut file: File,
+    to: &Path,
+    list_target: bool,
+    progress: &mut dyn FnMut(u64),
+) -> Result<Fingerprint, WriteError> {
     let copied = (|| {
+        let modified = source
+            .metadata()
+            .and_then(|m| m.modified())
+            .map_err(|e| map_io(e, from))?;
         let mut hasher = crc32fast::Hasher::new();
         let mut buf = vec![0u8; CHUNK];
         let mut total = 0u64;
@@ -1240,6 +1359,37 @@ fn stream_copy_with(
     }
     let meta = fs::metadata(to).map_err(|e| map_io(e, to))?;
     Ok(fingerprint(&meta, Some(crc)))
+}
+
+/// Opens `from` for reading without following a final symlink
+/// (`O_NOFOLLOW` on Unix, the reparse point itself on Windows) and
+/// without blocking on a FIFO (`O_NONBLOCK`), then checks the open handle
+/// is a regular file: the path may have been swapped since it was checked.
+fn open_source(from: &Path) -> Result<File, WriteError> {
+    let mut opts = OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        opts.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = opts.open(from).map_err(|e| {
+        #[cfg(unix)]
+        if e.raw_os_error() == Some(libc::ELOOP) {
+            return WriteError::NotAFile(from.to_path_buf());
+        }
+        map_io(e, from)
+    })?;
+    let meta = file.metadata().map_err(|e| map_io(e, from))?;
+    if !meta.file_type().is_file() {
+        return Err(WriteError::NotAFile(from.to_path_buf()));
+    }
+    Ok(file)
 }
 
 enum Renamed {

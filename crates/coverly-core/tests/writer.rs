@@ -1249,3 +1249,363 @@ fn a_target_under_an_extra_root_keeps_its_folders_as_folders() {
     );
     drop(tmp);
 }
+
+// ---- Extras jobs (part D, Task 4) ----
+
+fn extras_job(root: &Path, data: &Path) -> Writer {
+    Writer::begin_with(
+        root,
+        data,
+        JobMeta {
+            kind: JobKind::Extras,
+            ..JobMeta::default()
+        },
+    )
+    .unwrap()
+}
+
+fn journal_file_lines(path: &Path) -> Vec<serde_json::Value> {
+    fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+fn copied_in_lines(lines: &[serde_json::Value]) -> Vec<&serde_json::Value> {
+    lines
+        .iter()
+        .filter(|l| l["op"]["kind"] == "copied-in")
+        .collect()
+}
+
+#[test]
+fn extras_kind_round_trips_in_the_header_and_lists() {
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    fs::create_dir_all(&root).unwrap();
+    let w = extras_job(&root, &data);
+    assert_eq!(w.kind(), JobKind::Extras);
+    let journal = w.journal_path().to_path_buf();
+    let job = w.finish().unwrap();
+    let text = fs::read_to_string(&journal).unwrap();
+    assert!(
+        text.lines().next().unwrap().contains("\"kind\":\"extras\""),
+        "{text}"
+    );
+    let jobs = list_jobs(&data).unwrap();
+    assert_eq!(jobs[0].job, job);
+    assert_eq!(jobs[0].kind, JobKind::Extras);
+    assert!(jobs[0].undoable);
+    let w = Writer::resume(&root, &data, &job).unwrap();
+    assert_eq!(w.kind(), JobKind::Extras);
+}
+
+#[test]
+fn dir_removed_is_undone_by_recreating_the_empty_folder() {
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    let dir = root.join("Game").join("Extras").join("Remixes");
+    fs::create_dir_all(&dir).unwrap();
+    let mut w = extras_job(&root, &data);
+    w.remove_empty_dir(&dir).unwrap();
+    assert!(!dir.exists());
+    assert!(w.has_entries());
+    let job = w.finish().unwrap();
+    let report = undo_job(&data, &job).unwrap();
+    assert!(dir.is_dir());
+    assert!(fs::read_dir(&dir).unwrap().next().is_none());
+    assert_eq!(report.restored, std::slice::from_ref(&dir));
+}
+
+#[test]
+fn dir_removed_undo_leaves_a_folder_that_is_back_already() {
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    let dir = root.join("Extras").join("Remixes");
+    fs::create_dir_all(&dir).unwrap();
+    let mut w = extras_job(&root, &data);
+    w.remove_empty_dir(&dir).unwrap();
+    let job = w.finish().unwrap();
+    fs::create_dir(&dir).unwrap();
+    fs::write(dir.join("mine.ogg"), b"user").unwrap();
+    let report = undo_job(&data, &job).unwrap();
+    assert!(report.restored.is_empty(), "{report:?}");
+    assert_eq!(fs::read(dir.join("mine.ogg")).unwrap(), b"user");
+}
+
+#[test]
+fn remove_empty_dir_refuses_a_folder_with_anything_in_it() {
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    let dir = root.join("Extras").join("Remixes");
+    fs::create_dir_all(&dir).unwrap();
+    for litter in ["a.ogg", ".DS_Store"] {
+        fs::write(dir.join(litter), b"x").unwrap();
+        let mut w = extras_job(&root, &data);
+        let journal = w.journal_path().to_path_buf();
+        assert!(
+            matches!(w.remove_empty_dir(&dir), Err(WriteError::NotEmpty(p)) if p == dir),
+            "{litter}"
+        );
+        assert!(dir.join(litter).is_file());
+        assert!(!w.has_entries());
+        assert_eq!(journal_file_lines(&journal).len(), 1, "only the header");
+        w.discard().unwrap();
+        fs::remove_file(dir.join(litter)).unwrap();
+    }
+    // A sub folder is content too.
+    fs::create_dir(dir.join("Live")).unwrap();
+    let mut w = extras_job(&root, &data);
+    assert!(matches!(
+        w.remove_empty_dir(&dir),
+        Err(WriteError::NotEmpty(_))
+    ));
+    assert!(dir.join("Live").is_dir());
+}
+
+#[test]
+fn remove_empty_dir_refuses_files_the_root_and_outside() {
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    fs::create_dir_all(&root).unwrap();
+    let outside = tmp.path().join("elsewhere");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(root.join("a.txt"), b"x").unwrap();
+    let mut w = extras_job(&root, &data);
+    assert!(w.remove_empty_dir(&root).is_err());
+    assert!(w.remove_empty_dir(&outside).is_err());
+    assert!(w.remove_empty_dir(&root.join("a.txt")).is_err());
+    assert!(root.is_dir() && outside.is_dir() && root.join("a.txt").is_file());
+    #[cfg(unix)]
+    {
+        let link = root.join("link");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        assert!(w.remove_empty_dir(&link).is_err());
+        assert!(fs::symlink_metadata(&link).is_ok() && outside.is_dir());
+    }
+    assert!(!w.has_entries());
+}
+
+/// A source file outside the library with a pinned mtime.
+fn outside_source(tmp: &Path, bytes: &[u8]) -> PathBuf {
+    let dir = tmp.join("Downloads");
+    fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("a.flac");
+    fs::write(&src, bytes).unwrap();
+    coverly_core::dedupe::testing::pin_mtime(&src, 7);
+    src
+}
+
+#[test]
+fn copied_in_from_outside_the_root_is_undone_and_the_source_is_never_touched() {
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    let cat = root.join("Game").join("Extras").join("Soundtrack");
+    fs::create_dir_all(&cat).unwrap();
+    let src = outside_source(tmp.path(), b"flac bytes");
+    let src_mtime = fs::metadata(&src).unwrap().modified().unwrap();
+
+    let mut w = extras_job(&root, &data);
+    let journal = w.journal_path().to_path_buf();
+    let target = cat.join("a.flac");
+    let outcome = w.copy_in(&src, &target, Collision::Rename).unwrap();
+    assert_eq!(
+        outcome,
+        MoveOutcome::Copied {
+            to: target.clone(),
+            renamed: false
+        }
+    );
+    assert_eq!(fs::read(&target).unwrap(), b"flac bytes");
+    let job = w.finish().unwrap();
+
+    let lines = journal_file_lines(&journal);
+    let copied = copied_in_lines(&lines);
+    assert_eq!(copied.len(), 2, "intent + completion: {lines:?}");
+    assert!(copied[0].get("fp").is_none());
+    assert!(copied[1]["fp"]["crc32"].is_u64());
+    let temp = copied[0]["op"]["temp"].as_str().unwrap();
+    assert!(temp.starts_with(".coverly-") && temp.ends_with(".tmp"));
+    assert_eq!(copied[0]["op"]["temp"], copied[1]["op"]["temp"]);
+    assert!(
+        fs::read_dir(&cat)
+            .unwrap()
+            .flatten()
+            .all(|e| !e.file_name().to_string_lossy().starts_with(".coverly-")),
+        "no temp left"
+    );
+
+    let report = undo_job(&data, &job).unwrap();
+    assert!(!target.exists());
+    assert_eq!(report.removed, [target]);
+    assert_eq!(fs::read(&src).unwrap(), b"flac bytes");
+    assert_eq!(fs::metadata(&src).unwrap().modified().unwrap(), src_mtime);
+}
+
+#[test]
+fn copied_in_renames_on_collision_and_never_overwrites() {
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    let cat = root.join("Extras").join("Soundtrack");
+    fs::create_dir_all(&cat).unwrap();
+    fs::write(cat.join("A.FLAC"), b"mine").unwrap();
+    let src = outside_source(tmp.path(), b"new");
+    let mut w = extras_job(&root, &data);
+    let outcome = w
+        .copy_in(&src, &cat.join("a.flac"), Collision::Rename)
+        .unwrap();
+    let to = cat.join("a (2).flac");
+    assert_eq!(
+        outcome,
+        MoveOutcome::Copied {
+            to: to.clone(),
+            renamed: true
+        }
+    );
+    assert_eq!(fs::read(cat.join("A.FLAC")).unwrap(), b"mine");
+    assert_eq!(fs::read(&to).unwrap(), b"new");
+    // Skip leaves everything as it is.
+    let skipped = w
+        .copy_in(&src, &cat.join("a.flac"), Collision::Skip)
+        .unwrap();
+    assert!(matches!(skipped, MoveOutcome::SkippedExists { .. }));
+    w.finish().unwrap();
+}
+
+#[test]
+fn copied_in_refuses_targets_outside_and_sources_that_are_not_files() {
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    fs::create_dir_all(&root).unwrap();
+    let src = outside_source(tmp.path(), b"x");
+    let mut w = extras_job(&root, &data);
+    assert!(w
+        .copy_in(&src, &tmp.path().join("out.flac"), Collision::Rename)
+        .is_err());
+    assert!(w
+        .copy_in(
+            src.parent().unwrap(),
+            &root.join("d.flac"),
+            Collision::Rename
+        )
+        .is_err());
+    assert!(w
+        .copy_in(Path::new("a.flac"), &root.join("r.flac"), Collision::Rename)
+        .is_err());
+    #[cfg(unix)]
+    {
+        let link = tmp.path().join("link.flac");
+        std::os::unix::fs::symlink(&src, &link).unwrap();
+        assert!(w
+            .copy_in(&link, &root.join("l.flac"), Collision::Rename)
+            .is_err());
+    }
+    assert!(!w.has_entries());
+    assert!(!tmp.path().join("out.flac").exists());
+}
+
+#[test]
+fn copied_in_changed_after_the_job_is_kept_on_undo() {
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    let cat = root.join("Extras").join("Soundtrack");
+    fs::create_dir_all(&cat).unwrap();
+    let src = outside_source(tmp.path(), b"flac");
+    let mut w = extras_job(&root, &data);
+    let target = cat.join("a.flac");
+    w.copy_in(&src, &target, Collision::Rename).unwrap();
+    let job = w.finish().unwrap();
+    fs::write(&target, b"edited by the user").unwrap();
+    let report = undo_job(&data, &job).unwrap();
+    assert_eq!(report.skipped_modified, std::slice::from_ref(&target));
+    assert_eq!(fs::read(&target).unwrap(), b"edited by the user");
+}
+
+#[test]
+fn a_bare_copied_in_intent_removes_only_the_job_temp() {
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    let cat = root.join("Extras").join("Soundtrack");
+    fs::create_dir_all(&cat).unwrap();
+    let src = outside_source(tmp.path(), b"flac");
+    let mut w = extras_job(&root, &data);
+    let journal = w.journal_path().to_path_buf();
+    let target = cat.join("a.flac");
+    w.copy_in(&src, &target, Collision::Rename).unwrap();
+    let job = w.finish().unwrap();
+
+    // A crash while streaming: only the intent made it to the journal, the
+    // temp holds part of the copy, and a file of the user's has the name.
+    let text = fs::read_to_string(&journal).unwrap();
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|l| {
+            !(l.contains("\"copied-in\"") && l.contains("\"fp\"")) && *l != r#"{"type":"done"}"#
+        })
+        .collect();
+    fs::write(&journal, format!("{}\n", kept.join("\n"))).unwrap();
+    let lines = journal_file_lines(&journal);
+    let intent = copied_in_lines(&lines);
+    assert_eq!(intent.len(), 1);
+    let temp = cat.join(intent[0]["op"]["temp"].as_str().unwrap());
+    fs::write(&temp, b"fl").unwrap();
+    fs::write(&target, b"the user's own file").unwrap();
+    // Undo never needs the source.
+    fs::remove_file(&src).unwrap();
+
+    undo_job(&data, &job).unwrap();
+    assert!(!temp.exists());
+    assert_eq!(fs::read(&target).unwrap(), b"the user's own file");
+}
+
+#[test]
+fn an_older_reader_refuses_a_journal_with_copied_in_or_dir_removed() {
+    // An op this build does not know reads as `unknown` and refuses the
+    // whole job: reproduce what an older build sees with a renamed op.
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("L"), tmp.path().join("d"));
+    let cat = root.join("Extras").join("Soundtrack");
+    fs::create_dir_all(&cat).unwrap();
+    let src = outside_source(tmp.path(), b"flac");
+    let mut w = extras_job(&root, &data);
+    let journal = w.journal_path().to_path_buf();
+    let target = cat.join("a.flac");
+    w.copy_in(&src, &target, Collision::Rename).unwrap();
+    let job = w.finish().unwrap();
+    let text = fs::read_to_string(&journal).unwrap();
+    fs::write(&journal, text.replace("\"copied-in\"", "\"copied-in-v9\"")).unwrap();
+    let s = list_jobs(&data).unwrap().remove(0);
+    assert!(!s.undoable);
+    assert!(undo_job(&data, &job).is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"flac");
+}
+
+#[test]
+fn pruning_counts_extras_apart_and_keeps_young_ones() {
+    let tmp = TempDir::new().unwrap();
+    let data = tmp.path();
+    // Older than 90 days at 2026-10-17.
+    let old_extras: Vec<String> = (0..30)
+        .map(|n| format!("20260101T0000{n:02}Z-0000-0000"))
+        .collect();
+    for job in &old_extras {
+        bare_journal(data, job, "extras");
+    }
+    let old_org = "20251201T000000Z-0000-0000".to_string();
+    bare_journal(data, &old_org, "organize");
+    // Ten days old: kept beyond `keep`.
+    let young: Vec<String> = (0..3)
+        .map(|n| format!("20261007T0000{n:02}Z-0000-0000"))
+        .collect();
+    for job in &young {
+        bare_journal(data, job, "extras");
+    }
+    prune_jobs_at(data, 5, 90, oct_17()).unwrap();
+    let left = job_ids(data);
+    assert!(left.contains(&old_org), "{left:?}");
+    assert!(young.iter().all(|j| left.contains(j)), "{left:?}");
+    let old_left: Vec<&String> = left.iter().filter(|j| old_extras.contains(j)).collect();
+    // The newest five Extras journals are the three young ones and two old.
+    assert_eq!(old_left, [&old_extras[29], &old_extras[28]]);
+}

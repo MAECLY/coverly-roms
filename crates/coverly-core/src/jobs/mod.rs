@@ -177,6 +177,7 @@ impl From<&WriteError> for ItemErrorKind {
             WriteError::OutsideRoot(_) => ItemErrorKind::OutsideRoot,
             WriteError::NothingToUndo
             | WriteError::NotAFile(_)
+            | WriteError::NotEmpty(_)
             | WriteError::CrossDevice(_)
             | WriteError::Journal(_)
             | WriteError::Io(_) => ItemErrorKind::Io,

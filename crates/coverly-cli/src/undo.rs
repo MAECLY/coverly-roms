@@ -101,6 +101,7 @@ pub fn run(args: &UndoArgs) -> Result<(), Failure> {
         .map(|r| match kind_of(&r.job) {
             JobKind::Organize => organize_text(r, &trashed, JobKind::Organize),
             JobKind::Dedupe => organize_text(r, &trashed, JobKind::Dedupe),
+            JobKind::Extras => organize_text(r, &trashed, JobKind::Extras),
             JobKind::Fill => fill_text(r),
         })
         .collect();
@@ -112,6 +113,7 @@ fn kind_name(kind: JobKind) -> &'static str {
         JobKind::Fill => "fill",
         JobKind::Organize => "organize",
         JobKind::Dedupe => "dedupe",
+        JobKind::Extras => "extras",
     }
 }
 
@@ -153,14 +155,19 @@ fn trashed_archives(data: &std::path::Path, ids: &[String]) -> BTreeSet<PathBuf>
 /// job created and kept because they aren't empty, the archives
 /// brought back from the Trash and the ones that could not be. A
 /// duplicates job (`kind` dedupe) reads the same, with its own name and
-/// its own words for the copies the Trash brought back or no longer holds.
+/// its own words for the copies the Trash brought back or no longer holds;
+/// an Extras job (`kind` extras) reads the same with its own name.
 /// Every path prints on one line: a name holding a newline must not forge
 /// a second line of the report.
 fn organize_text(report: &UndoReport, trashed: &BTreeSet<PathBuf>, kind: JobKind) -> String {
     let dedupe = kind == JobKind::Dedupe;
     let mut text = format!(
         "Undid {} job {}: moved back {}, removed {} copies, kept {} changed, {} folders removed",
-        if dedupe { "dedupe" } else { "organise" },
+        match kind {
+            JobKind::Dedupe => "dedupe",
+            JobKind::Extras => "extras",
+            _ => "organise",
+        },
         report.job,
         report.restored.len(),
         report.removed.len(),

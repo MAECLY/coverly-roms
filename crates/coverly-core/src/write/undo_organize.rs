@@ -70,6 +70,8 @@ pub(super) fn is_organize_op(op: &Op) -> bool {
             | Op::ArchiveTrash { .. }
             | Op::ArchiveTrashed { .. }
             | Op::ArchiveKept { .. }
+            | Op::DirRemoved
+            | Op::CopiedIn { .. }
     )
 }
 
@@ -110,6 +112,26 @@ pub(super) fn undo_entry(
             match fp {
                 Some(fp) => undo_copy(ctx, &target, &fp, report),
                 None => undo_intent(ctx, &target, &from, false, report),
+            }
+        }
+        Op::DirRemoved => {
+            let target = within_either(ctx, &target)?;
+            undo_dir_removed(&target, report)
+        }
+        Op::CopiedIn { temp, .. } => {
+            // `from` is informational: never opened here.
+            let target = within_either(ctx, &target)?;
+            match fp {
+                Some(fp) => {
+                    ctx.settled_temps.insert(temp);
+                    undo_copy(ctx, &target, &fp, report)
+                }
+                None => {
+                    // Only the job temp is surely ours: whatever has the
+                    // target's name may be the user's.
+                    remove_job_temp(ctx, &target, &temp);
+                    Ok(())
+                }
             }
         }
         Op::Created | Op::Replaced { .. } | Op::Removed { .. } | Op::Unknown => {
@@ -522,6 +544,29 @@ fn undo_move(
         occupied(report, target);
     }
     Ok(())
+}
+
+/// A folder the job removed while empty: created again (empty) when
+/// nothing has its name; left alone when it is back already, or when
+/// something else took the name.
+fn undo_dir_removed(target: &Path, report: &mut UndoReport) -> Result<(), WriteError> {
+    match fs::symlink_metadata(target) {
+        Ok(_) => return Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        Err(e) => return Err(map_io(e, target)),
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| WriteError::OutsideRoot(target.to_path_buf()))?;
+    remove_apple_doubles(&create_dirs(parent)?);
+    match fs::create_dir(target) {
+        Ok(()) => {
+            report.restored.push(target.to_path_buf());
+            Ok(())
+        }
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(map_io(e, target)),
+    }
 }
 
 /// A folder moved by one rename (spec D25): renamed back the same way,

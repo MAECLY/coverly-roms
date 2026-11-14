@@ -91,6 +91,8 @@ pub enum WriteError {
     NotAFile(PathBuf),
     #[error("cannot move across volumes: {0}")]
     CrossDevice(PathBuf),
+    #[error("folder not empty: {0}")]
+    NotEmpty(PathBuf),
     #[error("job journal is damaged: {0}")]
     Journal(String),
     #[error(transparent)]
@@ -266,11 +268,15 @@ pub fn sha1_hex(bytes: &[u8]) -> String {
     hex_upper(&Sha1::digest(bytes))
 }
 
-/// What a job did: fill art (and gamelists), organise a ROM pile, or set
-/// duplicate copies aside. Journals written before organise jobs existed
-/// have no kind: fill. Builds older than duplicates cannot read a
-/// `"dedupe"` header, so they list such a job as unreadable and never
-/// undo it by halves.
+/// What a job did: fill art (and gamelists), organise a ROM pile, set
+/// duplicate copies aside, or change a game's `Extras/` folder from the
+/// game panel. Journals written before organise jobs existed have no
+/// kind: fill. Builds older than duplicates cannot read a `"dedupe"`
+/// header, so they list such a job as unreadable and never undo it by
+/// halves. The same holds for `"extras"` in builds older than extras:
+/// pruning reads that header as fill (`header_kind`), and its
+/// `dir-removed` / `copied-in` ops read as unknown, so the whole job is
+/// refused, never half undone.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum JobKind {
@@ -278,6 +284,7 @@ pub enum JobKind {
     Fill,
     Organize,
     Dedupe,
+    Extras,
 }
 
 /// Enough of a file's state to tell, at undo time, whether it is still the
@@ -420,6 +427,21 @@ enum Op {
     /// sets aside) stays where it was (no Trash on its volume).
     ArchiveKept {
         from: PathBuf,
+    },
+    /// The folder `target` was empty (not even system litter in it) and
+    /// the job removed it. Undo creates it again when it is absent.
+    DirRemoved,
+    /// `target` is a copy of `from`, a file from anywhere (a file picker,
+    /// an OS drop), outside the job's roots. Written twice, like
+    /// `Extracted`: the intent (no `fp`) before the copy streams into the
+    /// job temp `temp` in `target`'s folder, and the completion (`fp` with
+    /// the CRC computed while copying) after the no-clobber rename. `from`
+    /// is informational: undo never opens it. Undo of a completion removes
+    /// the copy unless it changed; undo of a bare intent deletes the job
+    /// temp only, never `target`.
+    CopiedIn {
+        from: PathBuf,
+        temp: String,
     },
     /// An op this build does not know (a journal from a newer Coverly):
     /// the job is listed but cannot be undone.
@@ -624,7 +646,7 @@ impl Writer {
             .iter()
             .filter_map(|e| match e {
                 Line::Entry {
-                    op: Op::Extracted { temp, .. },
+                    op: Op::Extracted { temp, .. } | Op::CopiedIn { temp, .. },
                     ..
                 } => Some(temp.clone()),
                 _ => None,
@@ -851,6 +873,36 @@ impl Writer {
             path: target,
             backup,
         })
+    }
+
+    /// Removes the empty folder `dir` (inside the root), journaled
+    /// [`Op::DirRemoved`] before the removal so undo creates it again.
+    /// Refused with [`WriteError::NotEmpty`] (nothing journaled) when
+    /// anything is in it, system litter (`.DS_Store`, `._*`) included: a
+    /// user's file is never deleted on the way. Symlinks and files are
+    /// refused too.
+    pub fn remove_empty_dir(&mut self, dir: &Path) -> Result<(), WriteError> {
+        let dir = ensure_within(&self.root, dir)?;
+        let meta = fs::symlink_metadata(&dir).map_err(|e| map_io(e, &dir))?;
+        if !meta.is_dir() {
+            return Err(WriteError::NotAFile(dir));
+        }
+        if fs::read_dir(&dir)
+            .map_err(|e| map_io(e, &dir))?
+            .next()
+            .is_some()
+        {
+            return Err(WriteError::NotEmpty(dir));
+        }
+        self.append_entry(dir.clone(), Op::DirRemoved, None, None, None)?;
+        // A failed removal leaves the folder as it was: the entry stays
+        // (its undo finds the folder there and does nothing).
+        fs::remove_dir(&dir).map_err(|e| match e.kind() {
+            ErrorKind::DirectoryNotEmpty => WriteError::NotEmpty(dir.clone()),
+            _ => map_io(e, &dir),
+        })?;
+        self.changes += 1;
+        Ok(())
     }
 
     /// Journals that the manual identity keyed by `from` is about to be
@@ -2021,6 +2073,8 @@ fn undo_journal(
                 | Op::ArchiveTrash { .. }
                 | Op::ArchiveTrashed { .. }
                 | Op::ArchiveKept { .. }
+                | Op::DirRemoved
+                | Op::CopiedIn { .. }
                 | Op::Unknown,
                 _,
             ) => unreachable!("handled or refused before reading the target"),
@@ -2090,23 +2144,24 @@ pub fn undo_jobs_in_order_with(
         .collect()
 }
 
-/// Days an organise or duplicates journal is kept even beyond the newest
-/// `keep`.
+/// Days an organise, duplicates or Extras journal is kept even beyond the
+/// newest `keep`.
 pub const KEEP_ORGANIZE_DAYS: u32 = 90;
 
-/// Prunes journals (and their backups and plans), counting fill, organise
-/// and duplicates jobs separately: [`prune_jobs_at`] with
+/// Prunes journals (and their backups and plans), counting fill, organise,
+/// duplicates and Extras jobs separately: [`prune_jobs_at`] with
 /// [`KEEP_ORGANIZE_DAYS`] and the current time.
 pub fn prune_jobs(data_dir: &Path, keep: usize) -> Result<(), WriteError> {
     prune_jobs_at(data_dir, keep, KEEP_ORGANIZE_DAYS, SystemTime::now())
 }
 
 /// Keeps the newest `keep` fill journals, the newest `keep` organise
-/// journals and the newest `keep` duplicates journals, plus every organise
-/// or duplicates journal younger than `keep_organize_days` at `now` (its
-/// id gives its age); deletes the rest with their `backups/<job>` and
+/// journals, the newest `keep` duplicates journals and the newest `keep`
+/// Extras journals, plus every organise, duplicates or Extras journal
+/// younger than `keep_organize_days` at `now` (its id gives its age); deletes the rest with their `backups/<job>` and
 /// `jobs/<job>.plan.json`. A few fill runs must never destroy the only way
-/// to put hundreds of moved ROMs back.
+/// to put hundreds of moved ROMs back, and a burst of tag edits in the
+/// game panel never pushes an organise journal out.
 pub fn prune_jobs_at(
     data_dir: &Path,
     keep: usize,
@@ -2118,7 +2173,7 @@ pub fn prune_jobs_at(
         parse_compact_utc(job)
             .is_some_and(|at| now.duration_since(at).map_or(true, |age| age < max_age))
     };
-    let (mut fills, mut organises, mut dedupes) = (0usize, 0usize, 0usize);
+    let (mut fills, mut organises, mut dedupes, mut extras) = (0usize, 0usize, 0usize, 0usize);
     for journal in journals(data_dir)? {
         let kept = match header_kind(&journal.path) {
             JobKind::Fill => {
@@ -2132,6 +2187,10 @@ pub fn prune_jobs_at(
             JobKind::Dedupe => {
                 dedupes += 1;
                 dedupes <= keep || young(&journal.job)
+            }
+            JobKind::Extras => {
+                extras += 1;
+                extras <= keep || young(&journal.job)
             }
         };
         if kept || has_unresolved_trash(&journal.path) {

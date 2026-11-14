@@ -138,9 +138,11 @@ impl From<coverly_core::write::WriteError> for IpcError {
             W::Denied(p) => IpcError::WriteDenied(p.display().to_string()),
             W::DiskFull => IpcError::DiskFull,
             W::NothingToUndo => IpcError::NothingToUndo,
-            other @ (W::NotAFile(_) | W::CrossDevice(_) | W::Journal(_) | W::Io(_)) => {
-                IpcError::Io(other.to_string())
-            }
+            other @ (W::NotAFile(_)
+            | W::NotEmpty(_)
+            | W::CrossDevice(_)
+            | W::Journal(_)
+            | W::Io(_)) => IpcError::Io(other.to_string()),
         }
     }
 }
