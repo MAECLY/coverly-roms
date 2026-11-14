@@ -19,10 +19,11 @@ use super::index::{
     list, read_index_bytes, rel_components, serialize, IndexState, ListedFile, Listing, Match,
 };
 use super::{
-    normalize_tags, validate_file_stem, CategoryRef, ExtrasFile, NameRefusal, TagRefusal,
-    EXTRAS_JSON,
+    is_reserved_key, normalize_tags, validate_file_stem, CategoryRef, ExtrasFile, NameRefusal,
+    TagRefusal, EXTRAS_JSON,
 };
 use crate::game_folder::FixedFolder;
+use crate::organize::target::WINDOWS_MAX_PATH;
 use crate::time::rfc3339_utc;
 use crate::write::trash::TrashBackend;
 use crate::write::{
@@ -530,6 +531,17 @@ pub fn move_to(
     }
     let extras = extras_dir(ctx.game_dir);
     let target_dir = category_dir(&extras, listing, to)?;
+    for &i in &picked {
+        let name = &listing.files[i].name;
+        // At the root the index's names are taken by it and its backups
+        // (D1, D5); a numbered name would still read as a backup.
+        if target_dir == extras && is_reserved_key(&name_key(name)) {
+            return Err(ExtrasError::Name(NameRefusal::Reserved));
+        }
+        if too_long_for_windows(&target_dir.join(name)) {
+            return Err(ExtrasError::Name(NameRefusal::PathTooLong));
+        }
+    }
     if picked.is_empty() {
         return Ok(ExtrasOutcome {
             job: None,
@@ -547,6 +559,13 @@ pub fn move_to(
         }
     }
     job.finish()
+}
+
+/// Whether `path` is longer than Windows opens without long-path support,
+/// checked on every OS so a library copied to a PC or a FAT card still
+/// opens (D14, spec §10).
+fn too_long_for_windows(path: &Path) -> bool {
+    path.to_string_lossy().encode_utf16().count() > WINDOWS_MAX_PATH
 }
 
 /// Whether two category refs are one category, whatever the spelling (D1).
@@ -610,6 +629,7 @@ impl ExtrasJob<'_> {
             (Some(a), Some(b)) => name_key(&a.to_string_lossy()) == name_key(&b.to_string_lossy()),
             _ => false,
         };
+        let original = from.clone();
         let from = if same_key {
             let temp = from.with_file_name(format!(".coverly-{}-rename", self.w.job_id()));
             let temp = self.confine(&temp)?;
@@ -620,12 +640,18 @@ impl ExtrasJob<'_> {
         } else {
             from
         };
-        match self.w.move_file(&from, &to, Collision::Skip, None)? {
-            MoveOutcome::Moved { to: done, .. } if done == to => self.follow(file, &to),
+        let result = match self.w.move_file(&from, &to, Collision::Skip, None) {
+            Ok(MoveOutcome::Moved { to: done, .. }) if done == to => return self.follow(file, &to),
             // Taken since the check: never suffixed (the user typed it).
-            MoveOutcome::SkippedExists { .. } => Err(ExtrasError::Name(NameRefusal::Taken)),
-            _ => Err(ExtrasError::Changed),
+            Ok(MoveOutcome::SkippedExists { .. }) => Err(ExtrasError::Name(NameRefusal::Taken)),
+            Ok(_) => Err(ExtrasError::Changed),
+            Err(e) => Err(e.into()),
+        };
+        // Never leave the file under the hidden temporary name.
+        if from != original && fs::symlink_metadata(&from).is_ok() {
+            self.w.move_back(&from, &original)?;
         }
+        result
     }
 
     /// Moves to another folder of `Extras/`, creating a missing category
@@ -639,6 +665,12 @@ impl ExtrasJob<'_> {
         }
         match self.w.move_file(&from, &to, Collision::Rename, None)? {
             MoveOutcome::Moved { to, renamed } => {
+                // The free number made it too long: stopped here, and the
+                // closed journal undoes what this job already moved.
+                if too_long_for_windows(&to) {
+                    self.w.move_back(&to, &from)?;
+                    return Err(ExtrasError::Name(NameRefusal::PathTooLong));
+                }
                 if renamed {
                     let name = to
                         .file_name()

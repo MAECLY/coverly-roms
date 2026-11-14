@@ -852,3 +852,100 @@ fn every_op_then_undo_restores_tree_and_json() {
         }
     }
 }
+
+#[test]
+fn move_refuses_a_path_too_long_for_windows() {
+    let fx = Fx::new();
+    // A loose file whose path fits, but not once inside `Guides/` (D14,
+    // spec §10: refused on every OS).
+    let base = fx.extras().to_string_lossy().encode_utf16().count();
+    let stem = "x".repeat(259 - base - 1 - 3 - ".flac".len());
+    let name = format!("{stem}.flac");
+    fx.put(&name, b"long", 3);
+    let l = fx.listing();
+    let i = file_index(&l, &name);
+    let err = move_to(
+        &fx.ctx(),
+        &l,
+        &[i],
+        &CategoryRef::Fixed(ExtrasCategory::Guides),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err, ExtrasError::Name(NameRefusal::PathTooLong)),
+        "{err:?}"
+    );
+    assert_eq!(fx.jobs(), 0);
+    assert!(!fx.extras().join("Guides").exists());
+    assert!(fx.extras().join(&name).is_file());
+}
+
+#[test]
+fn a_file_named_like_the_index_is_never_moved_onto_it() {
+    // A user's `Guides/extras.json` is a normal file (D4); moved to the
+    // root it would become the index or be hidden as one: refused (a
+    // reserved name, D1), as a rename to it is.
+    for with_index in [false, true] {
+        let fx = Fx::new();
+        if with_index {
+            tag_first(&fx, &["apertura"]);
+        }
+        fx.put("Guides/extras.json", b"user notes", 3);
+        fx.put("Guides/EXTRAS.broken-1.json", b"more notes", 4);
+        let l = fx.listing();
+        let jobs = fx.jobs();
+        let index = std::fs::read(fx.index_path()).ok();
+        for rel in ["Guides/extras.json", "Guides/EXTRAS.broken-1.json"] {
+            let i = file_index(&l, rel);
+            let err = move_to(&fx.ctx(), &l, &[i], &CategoryRef::Root).unwrap_err();
+            assert!(
+                matches!(err, ExtrasError::Name(NameRefusal::Reserved)),
+                "{rel} ({with_index}): {err:?}"
+            );
+        }
+        assert_eq!(fx.jobs(), jobs);
+        assert_eq!(std::fs::read(fx.index_path()).ok(), index);
+        assert_eq!(
+            names_in(&fx, "Guides"),
+            ["EXTRAS.broken-1.json", "extras.json"]
+        );
+        // Into another category it is a normal move.
+        let i = file_index(&l, "Guides/extras.json");
+        let out = move_to(
+            &fx.ctx(),
+            &l,
+            &[i],
+            &CategoryRef::Fixed(ExtrasCategory::Manuals),
+        )
+        .unwrap();
+        file_index(&out.listing, "Manuals/extras.json");
+    }
+}
+
+#[test]
+fn a_numbered_name_too_long_for_windows_puts_the_file_back() {
+    let fx = Fx::new();
+    // `Guides/<name>` fits exactly; `Guides/<name> (2)` does not.
+    let guides = fx.extras().join("Guides");
+    let base = guides.to_string_lossy().encode_utf16().count();
+    let stem = "y".repeat(259 - base - 1 - ".flac".len());
+    let name = format!("{stem}.flac");
+    fx.put(&format!("Guides/{name}"), b"there", 3);
+    fx.put(&name, b"loose", 4);
+    let l = fx.listing();
+    let i = file_index(&l, &name);
+    let err = move_to(
+        &fx.ctx(),
+        &l,
+        &[i],
+        &CategoryRef::Fixed(ExtrasCategory::Guides),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err, ExtrasError::Name(NameRefusal::PathTooLong)),
+        "{err:?}"
+    );
+    assert_eq!(std::fs::read(fx.extras().join(&name)).unwrap(), b"loose");
+    assert_eq!(names_in(&fx, "Guides"), std::slice::from_ref(&name));
+    assert!(!fx.index_path().exists());
+}
