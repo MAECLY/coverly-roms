@@ -1377,18 +1377,38 @@ fn organize_never_walks_coverly_trash() {
 #[test]
 fn music_rips_are_left_as_music_never_other_files() {
     use coverly_core::extras::testing as rips;
+    use coverly_core::extras::{ExtrasCategory, Provenance};
     use coverly_core::identify::sniff::NotARom;
     let tmp = tempfile::tempdir().unwrap();
-    let mut names = Vec::new();
+    let mut tagged = Vec::new();
     for (name, bytes) in rips::all_rips() {
         put(tmp.path(), name, &bytes);
-        names.push(name);
+        tagged.push(name);
     }
     put(tmp.path(), "a.QSF", b"PSF\x41");
-    names.push("a.QSF");
+    put(
+        tmp.path(),
+        "untagged.spc",
+        &rips::spc("Boss", "Super Metroid", "Kenji Yamamoto", false),
+    );
     put(tmp.path(), "a.rsn", b"Rar!\x1a\x07\x00");
     let w = run(tmp.path(), &NoCloud);
-    for name in names {
+    // A rip whose tags name a game is an extra the plan may file (extras
+    // spec D15); the plan leaves it as music until then.
+    for name in tagged {
+        let x = w
+            .extras
+            .iter()
+            .find(|x| x.path.ends_with(name))
+            .unwrap_or_else(|| panic!("{name}: {:?}", w.extras));
+        assert_eq!(x.provenance, Provenance::User, "{name}");
+        assert_eq!(x.category, ExtrasCategory::Soundtrack, "{name}");
+        assert!(x.rip.as_ref().is_some_and(|r| r.game.is_some()), "{name}");
+        assert_eq!(reason_of(&w, name), None, "{name}");
+        assert!(!w.other_files.iter().any(|p| p.ends_with(name)), "{name}");
+    }
+    // Without tags: left as music, never read again by the plan.
+    for name in ["a.QSF", "untagged.spc"] {
         assert_eq!(
             reason_of(&w, name),
             Some(LeftReason::NotARom {

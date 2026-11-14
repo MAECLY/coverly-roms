@@ -1445,6 +1445,47 @@ fn left_reason_text(reason: &LeftReason, system: Option<&str>) -> String {
                 system.unwrap_or("<system>")
             )
         }
+        LeftReason::ExtraWithoutGame { category } => format!(
+            "{} without a game: which game it belongs to is not known",
+            extra_noun(*category)
+        ),
+        LeftReason::ExtrasIndexNewer => {
+            "this game's extras.json is from a newer Coverly: stays here".into()
+        }
+    }
+}
+
+/// What an extra of `category` is called in a sentence (extras spec D7).
+fn extra_noun(category: coverly_core::extras::ExtrasCategory) -> &'static str {
+    use coverly_core::extras::ExtrasCategory as C;
+    match category {
+        C::Themes => "Theme",
+        C::Videos => "Video",
+        C::Soundtrack => "Soundtrack",
+        C::Manuals => "Manual",
+        C::Artwork => "Artwork",
+        C::Guides => "Guide",
+    }
+}
+
+/// An extra's format in words (extras spec D6, D15).
+fn extra_format_text(format: coverly_core::extras::ExtraFormat) -> &'static str {
+    use coverly_core::extras::ExtraFormat as F;
+    match format {
+        F::Ps3P3t | F::Ps3ThemePkg => "PS3 theme",
+        F::Ps3AvatarPkg => "PS3 avatar",
+        F::VitaThemePkg => "Vita theme",
+        F::PspPtf => "PSP theme",
+        F::X360Theme => "Xbox 360 theme",
+        F::X360Gamerpic => "Xbox 360 gamer picture",
+        F::X360Avatar => "Xbox 360 avatar item",
+        F::X360Video => "Xbox 360 video",
+        F::N3dsSoundtrackCia => "3DS soundtrack",
+        F::Spc => "SPC",
+        F::Nsf => "NSF",
+        F::Gbs => "GBS",
+        F::Vgm => "VGM",
+        F::Psf => "PSF",
     }
 }
 
@@ -1792,6 +1833,30 @@ fn note_text(n: &ItemNote) -> Option<String> {
             if *count == 1 { "stays" } else { "stay" },
             if *count == 1 { "it is" } else { "they are" },
         ),
+        ItemNote::ExtraOf {
+            category,
+            of,
+            format,
+            content_type,
+        } => match content_type {
+            Some(ct) => format!(
+                "{} for {of} ({}, content type 0x{ct:02X})",
+                category.dir_name(),
+                extra_format_text(*format)
+            ),
+            None => format!(
+                "{} for {of} ({})",
+                category.dir_name(),
+                extra_format_text(*format)
+            ),
+        },
+        ItemNote::ExtraRip { of, format, tag } => format!(
+            "Soundtrack for {of} ({} tag “{tag}”), your own",
+            extra_format_text(*format)
+        ),
+        ItemNote::ExtrasBackupFirst => {
+            "extras.json cannot be read; a copy is kept before writing".into()
+        }
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })

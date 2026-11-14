@@ -30,14 +30,15 @@ use crate::addons::{
 use crate::cache::Cache;
 use crate::consoles::is_key_material;
 use crate::consoles::{base_title_id, TitleKind};
+use crate::extras::{ExtraFormat, ExtrasCategory, Provenance, RipTags};
 use crate::game_folder::FixedFolder;
 use crate::identify::names::parse_tags;
 use crate::systems::SystemDb;
 
 use super::library_bases::{LibraryBase, LibraryIndex};
 use super::plan::{
-    effective_kind, GameLink, GameRole, ItemKind, ItemNote, LeftReason, OrganizeAction,
-    OrganizeItem, SurveyEntry, Transfer,
+    effective_kind, ExtraLink, GameLink, GameRole, ItemKind, ItemNote, LeftReason, OrganizeAction,
+    OrganizeItem, RenameReason, SurveyEntry, Transfer,
 };
 use super::target::{DirIndex, Subdir, TargetLayout};
 
@@ -1227,6 +1228,596 @@ pub(crate) fn fixed_folder_companions(
                     Path::to_path_buf,
                 );
         }
+    }
+}
+
+// --- Official extras and tagged music rips (extras spec D6, D7, D15) ---
+
+/// A file of the pile the walk took for an official extra or a tagged
+/// music rip (extras spec D6, D15), before the game probes and the addon
+/// sniffers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExtraCandidate {
+    /// Absolute, as walked.
+    pub path: PathBuf,
+    pub category: ExtrasCategory,
+    pub format: ExtraFormat,
+    /// `official` for a detected extra, `user` for a music rip (Q4).
+    pub provenance: Provenance,
+    /// The title id the header names (D7: PS3 PKG and Xbox 360 only link
+    /// by it).
+    pub title_id: Option<String>,
+    /// The name the header gives, else the file stem; for a rip, its
+    /// `game` tag (D7 title key).
+    pub display_name: Option<String>,
+    pub content_type: Option<u32>,
+    pub rip: Option<RipTags>,
+}
+
+/// Least bytes of an extensionless file worth an STFS sniff: the header
+/// the content type and title id sit in.
+const STFS_MIN_LEN: u64 = 0x171A;
+
+/// Extensions an official extra may carry (D6); an Xbox 360 STFS package
+/// has none.
+const OFFICIAL_EXTS: [&str; 4] = ["p3t", "pkg", "ptf", "cia"];
+
+/// The walk hook of extras (D6, D15): `Some` when the file at `path`
+/// (extension `ext`, lower-case, empty when none) is an official extra
+/// told from its plaintext header, or a music rip whose own tags name a
+/// game. Key material is refused by name before any open; only the
+/// official extensions, extensionless files large enough for an STFS
+/// header and the rip extensions are ever opened.
+pub(crate) fn extra_candidate(path: &Path, ext: &str, len: u64) -> Option<ExtraCandidate> {
+    let name = path.file_name()?.to_str()?;
+    if is_key_material(name) {
+        return None;
+    }
+    if crate::identify::sniff::is_music_ext(ext) {
+        let (format, rip) = crate::extras::rips::read_rip(path)?;
+        let game = rip.game.clone()?;
+        return Some(ExtraCandidate {
+            path: path.to_path_buf(),
+            category: ExtrasCategory::Soundtrack,
+            format,
+            provenance: Provenance::User,
+            title_id: None,
+            display_name: Some(game),
+            content_type: None,
+            rip: Some(rip),
+        });
+    }
+    let official = OFFICIAL_EXTS.contains(&ext) || (ext.is_empty() && len >= STFS_MIN_LEN);
+    if !official {
+        return None;
+    }
+    let x = crate::extras::official::sniff_path(path)?;
+    Some(ExtraCandidate {
+        path: path.to_path_buf(),
+        category: x.category,
+        format: x.format,
+        provenance: Provenance::Official,
+        title_id: x.title_id,
+        display_name: x.display_name,
+        content_type: x.content_type,
+        rip: None,
+    })
+}
+
+/// The row an extra has until the plan links it: an official extra is
+/// [`LeftReason::ExtraWithoutGame`], a rip is music (D7, D15).
+pub fn extra_unlinked_reason(c: &ExtraCandidate) -> LeftReason {
+    match c.provenance {
+        Provenance::Official => LeftReason::ExtraWithoutGame {
+            category: c.category,
+        },
+        Provenance::User => LeftReason::NotARom {
+            what: crate::identify::sniff::NotARom::Music,
+        },
+    }
+}
+
+/// The systems an extra of `format` belongs to (D6, D15); a rip's come
+/// from its tags.
+fn extra_systems(c: &ExtraCandidate) -> &'static [&'static str] {
+    match c.format {
+        ExtraFormat::Ps3P3t | ExtraFormat::Ps3ThemePkg | ExtraFormat::Ps3AvatarPkg => &["ps3"],
+        ExtraFormat::VitaThemePkg => &["psvita"],
+        ExtraFormat::PspPtf => &["psp"],
+        ExtraFormat::X360Theme
+        | ExtraFormat::X360Gamerpic
+        | ExtraFormat::X360Avatar
+        | ExtraFormat::X360Video => &["xbox360"],
+        ExtraFormat::N3dsSoundtrackCia => &["3ds"],
+        ExtraFormat::Spc
+        | ExtraFormat::Nsf
+        | ExtraFormat::Gbs
+        | ExtraFormat::Vgm
+        | ExtraFormat::Psf => c.rip.as_ref().map_or(&[], |r| r.systems),
+    }
+}
+
+/// Whether the extra links by the title id its header names (D7): a PS3
+/// PKG's content id and an Xbox 360 package's title id carry the game's;
+/// a Vita theme, a 3DS soundtrack and a `.p3t` carry their own or none.
+fn links_by_title_id(format: ExtraFormat) -> bool {
+    matches!(
+        format,
+        ExtraFormat::Ps3ThemePkg
+            | ExtraFormat::Ps3AvatarPkg
+            | ExtraFormat::X360Theme
+            | ExtraFormat::X360Gamerpic
+            | ExtraFormat::X360Avatar
+            | ExtraFormat::X360Video
+    )
+}
+
+/// Whether an item is still the row the survey gave an extra.
+fn extra_untouched(item: &OrganizeItem) -> bool {
+    matches!(
+        &item.action,
+        OrganizeAction::Left {
+            reason: LeftReason::ExtraWithoutGame { .. }
+                | LeftReason::NotARom {
+                    what: crate::identify::sniff::NotARom::Music
+                }
+        }
+    )
+}
+
+/// The distinct games among `hits`, plan items first (as [`resolve`]
+/// orders a tier): exactly one is a link, more is ambiguous (D7).
+fn one_game(list: &[Candidate], hit: impl Fn(&Candidate) -> bool) -> Result<Option<GameRef>, ()> {
+    let in_plan = |c: &&Candidate| matches!(c.game, GameRef::Item(_));
+    let pick = |plan: bool| -> Vec<GameRef> {
+        let mut games: Vec<GameRef> = Vec::new();
+        for c in list
+            .iter()
+            .filter(|c| in_plan(c) == plan)
+            .filter(|c| hit(c))
+        {
+            if !games.contains(&c.game) {
+                games.push(c.game.clone());
+            }
+        }
+        games
+    };
+    let mut games = pick(true);
+    if games.is_empty() {
+        games = pick(false);
+    }
+    match games.len() {
+        0 => Ok(None),
+        1 => Ok(games.pop()),
+        _ => Err(()),
+    }
+}
+
+/// The extras link pass (D7), after the addons': every extra the survey
+/// left is linked to exactly one game, in this order: (1) filed under,
+/// the game file with its stem beside it, or the only base of the pile
+/// folder it sits in; (2) the title id its header names (PS3 PKG, Xbox
+/// 360); (3) the title key of its name (or a rip's `game` tag) equal to
+/// exactly one game's of its systems, plan items first, then library
+/// bases. Ambiguous or none: it stays with its row, never guessed. With
+/// game folders off nothing is linked (the layout has no `Extras/`).
+pub(crate) fn link_extras(
+    items: &mut [OrganizeItem],
+    entries: &[SurveyEntry],
+    extras: &[ExtraCandidate],
+    subdirs: &mut [Option<Subdir>],
+    source_root: &Path,
+    w: &mut LinkWorld<'_>,
+) {
+    if extras.is_empty() || !w.layout.game_folders {
+        return;
+    }
+    let by_path: HashMap<&Path, usize> = entries
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| Some((e.sources.first()?.as_path(), i)))
+        .collect();
+    let todo: Vec<(usize, &ExtraCandidate)> = extras
+        .iter()
+        .filter_map(|c| {
+            let i = *by_path.get(c.path.as_path())?;
+            items
+                .get(i)
+                .filter(|it| extra_untouched(it))
+                .map(|_| (i, c))
+        })
+        .collect();
+    if todo.is_empty() {
+        return;
+    }
+    let is_extra: HashSet<usize> = todo.iter().map(|(i, _)| *i).collect();
+    let wanted = BTreeSet::new();
+    let mut budget = 0;
+    let mut plan: Vec<Candidate> = Vec::new();
+    // The pile bases by the folder they sit in, for the filed-under link.
+    let mut by_dir: HashMap<PathBuf, Vec<usize>> = HashMap::new();
+    for (i, item) in items.iter().enumerate() {
+        let (Some(system), Some(entry)) = (item.system_id.clone(), entries.get(i)) else {
+            continue;
+        };
+        let child = matches!(
+            effective_kind(entry),
+            TitleKind::Update | TitleKind::Dlc | TitleKind::System
+        ) || item.game.as_ref().is_some_and(|g| g.role != GameRole::Base);
+        if is_extra.contains(&i) || !item.moves_in() || child {
+            continue;
+        }
+        if item.kind != ItemKind::Folder {
+            if let Some(dir) = entry.sources.first().and_then(|p| p.parent()) {
+                by_dir.entry(dir.to_path_buf()).or_default().push(i);
+            }
+        }
+        plan.push(plan_candidate(
+            i,
+            item,
+            entry,
+            system,
+            &wanted,
+            &mut budget,
+            w,
+        ));
+    }
+    let mut libraries: HashMap<String, Vec<Candidate>> = HashMap::new();
+    for (pos, c) in todo {
+        let systems = extra_systems(c);
+        if systems.is_empty() {
+            continue;
+        }
+        let in_systems = |cand: &Candidate| systems.contains(&cand.system.as_str());
+        let own_stem = c
+            .path
+            .file_stem()
+            .map(|s| crate::write::name_key(&s.to_string_lossy()))
+            .unwrap_or_default();
+        // (1) Filed under: the same stem beside it, else the only base of
+        // a pile folder that is not the pile's root.
+        let filed = c.path.parent().and_then(|dir| {
+            let here: Vec<usize> = by_dir
+                .get(dir)
+                .map(|v| {
+                    v.iter()
+                        .copied()
+                        .filter(|&b| {
+                            plan.iter()
+                                .any(|cand| cand.game == GameRef::Item(b) && in_systems(cand))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let same_stem: Vec<usize> = here
+                .iter()
+                .copied()
+                .filter(|&b| {
+                    items[b]
+                        .sources
+                        .first()
+                        .and_then(|s| s.file_stem())
+                        .is_some_and(|s| crate::write::name_key(&s.to_string_lossy()) == own_stem)
+                })
+                .collect();
+            match (same_stem.as_slice(), here.as_slice()) {
+                ([b], _) => Some(*b),
+                ([], [b]) if dir != source_root => Some(*b),
+                _ => None,
+            }
+        });
+        let mut found: Result<Option<(GameRef, LinkVia)>, ()> =
+            Ok(filed.map(|b| (GameRef::Item(b), LinkVia::Folder)));
+        let mut library_for = |w: &mut LinkWorld<'_>| -> Vec<Candidate> {
+            let mut out = Vec::new();
+            for system in systems {
+                let cands = libraries.entry((*system).to_string()).or_insert_with(|| {
+                    (w.library)(system)
+                        .bases()
+                        .iter()
+                        .map(|b| library_candidate(system, b))
+                        .collect()
+                });
+                out.extend(cands.iter().cloned());
+            }
+            out
+        };
+        let mut list: Option<Vec<Candidate>> = None;
+        // (2) The title id its header names.
+        if matches!(found, Ok(None)) && links_by_title_id(c.format) {
+            if let Some(id) = c.title_id.as_deref() {
+                let all = list.get_or_insert_with(|| {
+                    let mut l: Vec<Candidate> =
+                        plan.iter().filter(|c| in_systems(c)).cloned().collect();
+                    l.extend(library_for(w));
+                    l
+                });
+                let none = |_: u32| Vec::new();
+                let cands = Candidates {
+                    list: all,
+                    dat_by_crc: &none,
+                    budget_out: false,
+                };
+                let key = AddonKey::TitleId { id: id.to_string() };
+                found = match resolve(&key, None, "", &cands) {
+                    Resolution::One { game, .. } => Ok(Some((game, LinkVia::Key))),
+                    Resolution::Several(_) => Err(()),
+                    Resolution::None | Resolution::Budget => Ok(None),
+                };
+            }
+        }
+        // (3) The title key of its name.
+        if matches!(found, Ok(None)) {
+            let key = c
+                .display_name
+                .as_deref()
+                .map(|n| parse_tags(n).title_key)
+                .unwrap_or_default();
+            if !key.is_empty() {
+                let all = list.get_or_insert_with(|| {
+                    let mut l: Vec<Candidate> =
+                        plan.iter().filter(|c| in_systems(c)).cloned().collect();
+                    l.extend(library_for(w));
+                    l
+                });
+                found = one_game(all, |cand| cand.title_key == key)
+                    .map(|g| g.map(|g| (g, LinkVia::Name)));
+            }
+        }
+        let Ok(Some((game, via))) = found else {
+            continue;
+        };
+        let link = ExtraLink {
+            category: c.category,
+            format: c.format,
+            provenance: c.provenance,
+            via,
+            content_type: c.content_type,
+            rip: c.rip.clone(),
+        };
+        match game {
+            GameRef::Item(b) => {
+                let title = plan
+                    .iter()
+                    .find(|cand| cand.game == GameRef::Item(b))
+                    .map(|cand| cand.stem.clone())
+                    .unwrap_or_default();
+                let system = items[b].system_id.clone();
+                let region = items[b].game.as_ref().and_then(|g| g.region);
+                let it = &mut items[pos];
+                it.action = OrganizeAction::Auto;
+                it.system_id = system;
+                let mut g = GameLink::new(GameRole::Extra);
+                g.of = Some(b);
+                g.region = region;
+                g.extra = Some(link);
+                it.game = Some(g);
+                it.notes.push(extra_note(c, title));
+                subdirs[pos] = Some(Subdir::Child);
+            }
+            GameRef::Library(path) => {
+                // Only a library game folder has an `Extras/` (never a
+                // flat file's place).
+                if !fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir()) {
+                    continue;
+                }
+                let Some((system, title)) = systems.iter().find_map(|s| {
+                    let found = libraries
+                        .get(*s)?
+                        .iter()
+                        .find(|cand| cand.game == GameRef::Library(path.clone()))?;
+                    Some((*s, found.stem.clone()))
+                }) else {
+                    continue;
+                };
+                let (system_dir, choice) = super::target::folder_dir(w.layout, w.db, system);
+                let it = &mut items[pos];
+                it.action = OrganizeAction::Auto;
+                it.system_id = Some(system.to_string());
+                it.folder = system_dir
+                    .file_name()
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .or(Some(choice.folder));
+                let mut g = GameLink::new(GameRole::Extra);
+                g.folder = Some(
+                    path.strip_prefix(&w.layout.target_root)
+                        .map_or_else(|_| path.clone(), Path::to_path_buf),
+                );
+                g.folder_exists = true;
+                g.extra = Some(link);
+                it.game = Some(g);
+                it.notes.push(extra_note(c, title));
+                subdirs[pos] = Some(Subdir::Child);
+            }
+        }
+    }
+}
+
+/// The note an extra row carries: what it is and of which game.
+fn extra_note(c: &ExtraCandidate, of: String) -> ItemNote {
+    match (&c.provenance, &c.rip) {
+        (Provenance::User, Some(rip)) => ItemNote::ExtraRip {
+            of,
+            format: c.format,
+            tag: rip.game.clone().unwrap_or_default(),
+        },
+        _ => ItemNote::ExtraOf {
+            category: c.category,
+            of,
+            format: c.format,
+            content_type: c.content_type,
+        },
+    }
+}
+
+/// Extras placement (D5, D6, D15), after the addons': every linked extra
+/// goes to `<game folder>/Extras/<Category>/<own name>`; `Extras/` and
+/// the category reuse their spelling on disk. A name taken there is
+/// *already present* when the bytes are the same, else the extra gets
+/// the next free ` (n)` name (never written over). The game's
+/// `extras.json` is read for a game folder already on disk: newer → the
+/// extra stays ([`LeftReason::ExtrasIndexNewer`]); unreadable → the row
+/// says apply keeps a copy first ([`ItemNote::ExtrasBackupFirst`]). A
+/// base that stays leaves its extras with its reason.
+pub(crate) fn extra_targets(
+    items: &mut [OrganizeItem],
+    layout: &TargetLayout,
+    index: &mut DirIndex,
+    src: &Path,
+    same_content: &dyn Fn(&Path, &OrganizeItem) -> bool,
+) {
+    for pos in 0..items.len() {
+        let Some(link) = items[pos].game.clone() else {
+            continue;
+        };
+        if link.role != GameRole::Extra || !items[pos].moves_in() || items[pos].target.is_some() {
+            continue;
+        }
+        let Some(extra) = link.extra.clone() else {
+            continue;
+        };
+        let (system_folder, folder, folder_exists) = match link.of {
+            Some(b) => {
+                let Some(base) = items.get(b) else {
+                    continue;
+                };
+                match super::target::base_game_folder(base) {
+                    Some((folder, exists)) => (base.folder.clone(), folder, exists),
+                    None => {
+                        let reason = match &base.action {
+                            OrganizeAction::Left { reason } => reason.clone(),
+                            _ => extra_unlinked(&extra),
+                        };
+                        items[pos].leave(reason);
+                        continue;
+                    }
+                }
+            }
+            None => match link.folder.clone() {
+                Some(folder) => (items[pos].folder.clone(), folder, link.folder_exists),
+                None => {
+                    items[pos].leave(extra_unlinked(&extra));
+                    continue;
+                }
+            },
+        };
+        let folder_abs = layout.target_root.join(&folder);
+        let extras_name = FixedFolder::Extras.dir_name();
+        let extras_dir = match index.existing_first(&folder_abs, extras_name) {
+            Some(existing) => {
+                if !fs::symlink_metadata(&existing).is_ok_and(|m| m.is_dir()) {
+                    items[pos].leave(LeftReason::UnsafeTarget);
+                    continue;
+                }
+                existing
+            }
+            None => folder_abs.join(extras_name),
+        };
+        let mut backup_first = false;
+        if fs::symlink_metadata(&extras_dir).is_ok() {
+            match crate::extras::index::read_index(&extras_dir) {
+                crate::extras::index::IndexRead::Newer { .. } => {
+                    items[pos].leave(LeftReason::ExtrasIndexNewer);
+                    continue;
+                }
+                crate::extras::index::IndexRead::Malformed { .. } => backup_first = true,
+                _ => {}
+            }
+        }
+        let category = extra.category.dir_name();
+        let cat_dir = match index.existing_first(&extras_dir, category) {
+            Some(existing) => {
+                if !fs::symlink_metadata(&existing).is_ok_and(|m| m.is_dir()) {
+                    items[pos].leave(LeftReason::UnsafeTarget);
+                    continue;
+                }
+                existing
+            }
+            None => extras_dir.join(category),
+        };
+        let item = &items[pos];
+        let Some(source) = item.sources.first().cloned() else {
+            continue;
+        };
+        let original = name_of(&source);
+        let rel = |p: &Path| {
+            p.strip_prefix(&layout.target_root)
+                .map_or_else(|_| p.to_path_buf(), Path::to_path_buf)
+        };
+        // Already where it belongs (a library organised in place).
+        if cat_dir.join(&original) == src.join(&source) {
+            let at = rel(&cat_dir.join(&original));
+            items[pos].leave(LeftReason::AlreadyPresent { at });
+            continue;
+        }
+        let (stem, ext) = match original.rsplit_once('.') {
+            Some((stem, ext)) if !stem.is_empty() => (stem.to_string(), Some(ext.to_string())),
+            _ => (original.clone(), None),
+        };
+        let mut outcome: Option<LeftReason> = None;
+        let mut chosen: Option<String> = None;
+        for n in 1u32.. {
+            let name = match (n, &ext) {
+                (1, _) => original.clone(),
+                (_, Some(ext)) => format!("{stem} ({n}).{ext}"),
+                (_, None) => format!("{stem} ({n})"),
+            };
+            let path = cat_dir.join(&name);
+            if let Some(r) =
+                super::target::check_lengths(&layout.target_root, &path, layout.windows_paths)
+            {
+                outcome = Some(r);
+                break;
+            }
+            if !index.taken(&cat_dir, &name) {
+                chosen = Some(name);
+                break;
+            }
+            let present = index
+                .existing(&cat_dir, &name)
+                .is_some_and(|e| same_content(&e, item));
+            if present {
+                outcome = Some(LeftReason::AlreadyPresent { at: rel(&path) });
+                break;
+            }
+        }
+        if let Some(reason) = outcome {
+            items[pos].leave(reason);
+            continue;
+        }
+        let Some(name) = chosen else {
+            continue;
+        };
+        index.claim(&folder_abs, &name_of(&extras_dir));
+        index.claim(&extras_dir, &name_of(&cat_dir));
+        index.claim(&cat_dir, &name);
+        let item = &mut items[pos];
+        item.rename = (name != original).then(|| RenameReason::Collision {
+            name: original.clone(),
+        });
+        item.target = Some(rel(&cat_dir.join(&name)));
+        item.set_targets.clear();
+        item.companions.clear();
+        item.folder = system_folder;
+        if backup_first && !item.notes.contains(&ItemNote::ExtrasBackupFirst) {
+            item.notes.push(ItemNote::ExtrasBackupFirst);
+        }
+        if let Some(game) = item.game.as_mut() {
+            game.folder = Some(folder);
+            game.folder_exists = folder_exists;
+        }
+    }
+}
+
+/// The row of an extra that has no place after all.
+fn extra_unlinked(link: &ExtraLink) -> LeftReason {
+    match link.provenance {
+        Provenance::Official => LeftReason::ExtraWithoutGame {
+            category: link.category,
+        },
+        Provenance::User => LeftReason::NotARom {
+            what: crate::identify::sniff::NotARom::Music,
+        },
     }
 }
 

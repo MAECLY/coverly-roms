@@ -16,8 +16,9 @@ use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use super::addons::{
-    dir_candidate, file_candidate, is_global_db, is_msu1_piece, may_be_addon_file, may_be_mod_dir,
-    msu1_candidates, sniff_dir, sniff_file, AddonCandidate, DirAddon,
+    dir_candidate, extra_candidate, file_candidate, is_global_db, is_msu1_piece, may_be_addon_file,
+    may_be_mod_dir, msu1_candidates, sniff_dir, sniff_file, AddonCandidate, DirAddon,
+    ExtraCandidate,
 };
 use super::plan::LeftReason;
 use crate::addons::{AddonFormat, AddonKey, AddonKind};
@@ -132,6 +133,9 @@ pub struct Walked {
     /// Patches, cheats and mods (mods spec D2–D4, D13), sorted by path:
     /// they are neither candidates nor companions nor other files.
     pub addons: Vec<AddonCandidate>,
+    /// Official extras and tagged music rips (extras spec D6, D15),
+    /// sorted by path: neither candidates nor addons.
+    pub extras: Vec<ExtraCandidate>,
 }
 
 /// An `Updates/` or `DLC/` folder the walk met in a pile directory (game
@@ -428,6 +432,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     let mut fixed_seen: HashMap<String, FixedSeen> = HashMap::new();
     let mut game_content: Vec<(PathBuf, LeftReason)> = Vec::new();
     let mut addons: Vec<AddonCandidate> = Vec::new();
+    let mut extras: Vec<ExtraCandidate> = Vec::new();
     // Files that may be addons, judged once the walk knows every ROM
     // (a same-stem patch or cheat stays a companion).
     let mut maybe_addons: Vec<(PathBuf, fs::Metadata)> = Vec::new();
@@ -725,6 +730,14 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             }
             continue;
         }
+        // Official extras and tagged music rips (extras spec D6, D15),
+        // before the game probes and the addon sniffers claim the file.
+        if !opts.probe.cloud_only(path, &meta) {
+            if let Some(found) = extra_candidate(path, &ext, meta.len()) {
+                extras.push(found);
+                continue;
+            }
+        }
         // Every archive the reader opens is a candidate (a `.rar`, a
         // `.tar.gz`, a `game.gba.gz`), not only zip and 7z, and so is every
         // part of a split 7z: the planner gathers a set's parts into one
@@ -793,6 +806,8 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     out.child_dirs.sort_by(|a, b| a.dir.cmp(&b.dir));
     addons.sort_by(|a, b| a.path.cmp(&b.path));
     out.addons = addons;
+    extras.sort_by(|a, b| a.path.cmp(&b.path));
+    out.extras = extras;
     Ok(out)
 }
 

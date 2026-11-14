@@ -1732,7 +1732,11 @@ pub fn game_children_follow(items: &mut [OrganizeItem]) {
             .filter(|g| {
                 matches!(
                     g.role,
-                    GameRole::Update | GameRole::Dlc | GameRole::Mod | GameRole::Cheat
+                    GameRole::Update
+                        | GameRole::Dlc
+                        | GameRole::Mod
+                        | GameRole::Cheat
+                        | GameRole::Extra
                 )
             })
             .and_then(|g| g.of)

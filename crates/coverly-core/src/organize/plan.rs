@@ -15,7 +15,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
-use crate::addons::{AddonFormat, AddonKind, AddonLink, HeaderFit, UnlinkedWhy};
+use crate::addons::{AddonFormat, AddonKind, AddonLink, HeaderFit, LinkVia, UnlinkedWhy};
 use crate::archive::names::UnsafeWhy;
 use crate::archive::{ContainerKind, Limits, Tool, ToolsOnDemand};
 use crate::cache::Cache;
@@ -31,6 +31,7 @@ use crate::dedupe::{
     group_units, DedupeOptions, DupGroup, GroupAction, GroupEnv, KeepReason, QuarantineChoice,
     Relation, ReportWhy, DEFAULT_QUARANTINE_NAME,
 };
+use crate::extras::{ExtraFormat, ExtrasCategory, Provenance, RipTags};
 use crate::game_folder::{ChildRole, FixedFolder};
 use crate::identify::dat::DatStore;
 use crate::identify::evidence::{Evidence, IdLevel};
@@ -305,6 +306,14 @@ pub enum LeftReason {
     PatchNotApplied {
         emulator: String,
     },
+    /// An official extra whose game is not known, or not only one (extras
+    /// spec D7): never guessed, never moved.
+    ExtraWithoutGame {
+        category: ExtrasCategory,
+    },
+    /// The game's `extras.json` is from a newer Coverly (extras spec D5):
+    /// the extra is never placed without its record.
+    ExtrasIndexNewer,
 }
 
 /// The reason an inspection issue leaves an item in place (archives spec
@@ -448,6 +457,26 @@ pub enum ItemNote {
     /// art, or their name is taken or too long at the target (part C
     /// D10 d, D16).
     ChildArtStays { count: usize },
+    /// An official extra of `of` (its title) filed into `Extras/<category>/`
+    /// (extras spec D6): the format and, for a package, its raw content
+    /// type, so a wrong guess shows in the dry run (Q3).
+    ExtraOf {
+        category: ExtrasCategory,
+        of: String,
+        format: ExtraFormat,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_type: Option<u32>,
+    },
+    /// A music rip of `of` filed into `Extras/Soundtrack/` as the user's
+    /// own content, linked by its `tag` game (extras spec D15, Q4).
+    ExtraRip {
+        of: String,
+        format: ExtraFormat,
+        tag: String,
+    },
+    /// The game's `extras.json` cannot be read: apply keeps a copy of it
+    /// before writing (extras spec D5).
+    ExtrasBackupFirst,
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -571,6 +600,27 @@ pub enum GameRole {
     Mod,
     /// A cheat or an emulator patch.
     Cheat,
+    /// An official extra or a tagged music rip filed into the game
+    /// folder's `Extras/<Category>/` (extras spec D6, D7, D15).
+    Extra,
+}
+
+/// What an `Extra` row is and how it was linked (extras spec D6, D7,
+/// D15): data for the UI, never prose.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtraLink {
+    pub category: ExtrasCategory,
+    pub format: ExtraFormat,
+    /// `official` for a detected extra, `user` for a music rip (Q4).
+    pub provenance: Provenance,
+    pub via: LinkVia,
+    /// The raw PKG or STFS content type, shown so a wrong guess is
+    /// visible in the dry run (Q3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<u32>,
+    /// The rip's own tags, for its `extras.json` record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rip: Option<RipTags>,
 }
 
 /// How an item belongs to a game folder (game folders spec D16): data
@@ -602,6 +652,10 @@ pub struct GameLink {
     /// D10); absent in plans made before addons.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addon: Option<AddonLink>,
+    /// What an `Extra` row is and how it was linked (extras spec D6, D7);
+    /// absent in plans made before extras.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<ExtraLink>,
 }
 
 impl GameLink {
@@ -617,6 +671,7 @@ impl GameLink {
             demo_of: None,
             newest_here: false,
             addon: None,
+            extra: None,
         }
     }
 }
@@ -1581,6 +1636,30 @@ pub fn survey(
                 inspection: None,
                 facts: None,
                 tree,
+                console: None,
+                disc_set: None,
+                role_hint: None,
+                game_dir: None,
+            },
+            candidate: None,
+            set_sniff: None,
+        });
+    }
+    // Every official extra and tagged rip stays where it is until the
+    // plan's extras link pass files it (extras spec D7, D15).
+    for c in &walked.extras {
+        let fp = fp_of(&c.path);
+        entries.push(Pending {
+            entry: SurveyEntry {
+                size: fp.size,
+                fps: vec![fp],
+                sources: vec![c.path.clone()],
+                kind: ItemKind::File,
+                left: Some(super::addons::extra_unlinked_reason(c)),
+                identification: None,
+                inspection: None,
+                facts: None,
+                tree: None,
                 console: None,
                 disc_set: None,
                 role_hint: None,
@@ -4060,6 +4139,15 @@ pub fn plan_from_survey(
             &mut subdirs,
             &mut world,
         );
+        // Official extras and tagged rips to their game (extras spec D7).
+        super::addons::link_extras(
+            &mut items,
+            &survey.entries,
+            &survey.walked.extras,
+            &mut subdirs,
+            src,
+            &mut world,
+        );
     }
     let mut left_companions = assign_targets_in(
         &mut items,
@@ -4081,6 +4169,7 @@ pub fn plan_from_survey(
         super::addons::fixed_folder_companions(&mut items, &layout, &mut index);
     }
     super::addons::addon_targets(&mut items, &layout, &mut index, src, &same_content);
+    super::addons::extra_targets(&mut items, &layout, &mut index, src, &same_content);
     // Each system laid out for its emulator (mods spec D16).
     let translated = super::translate_plan::apply(
         &mut items,
@@ -4330,12 +4419,12 @@ fn duplicates_step(
     let mut by_primary: HashMap<PathBuf, usize> = HashMap::new();
     let mut listed: HashMap<PathBuf, Vec<ListedEntry>> = HashMap::new();
     let mut discs: HashMap<PathBuf, Option<DiscId>> = HashMap::new();
-    // Mods and cheats are never units (mods spec D10): they belong to
-    // their game.
+    // Mods, cheats and extras are never units (mods spec D10, extras
+    // spec D6): they belong to their game.
     let addon = |i: &OrganizeItem| {
         i.game
             .as_ref()
-            .is_some_and(|g| matches!(g.role, GameRole::Mod | GameRole::Cheat))
+            .is_some_and(|g| matches!(g.role, GameRole::Mod | GameRole::Cheat | GameRole::Extra))
     };
     for item in items.iter().filter(|i| i.moves_in() && !addon(i)) {
         let (Some(system), Some(entry)) = (&item.system_id, survey.entries.get(item.id)) else {
@@ -5506,7 +5595,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(FACTS_VERSION, 13);
-        old["v"] = 11.into();
+        old["v"] = 12.into();
         cache
             .put_organize_facts(&c.path, c.size, c.mtime_ns, &old.to_string())
             .unwrap();
