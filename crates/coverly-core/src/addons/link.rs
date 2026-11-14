@@ -142,6 +142,109 @@ pub fn resolve_by_readme(readme: &str, c: &Candidates<'_>) -> Resolution {
     }
 }
 
+/// Name fallback without translation tags, for a patch (owner decision
+/// 2026-11-14): when `own_stem` carries translation tags (`[T-Es]`,
+/// `[T-En by X]`, `[T+Spa]`, `(Traducido)` …), the one ROM whose stem
+/// equals the stem without them (case-insensitive, NFC, as the exact name
+/// fallback). Never fuzzy: the rest of the name must match exactly. A stem
+/// without such tags is left to the exact name fallback ([`resolve`] with
+/// [`AddonKey::None`]) and gives [`Resolution::None`] here. Several games
+/// give [`Resolution::Several`], with no keeper chosen between them.
+pub fn resolve_by_untagged_stem(own_stem: &str, c: &Candidates<'_>) -> Resolution {
+    let Some(bare) = strip_translation_tags(own_stem) else {
+        return Resolution::None;
+    };
+    let hits = hits_of(c.list, |cand| eq_name(&cand.stem, &bare).then_some(None));
+    let mut games: Vec<&GameRef> = Vec::new();
+    for (cand, _) in &hits {
+        if !games.contains(&&cand.game) {
+            games.push(&cand.game);
+        }
+    }
+    match games.as_slice() {
+        [] => Resolution::None,
+        [only] => Resolution::One {
+            game: (*only).clone(),
+            via: LinkVia::Name,
+            header: None,
+        },
+        many => Resolution::Several(many.len()),
+    }
+}
+
+/// `stem` without its translation tags and the spaces before each, or
+/// `None` when it has none (or nothing else). A tag is a `[…]` or `(…)`
+/// group that is a GoodTools translation mark (`T+` or `T-` and a letter:
+/// `[T-Es]`, `[T+Spa1.0_X]`, `[T-En by X]`) or holds a word for
+/// «translated» (`(Traducido)`, `[Fan Translation]`, `(Traducción por X)`).
+fn strip_translation_tags(stem: &str) -> Option<String> {
+    let mut out = String::with_capacity(stem.len());
+    let mut rest = stem;
+    let mut stripped = false;
+    while let Some(open) = rest.find(['[', '(']) {
+        let close = if rest.get(open..=open) == Some("[") {
+            ']'
+        } else {
+            ')'
+        };
+        let after = rest.get(open + 1..).unwrap_or("");
+        let Some(len) = after.find(close) else {
+            out.push_str(rest.get(..=open).unwrap_or(rest));
+            rest = after;
+            continue;
+        };
+        let end = open + 1 + len + 1;
+        if is_translation_tag(after.get(..len).unwrap_or("")) {
+            out.push_str(rest.get(..open).unwrap_or("").trim_end());
+            stripped = true;
+        } else {
+            out.push_str(rest.get(..end).unwrap_or(rest));
+        }
+        rest = rest.get(end..).unwrap_or("");
+    }
+    out.push_str(rest);
+    let bare = out.trim();
+    (stripped && !bare.is_empty()).then(|| bare.to_string())
+}
+
+/// Words for «translated» or «translation», folded, in the languages
+/// translation groups name their patches in.
+const TRANSLATION_WORDS: &[&str] = &[
+    "translated",
+    "translation",
+    "traducido",
+    "traducida",
+    "traducción",
+    "traduccion",
+    "traduzido",
+    "traduzida",
+    "tradução",
+    "traducao",
+    "traduit",
+    "traduite",
+    "traduction",
+    "tradotto",
+    "tradotta",
+    "traduzione",
+    "übersetzt",
+    "ubersetzt",
+    "übersetzung",
+    "ubersetzung",
+];
+
+fn is_translation_tag(inner: &str) -> bool {
+    let t = inner.trim();
+    let mut chars = t.chars();
+    if let (Some('T'), Some('+' | '-'), Some(c)) = (chars.next(), chars.next(), chars.next()) {
+        if c.is_alphabetic() {
+            return true;
+        }
+    }
+    fold(t)
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|w| TRANSLATION_WORDS.contains(&w))
+}
+
 /// Source sizes worth hashing for a `SourceCrc` key: the size itself, plus
 /// an iNES header (16 bytes), plus a SNES/SMS copier header (512 bytes).
 pub fn wanted_sizes(source_size: u64) -> [u64; 3] {
@@ -1020,5 +1123,195 @@ mod tests {
             resolve_by_readme("Version 1A2B3C4D\n", &c),
             Resolution::None
         );
+    }
+
+    #[test]
+    fn translation_tags_are_stripped_in_every_style() {
+        let cases = [
+            ("Chrono Trigger (USA) [T-Es]", "Chrono Trigger (USA)"),
+            (
+                "Chrono Trigger (USA) [T-En by Someone]",
+                "Chrono Trigger (USA)",
+            ),
+            ("Chrono Trigger (USA) [T+Spa]", "Chrono Trigger (USA)"),
+            (
+                "Chrono Trigger (USA) [T+Spa1.0_Someone]",
+                "Chrono Trigger (USA)",
+            ),
+            ("Chrono Trigger (USA) (Traducido)", "Chrono Trigger (USA)"),
+            (
+                "Chrono Trigger (USA) (Traducción por X)",
+                "Chrono Trigger (USA)",
+            ),
+            (
+                "Chrono Trigger (USA) [Fan Translation]",
+                "Chrono Trigger (USA)",
+            ),
+            ("Chrono Trigger [T-Es] (USA)", "Chrono Trigger (USA)"),
+            (
+                "Chrono Trigger (USA) [T-Es] [T+Eng]",
+                "Chrono Trigger (USA)",
+            ),
+            (
+                "Chrono Trigger (USA) [!] [T-Es]",
+                "Chrono Trigger (USA) [!]",
+            ),
+            ("[T-Es] Chrono Trigger (USA)", "Chrono Trigger (USA)"),
+        ];
+        for (tagged, bare) in cases {
+            assert_eq!(
+                strip_translation_tags(tagged).as_deref(),
+                Some(bare),
+                "{tagged}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_name_without_translation_tags_is_unchanged() {
+        for name in [
+            "Chrono Trigger (USA)",
+            "Chrono Trigger (USA) (Rev 1) [!]",
+            "Contra (USA) [h1]",
+            "Game (T)",
+            "Game [T]",
+            "Game (t-es)",
+            "Game (USA",
+            "Game [T-Es",
+            "",
+            "[T-Es]",
+            "  (Traducido)  ",
+        ] {
+            assert_eq!(strip_translation_tags(name), None, "{name:?}");
+        }
+    }
+
+    #[test]
+    fn multibyte_names_never_panic() {
+        assert_eq!(
+            strip_translation_tags("ポケモン (Japan) [T-En]").as_deref(),
+            Some("ポケモン (Japan)")
+        );
+        assert_eq!(
+            strip_translation_tags("Ñandú ⚽ (Traducción) é").as_deref(),
+            Some("Ñandú ⚽ é")
+        );
+        assert_eq!(
+            strip_translation_tags("Pok\u{e9}mon [T-Es]").as_deref(),
+            Some("Pok\u{e9}mon")
+        );
+        for odd in [
+            "ゲーム［T-En］",
+            "ゲーム (",
+            "ゲーム [",
+            "é(",
+            "(é",
+            "[ポ",
+            "ポ]",
+            "(T-ポ)",
+            "\u{301}[T-Es]",
+            "[[T-Es]]",
+            "((Traducido))",
+        ] {
+            let _ = strip_translation_tags(odd);
+        }
+    }
+
+    fn untagged(stem: &str, list: &[Candidate]) -> Resolution {
+        resolve_by_untagged_stem(
+            stem,
+            &Candidates {
+                list,
+                dat_by_crc: &no_dat,
+                budget_out: false,
+            },
+        )
+    }
+
+    #[test]
+    fn a_tagged_patch_links_to_the_rom_named_without_its_tags() {
+        let list = [
+            rom(0, "snes", "Chrono Trigger (USA).sfc"),
+            rom(1, "snes", "Chrono Trigger (Japan).sfc"),
+        ];
+        for stem in [
+            "Chrono Trigger (Japan) [T-En]",
+            "Chrono Trigger (Japan) [T-En by Someone]",
+            "Chrono Trigger (Japan) [T+Eng]",
+            "chrono trigger (japan) (Traducido)",
+        ] {
+            assert_eq!(untagged(stem, &list), one(1, LinkVia::Name, None), "{stem}");
+        }
+        // NFC and case, as the exact name comparison.
+        let list = [rom(0, "gb", "Pok\u{e9}mon Red (USA).gb")];
+        assert_eq!(
+            untagged("POKE\u{301}MON RED (USA) [T-Es]", &list),
+            one(0, LinkVia::Name, None)
+        );
+    }
+
+    #[test]
+    fn the_rest_of_the_name_must_match_exactly() {
+        let list = [
+            rom(0, "snes", "Chrono Trigger (USA).sfc"),
+            rom(1, "snes", "Chrono Trigger (USA) (Rev 1).sfc"),
+        ];
+        for stem in [
+            "Chrono Trigger [T-Es]",
+            "Chrono Trigger (Europe) [T-Es]",
+            "Chrono Trigger (USA) [b1] [T-Es]",
+            "Chrono Triger (USA) [T-Es]",
+            "Chrono Trigger (USA) [T-Es] v1.1",
+        ] {
+            assert_eq!(untagged(stem, &list), Resolution::None, "{stem}");
+        }
+    }
+
+    #[test]
+    fn two_roms_with_the_untagged_name_are_ambiguous() {
+        let list = [
+            rom(0, "gb", "Tetris.gb"),
+            rom(1, "nes", "Tetris.nes"),
+            rom(2, "nes", "Other.nes"),
+        ];
+        assert_eq!(untagged("Tetris [T-Es]", &list), Resolution::Several(2));
+        // Even two dumps of one game with a keeper: never picked.
+        let mut a = rom(0, "nes", "Contra (USA).nes");
+        let mut b = rom(1, "nes", "Contra (USA).nes");
+        b.file_name = "Contra (USA).zip".into();
+        a.keeper = true;
+        let list = [a, b];
+        assert_eq!(
+            untagged("Contra (USA) [T-Es]", &list),
+            Resolution::Several(2)
+        );
+    }
+
+    #[test]
+    fn plan_items_come_before_library_bases_without_tags_too() {
+        let mut lib = rom(9, "nes", "Contra (USA).nes");
+        lib.game = GameRef::Library(PathBuf::from("NES/Contra (USA).nes"));
+        let list = [rom(0, "nes", "Contra (USA).nes"), lib.clone()];
+        assert_eq!(
+            untagged("Contra (USA) [T-Es]", &list),
+            one(0, LinkVia::Name, None)
+        );
+        let list = [lib];
+        assert_eq!(
+            untagged("Contra (USA) [T-Es]", &list),
+            Resolution::One {
+                game: GameRef::Library(PathBuf::from("NES/Contra (USA).nes")),
+                via: LinkVia::Name,
+                header: None,
+            }
+        );
+    }
+
+    #[test]
+    fn an_untagged_patch_name_is_left_to_the_exact_name_tier() {
+        let list = [rom(0, "snes", "Chrono Trigger (USA).sfc")];
+        assert_eq!(untagged("Chrono Trigger (USA)", &list), Resolution::None);
+        assert_eq!(untagged("", &list), Resolution::None);
+        assert_eq!(untagged("[T-Es]", &list), Resolution::None);
     }
 }
