@@ -184,18 +184,21 @@ fn resolve(path: &Path) -> Option<PathBuf> {
 }
 
 /// The game's `Extras/` folder: an existing folder of that name in any
-/// case (part C counts it so), else `Extras`.
+/// case (part C counts it so), else `Extras`. With several spellings on a
+/// case-sensitive disk, the first by name, the one Organizar files
+/// extras into, whatever order the folder lists them in.
 pub fn extras_dir(game_dir: &Path) -> PathBuf {
     let name = FixedFolder::Extras.dir_name();
     let existing = fs::read_dir(game_dir).ok().and_then(|rd| {
         rd.flatten()
-            .find(|e| {
+            .filter(|e| {
                 e.file_name()
                     .to_str()
                     .is_some_and(|n| n.eq_ignore_ascii_case(name))
                     && e.file_type().is_ok_and(|t| t.is_dir())
             })
             .map(|e| e.file_name())
+            .min()
     });
     game_dir.join(existing.unwrap_or_else(|| name.into()))
 }
@@ -1789,6 +1792,34 @@ fn hide(_path: &Path) {}
 mod tests {
     use super::*;
     use std::time::{Duration, UNIX_EPOCH};
+
+    /// On a case-sensitive disk with several spellings of `Extras/`, the
+    /// panel reads and writes the one Organizar files extras into (the
+    /// first by name, as `DirIndex::existing_first` picks), whatever order
+    /// the folder lists them in.
+    #[test]
+    fn extras_dir_picks_the_first_spelling_by_name() {
+        let game = tempfile::tempdir().unwrap();
+        let spellings = ["extras", "eXtras", "Extras", "EXTRAS"];
+        for s in spellings {
+            // A case-insensitive disk takes the first spelling only.
+            match fs::create_dir(game.path().join(s)) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => panic!("{e}"),
+            }
+        }
+        let distinct = fs::read_dir(game.path()).unwrap().count();
+        if distinct < spellings.len() {
+            return;
+        }
+        assert_eq!(extras_dir(game.path()), game.path().join("EXTRAS"));
+        // A file of that name is never the folder.
+        let other = tempfile::tempdir().unwrap();
+        fs::write(other.path().join("EXTRAS"), b"").unwrap();
+        fs::create_dir(other.path().join("extras")).unwrap();
+        assert_eq!(extras_dir(other.path()), other.path().join("extras"));
+    }
 
     #[test]
     fn backup_stamps_are_utc_date_and_time() {
