@@ -2259,7 +2259,22 @@
       "x360Avatar": "Xbox 360 avatar item",
       "x360Video": "Xbox 360 video",
       "soundtrack3ds": "3DS soundtrack"
-    }
+    },
+    "readOnly": "Coverly can’t write to this folder; its extras can still be viewed and played.",
+    "busy": "Another job is using the library; changes wait until it finishes.",
+    "kind": {
+      "audio": "audio",
+      "video": "video",
+      "image": "image",
+      "document": "document",
+      "other": "other"
+    },
+    "rowTags": "tags: {tags}",
+    "rowOfficial": "official",
+    "rowMenu": "More actions for {name}",
+    "playFile": "Play {name}",
+    "showFiles": "Show the files in {category}",
+    "forgetFile": "Forget {name}"
   },
   "player": {
     "play": "Play",

@@ -2259,7 +2259,22 @@
       "x360Avatar": "objeto de avatar de Xbox 360",
       "x360Video": "vídeo de Xbox 360",
       "soundtrack3ds": "banda sonora de 3DS"
-    }
+    },
+    "readOnly": "Coverly no puede escribir en esta carpeta; sus extras se pueden ver y reproducir.",
+    "busy": "Hay otro trabajo en la biblioteca; los cambios esperan a que termine.",
+    "kind": {
+      "audio": "audio",
+      "video": "vídeo",
+      "image": "imagen",
+      "document": "documento",
+      "other": "otro"
+    },
+    "rowTags": "etiquetas: {tags}",
+    "rowOfficial": "oficial",
+    "rowMenu": "Más acciones para {name}",
+    "playFile": "Reproducir {name}",
+    "showFiles": "Mostrar los archivos de {category}",
+    "forgetFile": "Olvidar {name}"
   },
   "player": {
     "play": "Reproducir",

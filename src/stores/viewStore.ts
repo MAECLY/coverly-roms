@@ -34,7 +34,7 @@ function layoutOf(view: ViewId): Layout {
  * A section of the game panel a view can open it at (addon views §8.2,
  * §8.3): Versión, or one update or DLC by its child index (`child-2`).
  */
-export type PanelSection = 'version' | `child-${number}`;
+export type PanelSection = 'version' | 'extras' | `child-${number}`;
 
 interface ViewState {
   scope: Scope;

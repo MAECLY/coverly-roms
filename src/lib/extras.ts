@@ -267,3 +267,21 @@ export function gameTags(
     (a, b) => collator.compare(a, b) || (a < b ? -1 : 1),
   );
 }
+
+/** The folder a fixed category has on disk (English, part A D4). */
+export function diskName(ref: CategoryRef): string | null {
+  if (ref.kind !== 'fixed') return null;
+  return `${ref.name[0]!.toUpperCase()}${ref.name.slice(1)}/`;
+}
+
+/** Names longer than this keep their end (number, extension) in view. */
+const MIDDLE_AFTER = 24;
+
+/** A long name split so the start truncates and the end stays: «01 Ope…
+ * Tide.flac» reads better than «01 Opening Ti…» in a narrow panel. */
+export function splitMiddle(name: string): [string, string] {
+  if (name.length <= MIDDLE_AFTER) return [name, ''];
+  const ext = extOf(name);
+  const keep = Math.min(name.length - 4, Math.max(8, ext.length + 6));
+  return [name.slice(0, name.length - keep), name.slice(name.length - keep)];
+}

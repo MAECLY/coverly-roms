@@ -30,6 +30,7 @@ import { useViewStore } from '@/stores/viewStore';
 import { ArtWorkspace } from './ArtWorkspace';
 import { DemoSection } from './game/DemoSection';
 import { DlcSection } from './game/DlcSection';
+import { ExtrasSection } from './game/ExtrasSection';
 import { FixedFoldersSection } from './game/FixedFoldersSection';
 import { RegionLine } from './game/RegionLine';
 import { RevisionsSection } from './game/RevisionsSection';
@@ -297,6 +298,12 @@ export function DetailDrawer({
         />
       )}
       <FixedFoldersSection entry={game?.entry ?? entry} />
+      {(game?.entry ?? entry).addons && (
+        <ExtrasSection
+          generation={view.generation}
+          entry={game?.entry ?? entry}
+        />
+      )}
       <ArtWorkspace
         key={`${view.generation}:${entry.id}:${workspaceMedia ?? ''}`}
         view={view}

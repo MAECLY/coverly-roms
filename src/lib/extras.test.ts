@@ -15,6 +15,7 @@ import type {
 import {
   categoryKey,
   categoryLabel,
+  diskName,
   extOf,
   filterFiles,
   gameTags,
@@ -23,6 +24,7 @@ import {
   officialWhatKey,
   sameCategory,
   sortCategories,
+  splitMiddle,
   suggestedCategory,
   typeOf,
   typeOfName,
@@ -305,5 +307,23 @@ describe('extras copy (spec §9)', () => {
       expect(en_.has(key), key).toBe(true);
       expect(vars(en_.get(key)!), key).toEqual(vars(value));
     }
+  });
+});
+
+describe('diskName and splitMiddle (§8.1)', () => {
+  it('names the English folder of a fixed category only', () => {
+    expect(diskName({ kind: 'fixed', name: 'soundtrack' })).toBe('Soundtrack/');
+    expect(diskName({ kind: 'fixed', name: 'manuals' })).toBe('Manuals/');
+    expect(diskName({ kind: 'user', name: 'Remixes' })).toBeNull();
+    expect(diskName({ kind: 'root' })).toBeNull();
+  });
+
+  it("keeps a long name's end and leaves a short one whole", () => {
+    expect(splitMiddle('Key Art.png')).toEqual(['Key Art.png', '']);
+    const [head, tail] = splitMiddle('01 Opening Tide (Orchestral Mix).flac');
+    expect(head + tail).toBe('01 Opening Tide (Orchestral Mix).flac');
+    expect(tail.endsWith('.flac')).toBe(true);
+    expect(tail.length).toBeGreaterThanOrEqual(8);
+    expect(head.length).toBeGreaterThan(0);
   });
 });
