@@ -1638,6 +1638,33 @@ fn key_material_and_hidden_files_are_skipped_never_opened() {
     }
 }
 
+/// A trailing dot or space is dropped by `safe_file_name`, so `prod.keys.`
+/// would land as `prod.keys`: the key rule looks at the portable name too.
+/// Unix only: Windows cannot hold such names.
+#[cfg(unix)]
+#[test]
+fn key_names_hidden_behind_a_trailing_dot_or_space_are_skipped() {
+    let fx = bare();
+    let names = ["prod.keys.", "x.rap ", "Thumbs.db.", "theme.mp3"];
+    let files: Vec<(&str, &[u8])> = names.iter().map(|n| (*n, &b"bytes"[..])).collect();
+    let (_d, src) = sources(&files);
+    let paths: Vec<PathBuf> = names.iter().map(|n| src.join(n)).collect();
+    coverly_core::consoles::start_open_log();
+    let suggested = plan_add(&paths);
+    let out = add(&fx, &to(soundtrack(), &paths)).unwrap();
+    let log = coverly_core::consoles::take_open_log();
+    assert_eq!(names_in(&fx, "Soundtrack"), ["theme.mp3"]);
+    assert!(out.notes.contains(&ExtrasNote::KeysSkipped { n: 2 }));
+    assert!(out.notes.contains(&ExtrasNote::HiddenSkipped { n: 1 }));
+    assert_eq!(suggested.len(), 1);
+    for key in ["prod.keys.", "x.rap "] {
+        assert!(
+            !log.iter().any(|p| p.file_name() == Some(key.as_ref())),
+            "{key} opened"
+        );
+    }
+}
+
 #[test]
 fn only_keys_copy_nothing_and_say_why() {
     let fx = bare();

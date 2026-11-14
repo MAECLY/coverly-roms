@@ -1233,9 +1233,11 @@ fn expand(paths: &[PathBuf], cap: usize) -> Expanded {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        if is_key_material(&name) {
+        // The portable name too: `prod.keys.` is copied as `prod.keys`.
+        let safe = safe_file_name(&name).unwrap_or_default();
+        if is_key_material(&name) || is_key_material(&safe) {
             out.keys += 1;
-        } else if hidden_name(&name) {
+        } else if hidden_name(&name) || hidden_name(&safe) {
             out.hidden += 1;
         } else if !out.files.iter().any(|(p, _)| *p == path) {
             out.files.push((path, size));
