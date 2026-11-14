@@ -28,4 +28,26 @@ describe('library art updates', () => {
     const other = view.entries.find((x) => x.id !== e.id)!;
     expect(next.entries[other.id]).toBe(other);
   });
+
+  it('takes_the_new_fixed_folder_counts_after_an_extras_write', async () => {
+    setBackend(createMockBackend({ delayMs: 0, now: FIXTURE_NOW }));
+    resetLibraryStore();
+    await useLibraryStore.getState().open(MOCK_LIBRARIES[1].path);
+    const view = useLibraryStore.getState().view!;
+    const e = view.entries[0]!;
+    const addons = { mods: 0, cheats: 1, extras: 4, saves: 0 };
+    useLibraryStore
+      .getState()
+      .applyArtUpdates(view.generation, [{ id: e.id, art: e.art, addons }]);
+    const next = useLibraryStore.getState().view!;
+    expect(next.entries[e.id]!.addons).toEqual(addons);
+    expect(next.entries[e.id]!.art).toEqual(e.art);
+    // An art-only update leaves the counts as they are.
+    useLibraryStore
+      .getState()
+      .applyArtUpdates(view.generation, [{ id: e.id, art: e.art }]);
+    expect(useLibraryStore.getState().view!.entries[e.id]!.addons).toEqual(
+      addons,
+    );
+  });
 });

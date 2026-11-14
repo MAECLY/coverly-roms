@@ -191,6 +191,18 @@ pub struct FolderCountsView {
     pub capped: bool,
 }
 
+impl From<coverly_core::scan::FixedFolderCounts> for FolderCountsView {
+    fn from(f: coverly_core::scan::FixedFolderCounts) -> Self {
+        FolderCountsView {
+            mods: f.mods,
+            cheats: f.cheats,
+            extras: f.extras,
+            saves: f.saves,
+            capped: f.capped,
+        }
+    }
+}
+
 /// One folder of the ROMs root.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SystemView {

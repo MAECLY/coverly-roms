@@ -3838,5 +3838,200 @@
     "kind": "extras",
     "undoable": true,
     "game": "Resistance (USA)"
-  }
+  },
+  "extras_write": {
+    "job": "20261114T120000Z-1bfb-0001",
+    "listing": {
+      "entry_id": 7,
+      "rev": 14,
+      "game_folder": true,
+      "index": {
+        "state": "ok"
+      },
+      "writable": {
+        "kind": "yes"
+      },
+      "categories": [],
+      "files": [],
+      "missing": [],
+      "capped": false,
+      "system": "ps3",
+      "manual_inside": false
+    },
+    "notes": [
+      {
+        "kind": "malformed-saved",
+        "file": "extras.broken-20261114-120000.json"
+      },
+      {
+        "kind": "set-aside",
+        "folder": ".coverly-trash/20261114T120000Z-1bfb-0001"
+      },
+      {
+        "kind": "stays-no-trash",
+        "name": "boss.mp3"
+      },
+      {
+        "kind": "trash-failed",
+        "name": "intro.mp4"
+      },
+      {
+        "kind": "folder-kept",
+        "folder": "Remixes"
+      },
+      {
+        "kind": "renamed-dup",
+        "name": "boss (2).mp3"
+      }
+    ]
+  },
+  "extras_write_nothing": {
+    "job": null,
+    "listing": {
+      "entry_id": 7,
+      "rev": 14,
+      "game_folder": true,
+      "index": {
+        "state": "ok"
+      },
+      "writable": {
+        "kind": "yes"
+      },
+      "categories": [],
+      "files": [],
+      "missing": [],
+      "capped": false,
+      "system": "ps3",
+      "manual_inside": false
+    },
+    "notes": []
+  },
+  "extras_undone": {
+    "job": "20261114T120000Z-1bfb-0001",
+    "removed": 0,
+    "restored": 2,
+    "kept": 1,
+    "listing": {
+      "entry_id": 7,
+      "rev": 14,
+      "game_folder": true,
+      "index": {
+        "state": "ok"
+      },
+      "writable": {
+        "kind": "yes"
+      },
+      "categories": [],
+      "files": [],
+      "missing": [],
+      "capped": false,
+      "system": "ps3",
+      "manual_inside": false
+    }
+  },
+  "entries_updated_addons": {
+    "generation": 3,
+    "entries": [
+      {
+        "id": 7,
+        "art": {
+          "cover": "present",
+          "screenshot": "missing",
+          "title": "unsupported"
+        },
+        "addons": {
+          "mods": 0,
+          "cheats": 1,
+          "extras": 4,
+          "saves": 0
+        }
+      }
+    ]
+  },
+  "extras_refusals": [
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "empty"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "too-long"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "not-portable"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "dot"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "reserved"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "taken"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "path-too-long"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "tags-empty"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "tags-too-long"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "tags-too-many"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "index-unreadable"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "no-trash"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "too-many"
+      }
+    },
+    {
+      "code": "extras-refused",
+      "detail": {
+        "why": "link"
+      }
+    }
+  ]
 }

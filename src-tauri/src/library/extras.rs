@@ -2,6 +2,7 @@
 //! listed by entry id on a blocking worker and never written by a read.
 //! Each listing gets a revision and stays in the session cache, so a later
 //! write or media request names a file by `(rev, index)`, never by path.
+//! Writes are [`ExtrasAction`]s, each one journaled job (D10).
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -10,17 +11,18 @@ use std::sync::Arc;
 
 use coverly_core::consoles::is_key_material;
 use coverly_core::extras::index::{list, IndexState, ListedFile, Listing};
-use coverly_core::extras::ops::extras_dir;
+use coverly_core::extras::ops::{extras_dir, ExtrasNote};
 use coverly_core::extras::{
     CategoryRef, ExtraFormat, ExtraRecord, ExtraType, ExtrasCategory, Provenance,
 };
 use coverly_core::game_folder::FixedFolder;
 use coverly_core::organize::plan::dir_writable;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::art::inside_root;
 use super::Session;
 use crate::error::IpcError;
+use crate::jobs::view::EntriesUpdatedEvent;
 
 /// Systems whose electronic manual is part of the game (D16): `Manuals/`
 /// shows a note instead.
@@ -267,7 +269,7 @@ fn empty_listing() -> Listing {
 /// of `Extras/` and the game folder is not writable for this process (a
 /// read-only mount included), or unreadable. Mode bits alone would miss
 /// both, and Windows ignores the read-only attribute on folders.
-fn read_only(game_dir: &Path) -> bool {
+pub(crate) fn read_only(game_dir: &Path) -> bool {
     let extras = extras_dir(game_dir);
     let probe = if extras.is_dir() {
         extras
@@ -392,6 +394,77 @@ pub fn view(entry_id: u32, system: &str, listed: &ListedExtras, occupied: bool) 
         system: system.to_string(),
         manual_inside: MANUAL_INSIDE.contains(&system),
     }
+}
+
+/// One write of the Extras section: files by their `index` in the
+/// listing a `rev` names, categories by name (part D D10, D22). Each is
+/// one journaled job.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ExtrasAction {
+    /// The typed `stem`; the extension stays.
+    Rename {
+        index: u32,
+        stem: String,
+    },
+    Move {
+        files: Vec<u32>,
+        to: CategoryRef,
+    },
+    /// To the Trash, or set aside where a drive has none (D8).
+    Trash {
+        files: Vec<u32>,
+    },
+    SetTags {
+        index: u32,
+        tags: Vec<String>,
+    },
+    /// «Olvidar» a record of «No encontrados» (D4).
+    Forget {
+        missing: u32,
+    },
+    CategoryCreate {
+        name: String,
+    },
+    CategoryRename {
+        from: String,
+        to: String,
+    },
+    /// Its files to the Trash, then its emptied folder (D8).
+    CategoryRemove {
+        name: String,
+    },
+}
+
+/// A finished Extras write: the job to undo (none when nothing changed),
+/// the new listing (its handles are the ones to use next) and the notes.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ExtrasWriteView {
+    pub job: Option<String>,
+    pub listing: ExtrasView,
+    pub notes: Vec<ExtrasNote>,
+}
+
+/// [`ExtrasWriteView`] and the `library-entries-updated` payload carrying
+/// the entry's new counts, which the command emits.
+#[derive(Clone, Debug)]
+pub struct ExtrasWritten {
+    pub view: ExtrasWriteView,
+    pub updated: Option<EntriesUpdatedEvent>,
+}
+
+/// An undone Extras job and the game's listing after it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ExtrasUndone {
+    pub job: String,
+    pub removed: usize,
+    pub restored: usize,
+    /// Files changed after the job: left as they are.
+    pub kept: usize,
+    pub listing: ExtrasView,
+    /// Emitted as `library-entries-updated`, not part of the answer.
+    #[serde(skip)]
+    pub updated: Option<EntriesUpdatedEvent>,
 }
 
 /// The file at `index` of a kept listing.

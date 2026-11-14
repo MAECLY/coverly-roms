@@ -191,6 +191,7 @@ fn rust_serialises_the_shared_sample() {
             entries: vec![EntryArtUpdate {
                 id: 0,
                 art: ArtMarks { cover: ArtMark::Present, screenshot: ArtMark::Unsupported, title: ArtMark::Unsupported },
+                addons: None,
             }],
         },
         "undo": UndoView { job: "20261016T050401Z-1bfb-0000".into(), removed: 2, restored: 1, kept: 0, entries: vec![] },
@@ -2690,4 +2691,133 @@ fn extras_views_match_the_shared_sample() {
             serde_json::to_string_pretty(value).unwrap()
         );
     }
+}
+
+#[test]
+fn extras_write_views_match_the_shared_sample() {
+    use coverly_core::extras::index::IndexState;
+    use coverly_core::extras::ops::{ExtrasError, ExtrasNote};
+    use coverly_core::extras::{CategoryRef, ExtrasCategory, NameRefusal, TagRefusal};
+    use coverly_roms_lib::library::extras::{
+        ExtrasUndone, ExtrasView, ExtrasWriteView, Writability,
+    };
+
+    let listing = ExtrasView {
+        entry_id: 7,
+        rev: 14,
+        game_folder: true,
+        index: IndexState::Ok,
+        writable: Writability::Yes,
+        categories: vec![],
+        files: vec![],
+        missing: vec![],
+        capped: false,
+        system: "ps3".into(),
+        manual_inside: false,
+    };
+    let write = ExtrasWriteView {
+        job: Some("20261114T120000Z-1bfb-0001".into()),
+        listing: listing.clone(),
+        notes: vec![
+            ExtrasNote::MalformedSaved {
+                file: "extras.broken-20261114-120000.json".into(),
+            },
+            ExtrasNote::SetAside {
+                folder: ".coverly-trash/20261114T120000Z-1bfb-0001".into(),
+            },
+            ExtrasNote::StaysNoTrash {
+                name: "boss.mp3".into(),
+            },
+            ExtrasNote::TrashFailed {
+                name: "intro.mp4".into(),
+            },
+            ExtrasNote::FolderKept {
+                folder: "Remixes".into(),
+            },
+            ExtrasNote::RenamedDup {
+                name: "boss (2).mp3".into(),
+            },
+        ],
+    };
+    let nothing = ExtrasWriteView {
+        job: None,
+        listing: listing.clone(),
+        notes: vec![],
+    };
+    let undone = ExtrasUndone {
+        job: "20261114T120000Z-1bfb-0001".into(),
+        removed: 0,
+        restored: 2,
+        kept: 1,
+        listing,
+        updated: None,
+    };
+    let updated = EntriesUpdatedEvent {
+        generation: 3,
+        entries: vec![EntryArtUpdate {
+            id: 7,
+            art: ArtMarks {
+                cover: ArtMark::Present,
+                screenshot: ArtMark::Missing,
+                title: ArtMark::Unsupported,
+            },
+            addons: Some(FolderCountsView {
+                mods: 0,
+                cheats: 1,
+                extras: 4,
+                saves: 0,
+                capped: false,
+            }),
+        }],
+    };
+    let refusals: Vec<IpcError> = [
+        ExtrasError::Name(NameRefusal::Empty),
+        ExtrasError::Name(NameRefusal::TooLong),
+        ExtrasError::Name(NameRefusal::NotPortable),
+        ExtrasError::Name(NameRefusal::Dot),
+        ExtrasError::Name(NameRefusal::Reserved),
+        ExtrasError::Name(NameRefusal::Taken),
+        ExtrasError::Name(NameRefusal::PathTooLong),
+        ExtrasError::Tags(TagRefusal::Empty),
+        ExtrasError::Tags(TagRefusal::TooLong),
+        ExtrasError::Tags(TagRefusal::TooMany),
+        ExtrasError::IndexUnreadable,
+        ExtrasError::NoTrash,
+        ExtrasError::TooMany,
+        ExtrasError::Link("Soundtrack/link.mp3".into()),
+    ]
+    .into_iter()
+    .map(IpcError::from)
+    .collect();
+    let actual = json!({
+        "extras_write": write,
+        "extras_write_nothing": nothing,
+        "extras_undone": undone,
+        "entries_updated_addons": updated,
+        "extras_refusals": refusals,
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+
+    // What the webview sends: categories as the listing names them.
+    let req: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.requests.json")).unwrap();
+    let refs: Vec<CategoryRef> =
+        serde_json::from_value(req["extras_category_refs"].clone()).unwrap();
+    assert_eq!(
+        refs,
+        [
+            CategoryRef::Fixed(ExtrasCategory::Soundtrack),
+            CategoryRef::User("Remixes".into()),
+            CategoryRef::Root,
+        ]
+    );
 }

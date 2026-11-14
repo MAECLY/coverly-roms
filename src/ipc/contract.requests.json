@@ -130,5 +130,18 @@
       "kind": "trash"
     }
   },
-  "child_media": ["icon", "banner"]
+  "child_media": ["icon", "banner"],
+  "extras_category_refs": [
+    {
+      "kind": "fixed",
+      "name": "soundtrack"
+    },
+    {
+      "kind": "user",
+      "name": "Remixes"
+    },
+    {
+      "kind": "root"
+    }
+  ]
 }

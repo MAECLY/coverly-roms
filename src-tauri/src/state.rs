@@ -310,6 +310,7 @@ fn check_organize_data_dir(cfg: &FillConfig, roots: &[&Path]) -> Result<(), IpcE
 }
 
 mod catalog;
+mod extras;
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)

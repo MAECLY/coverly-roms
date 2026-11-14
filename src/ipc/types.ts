@@ -477,6 +477,9 @@ export interface JobProgressEvent {
 export interface EntryArtUpdate {
   id: number;
   art: ArtMarks;
+  /** The game folder's fixed-folder counts read again after a write in
+   * its Extras/ (extras D22); absent when they did not change. */
+  addons?: EntryView['addons'];
 }
 
 export interface EntriesUpdated {

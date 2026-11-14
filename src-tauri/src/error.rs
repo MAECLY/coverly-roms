@@ -159,6 +159,39 @@ impl From<coverly_core::write::WriteError> for IpcError {
     }
 }
 
+/// The kebab-case wire name of a serialisable reason enum.
+fn reason<T: Serialize>(r: &T) -> String {
+    serde_json::to_value(r)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// An Extras write refused or failed (part D D1, D5, D8, D20, D22): names
+/// and tags reach the webview as kebab-case reasons, never as prose.
+impl From<coverly_core::extras::ops::ExtrasError> for IpcError {
+    fn from(e: coverly_core::extras::ops::ExtrasError) -> Self {
+        use coverly_core::extras::ops::ExtrasError as E;
+        let refused = |why: &str| IpcError::ExtrasRefused { why: why.into() };
+        match e {
+            E::IndexNewer => IpcError::ExtrasNewer,
+            E::Changed => IpcError::ExtrasChanged,
+            E::IndexUnreadable => refused("index-unreadable"),
+            E::Name(r) => IpcError::ExtrasRefused { why: reason(&r) },
+            E::Tags(r) => IpcError::ExtrasRefused {
+                why: format!("tags-{}", reason(&r)),
+            },
+            E::NoTrash => refused("no-trash"),
+            E::TooMany => refused("too-many"),
+            E::NoSpace { short } => IpcError::NoSpace(format!("{short}/0")),
+            E::Link(_) => refused("link"),
+            E::OutsideExtras(p) => IpcError::OutsideLibrary(p.display().to_string()),
+            E::Cancelled => IpcError::Cancelled,
+            E::Write(w) => w.into(),
+        }
+    }
+}
+
 impl From<coverly_core::fill::ArtError> for IpcError {
     fn from(e: coverly_core::fill::ArtError) -> Self {
         use coverly_core::fill::ArtError as A;
@@ -249,6 +282,25 @@ mod tests {
             .unwrap(),
             serde_json::json!({ "code": "extras-refused", "detail": { "why": "taken" } })
         );
+        {
+            use coverly_core::extras::ops::ExtrasError as E;
+            use coverly_core::extras::{NameRefusal, TagRefusal};
+            let why = |e: E| match IpcError::from(e) {
+                IpcError::ExtrasRefused { why } => why,
+                other => panic!("{other:?}"),
+            };
+            assert_eq!(why(E::Name(NameRefusal::PathTooLong)), "path-too-long");
+            assert_eq!(why(E::Name(NameRefusal::Taken)), "taken");
+            assert_eq!(why(E::Tags(TagRefusal::TooLong)), "tags-too-long");
+            assert_eq!(why(E::NoTrash), "no-trash");
+            assert_eq!(why(E::IndexUnreadable), "index-unreadable");
+            assert_eq!(IpcError::from(E::Changed), IpcError::ExtrasChanged);
+            assert_eq!(IpcError::from(E::IndexNewer), IpcError::ExtrasNewer);
+            assert_eq!(
+                IpcError::from(E::NoSpace { short: 5 }),
+                IpcError::NoSpace("5/0".into())
+            );
+        }
         let json = serde_json::to_value(IpcError::JobRunning).unwrap();
         assert_eq!(json, serde_json::json!({ "code": "job-running" }));
         assert_eq!(

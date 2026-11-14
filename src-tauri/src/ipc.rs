@@ -235,6 +235,213 @@ pub async fn extras_list(
     blocking(move || app.state::<AppState>().extras_list(generation, entry_id)).await
 }
 
+/// Runs one Extras write (part D D10, D22) and emits the entry's new
+/// counts as `library-entries-updated`.
+async fn extras_write(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    action: crate::library::extras::ExtrasAction,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    blocking(move || {
+        let done = app
+            .state::<AppState>()
+            .extras_write(generation, entry_id, rev, action)?;
+        if let Some(event) = done.updated {
+            let _ = app.emit(ENTRIES_UPDATED_EVENT, event);
+        }
+        Ok(done.view)
+    })
+    .await
+}
+
+/// Renames extra `index` of listing `rev` to the typed `stem` (its
+/// extension stays).
+#[tauri::command]
+pub async fn extras_rename(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    index: u32,
+    stem: String,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::Rename { index, stem },
+    )
+    .await
+}
+
+/// Moves extras `files` of listing `rev` into category `to`.
+#[tauri::command]
+pub async fn extras_move(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    files: Vec<u32>,
+    to: coverly_core::extras::CategoryRef,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::Move { files, to },
+    )
+    .await
+}
+
+/// Sends extras `files` of listing `rev` to the Trash (set aside where
+/// the drive has none; never a permanent delete).
+#[tauri::command]
+pub async fn extras_trash(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    files: Vec<u32>,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::Trash { files },
+    )
+    .await
+}
+
+/// Replaces the tags of extra `index` of listing `rev`.
+#[tauri::command]
+pub async fn extras_set_tags(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    index: u32,
+    tags: Vec<String>,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::SetTags { index, tags },
+    )
+    .await
+}
+
+/// «Olvidar»: drops record `missing` of listing `rev`'s «No encontrados».
+#[tauri::command]
+pub async fn extras_forget(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    missing: u32,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::Forget { missing },
+    )
+    .await
+}
+
+/// Creates the user category `name`.
+#[tauri::command]
+pub async fn extras_category_create(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    name: String,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::CategoryCreate { name },
+    )
+    .await
+}
+
+/// Renames the user category `from` to `to`.
+#[tauri::command]
+pub async fn extras_category_rename(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    from: String,
+    to: String,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::CategoryRename { from, to },
+    )
+    .await
+}
+
+/// Removes the user category `name`, its files to the Trash.
+#[tauri::command]
+pub async fn extras_category_remove(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    rev: u64,
+    name: String,
+) -> Result<crate::library::extras::ExtrasWriteView, IpcError> {
+    use crate::library::extras::ExtrasAction;
+    extras_write(
+        app,
+        generation,
+        entry_id,
+        rev,
+        ExtrasAction::CategoryRemove { name },
+    )
+    .await
+}
+
+/// Undoes Extras job `job` of this game and answers its listing after.
+#[tauri::command]
+pub async fn extras_undo(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    job: String,
+) -> Result<crate::library::extras::ExtrasUndone, IpcError> {
+    blocking(move || {
+        let done = app
+            .state::<AppState>()
+            .extras_undo(generation, entry_id, &job)?;
+        if let Some(event) = &done.updated {
+            let _ = app.emit(ENTRIES_UPDATED_EVENT, event);
+        }
+        Ok(done)
+    })
+    .await
+}
+
 /// Makes this revision the default of its group (part C D7); answers the
 /// library's choices (version group → `rel_path`).
 #[tauri::command]

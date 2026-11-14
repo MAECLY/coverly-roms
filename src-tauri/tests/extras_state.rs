@@ -1,7 +1,12 @@
-//! The Extras section's read side over a real `AppState` (part D D3, D4,
+//! The Extras section over a real `AppState` (part D D3, D4, D8, D10,
 //! D22): a game's `Extras/` listed by id with a revision, handles of an
-//! older listing refused, nothing ever written by a read, and Extras jobs
-//! named after their game in the history.
+//! older listing refused, nothing ever written by a read, Extras jobs
+//! named after their game in the history; every write one journaled job
+//! behind the one-writer guard, refused on an old revision, a read-only
+//! folder or a newer index, undone by its own command, and followed by the
+//! entry's new counts.
+
+mod common;
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -18,7 +23,9 @@ use coverly_core::write::trash::FakeTrash;
 use coverly_core::write::JobKind;
 use coverly_roms_lib::error::IpcError;
 use coverly_roms_lib::jobs::FillConfig;
-use coverly_roms_lib::library::extras::{Playable, Writability};
+use coverly_roms_lib::library::extras::{
+    ExtrasAction, ExtrasUndone, ExtrasView, ExtrasWritten, Playable, Writability,
+};
 use coverly_roms_lib::library::view::LibraryView;
 use coverly_roms_lib::state::AppState;
 use serde_json::json;
@@ -466,4 +473,561 @@ fn a_folder_with_the_read_only_attribute_stays_writable_on_windows() {
     perms.set_readonly(false);
     fs::set_permissions(&extras, perms).unwrap();
     assert_eq!(listed.unwrap().writable, Writability::Yes);
+}
+
+// ---- Writes (part D D8, D10, D22) ----
+
+/// A state whose Trash is a folder of `trash`.
+fn state_with_trash(config: &TempDir, trash: &TempDir) -> AppState {
+    state(config).with_trash(std::sync::Arc::new(FakeTrash::new(trash.path())))
+}
+
+/// The game folder of [`library`] below `root`.
+fn game(root: &Path) -> PathBuf {
+    GAME.split('/').fold(root.to_path_buf(), |p, c| p.join(c))
+}
+
+/// `rel` (`/`-separated) below the game's `Extras/`.
+fn extra(root: &Path, rel: &str) -> PathBuf {
+    rel.split('/')
+        .fold(game(root).join("Extras"), |p, c| p.join(c))
+}
+
+/// The handle of the listed file at `rel` (compared by components).
+fn index_of(view: &ExtrasView, rel: &str) -> u32 {
+    view.files
+        .iter()
+        .find(|f| f.path.split('/').eq(rel.split('/')))
+        .unwrap_or_else(|| panic!("no file {rel}"))
+        .index
+}
+
+fn has(view: &ExtrasView, rel: &str) -> bool {
+    view.files
+        .iter()
+        .any(|f| f.path.split('/').eq(rel.split('/')))
+}
+
+struct Opened {
+    st: AppState,
+    generation: u64,
+    id: u32,
+}
+
+impl Opened {
+    fn list(&self) -> ExtrasView {
+        self.st.extras_list(self.generation, self.id).unwrap()
+    }
+
+    fn write(&self, rev: u64, action: ExtrasAction) -> Result<ExtrasWritten, IpcError> {
+        self.st.extras_write(self.generation, self.id, rev, action)
+    }
+
+    fn undo(&self, job: &str) -> Result<ExtrasUndone, IpcError> {
+        self.st.extras_undo(self.generation, self.id, job)
+    }
+}
+
+fn opened(st: AppState, lib: &TempDir) -> Opened {
+    library(lib.path());
+    let view = open(&st, lib.path());
+    let id = id_of(&view, "Lantern Harbor (USA)");
+    Opened {
+        st,
+        generation: view.generation,
+        id,
+    }
+}
+
+#[test]
+fn extras_rename_keeps_tags_and_undo_brings_the_name_back() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let o = opened(state(&config), &lib);
+    let before = snapshot(lib.path());
+    let listed = o.list();
+    let done = o
+        .write(
+            listed.rev,
+            ExtrasAction::Rename {
+                index: index_of(&listed, "Soundtrack/01 Opening.flac"),
+                stem: "01 Overture".into(),
+            },
+        )
+        .unwrap();
+    let job = done.view.job.clone().expect("a journaled job");
+    let listing = &done.view.listing;
+    assert!(listing.rev > listed.rev);
+    assert!(has(listing, "Soundtrack/01 Overture.flac"));
+    assert!(!has(listing, "Soundtrack/01 Opening.flac"));
+    let renamed = &listing.files[index_of(listing, "Soundtrack/01 Overture.flac") as usize];
+    assert_eq!(renamed.tags, ["tema del jefe final"]);
+    assert!(extra(lib.path(), "Soundtrack/01 Overture.flac").is_file());
+    // The new listing is the cached one: its handles work at once.
+    assert!(o
+        .st
+        .extras_handle(o.generation, o.id, listing.rev, 0)
+        .is_ok());
+
+    let undone = o.undo(&job).unwrap();
+    assert_eq!(undone.job, job);
+    assert!(has(&undone.listing, "Soundtrack/01 Opening.flac"));
+    assert!(extra(lib.path(), "Soundtrack/01 Opening.flac").is_file());
+    assert!(!extra(lib.path(), "Soundtrack/01 Overture.flac").exists());
+    // Byte for byte: the index too (only mtimes of folders may move).
+    let files = |s: BTreeMap<PathBuf, (bool, u64, SystemTime)>| {
+        s.into_iter()
+            .filter(|(_, (dir, _, _))| !dir)
+            .map(|(p, (_, len, _))| (p, len))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(files(snapshot(lib.path())), files(before));
+    assert!(fs::read_to_string(extra(lib.path(), "extras.json"))
+        .unwrap()
+        .contains("01 Opening.flac"));
+}
+
+#[test]
+fn extras_move_files_a_loose_file_into_a_category() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let o = opened(state(&config), &lib);
+    let listed = o.list();
+    let done = o
+        .write(
+            listed.rev,
+            ExtrasAction::Move {
+                files: vec![
+                    index_of(&listed, "readme.txt"),
+                    index_of(&listed, "Remixes/boss.mp3"),
+                ],
+                to: CategoryRef::Fixed(ExtrasCategory::Guides),
+            },
+        )
+        .unwrap();
+    assert!(done.view.job.is_some());
+    assert!(has(&done.view.listing, "Guides/readme.txt"));
+    assert!(has(&done.view.listing, "Guides/boss.mp3"));
+    assert!(extra(lib.path(), "Guides/readme.txt").is_file());
+    assert!(!extra(lib.path(), "readme.txt").exists());
+}
+
+#[test]
+fn extras_trash_sends_files_to_the_trash_and_undo_brings_them_back() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let bin = TempDir::new().unwrap();
+    let o = opened(state_with_trash(&config, &bin), &lib);
+    let listed = o.list();
+    let done = o
+        .write(
+            listed.rev,
+            ExtrasAction::Trash {
+                files: vec![index_of(&listed, "Artwork/front.png")],
+            },
+        )
+        .unwrap();
+    let job = done.view.job.clone().unwrap();
+    assert!(!has(&done.view.listing, "Artwork/front.png"));
+    assert!(!extra(lib.path(), "Artwork/front.png").exists());
+    assert!(
+        snapshot(bin.path())
+            .keys()
+            .any(|p| p.file_name().is_some_and(|n| n == "front.png")),
+        "in the Trash, not deleted"
+    );
+    let undone = o.undo(&job).unwrap();
+    assert!(has(&undone.listing, "Artwork/front.png"));
+    assert_eq!(
+        fs::read(extra(lib.path(), "Artwork/front.png")).unwrap(),
+        [3u8; 16]
+    );
+}
+
+#[test]
+fn extras_set_tags_writes_the_index_in_a_job() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let o = opened(state(&config), &lib);
+    let listed = o.list();
+    let done = o
+        .write(
+            listed.rev,
+            ExtrasAction::SetTags {
+                index: index_of(&listed, "Remixes/boss.mp3"),
+                tags: vec!["jefe".into(), " remix ".into()],
+            },
+        )
+        .unwrap();
+    let listing = &done.view.listing;
+    let boss = &listing.files[index_of(listing, "Remixes/boss.mp3") as usize];
+    assert_eq!(boss.tags, ["jefe", "remix"]);
+    let index = fs::read_to_string(extra(lib.path(), "extras.json")).unwrap();
+    assert!(index.contains("\"remix\""), "{index}");
+    // Refused tags never start a job and reach the webview as a reason.
+    let too_many: Vec<String> = (0..40).map(|i| format!("t{i}")).collect();
+    assert_eq!(
+        o.write(
+            listing.rev,
+            ExtrasAction::SetTags {
+                index: 0,
+                tags: too_many
+            }
+        )
+        .unwrap_err(),
+        IpcError::ExtrasRefused {
+            why: "tags-too-many".into()
+        }
+    );
+}
+
+#[test]
+fn extras_forget_drops_a_missing_record_until_undone() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let o = opened(state(&config), &lib);
+    let listed = o.list();
+    assert_eq!(listed.missing.len(), 1);
+    let done = o
+        .write(listed.rev, ExtrasAction::Forget { missing: 0 })
+        .unwrap();
+    assert!(done.view.listing.missing.is_empty());
+    let undone = o.undo(&done.view.job.unwrap()).unwrap();
+    assert_eq!(undone.listing.missing.len(), 1);
+    assert_eq!(undone.listing.missing[0].tags, ["intro"]);
+}
+
+#[test]
+fn extras_categories_are_created_renamed_and_removed() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let bin = TempDir::new().unwrap();
+    let o = opened(state_with_trash(&config, &bin), &lib);
+
+    let listed = o.list();
+    let made = o
+        .write(
+            listed.rev,
+            ExtrasAction::CategoryCreate {
+                name: "Remezclas".into(),
+            },
+        )
+        .unwrap();
+    assert!(extra(lib.path(), "Remezclas").is_dir());
+    assert!(made
+        .view
+        .listing
+        .categories
+        .iter()
+        .any(|c| c.category == CategoryRef::User("Remezclas".into())));
+    // A taken name is a reason, never prose.
+    assert_eq!(
+        o.write(
+            made.view.listing.rev,
+            ExtrasAction::CategoryCreate {
+                name: "remixes".into()
+            }
+        )
+        .unwrap_err(),
+        IpcError::ExtrasRefused {
+            why: "taken".into()
+        }
+    );
+
+    let renamed = o
+        .write(
+            made.view.listing.rev,
+            ExtrasAction::CategoryRename {
+                from: "Remixes".into(),
+                to: "Mezclas".into(),
+            },
+        )
+        .unwrap();
+    assert!(has(&renamed.view.listing, "Mezclas/boss.mp3"));
+    assert!(extra(lib.path(), "Mezclas/boss.mp3").is_file());
+
+    let removed = o
+        .write(
+            renamed.view.listing.rev,
+            ExtrasAction::CategoryRemove {
+                name: "Mezclas".into(),
+            },
+        )
+        .unwrap();
+    assert!(!extra(lib.path(), "Mezclas").exists());
+    assert!(!has(&removed.view.listing, "Mezclas/boss.mp3"));
+    assert!(snapshot(bin.path())
+        .keys()
+        .any(|p| p.file_name().is_some_and(|n| n == "boss.mp3")));
+    let undone = o.undo(&removed.view.job.unwrap()).unwrap();
+    assert!(has(&undone.listing, "Mezclas/boss.mp3"));
+}
+
+#[test]
+fn writes_are_refused_while_a_job_runs() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let o = opened(state(&config), &lib);
+    let listed = o.list();
+    let before = snapshot(lib.path());
+    {
+        let _writing = o.st.jobs().begin_manual().unwrap();
+        assert_eq!(
+            o.write(listed.rev, ExtrasAction::Forget { missing: 0 })
+                .unwrap_err(),
+            IpcError::JobRunning
+        );
+    }
+    assert_eq!(snapshot(lib.path()), before);
+    // The guard is released after a write, refused or not.
+    o.write(listed.rev, ExtrasAction::Forget { missing: 0 })
+        .unwrap();
+    assert!(o.st.jobs().begin_manual().is_ok());
+}
+
+#[test]
+fn writes_are_refused_while_a_job_is_paused() {
+    use common::fill::{fill_world, request, wait_for, Recorder, ADVENTURE_USA};
+    use coverly_core::net::testing::MockResponse;
+    use coverly_core::net::NetConfig;
+    use coverly_roms_lib::jobs::view::JobState;
+
+    let w = fill_world();
+    let serial = FillConfig {
+        net: NetConfig {
+            concurrency: 1,
+            retries: 0,
+            ..NetConfig::default()
+        },
+        ..(*w.cfg).clone()
+    };
+    let st = AppState::new(w.dirs.path().to_path_buf(), serial);
+    common::fast(&st);
+    let view = st
+        .open(w.lib.path(), None, &SystemDb::builtin(), &mut |_| {})
+        .unwrap();
+    st.update_settings(&json!({"network": {"concurrency": 1}}))
+        .unwrap();
+    let rec = std::sync::Arc::new(Recorder::default());
+    let id = st
+        .start_fill(view.generation, &request(None), rec.clone())
+        .unwrap()
+        .id;
+    wait_for(&rec, JobState::Planned);
+    w.server.mock(
+        ADVENTURE_USA,
+        MockResponse::status(429).header("Retry-After", "0"),
+    );
+    st.jobs().run(id, rec.clone()).unwrap();
+    wait_for(&rec, JobState::Paused);
+    // A paused job resumes into its journal: nothing may write meanwhile.
+    assert_eq!(
+        st.extras_write(view.generation, 0, 1, ExtrasAction::Forget { missing: 0 })
+            .unwrap_err(),
+        IpcError::JobRunning
+    );
+    assert_eq!(
+        st.extras_undo(view.generation, 0, "20261114T120000Z-1bfb-0000")
+            .unwrap_err(),
+        IpcError::JobRunning
+    );
+    st.jobs().cancel(id).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn writes_are_refused_on_a_read_only_volume() {
+    use std::os::unix::fs::PermissionsExt;
+    if running_as_root() {
+        return;
+    }
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let o = opened(state(&config), &lib);
+    let extras = game(lib.path()).join("Extras");
+    fs::set_permissions(&extras, fs::Permissions::from_mode(0o555)).unwrap();
+    let listed = o.list();
+    let refused = o.write(
+        listed.rev,
+        ExtrasAction::CategoryCreate {
+            name: "Remezclas".into(),
+        },
+    );
+    fs::set_permissions(&extras, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        matches!(refused, Err(IpcError::WriteDenied(_))),
+        "{refused:?}"
+    );
+    assert!(!extra(lib.path(), "Remezclas").exists());
+}
+
+#[test]
+fn writes_are_refused_with_a_newer_index() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let o = opened(state(&config), &lib);
+    let newer = br#"{ "version": 9, "files": [] }"#;
+    put(lib.path(), &format!("{GAME}/Extras/extras.json"), newer);
+    let listed = o.list();
+    let before = snapshot(lib.path());
+    assert_eq!(
+        o.write(
+            listed.rev,
+            ExtrasAction::SetTags {
+                index: 0,
+                tags: vec!["x".into()]
+            }
+        )
+        .unwrap_err(),
+        IpcError::ExtrasNewer
+    );
+    assert_eq!(snapshot(lib.path()), before);
+    assert_eq!(fs::read(extra(lib.path(), "extras.json")).unwrap(), newer);
+}
+
+#[test]
+fn stale_rev_is_refused_with_extras_changed() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let o = opened(state(&config), &lib);
+    let old = o.list();
+    let new = o.list();
+    let rename = |rev| {
+        o.write(
+            rev,
+            ExtrasAction::Rename {
+                index: 0,
+                stem: "renamed".into(),
+            },
+        )
+    };
+    assert_eq!(rename(old.rev).unwrap_err(), IpcError::ExtrasChanged);
+    // Files changed on disk since the newest listing: refused as well.
+    put(
+        lib.path(),
+        &format!("{GAME}/Extras/Artwork/back.png"),
+        &[9u8; 4],
+    );
+    assert_eq!(rename(new.rev).unwrap_err(), IpcError::ExtrasChanged);
+    assert!(!snapshot(lib.path())
+        .keys()
+        .any(|p| p.file_stem().is_some_and(|s| s == "renamed")));
+    // An entry that is no game folder has nothing to write.
+    let gba =
+        o.st.session(o.generation)
+            .unwrap()
+            .entries
+            .iter()
+            .position(|e| e.rom.stem == "Moss Garden (USA)")
+            .unwrap() as u32;
+    let bare = o.st.extras_list(o.generation, gba).unwrap();
+    assert!(matches!(
+        o.st.extras_write(
+            o.generation,
+            gba,
+            bare.rev,
+            ExtrasAction::CategoryCreate { name: "X".into() }
+        ),
+        Err(IpcError::WriteDenied(_))
+    ));
+}
+
+#[test]
+fn entries_updated_is_emitted_with_the_new_extras_count() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let bin = TempDir::new().unwrap();
+    let o = opened(state_with_trash(&config, &bin), &lib);
+    let listed = o.list();
+    let done = o
+        .write(
+            listed.rev,
+            ExtrasAction::Trash {
+                files: vec![
+                    index_of(&listed, "readme.txt"),
+                    index_of(&listed, "Themes/harbor.p3t"),
+                ],
+            },
+        )
+        .unwrap();
+    let event = done.updated.expect("an entries-updated event");
+    assert_eq!(event.generation, o.generation);
+    assert_eq!(event.entries.len(), 1);
+    assert_eq!(event.entries[0].id, o.id);
+    let addons = event.entries[0].addons.expect("the new counts");
+    assert_eq!(addons.extras, 3, "five files, two sent to the Trash");
+    // The session keeps the new count for the next view.
+    let session = o.st.session(o.generation).unwrap();
+    let counts = session.entries[o.id as usize].rom.fixed_counts.unwrap();
+    assert_eq!(counts.extras, 3);
+    let wire = serde_json::to_value(&event).unwrap();
+    assert_eq!(wire["entries"][0]["addons"]["extras"], 3);
+
+    let undone = o.undo(&done.view.job.unwrap()).unwrap();
+    let back = undone.updated.expect("undo refreshes the count too");
+    assert_eq!(back.entries[0].addons.unwrap().extras, 5);
+}
+
+#[test]
+fn undo_last_job_still_ignores_extras_jobs() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let o = opened(state(&config), &lib);
+    let listed = o.list();
+    o.write(
+        listed.rev,
+        ExtrasAction::CategoryCreate {
+            name: "Remezclas".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        o.st.undo_last_job(o.generation).unwrap_err(),
+        IpcError::NothingToUndo
+    );
+    assert!(extra(lib.path(), "Remezclas").is_dir());
+}
+
+#[test]
+fn extras_undo_refuses_a_job_of_another_game_or_kind() {
+    let config = TempDir::new().unwrap();
+    let lib = TempDir::new().unwrap();
+    let o = opened(state(&config), &lib);
+    put(
+        lib.path(),
+        "ROMS/3DS/Kite Days (USA)/Kite Days (USA).cia",
+        &[7u8; 64],
+    );
+    put(
+        lib.path(),
+        "ROMS/3DS/Kite Days (USA)/Mods/patch.bin",
+        &[8u8; 8],
+    );
+    let view = open(&o.st, lib.path());
+    let o = Opened {
+        st: o.st,
+        generation: view.generation,
+        id: id_of(&view, "Lantern Harbor (USA)"),
+    };
+    let kite = id_of(&view, "Kite Days (USA)");
+    let listed = o.list();
+    let done = o
+        .write(
+            listed.rev,
+            ExtrasAction::CategoryCreate {
+                name: "Remezclas".into(),
+            },
+        )
+        .unwrap();
+    let job = done.view.job.unwrap();
+    assert!(o.st.extras_list(o.generation, kite).unwrap().game_folder);
+    assert_eq!(
+        o.st.extras_undo(o.generation, kite, &job).unwrap_err(),
+        IpcError::NothingToUndo
+    );
+    assert_eq!(o.undo("not-a-job").unwrap_err(), IpcError::NothingToUndo);
+    assert!(extra(lib.path(), "Remezclas").is_dir());
+    o.undo(&job).unwrap();
+    assert!(!extra(lib.path(), "Remezclas").exists());
+    assert_eq!(o.undo(&job).unwrap_err(), IpcError::NothingToUndo);
 }
