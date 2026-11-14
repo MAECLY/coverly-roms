@@ -66,7 +66,7 @@ A 1px `--cr-border` line with a 3px Buckram cap on the left. Used on section hea
 **Landing only, never in the app UI.** The illustrated covers on the landing
 page (the generated sprite `site/assets/art/covers.svg`, made by
 `scripts/site/gen_covers.mjs`, both in
-[MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing)) may each carry **one muted ink**, in two
+MAECLY/coverly-roms-landing) may each carry **one muted ink**, in two
 strengths over Paper: the key layer at full ink and the tone layer at 28%.
 The inks come from the primitives `info.9`, `success.9`, `warning.11`,
 `danger.9`, `greyboard.11` and `greyboard.9` (and their `-dark`
@@ -588,7 +588,7 @@ scripts/brand/build_tokens.mjs  # zero-dependency: resolve aliases, emit CSS, ch
 src/styles/tokens.css           # GENERATED, imported first by src/styles/globals.css
 ```
 
-The landing lives in [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing) and keeps its own
+The landing lives in MAECLY/coverly-roms-landing and keeps its own
 `design/tokens.json` (a copy of this one) and its generated
 `site/assets/tokens.css` with only the landing roles. Its weekly `Sync tokens`
 workflow fetches this JSON from `main` and opens a pull request when it changed.
