@@ -28,6 +28,7 @@ use super::{
 use crate::consoles::is_key_material;
 use crate::dedupe::apply::{trash_file, TrashStep};
 use crate::game_folder::FixedFolder;
+use crate::organize::apply::cluster_size;
 use crate::organize::target::WINDOWS_MAX_PATH;
 use crate::time::rfc3339_utc;
 use crate::write::trash::TrashBackend;
@@ -1439,9 +1440,15 @@ pub fn add_files(
         });
     }
     if let Some(free) = (ctx.available)(&extras) {
-        if free < total {
+        // Every file takes whole clusters, as Organizar counts them.
+        let cluster = cluster_size(&extras).unwrap_or(4096).max(1);
+        let needed = planned
+            .iter()
+            .map(|c| c.size.div_ceil(cluster).saturating_mul(cluster))
+            .fold(0u64, u64::saturating_add);
+        if free < needed {
             return Err(ExtrasError::NoSpace {
-                short: total - free,
+                short: needed - free,
             });
         }
     }

@@ -1794,9 +1794,46 @@ fn more_than_500_files_or_20_gib_copies_nothing() {
 }
 
 #[test]
+fn free_space_counts_whole_clusters() {
+    // Three 12-byte files take three 4 KiB clusters, not 36 bytes, as
+    // Organizar counts them (an exFAT card has far larger ones).
+    let fx = bare();
+    let (_d, src) = sources(&[
+        ("a.mp3", b"twelve bytes"),
+        ("b.mp3", b"twelve bytes"),
+        ("c.mp3", b"twelve bytes"),
+    ]);
+    coverly_core::organize::apply::set_cluster_size_override(Some(4096));
+    let ctx = ExtrasCtx {
+        available: |_| Some(2 * 4096),
+        ..fx.ctx()
+    };
+    let paths: Vec<PathBuf> = ["a.mp3", "b.mp3", "c.mp3"]
+        .iter()
+        .map(|n| src.join(n))
+        .collect();
+    let err = add_files(
+        &ctx,
+        &fx.listing(),
+        &to(soundtrack(), &paths),
+        AddLimits::default(),
+        &mut |_| std::ops::ControlFlow::Continue(()),
+    )
+    .unwrap_err();
+    coverly_core::organize::apply::set_cluster_size_override(None);
+    assert!(
+        matches!(err, ExtrasError::NoSpace { short: 4096 }),
+        "{err:?}"
+    );
+    assert!(!fx.extras().exists());
+    assert_eq!(fx.jobs(), 0);
+}
+
+#[test]
 fn not_enough_space_copies_nothing() {
     let fx = bare();
     let (_d, src) = sources(&[("a.mp3", b"twelve bytes")]);
+    coverly_core::organize::apply::set_cluster_size_override(Some(1));
     let ctx = ExtrasCtx {
         available: |_| Some(1),
         ..fx.ctx()
