@@ -98,12 +98,15 @@ export const usePlayerStore = create<PlayerState>()((set, get) => ({
         path: f.path,
         name: f.name,
       }));
+    // From the top, also when the host already holds this file: the
+    // seek tells it to rewind.
     set({
       queue,
       at: queue.findIndex((t) => t.index === index),
       playing: true,
       position: 0,
       duration: 0,
+      seekNonce: get().seekNonce + 1,
     });
   },
 

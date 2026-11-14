@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { getBackend } from '@/ipc/backend';
 import { useLibraryStore } from '@/stores/libraryStore';
+import { useNavStore } from '@/stores/navStore';
 import { currentTrack, usePlayerStore } from '@/stores/playerStore';
 
 /**
@@ -10,8 +11,9 @@ import { currentTrack, usePlayerStore } from '@/stores/playerStore';
  * selected, so a track keeps playing while the user browses other games.
  * It follows `playerStore` (track, play/pause, seeks), reports time and
  * the end of a track back, asks for each track's URL by its listing
- * handle (never a path), stops when the track's library closes and never
- * plays before the user's «Reproducir».
+ * handle (never a path), stops when the track's library closes, pauses
+ * on screens without its controls and never plays before the user's
+ * «Reproducir».
  */
 export function PlayerHost() {
   const ref = useRef<HTMLAudioElement>(null);
@@ -78,6 +80,18 @@ export function PlayerHost() {
         const was = prev.view?.generation;
         if (was !== undefined && s.view?.generation !== was)
           usePlayerStore.getState().stopOnLibraryClose(was);
+      }),
+    [],
+  );
+
+  // Settings, Organizar and Duplicados show no player controls: the
+  // music pauses there (it must never play without a way to stop it, and
+  // Organizar may move the file) and waits for «Reproducir» back home.
+  useEffect(
+    () =>
+      useNavStore.subscribe((s, prev) => {
+        if (s.screen !== prev.screen && s.screen !== 'main')
+          usePlayerStore.getState().pause();
       }),
     [],
   );

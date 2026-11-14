@@ -5,6 +5,7 @@ import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
 import type { LibraryView } from '@/ipc/types';
 import { useLibraryStore } from '@/stores/libraryStore';
+import { useNavStore } from '@/stores/navStore';
 import { usePlayerStore } from '@/stores/playerStore';
 
 import { PlayerHost } from './PlayerHost';
@@ -54,6 +55,7 @@ describe('PlayerHost (extras spec D19)', () => {
   afterEach(() => {
     store().stop();
     useLibraryStore.setState({ view: null });
+    useNavStore.setState({ screen: 'main' });
     setBackend(null);
     vi.restoreAllMocks();
   });
@@ -153,6 +155,31 @@ describe('PlayerHost (extras spec D19)', () => {
     act(() => store().playFrom(listing(), 0, GAME));
     act(() => useLibraryStore.setState({ view: { ...view } }));
     expect(store().queue).toHaveLength(3);
+  });
+
+  it('«Reproducir» on the track it holds starts it again from the top', async () => {
+    const { audio } = host();
+    act(() => store().playFrom(listing(), 0, GAME));
+    await waitFor(() =>
+      expect(audio()).toHaveAttribute('src', 'blob:track-1-0'),
+    );
+    act(() => tick(audio(), 95, 200));
+    act(() => store().pause());
+    act(() => store().playFrom(listing(), 0, GAME));
+    expect(audio().currentTime).toBe(0);
+    expect(store().playing).toBe(true);
+  });
+
+  it('pauses on a screen without its controls, keeping the queue', async () => {
+    const { audio } = host();
+    act(() => store().playFrom(listing(), 0, GAME));
+    await waitFor(() => expect(audio()).toHaveAttribute('src'));
+    act(() => useNavStore.setState({ screen: 'settings' }));
+    expect(store().playing).toBe(false);
+    expect(store().queue).toHaveLength(3);
+    // Back on the library it waits for the user's «Reproducir».
+    act(() => useNavStore.setState({ screen: 'main' }));
+    expect(store().playing).toBe(false);
   });
 
   it('announces track changes in a polite live region', async () => {
