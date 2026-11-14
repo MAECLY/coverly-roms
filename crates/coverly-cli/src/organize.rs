@@ -1489,6 +1489,33 @@ fn extra_format_text(format: coverly_core::extras::ExtraFormat) -> &'static str 
     }
 }
 
+/// What an extra printed under its game is and how it was linked: its
+/// format with the raw content type (a wrong guess shows: Q3), or the
+/// rip tag that linked it (extras spec D6, D7, D15).
+fn extra_what(item: &OrganizeItem, extra: &coverly_core::organize::plan::ExtraLink) -> String {
+    let format = extra_format_text(extra.format);
+    let rip = item.notes.iter().find_map(|n| match n {
+        ItemNote::ExtraRip { tag, .. } => Some(tag.as_str()),
+        _ => None,
+    });
+    if let Some(tag) = rip {
+        return format!(
+            "{format} tag \u{201c}{}\u{201d}, your own",
+            table::one_line(tag)
+        );
+    }
+    let via = match extra.via {
+        LinkVia::Key => "linked by its title".to_string(),
+        LinkVia::Folder => "it was beside its game".to_string(),
+        other => via_text(other, ""),
+    };
+    match extra.content_type {
+        Some(ct) if ct > 0xFF => format!("{format}, content type 0x{ct:08X}, {via}"),
+        Some(ct) => format!("{format}, content type 0x{ct:02X}, {via}"),
+        None => format!("{format}, {via}"),
+    }
+}
+
 /// What an addon is, in a left reason (the core has no UI strings).
 fn addon_kind_name(kind: AddonKind) -> &'static str {
     match kind {
@@ -1580,7 +1607,7 @@ fn nested_base<'a>(
     item: &OrganizeItem,
 ) -> Option<&'a OrganizeItem> {
     let link = item.game.as_ref()?;
-    if !matches!(link.role, GameRole::Mod | GameRole::Cheat) {
+    if !matches!(link.role, GameRole::Mod | GameRole::Cheat | GameRole::Extra) {
         return None;
     }
     let base = *by_id.get(&link.of?)?;
@@ -1619,8 +1646,19 @@ fn addon_dest(item: &OrganizeItem, base: &OrganizeItem) -> String {
     }
 }
 
-/// `    + Mod  0004000000055D00/ (folder)  → Mods/  (linked by …)`.
+/// `    + Mod  0004000000055D00/ (folder)  → Mods/  (linked by …)`, or for
+/// an extra `    + Themes  x.pkg  → Extras/Themes/  (PS3 theme, …)`.
 fn addon_row(item: &OrganizeItem, base: &OrganizeItem) -> String {
+    if let Some(extra) = item.game.as_ref().and_then(|g| g.extra.as_ref()) {
+        return format!(
+            "    + {}  {}  → {}  ({}){}",
+            extra.category.dir_name(),
+            source_label(item),
+            addon_dest(item, base),
+            extra_what(item, extra),
+            item_extras_with(item, true)
+        );
+    }
     let (label, via) = item
         .game
         .as_ref()
@@ -1954,6 +1992,8 @@ fn item_extras_with(item: &OrganizeItem, nested: bool) -> String {
                         ItemNote::ModOf { .. }
                             | ItemNote::PatchOf { .. }
                             | ItemNote::CheatOf { .. }
+                            | ItemNote::ExtraOf { .. }
+                            | ItemNote::ExtraRip { .. }
                     )
             })
             .filter_map(note_text),
@@ -2128,6 +2168,20 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
         let _ = writeln!(out, "  {}  {line}", label(o));
     }
     out.push_str(&licences_left_text(report));
+    for saved in &report.extras_saved {
+        let _ = writeln!(
+            out,
+            "  extras.json could not be read; a copy was kept: {}",
+            saved.display()
+        );
+    }
+    for extras in &report.extras_unwritten {
+        let _ = writeln!(
+            out,
+            "  extras.json could not be written; the extras are in place without their record: {}",
+            extras.display()
+        );
+    }
     if let Some(j) = &report.job {
         if report.paused.is_some() {
             let _ = writeln!(
@@ -3083,6 +3137,156 @@ mod tests {
         })
         .contains("Theme without a game"));
         assert!(left_text(&LeftReason::ExtrasIndexNewer).contains("newer Coverly"));
+    }
+
+    /// A PS3 game moving in, its theme printed under it, a theme of a
+    /// library game and the reasons extras stay (extras spec D5, D6, D7).
+    #[test]
+    fn extra_rows_and_reasons_render() {
+        use coverly_core::extras::{ExtraFormat, ExtrasCategory, Provenance};
+        use coverly_core::organize::plan::{ExtraLink, GameLink};
+        let p = std::path::Path::new;
+        let folder = p("PS3").join("Tidewalker");
+        let mut game = test_item(0, "Tidewalker.pkg");
+        game.target = Some(folder.join("Tidewalker.pkg"));
+        game.folder = Some("PS3".into());
+        game.system_id = Some("ps3".into());
+        let extra = |id: usize, name: &str, of: Option<usize>, format, ct: Option<u32>| {
+            let mut it = test_item(id, name);
+            it.folder = Some("PS3".into());
+            it.system_id = Some("ps3".into());
+            let mut link = GameLink::new(GameRole::Extra);
+            link.of = of;
+            link.extra = Some(ExtraLink {
+                category: ExtrasCategory::Themes,
+                format,
+                provenance: Provenance::Official,
+                via: LinkVia::Key,
+                content_type: ct,
+                rip: None,
+            });
+            it.game = Some(link);
+            it
+        };
+        let mut theme = extra(
+            1,
+            "Tidewalker Theme.pkg",
+            Some(0),
+            ExtraFormat::Ps3ThemePkg,
+            Some(0x09),
+        );
+        theme.target = Some(
+            folder
+                .join("Extras")
+                .join("Themes")
+                .join("Tidewalker Theme.pkg"),
+        );
+        theme.notes.push(ItemNote::ExtraOf {
+            category: ExtrasCategory::Themes,
+            of: "Tidewalker".into(),
+            format: ExtraFormat::Ps3ThemePkg,
+            content_type: Some(0x09),
+        });
+        let mut other = extra(2, "Resistance.p3t", None, ExtraFormat::Ps3P3t, None);
+        other.target = Some(
+            p("PS3")
+                .join("Resistance")
+                .join("Extras")
+                .join("Themes")
+                .join("Resistance.p3t"),
+        );
+        other.notes.push(ItemNote::ExtraOf {
+            category: ExtrasCategory::Themes,
+            of: "Resistance".into(),
+            format: ExtraFormat::Ps3P3t,
+            content_type: None,
+        });
+        other.notes.push(ItemNote::ExtrasBackupFirst);
+        let mut lonely = extra(3, "Lonely.p3t", None, ExtraFormat::Ps3P3t, None);
+        lonely.action = OrganizeAction::Left {
+            reason: LeftReason::ExtraWithoutGame {
+                category: ExtrasCategory::Themes,
+            },
+        };
+        let mut newer = extra(4, "Newer.p3t", None, ExtraFormat::Ps3P3t, None);
+        newer.action = OrganizeAction::Left {
+            reason: LeftReason::ExtrasIndexNewer,
+        };
+        let mut music = test_item(5, "track.spc");
+        music.action = OrganizeAction::Left {
+            reason: LeftReason::NotARom {
+                what: NotARom::Music,
+            },
+        };
+        let mut plan = plan_with_items(vec![game, theme, other, lonely, newer, music]);
+        plan.counts.left = 3;
+        let table = render_table(
+            &plan,
+            &SystemDb::builtin(),
+            &OrganizeOptions::default(),
+            true,
+        );
+        assert!(
+            table.contains(
+                "    + Themes  Tidewalker Theme.pkg  → Extras/Themes/  (PS3 theme, content type 0x09, linked by its title)"
+            ),
+            "{table}"
+        );
+        assert!(
+            table.contains("Resistance.p3t → PS3/Resistance/Extras/Themes/Resistance.p3t"),
+            "{table}"
+        );
+        // Under its game the row says what it is once.
+        assert!(!table.contains("Themes for Tidewalker"), "{table}");
+        assert!(
+            table.contains(
+                "[Themes for Resistance (PS3 theme); extras.json cannot be read; a copy is kept before writing]"
+            ),
+            "{table}"
+        );
+        assert!(
+            table.contains("Theme without a game: which game it belongs to is not known"),
+            "{table}"
+        );
+        assert!(
+            table.contains("this game's extras.json is from a newer Coverly: stays here"),
+            "{table}"
+        );
+        assert!(table.contains("not a ROM (music)"), "{table}");
+    }
+
+    #[test]
+    fn the_report_names_kept_and_unwritten_extras_indexes() {
+        let plan = plan_with_items(Vec::new());
+        let report = OrganizeReport {
+            job: Some("20261114-120000-ab".into()),
+            moved: 1,
+            extras_saved: vec![PathBuf::from("lib")
+                .join("PS3")
+                .join("Tidewalker")
+                .join("Extras")
+                .join("extras.broken-20261114-120000.json")],
+            extras_unwritten: vec![PathBuf::from("lib")
+                .join("PS3")
+                .join("Resistance")
+                .join("Extras")],
+            ..OrganizeReport::default()
+        };
+        let text = render_report(&plan, &report);
+        assert!(
+            text.contains("extras.json could not be read; a copy was kept: "),
+            "{text}"
+        );
+        assert!(
+            text.contains("extras.broken-20261114-120000.json"),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "extras.json could not be written; the extras are in place without their record: "
+            ),
+            "{text}"
+        );
     }
 
     fn test_item(id: usize, name: &str) -> OrganizeItem {
