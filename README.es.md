@@ -53,7 +53,7 @@
 </p>
 
 > [!NOTE]
-> **Primeros pasos, dicho claro.** La v0.5.1 es la versión actual. Coverly ROMs
+> **Primeros pasos, dicho claro.** La v0.5.2 es la versión actual. Coverly ROMs
 > aún no se ha probado en consolas reales. Las versiones todavía no están
 > firmadas con un certificado de Apple ni de Microsoft, así que la primera vez
 > aparece un aviso (ver [Instalar](#instalar)). Si lo pruebas en una consola,
