@@ -766,3 +766,19 @@ Spec: [`2026-10-18-duplicates-design.md`](superpowers/specs/2026-10-18-duplicate
   - la web muestra 0.5.0 en es y en.
 - **No entra en 0.5.0:** la revisión de licencias de iconos (PR #56). Miguel pidió que entrara antes de la release, pero el aviso llegó cuando la 0.5.0 ya estaba publicada; irá en la siguiente versión.
 - **Pendiente:** la landing sigue diciendo «131 sistemas» (ahora son 133; ya estaba pendiente desde el PR #53). Para Miguel: probar la actualización desde la app 0.4.0 con interfaz.
+
+### 2026-11-14 — Release v0.5.1 publicada (licencias de iconos y avisos de terceros)
+
+- **Qué lleva:** la revisión de licencias de iconos del PR #56 (`LICENSES/` con la licencia MIT de shadcn/ui y `THIRD-PARTY-NOTICES.md` con el origen y la licencia de cada imagen que trae la app), que no llegó a la 0.5.0. Su línea del CHANGELOG se había fusionado dentro de `[0.5.0]`; el PR de versión la pasa a `[0.5.1]`.
+- **Versión y tag:** PR #60 (merge `1a181a20`), `make check` en local y CI verde en los 4 jobs a la primera. Tag `v0.5.1` sobre ese merge.
+- **Compilación:** `release.yml` (run 43677243472) en verde a la primera.
+- **Borrador revisado antes de publicar:**
+  - 34 archivos: 11 de la app (Windows ARM sin `.msi`, por el respaldo NSIS), 6 binarios de la CLI y todas las firmas;
+  - `SHA256SUMS` con 17 archivos, y los checksums de `mac_arm.dmg` y de la CLI `mac_arm` comprobados; la firma de la CLI `mac_arm` verificada con `minisign` contra `updater.pub`;
+  - `latest.json` 0.5.1 con 21 claves (las 12 obligatorias), todas firmadas y apuntando a `v0.5.1`;
+  - notas en inglés y español.
+- **Publicada** el 2026-11-15 a las 04:58 UTC (2026-11-14 en Ecuador).
+- **Comprobaciones después de publicar:**
+  - `latest.json` estable y `channel-beta` dan 0.5.1;
+  - la CLI 0.5.0 ofrece la 0.5.1 y `update install --dry-run` la verifica (20.247.888 bytes);
+  - release-channels y Landing redeploy en verde.
