@@ -66,3 +66,41 @@ describe('settings tab column on a 760 px window', () => {
     expect(long).toEqual([]);
   });
 });
+
+describe('settings screen scrolls like a preferences window', () => {
+  /** Body of the first top-level `selector` rule. */
+  const rule = (selector: string) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = new RegExp(`\\n${escaped} \\{([^}]*)\\}`).exec(css);
+    expect(m).not.toBeNull();
+    return m![1]!;
+  };
+
+  it('is exactly the window tall and never scrolls the page', () => {
+    const screen = rule('.settings-screen');
+    expect(screen).toMatch(/height: 100dvh;/);
+    expect(screen).toMatch(/overflow: hidden;/);
+    expect(screen).not.toMatch(/min-height: 100vh;/);
+    // Positioned: an sr-only live region inside cannot stretch the page.
+    expect(screen).toMatch(/position: relative;/);
+  });
+
+  it('lets the tab column scroll on its own when the window is short', () => {
+    const nav = rule('.settings-nav');
+    expect(nav).toMatch(/min-height: 0;/);
+    expect(nav).toMatch(/overflow-y: auto;/);
+    expect(nav).toMatch(/overscroll-behavior: contain;/);
+  });
+
+  it('keeps the search at the top of a scrolled tab column', () => {
+    const search = rule('.settings-nav > .settings-search');
+    expect(search).toMatch(/position: sticky;/);
+    expect(search).toMatch(/background: var\(--cr-bg\);/);
+  });
+
+  it('drops the sticky search in the one-row narrow layout', () => {
+    const search = narrowRule('.settings-nav > .settings-search');
+    expect(search).toMatch(/position: relative;/);
+    expect(search).toMatch(/top: auto;/);
+  });
+});
