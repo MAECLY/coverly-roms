@@ -8,6 +8,8 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-15
+
 ### Fixed
 
 - Settings scrolls like a preferences window: the header and the section list
