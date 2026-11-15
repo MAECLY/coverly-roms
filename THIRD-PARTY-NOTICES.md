@@ -243,4 +243,5 @@ source's own terms apply to what the user downloads from it.
 
 The full list, with what each source and reference is used for and the exact
 credit each asks for, is in `credits/credits.json`, shown in the app under
-Settings → Credits and in the README.
+Settings → Credits and in
+[docs/guide/credits.md](docs/guide/credits.md).

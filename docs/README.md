@@ -10,7 +10,7 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 
 | You are… | Read first |
 |---|---|
-| A user wanting to know what this is | [Project README](../README.md) → [Design spec §1–§4](./superpowers/specs/2026-10-15-coverly-roms-design.md) |
+| A user wanting to know what this is | [Project README](../README.md) → [User guides](./guide/features.md) → [Design spec §1–§4](./superpowers/specs/2026-10-15-coverly-roms-design.md) |
 | A contributor / developer | [Contributing](../CONTRIBUTING.md) → [System Architecture](./04-architecture/system-architecture.md) → [CI / CD](./07-build-and-release/ci-cd.md) |
 | The maintainer cutting a release | [RELEASING.md](../RELEASING.md) → [Updates](./04-architecture/updates.md) → [ADR-0011](./adr/0011-release-pipeline-and-update-key.md) |
 | A reviewer / decision-maker | [System Architecture](./04-architecture/system-architecture.md) → [ADRs](./adr/README.md) → [Tracker](./TRACKER.md) |
@@ -39,6 +39,16 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 ---
 
 ## Table of contents
+
+### User guides (English and Spanish)
+
+- [Features](./guide/features.md) ([es](./guide/features.es.md)) — every feature in detail, and how a fill job runs
+- [Layouts, systems and art sources](./guide/layouts-and-systems.md) ([es](./guide/layouts-and-systems.es.md)) — the 8 layouts and all 133 systems with their folder aliases
+- [Integrations, privacy and safety](./guide/integrations.md) ([es](./guide/integrations.es.md))
+- [Command line](./guide/command-line.md) ([es](./guide/command-line.es.md)) — every command, flag and environment variable
+- [Questions](./guide/faq.md) ([es](./guide/faq.es.md)) — FAQ, what it doesn't do yet, comparison
+- [Contributing and building from source](./guide/development.md) ([es](./guide/development.es.md))
+- [Acknowledgements](./guide/credits.md) ([es](./guide/credits.es.md)) — generated from `credits/credits.json` by `pnpm credits:readme`
 
 ### Design and planning
 
