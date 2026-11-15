@@ -8,6 +8,8 @@ build as `LICENSES/`.
 - `CC-BY-4.0.txt`: the system icons (RetroArch Assets).
 - `ISC-lucide-react.txt`: the interface icons (lucide-react, with Feather's
   MIT notice).
+- `MIT-shadcn-ui.txt`: the shadcn/ui component code that the primitives in
+  `src/components/ui/` start from.
 - `Apache-2.0.txt`: pdf.js (`pdfjs-dist`), the PDF viewer.
 - `BSD-3-Clause-Adobe-CMaps.txt`: the Adobe CMaps bundled with pdf.js.
 - `BSD-3-Clause-PDFium-Foxit.txt`: the Foxit standard fonts bundled with

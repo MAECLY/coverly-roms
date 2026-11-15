@@ -219,7 +219,7 @@ Tareas:
 
 - [x] Nombres de las carpetas por perfil (Anbernic stock, muOS, Knulli, Batocera, ES-DE, RetroArch) para cada sistema nuevo. Investigarlo antes de cada tanda. Hecho: se investigó antes de cada tanda y del 2.2, y está en `systems.toml` y en los perfiles (cerrado el 2026-11-14).
 - [ ] Qué sistemas aparecen por defecto y cuáles solo si el perfil los usa.
-- [ ] Licencias de los iconos que no estén en RetroArch Assets. Tarea abierta el 2026-11-14: revisar de dónde sale cada icono de sistema, anotar su licencia en `THIRD-PARTY-NOTICES.md` y sustituir el que no se pueda redistribuir.
+- [x] Licencias de los iconos que no estén en RetroArch Assets. Tarea abierta el 2026-11-14: revisar de dónde sale cada icono de sistema, anotar su licencia en `THIRD-PARTY-NOTICES.md` y sustituir el que no se pueda redistribuir. Hecho el 2026-11-14: los 89 iconos de sistema son de RetroArch Assets (CC BY 4.0, comprobado en el commit fijado) y los otros 44 sistemas usan su sigla; el resto de imágenes son propias o de Lucide. No hubo que sustituir ninguno; se añadió el texto MIT de shadcn/ui a `LICENSES/` y la sección «Own artwork» a los avisos.
 
 ### Claves aportadas por el usuario (aparcado)
 
