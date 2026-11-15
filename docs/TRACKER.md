@@ -782,3 +782,20 @@ Spec: [`2026-10-18-duplicates-design.md`](superpowers/specs/2026-10-18-duplicate
   - `latest.json` estable y `channel-beta` dan 0.5.1;
   - la CLI 0.5.0 ofrece la 0.5.1 y `update install --dry-run` la verifica (20.247.888 bytes);
   - release-channels y Landing redeploy en verde.
+
+### 2026-11-15 — Release v0.5.2 publicada (desplazamiento de Configuración)
+
+- **Qué lleva:** el arreglo del desplazamiento de Configuración del PR #58 (solo se desplaza la sección de la derecha; la cabecera y la lista de secciones se quedan fijas) y la documentación del PR #59 (investigación y maquetas del panel derecho, bloque 9 de TODO.md), que no entra en el CHANGELOG.
+- **Versión y tag:** PR #62 (merge `57c33ca6`), `make check` en local y CI verde en los 4 jobs a la primera. Tag `v0.5.2` sobre ese merge.
+- **Compilación:** `release.yml` (run 43681319590) en verde a la primera.
+- **Vuelve el `.msi` de Windows ARM:** el runner `windows-11-arm` tuvo .NET 3.5 esta vez, así que la release trae `Coverly-ROMs_0.5.2_windows_arm.msi` (faltaba desde la 0.4.0 hasta la 0.5.1). Está en `SHA256SUMS`, su firma se verifica con `minisign` y coincide con la clave `windows-aarch64-msi` de `latest.json`; `windows-aarch64` y `windows-aarch64-nsis` siguen apuntando al `-setup.exe`, como pide RELEASING.md §5.
+- **Borrador revisado antes de publicar:**
+  - 36 archivos: 12 de la app, 6 binarios de la CLI y todas las firmas;
+  - `SHA256SUMS` con 18 archivos, y los checksums de `mac_arm.dmg`, `windows_arm.msi` y la CLI `mac_arm` comprobados; las firmas de la CLI `mac_arm` y del `.msi` ARM verificadas con `minisign` contra `updater.pub`;
+  - `latest.json` 0.5.2 con 22 claves (las 12 obligatorias), todas firmadas y apuntando a `v0.5.2`;
+  - notas en inglés y español.
+- **Publicada** el 2026-11-15 a las 05:48 UTC.
+- **Comprobaciones después de publicar:**
+  - `latest.json` estable y `channel-beta` dan 0.5.2;
+  - la CLI 0.5.1 ofrece la 0.5.2 y `update install --dry-run` la verifica (20.260.400 bytes);
+  - release-channels y Landing redeploy en verde.
