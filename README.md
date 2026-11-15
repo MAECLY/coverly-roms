@@ -208,15 +208,15 @@ The full list, and what each service receives, is in
 
 ## More
 
-| Guide                                                       | What is in it                                                                         |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [Features](docs/guide/features.md)                          | Every feature in detail, and how a fill job runs                                      |
+| Guide                                                                 | What is in it                                                                          |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [Features](docs/guide/features.md)                                    | Every feature in detail, and how a fill job runs                                       |
 | [Layouts, systems and art sources](docs/guide/layouts-and-systems.md) | The 8 layouts, all 133 systems with their folder aliases, and where the art comes from |
-| [Integrations, privacy and safety](docs/guide/integrations.md) | SteamGridDB, ScreenScraper, the Switch name catalogue, and what is sent               |
-| [Command line](docs/guide/command-line.md)                  | Every command, the useful flags and the environment variables                         |
-| [Questions](docs/guide/faq.md)                              | FAQ, what it doesn't do yet, and how it compares with other tools                     |
-| [Contributing and building](docs/guide/development.md)      | How to help, the stack, and building from source                                      |
-| [Acknowledgements](docs/guide/credits.md)                   | Every source, database, library and font Coverly uses, with its licence               |
+| [Integrations, privacy and safety](docs/guide/integrations.md)        | SteamGridDB, ScreenScraper, the Switch name catalogue, and what is sent                |
+| [Command line](docs/guide/command-line.md)                            | Every command, the useful flags and the environment variables                          |
+| [Questions](docs/guide/faq.md)                                        | FAQ, what it doesn't do yet, and how it compares with other tools                      |
+| [Contributing and building](docs/guide/development.md)                | How to help, the stack, and building from source                                       |
+| [Acknowledgements](docs/guide/credits.md)                             | Every source, database, library and font Coverly uses, with its licence                |
 
 Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 Security reports go through [SECURITY.md](SECURITY.md).
