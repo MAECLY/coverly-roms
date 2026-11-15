@@ -764,4 +764,5 @@ Spec: [`2026-10-18-duplicates-design.md`](superpowers/specs/2026-10-18-duplicate
   - la CLI 0.4.0 ofrece la 0.5.0 y `update install --dry-run` la verifica (20.259.040 bytes);
   - release-channels y Landing redeploy en verde;
   - la web muestra 0.5.0 en es y en.
+- **No entra en 0.5.0:** la revisión de licencias de iconos (PR #56). Miguel pidió que entrara antes de la release, pero el aviso llegó cuando la 0.5.0 ya estaba publicada; irá en la siguiente versión.
 - **Pendiente:** la landing sigue diciendo «131 sistemas» (ahora son 133; ya estaba pendiente desde el PR #53). Para Miguel: probar la actualización desde la app 0.4.0 con interfaz.
