@@ -8,6 +8,14 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Settings scrolls like a preferences window: the header and the section list
+  stay in place and only the section on the right scrolls, with its scrollbar
+  inside it. On a short window the section list scrolls on its own and keeps
+  the search at its top. Long sections such as Credits no longer stretch the
+  whole window.
+
 ## [0.5.0] - 2026-11-14
 
 ### Added
