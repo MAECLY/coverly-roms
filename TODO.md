@@ -912,11 +912,21 @@ El panel derecho (`DetailDrawer`) ya tiene mucha información y va a tener más.
 2. El diseño actual, como una opción más.
 3. Revisar el panel con frontend-design e impeccable, entenderlo y proponer más opciones a partir del actual. Faltan bloques (3 y otros) que añadirán o cambiarán cosas según los datos, así que se volverá sobre esto al llegar aquí, pero sirve como punto de partida. Investigar también cómo resuelven otras apps y la industria este tipo de información.
 
+> **Decisión de Miguel (2026-11-15):** se implementan los ocho diseños de la investigación (A actual, B pestañas horizontales, C rail vertical, D resumen fijo + secciones plegables, E panel ancho de dos columnas redimensionable, F ficha completa, G densidad compacta, H secciones a medida + barra de comandos) y el usuario elige cuál usar. Un registro único de secciones alimenta todos; se revisa después de 3 y 3.1 porque cambian los datos. Maquetas: [`docs/02-research/right-panel-layouts/mocks.html`](docs/02-research/right-panel-layouts/mocks.html).
+
 ### Tareas
 
-- [x] Investigar cómo lo resuelven otras apps (gestores de juegos, de medios e inspectores), inventariar el panel actual y proponer diseños con maquetas: [`docs/02-research/right-panel-layouts.md`](docs/02-research/right-panel-layouts.md).
-- [ ] Decidir con Miguel qué diseños se ofrecen y cuál es el predeterminado.
-- [ ] Un registro único de secciones del panel (id, título, resumen de una línea, número o aviso, si tiene datos), del que salgan todos los diseños.
-- [ ] Cambiar de diseño desde el panel y desde Configuración, recordado entre sesiones, con la misma sección abierta al cambiar.
-- [ ] Mostrar, ocultar y reordenar secciones, con «Restablecer».
+- [x] Investigar cómo lo resuelven otras apps (gestores de juegos, de medios e inspectores), inventariar el panel actual y proponer diseños con maquetas: [`docs/02-research/right-panel-layouts.md`](docs/02-research/right-panel-layouts.md), maquetas en [`docs/02-research/right-panel-layouts/mocks.html`](docs/02-research/right-panel-layouts/mocks.html).
+- [x] Decidir con Miguel qué diseños se ofrecen: los ocho (2026-11-15).
+- [ ] **Base común (primero):** registro único de secciones (id, título, icono, resumen de una línea, número o aviso, si tiene datos, bloque del que vendrá); todas las secciones actuales pasan a él sin cambiar lo que muestran; `data-panel-section` y `usePanelSection` funcionan en todos los diseños.
+- [ ] **Elegir diseño:** desde el panel y desde Configuración, recordado entre sesiones, con la misma sección abierta al cambiar. Decidir el predeterminado (la investigación recomienda D).
+- [ ] **A. Actual («Lista»):** el panel de hoy servido desde el registro, sin cambios visibles.
+- [ ] **B. Pestañas horizontales:** resumen fijo y pestañas con su número (patrón Tabs del APG, ←/→, Inicio/Fin); qué hacer cuando no caben (desplazar la fila o «Más»).
+- [ ] **C. Rail vertical:** columna de iconos con número o aviso, tooltip y nombre accesible, `aria-orientation="vertical"` con ↑/↓.
+- [ ] **D. Resumen fijo + secciones plegables:** cabecera fija, barra de saltos que marca la sección visible, secciones plegables con resumen de una línea, plegado recordado por sección y opción «solo una abierta».
+- [ ] **E. Panel ancho de dos columnas:** borde que se arrastra (`role="separator"` con ←/→), ancho guardado y paso a dos columnas por encima de ~560 px.
+- [ ] **F. Ficha completa:** página u overlay en el área central con fondo, portada, pestañas y columnas; Escape vuelve con la selección intacta. Cobra sentido con los datos de 3 y 3.1.
+- [ ] **G. Densidad compacta:** ajuste que vale para todos los diseños; una línea por sección que abre la sección.
+- [ ] **H. Secciones a medida + barra de comandos:** mostrar, ocultar y reordenar (también con botones Subir/Bajar) con «Restablecer»; barra de comandos del panel (⌘K) con acciones y secciones.
+- [ ] Arreglos que valen para cualquier diseño: no mostrar «.» ni «0 B» en juegos que son carpetas (Type X), y abrir el taller de arte al elegir un hueco en vez de tenerlo siempre abierto.
 - [ ] Revisar diseños y secciones al terminar 3 y 3.1 (los datos cambian), y otra vez con 4, 5 y 6.
