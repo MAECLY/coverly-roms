@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 /**
- * README credits block (adjustments D25).
+ * Credits block of the acknowledgements pages (adjustments D25).
  *
- *   pnpm credits:readme   rewrite the block in README.md (en) and README.es.md (es)
- *   pnpm credits:check    exit 1 when a README's block differs from credits.json
+ *   pnpm credits:readme   rewrite the block in docs/guide/credits.md (en) and
+ *                         docs/guide/credits.es.md (es)
+ *   pnpm credits:check    exit 1 when a page's block differs from credits.json
+ *
+ * The block lived in README.md and README.es.md until the READMEs were cut
+ * down; the README now links to these pages. The script and export names
+ * keep the old "readme" wording so the pnpm scripts stay the same.
  *
  * The block sits between `<!-- credits:start -->` and `<!-- credits:end -->`.
  * Entries come from `credits/credits.json`; the group headings, the intro and
  * the «no content» line come from the settings tab's strings in `locales/`,
- * so the README says exactly what the «Agradecimientos» tab says.
+ * so the page says exactly what the «Agradecimientos» tab says.
  */
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -19,10 +24,10 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const START = '<!-- credits:start -->';
 export const END = '<!-- credits:end -->';
 
-/** Each README and the language its block is written in. */
+/** Each acknowledgements page and the language its block is written in. */
 export const READMES = [
-  { file: 'README.md', locale: 'en' },
-  { file: 'README.es.md', locale: 'es' },
+  { file: 'docs/guide/credits.md', locale: 'en' },
+  { file: 'docs/guide/credits.es.md', locale: 'es' },
 ];
 
 export const GROUPS = [
@@ -105,7 +110,7 @@ export function replaceBlock(text, block) {
   return `${text.slice(0, start + START.length)}\n${block}\n${text.slice(end)}`;
 }
 
-/** The README files whose block is out of date (empty when all match). */
+/** The pages whose block is out of date (empty when all match). */
 export function checkReadmes(root) {
   const stale = [];
   for (const { file, locale } of READMES) {
@@ -123,7 +128,7 @@ export function checkReadmes(root) {
   return stale;
 }
 
-/** Rewrites the block in every README. */
+/** Rewrites the block in every page. */
 export function writeReadmes(root) {
   for (const { file, locale } of READMES) {
     const path = join(root, file);
@@ -140,9 +145,9 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
       console.error('credits: run pnpm credits:readme');
       process.exit(1);
     }
-    console.log('credits: README blocks match credits.json');
+    console.log('credits: credits blocks match credits.json');
   } else {
     writeReadmes(REPO);
-    console.log('credits: README blocks written');
+    console.log('credits: credits blocks written');
   }
 }

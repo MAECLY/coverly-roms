@@ -22,7 +22,7 @@ function groupTitles(locale: 'es' | 'en'): Record<string, string> {
   return ui.settings.credits.groups;
 }
 
-describe('README credits block (adjustments D25)', () => {
+describe('credits block of the acknowledgements pages (adjustments D25)', () => {
   for (const locale of ['es', 'en'] as const) {
     it(`lists every group and every required credit verbatim (${locale})`, () => {
       const block = renderBlock(REPO, locale);
@@ -71,8 +71,11 @@ describe('README credits block (adjustments D25)', () => {
     expect(replaceBlock(text, 'new')).toBe(`a\n${START}\nnew\n${END}\nb\n`);
   });
 
-  it('keeps both READMEs in sync with credits.json', () => {
-    expect(READMES.map((r) => r.file)).toEqual(['README.md', 'README.es.md']);
+  it('keeps both acknowledgements pages in sync with credits.json', () => {
+    expect(READMES.map((r) => r.file)).toEqual([
+      'docs/guide/credits.md',
+      'docs/guide/credits.es.md',
+    ]);
     expect(checkReadmes(REPO)).toEqual([]);
   });
 });
