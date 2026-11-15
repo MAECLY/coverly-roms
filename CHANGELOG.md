@@ -132,6 +132,9 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ### Changed
 
+- The bundled `LICENSES/` folder now carries the MIT licence of shadcn/ui,
+  which the interface primitives start from, and `THIRD-PARTY-NOTICES.md`
+  names the source and licence of every image the app ships.
 - The status bar and the sidebar count games: a game counts once, its
   updates, DLC and revisions never count («dentro de ellos: N
   actualizaciones y M DLC (no cuentan como juegos)»), and demos do count.
