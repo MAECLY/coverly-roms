@@ -33,6 +33,7 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
 6. [Organización y exportación para frontends](#6-organización-y-exportación-para-frontends)
 7. [Agradecimientos y créditos](#7-agradecimientos-y-créditos)
 8. [Integraciones (cuentas, claves y servicios)](#8-integraciones-cuentas-claves-y-servicios)
+9. [Rediseño del panel derecho (ficha del juego) con varios diseños](#9-rediseño-del-panel-derecho-ficha-del-juego-con-varios-diseños)
 
 ## Fallos conocidos
 
@@ -900,3 +901,22 @@ Petición de Miguel (2026-11-02): mejorar la parte de «Cuentas» de Fuentes y c
 - [ ] El aviso en la ficha del juego cuando falta una cuenta, con su enlace a la tarjeta del servicio (lo único que queda de los enlaces cruzados).
 
 > **Nota (macOS):** la CLI pide permiso al llavero después de cada actualización, porque las builds se firman ad hoc y el sistema las trata como una app distinta. Seguirá así hasta firmar con un certificado de Apple.
+
+## 9. Rediseño del panel derecho (ficha del juego) con varios diseños
+
+> **Pedido por Miguel el 2026-11-15.** No se empieza hasta que Miguel lo diga. **Dependencias:** se revisa después de 3 y 3.1, porque traen la mayor parte de los datos nuevos de la ficha (metadatos, huecos de arte nuevos, galería, logros), y lo completan 4, 5 y 6 (dispositivos, partidas y exportación). Investigación y diseños de partida: [`docs/02-research/right-panel-layouts.md`](docs/02-research/right-panel-layouts.md).
+
+El panel derecho (`DetailDrawer`) ya tiene mucha información y va a tener más. Lo que pidió Miguel:
+
+1. Varias pestañas, en vertical y en horizontal.
+2. El diseño actual, como una opción más.
+3. Revisar el panel con frontend-design e impeccable, entenderlo y proponer más opciones a partir del actual. Faltan bloques (3 y otros) que añadirán o cambiarán cosas según los datos, así que se volverá sobre esto al llegar aquí, pero sirve como punto de partida. Investigar también cómo resuelven otras apps y la industria este tipo de información.
+
+### Tareas
+
+- [x] Investigar cómo lo resuelven otras apps (gestores de juegos, de medios e inspectores), inventariar el panel actual y proponer diseños con maquetas: [`docs/02-research/right-panel-layouts.md`](docs/02-research/right-panel-layouts.md).
+- [ ] Decidir con Miguel qué diseños se ofrecen y cuál es el predeterminado.
+- [ ] Un registro único de secciones del panel (id, título, resumen de una línea, número o aviso, si tiene datos), del que salgan todos los diseños.
+- [ ] Cambiar de diseño desde el panel y desde Configuración, recordado entre sesiones, con la misma sección abierta al cambiar.
+- [ ] Mostrar, ocultar y reordenar secciones, con «Restablecer».
+- [ ] Revisar diseños y secciones al terminar 3 y 3.1 (los datos cambian), y otra vez con 4, 5 y 6.
