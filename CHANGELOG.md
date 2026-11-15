@@ -8,6 +8,8 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-14
+
 ### Added
 
 - Two arcade systems: Cave CV1000 (`cave3rd`), whose sets stay in Batocera's

@@ -53,7 +53,7 @@
 </p>
 
 > [!NOTE]
-> **Primeros pasos, dicho claro.** La v0.4.0 es la versión actual. Coverly ROMs
+> **Primeros pasos, dicho claro.** La v0.5.0 es la versión actual. Coverly ROMs
 > aún no se ha probado en consolas reales. Las versiones todavía no están
 > firmadas con un certificado de Apple ni de Microsoft, así que la primera vez
 > aparece un aviso (ver [Instalar](#instalar)). Si lo pruebas en una consola,
@@ -130,7 +130,38 @@ también desde dentro de un zip o un 7z, donde se reconoce por el listado sin
 extraer. Los juegos de varios discos sueltos se agrupan en un solo conjunto con
 un `.m3u`, con un aviso si falta un disco. Cada elemento que escribe 10 GB o
 más pregunta antes («Sí / Sí a todo / No»), con su tamaño y el espacio libre
-que queda en el destino.
+que queda en el destino. En arcade están Cave CV1000 y Taito Type X, donde cada
+carpeta es un juego; Coverly nunca abre nada dentro de un juego de Type X.
+
+**Una carpeta por juego, con sus actualizaciones y DLC.** En 3DS, Switch, Wii U,
+Wii, PS3, PS4, PS5, Vita, PSP, Xbox 360, Xbox One y Series se reconocen las
+actualizaciones, los DLC, las demos y los títulos de sistema, y Organizar puede
+mover un juego junto con ellos a `<Sistema>/<Juego>/`, las actualizaciones en
+`Updates/` y los DLC en `DLC/` (activado con el formato «Coverly»; los demás
+formatos tienen un interruptor en Configuración → Biblioteca). Las
+actualizaciones se nombran con la versión leída del archivo, y la región leída
+del título o del código de producto se añade al nombre del juego. Las
+revisiones retro como `(Rev 1)` se agrupan como versiones de un mismo juego. Lo
+que no está claro se queda donde está, y el trabajo entero se puede deshacer.
+
+**Mods, parches de traducción y trucos.** Los parches (`.ips`, `.bps`, `.ups`,
+`.xdelta`, `.ppf`) se enlazan con su juego por el CRC32 de la ROM para la que
+se hicieron, por su nombre o por su léeme; los trucos, por el nombre, el número
+de serie o el title ID del juego; los packs de texturas y otras carpetas de
+mods, por su carpeta. Con el formato «Coverly» van a la carpeta `Mods/` o
+`Cheats/` del juego. Organizar también puede ordenar un sistema como lo espera
+su emulador (shadPS4, RPCS3, Azahar, Cemu, Vita3K, Ryujinx y yuzu, RetroArch,
+DuckStation, PCSX2, Dolphin, PPSSPP, Xenia, Flycast, Mesen) o para frontends
+como ES-DE. Nunca se extrae, descifra ni instala nada, y nada se borra.
+
+**Extras.** La carpeta `Extras/` de un juego guarda su banda sonora, manuales,
+arte, vídeos, temas y guías, en categorías a las que puedes añadir archivos,
+cambiar de nombre y poner etiquetas. Los archivos se copian con comprobación, y
+cada cambio se puede deshacer. Los extras oficiales (temas de PS3, Vita y PSP,
+temas e imágenes de jugador de Xbox 360, bandas sonoras de 3DS) se reconocen y,
+con el formato «Coverly», Organizar los coloca. El audio suena en un minirreproductor que sigue mientras
+navegas; los vídeos, las imágenes, los manuales en PDF y los archivos de texto
+se abren en un visor dentro de la app.
 
 **Encontrar duplicados.** Coverly encuentra el mismo juego guardado más de una
 vez en un sistema por su contenido, nunca por su nombre: los mismos datos
@@ -160,6 +191,10 @@ ver lo que falta) y **Estantes** (una fila por sistema). Cambia con
 sistema, carpeta, región, estado del arte o inicial, escribe un nombre para
 saltar a él y pulsa Espacio para una Vista rápida. Cada biblioteca recuerda su
 vista.
+Las actualizaciones, los DLC, las demos y las revisiones se ven dentro de su
+juego en todas las vistas, y la ficha del juego los lista con la versión
+instalada, el arte de los DLC y cuántos mods, trucos, extras y partidas guardan
+las carpetas del juego.
 
 **Iconos de sistema.** Cada nombre de sistema en la app lleva su icono al lado:
 una silueta sencilla del hardware (del tema Monochrome de RetroArch,
