@@ -3854,11 +3854,18 @@ time {
   }
 }
 
-/* Settings screen (spec §9). */
+/* Settings screen (spec §9). A preferences window: the screen is exactly
+   the window's height and never scrolls itself; the header stays put, the
+   nav column and the panel each scroll inside themselves. Positioned, so
+   an absolutely placed descendant (a `sr-only` live region) is clipped
+   here instead of stretching the page. */
 .settings-screen {
+  position: relative;
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* Wraps on a narrow window: the screen's settings link drops below the
@@ -3892,8 +3899,12 @@ time {
 
 .settings-nav {
   flex: 0 0 12rem;
+  min-height: 0;
   padding: 1rem 0.5rem;
   border-right: 1px solid var(--cr-border);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .settings-nav [role='tablist'] {
@@ -4194,6 +4205,21 @@ time {
   margin: 0 0.25rem 0.75rem;
 }
 
+/* A short window scrolls the tab column: the search stays at its top,
+   over the column's own background, so ⌘F always has a field to land on. */
+.settings-nav > .settings-search {
+  position: sticky;
+  /* The sticky edge sits inside the nav's 1rem padding: pull it back up so
+     the field keeps its place and the strip above it stays opaque. */
+  top: -1rem;
+  z-index: 1;
+  margin-top: -1rem;
+  margin-bottom: 0;
+  padding-top: 1rem;
+  padding-bottom: 0.75rem;
+  background: var(--cr-bg);
+}
+
 .settings-results__count {
   margin: 0 0 0.5rem;
   min-height: 1.25rem;
@@ -4360,6 +4386,14 @@ time {
 
   .settings-search {
     margin: 0 0 0.5rem;
+  }
+
+  /* The nav is one row here and never scrolls down: no sticky search. */
+  .settings-nav > .settings-search {
+    position: relative;
+    top: auto;
+    margin: 0 0 0.5rem;
+    padding: 0;
   }
 
   .settings-nav [data-group-start] {

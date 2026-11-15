@@ -415,7 +415,7 @@ export function SettingsScreen() {
               key={s}
               value={s}
               className={cn(
-                'min-w-0 flex-1 overflow-y-auto px-6 pb-8 pt-5',
+                'relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-8 pt-5',
                 query !== '' && 'hidden',
               )}
             >
