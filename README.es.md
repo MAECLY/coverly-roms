@@ -76,7 +76,7 @@ Coverly ROMs no incluye ROMs, BIOS ni imágenes de juegos. Cada función está e
 la [página de funciones](https://coverly-roms.maecly.com/features/), y la
 versión larga en la [guía de funciones](docs/guide/features.es.md).
 
-## Primeros pasos
+## Cómo empezar
 
 1. **Abre la carpeta o la tarjeta SD.** Coverly reconoce el formato de tu
    firmware o frontend y te enseña cada sistema con lo que le falta.
@@ -218,15 +218,15 @@ La lista completa, y qué recibe cada servicio, está en
 
 ## Más
 
-| Guía                                                                                   | Qué contiene                                                                                   |
-| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| [Funciones](docs/guide/features.es.md)                                                 | Cada función en detalle, y cómo funciona un relleno                                            |
-| [Formatos, sistemas y fuentes de imágenes](docs/guide/layouts-and-systems.es.md)       | Los 8 formatos, los 133 sistemas con sus nombres de carpeta, y de dónde salen las imágenes      |
-| [Integraciones, privacidad y seguridad](docs/guide/integrations.es.md)                 | SteamGridDB, ScreenScraper, el catálogo de nombres de Switch, y qué se envía                   |
-| [Línea de comandos](docs/guide/command-line.es.md)                                     | Cada orden, las opciones útiles y las variables de entorno                                     |
-| [Preguntas](docs/guide/faq.es.md)                                                      | Preguntas frecuentes, lo que aún no hace y cómo se compara con otras herramientas              |
-| [Contribuir y compilar](docs/guide/development.es.md)                                  | Cómo ayudar, la tecnología y cómo compilar desde el código                                     |
-| [Agradecimientos](docs/guide/credits.es.md)                                            | Cada fuente, base de datos, biblioteca y tipografía que usa Coverly, con su licencia           |
+| Guía                                                                             | Qué contiene                                                                               |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [Funciones](docs/guide/features.es.md)                                           | Cada función en detalle, y cómo funciona un relleno                                        |
+| [Formatos, sistemas y fuentes de imágenes](docs/guide/layouts-and-systems.es.md) | Los 8 formatos, los 133 sistemas con sus nombres de carpeta, y de dónde salen las imágenes |
+| [Integraciones, privacidad y seguridad](docs/guide/integrations.es.md)           | SteamGridDB, ScreenScraper, el catálogo de nombres de Switch, y qué se envía               |
+| [Línea de comandos](docs/guide/command-line.es.md)                               | Cada orden, las opciones útiles y las variables de entorno                                 |
+| [Preguntas](docs/guide/faq.es.md)                                                | Preguntas frecuentes, lo que aún no hace y cómo se compara con otras herramientas          |
+| [Contribuir y compilar](docs/guide/development.es.md)                            | Cómo ayudar, la tecnología y cómo compilar desde el código                                 |
+| [Agradecimientos](docs/guide/credits.es.md)                                      | Cada fuente, base de datos, biblioteca y tipografía que usa Coverly, con su licencia       |
 
 Las contribuciones son bienvenidas: lee antes [CONTRIBUTING.md](CONTRIBUTING.md)
 (en inglés). Los informes de seguridad siguen [SECURITY.md](SECURITY.md).
