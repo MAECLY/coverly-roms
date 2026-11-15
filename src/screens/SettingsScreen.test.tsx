@@ -105,6 +105,59 @@ describe('Settings screen', () => {
     expect(screen.getByRole('button', { name: 'Settings' })).toHaveFocus();
   });
 
+  it('scrolls the panel alone, never the window (preferences window)', async () => {
+    const scrolled: Element[] = [];
+    const spy = vi
+      .spyOn(Element.prototype, 'scrollIntoView')
+      .mockImplementation(function (this: Element) {
+        scrolled.push(this);
+      });
+    try {
+      await start();
+      act(() =>
+        useNavStore
+          .getState()
+          .openSettings('library', { focus: 'setting-library-include-hidden' }),
+      );
+      const hidden = await screen.findByRole('switch', {
+        name: 'Include hidden files',
+      });
+      await waitFor(() => expect(hidden).toHaveFocus());
+      // The panel is the scroll container: it fills what the header and
+      // nav leave, contains its own overscroll and its sr-only regions.
+      const panel = screen.getByRole('tabpanel', { name: 'Library' });
+      for (const c of [
+        'relative',
+        'min-h-0',
+        'min-w-0',
+        'flex-1',
+        'overflow-y-auto',
+        'overscroll-contain',
+      ])
+        expect(panel).toHaveClass(c);
+      // Landing scrolls the setting's row, which lives in that panel.
+      const row = hidden.closest('[data-setting-row]');
+      expect(scrolled).toContain(row);
+      expect(panel).toContainElement(row as HTMLElement);
+      // Search results take the panel's place with the same containment.
+      await userEvent.type(
+        screen.getByRole('combobox', { name: /search/i }),
+        'proxy',
+      );
+      const results = document.querySelector('.settings-results');
+      expect(results).not.toBeNull();
+      for (const c of [
+        'relative',
+        'min-h-0',
+        'overflow-y-auto',
+        'overscroll-contain',
+      ])
+        expect(results).toHaveClass(c);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('lands on a setting and marks it', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {

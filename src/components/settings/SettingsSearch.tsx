@@ -152,7 +152,7 @@ export function SettingsResults({
       );
   }
   return (
-    <div className="settings-results min-w-0 flex-1 overflow-y-auto px-6 pb-8 pt-5">
+    <div className="settings-results relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-8 pt-5">
       <p
         aria-live="polite"
         data-testid="settings-search-count"
