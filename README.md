@@ -53,7 +53,7 @@
 </p>
 
 > [!NOTE]
-> **Early days, said plainly.** v0.5.0 is the current release. Coverly ROMs has
+> **Early days, said plainly.** v0.5.1 is the current release. Coverly ROMs has
 > not been tested on real handhelds yet. The builds are not signed with an
 > Apple or Microsoft certificate yet, so the first launch shows a warning (see
 > [Install](#install)). If you try it on a handheld, an
