@@ -8,7 +8,9 @@ Fuentes de este documento:
 - Una revisión con las skills `impeccable` (modo Operate, refinamiento) y `frontend-design`. El detector de `impeccable` no encontró nada en `DetailDrawer.tsx`, `ArtWorkspace.tsx` ni `game/` (0 avisos).
 - Documentación oficial, wikis y guías de diseño de otras apps (enlaces en cada punto). No se enlaza ningún sitio de emuladores, ROMs ni claves.
 
-Las maquetas (HTML estático con los tokens de la app, claro y oscuro) y las capturas del panel actual se publican aparte como artifact; el HTML no se guarda en el repositorio.
+Las maquetas (HTML estático con los tokens de la app, claro y oscuro) están en [`right-panel-layouts/mocks.html`](right-panel-layouts/mocks.html) y las capturas del panel actual en [`right-panel-layouts/`](right-panel-layouts/). Se abren en el navegador sin servidor; sin conexión, las fuentes caen a las del sistema.
+
+> **Decisión de Miguel (2026-11-15):** se implementan **los ocho diseños** (A actual, B pestañas horizontales, C rail vertical, D resumen fijo + secciones plegables, E panel ancho de dos columnas redimensionable, F ficha completa, G densidad compacta, H secciones a medida + barra de comandos) y el usuario elige cuál usar. Se mantiene el plan: un registro único de secciones alimenta todos los diseños, y todo se revisa después de los bloques 3 y 3.1 porque cambian los datos. Las tareas por diseño están en el bloque 9 de `TODO.md`; no se empieza sin la orden de Miguel.
 
 ## 1. El panel actual
 
@@ -48,7 +50,7 @@ Ya existe un mecanismo para abrir el panel en una sección concreta: cada secci�
 
 A 900×700 el panel mantiene sus 352 px y la cuadrícula se queda en una sola columna.
 
-Capturas (en el artifact): `current-1440-modern-top`, `-folders`, `-mid`, `-bottom`, `current-1440-extras`, `current-900-extras-player`, `current-1440-retro`, `current-1440-typex`.
+Capturas en [`right-panel-layouts/`](right-panel-layouts/): `current-1440-modern-top`, `-folders`, `-mid`, `-bottom`, `current-1440-extras`, `current-900-extras-player`, `current-1440-retro` y `current-1440-typex` (`.webp`).
 
 ### Qué se ve en la revisión
 
@@ -341,6 +343,8 @@ Una sección sin datos se muestra apagada con su bloque («Partidas · bloque 5�
 | H. A medida + comandos | La que elija el usuario | Lo que se oculte | Bien | 352 px | Medio |
 
 ## 4. Recomendación
+
+> Escrita antes de la decisión del 2026-11-15 (implementar los ocho). Sigue valiendo como orden de trabajo y como diseño predeterminado.
 
 1. **Empezar por D** (resumen fijo + secciones plegables + barra de saltos) como diseño predeterminado. Arregla lo que más cuesta hoy (sin resumen, arte enterrado, Archivo al final) sin cambiar el modelo mental del panel, y reutiliza `data-panel-section`, `usePanelSection` y el plegable de las carpetas.
 2. **Construirlo sobre un registro de secciones** desde el primer día. Con él, **B (pestañas horizontales) y C (rail vertical)** son dos formas más de pintar el mismo registro, que es exactamente lo que pidió Miguel en el punto 1, y **A** sigue disponible como «Lista» (punto 2).
